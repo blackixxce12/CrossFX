@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FxSound Port as a Windows Installer package. WiX Toolset 5.0.2 with WixToolset.UI.wixext 5.0.2,
+  nothing newer: WiX 6 and later need a licence (the OSMF EULA) this project has not accepted.
+
+  Built by packaging\windows\build-windows.ps1, never by hand: the script stages the files and
+  passes what changes between builds as preprocessor variables, so that this file names no
+  version and no path of the build machine.
+
+    Version      Cargo.toml's [workspace.package] version as an MSI version, major.minor.patch
+                 (a pre-release suffix dropped: MSI versions are numbers only)
+    StageDir     the staged tree: fxsound.exe, README.txt, the licences, presets\
+    LicenseRtf   the licence page, LICENSE converted to RTF
+    IconFile     assets\windows\fxsound.ico, for Apps and Features
+
+  Its identity is its own, never the original's: FxSound LLC's FxSound may be installed and
+  running beside it. Another product name, publisher, folder, Start menu entry and upgrade code,
+  and no driver: the virtual playback device the port plays through belongs to the original
+  FxSound or to VB-CABLE, and this package says so on its last page instead of shipping one.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <!-- The UpgradeCode is fixed for good: it is how a later package finds this one to replace it.
+       Per-machine, like the setup .exe, so the two put the program in the same place. -->
+  <Package Name="FxSound Port"
+           Manufacturer="FxSound Linux port contributors"
+           Version="$(var.Version)"
+           UpgradeCode="B9D37BB7-CC1E-4A59-ABE5-4CEAEF9B6496"
+           Scope="perMachine"
+           Language="1033"
+           InstallerVersion="500">
+    <SummaryInformation Description="FxSound Port $(var.Version)" />
+
+    <!-- Every later version replaces every earlier one, and the same version replaces itself: a
+         rebuild, or a release candidate and its release, which MSI cannot tell apart, would
+         otherwise end up installed twice. (Which is what ICE61 warns of; build-windows.ps1's
+         validation leaves that one ICE out.) -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- 603 is what Windows Installer reports on Windows 8.1, 10 and 11 alike; the x64 package
+         does not open on 32-bit Windows at all. -->
+    <Launch Condition="Installed OR VersionNT64 &gt;= 603"
+            Message="[ProductName] needs 64-bit Windows 10 or Windows 11." />
+
+    <!-- The setup program installs the same program into the same folder under an entry of its
+         own. Over it, this package would leave two entries in the list of installed apps, each
+         uninstalling the files the other one expects, so it stops instead; the setup program
+         refuses the other way round. Found by the uninstall key of its AppId
+         (packaging\windows\fxsound.iss), which every version of it shares, in the 64-bit view
+         it writes to. -->
+    <Property Id="SETUPEXEINSTALLED">
+      <RegistrySearch Id="SetupExeUninstallKey" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{167B19BE-A2D2-4EF0-B5EB-056A5A09480B}_is1"
+                      Name="UninstallString" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NOT SETUPEXEINSTALLED"
+            Message="[ProductName] is already installed by its setup program. Uninstall it from the list of installed apps first, or install this version with the setup program as well." />
+
+    <Icon Id="FxSound.ico" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="FxSound.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/blackixxce12/fxsound-linux" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/blackixxce12/fxsound-linux/issues" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="FxSound Port" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="System64Folder" />
+
+    <Feature Id="FxSound" Title="FxSound Port" AllowAbsent="no">
+      <ComponentGroupRef Id="Program" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- The executable by name, because the shortcut and the launch at the end point at it; the
+         rest of the staged tree (presets, licences, README.txt) by wildcard, so that a preset
+         added to assets\presets is packed without an edit here. -->
+    <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <Component Id="FxSoundExe">
+        <File Id="FxSoundExe" Source="$(var.StageDir)\fxsound.exe" KeyPath="yes" />
+      </Component>
+      <Files Include="$(var.StageDir)\**">
+        <Exclude Files="$(var.StageDir)\fxsound.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- "FxSound Port" straight in the Start menu's program list. A shortcut needs a key path of
+         its own, and Windows Installer wants a per-user one for a component in the Start menu;
+         the value is a marker and goes with the shortcut. The target is spelled as a path rather
+         than as [#FxSoundExe], the executable's component being another one (ICE69). -->
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Shortcut Id="StartMenuShortcut"
+                Name="FxSound Port"
+                Description="System-wide audio enhancement"
+                Target="[INSTALLFOLDER]fxsound.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RegistryValue Root="HKCU" Key="Software\FxSound Port\Installer" Name="StartMenuShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- FxSound's "Launch on system startup" is an HKCU Run value named "FxSound Port", written by
+         the program, not by this package, so Windows Installer does not know to remove it. Left
+         behind, it would start a program that is no longer there at every login. Removed on a real
+         uninstall only: a major upgrade also removes the old version, and the setting has to
+         survive that. After InstallFinalize, so that an uninstall that fails and rolls back leaves
+         it alone; as the user who uninstalls, whose HKCU it is. reg.exe exits 1 when the value is
+         not there, hence Return="ignore". -->
+    <CustomAction Id="ForgetAutostart"
+                  Directory="System64Folder"
+                  ExeCommand="&quot;[System64Folder]reg.exe&quot; delete &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Run&quot; /v &quot;FxSound Port&quot; /f"
+                  Execute="immediate"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="ForgetAutostart" After="InstallFinalize"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
+    <!-- The last page: the one sentence about the device FxSound plays through, and a box,
+         ticked, to start FxSound. The launch runs in the wizard's own process, which is the
+         user's and not elevated, so FxSound does not start as an administrator. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+              Value="FxSound Port needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch FxSound Port" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <CustomAction Id="LaunchFxSound" FileRef="FxSoundExe" ExeCommand="" Return="asyncNoWait" />
+
+    <UI>
+      <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchFxSound"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+  </Package>
+</Wix>
