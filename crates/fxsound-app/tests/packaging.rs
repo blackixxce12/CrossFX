@@ -12,6 +12,9 @@
 //! tarball script packs the binary of the tree it sits in: it used to build only when there was no
 //! binary at all, so a 0.3.0 left in `target/release` went out under the 0.4.0 name.
 
+// The Linux packages' recipes, run in a POSIX shell with Unix permissions.
+#![cfg(unix)]
+
 use std::fs;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};

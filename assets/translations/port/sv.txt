@@ -138,3 +138,5 @@ countries: se
 "Restart WirePlumber" = "Starta om WirePlumber"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Starta om WirePlumber nu? Ljudet från alla program tystnar ett ögonblick."
 "Could not change WirePlumber's settings" = "WirePlumbers inställningar kunde inte ändras"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Ingen virtuell uppspelningsenhet: installera FxSound-drivrutinen eller VB-CABLE"
+"The Windows audio service is not available" = "Ljudtjänsten i Windows är inte tillgänglig"

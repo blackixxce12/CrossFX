@@ -137,3 +137,5 @@ countries: ar co es mx
 "Restart WirePlumber" = "Reiniciar WirePlumber"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "¿Reiniciar WirePlumber ahora? El sonido de todas las aplicaciones se detendrá un momento."
 "Could not change WirePlumber's settings" = "No se pudieron cambiar los ajustes de WirePlumber"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "No hay ningún dispositivo de reproducción virtual: instale el controlador de FxSound o VB-CABLE"
+"The Windows audio service is not available" = "El servicio de audio de Windows no está disponible"

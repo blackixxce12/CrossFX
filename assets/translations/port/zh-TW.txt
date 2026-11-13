@@ -138,3 +138,5 @@ countries: Taiwan
 "Restart WirePlumber" = "重新啟動 WirePlumber"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "現在重新啟動 WirePlumber？所有應用程式的聲音會短暫中斷。"
 "Could not change WirePlumber's settings" = "無法變更 WirePlumber 的設定"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "沒有虛擬播放裝置：請安裝 FxSound 驅動程式或 VB-CABLE"
+"The Windows audio service is not available" = "Windows 音訊服務無法使用"

@@ -2,25 +2,43 @@
 //!
 //! Split into a library so every part of it can be tested without opening a window — the binary in
 //! `main.rs` is only the shell that wires these modules to eframe.
+//!
+//! The desktop integration is the one part that differs between the two systems. On Linux it is
+//! the session's: D-Bus (`dbus`, `notify`, `sleep`, the tray), a Unix socket (`ipc`) and signals.
+//! On Windows, `win` stands in for each piece behind the same API — the control pipe, the
+//! notification area, toasts, the power and session notifications — and [`platform`] is where the
+//! rest of the application asks for what both have in their own way: a link or a folder opened,
+//! the start at log-in.
 
-#![forbid(unsafe_code)]
+// Linux: no `unsafe` anywhere. Windows: every Win32 call is `unsafe` by signature, so the crate
+// denies it rather than forbids it, and `win` alone allows it.
+#![cfg_attr(not(windows), forbid(unsafe_code))]
+#![cfg_attr(windows, deny(unsafe_code))]
 
 pub mod app;
 pub mod audio_link;
 pub mod calibration;
 pub mod cli;
 pub mod commands;
+#[cfg(target_os = "linux")]
 pub mod dbus;
 pub mod events;
 pub mod ipc;
 pub mod notify;
+pub mod platform;
 mod priority;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod private_bus;
 pub mod selftest;
+#[cfg(target_os = "linux")]
 pub mod sleep;
+/// Suspend and resume: Windows' power notification in place of logind's signal.
+#[cfg(windows)]
+pub use win::power as sleep;
 pub mod tray;
 pub mod wake;
+#[cfg(windows)]
+pub mod win;
 
 pub use app::{App, WindowVisibility};
 pub use commands::{Outcome, WindowRequest};

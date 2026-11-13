@@ -33,6 +33,11 @@ struct Inner {
     /// One pending wake-up at most: a token says "look", and two say nothing more.
     tx: Sender<()>,
     rx: Receiver<()>,
+    /// Windows: set with every wake-up as well, for the headless pump, which waits on it and on
+    /// the GUI thread's window messages at once ([`Waker::wait_pumping_messages`]). `None` when
+    /// the event could not be made; the pump then looks every few milliseconds instead.
+    #[cfg(windows)]
+    event: Option<crate::win::Event>,
 }
 
 impl Default for Waker {
@@ -60,6 +65,10 @@ impl Waker {
                 window: Mutex::new(None),
                 tx,
                 rx,
+                #[cfg(windows)]
+                event: crate::win::Event::new(false)
+                    .map_err(|err| log::warn!("the headless pump will poll: {err}"))
+                    .ok(),
             }),
         }
     }
@@ -74,6 +83,27 @@ impl Waker {
         }
         // Full means a wake-up is pending already, which is all a token says.
         let _ = self.inner.tx.try_send(());
+        #[cfg(windows)]
+        if let Some(event) = &self.inner.event {
+            event.set();
+        }
+    }
+
+    /// Windows: wait until a wake-up comes or `deadline` passes, dispatching the calling thread's
+    /// window messages meanwhile (`main.rs`, "On Windows"). Returns whether a wake-up came.
+    #[cfg(windows)]
+    #[must_use]
+    pub fn wait_pumping_messages(&self, deadline: std::time::Instant) -> bool {
+        match &self.inner.event {
+            Some(event) => {
+                crate::win::wait_pumping(event, deadline) == crate::win::Pumped::Signalled
+            }
+            None => {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                std::thread::sleep(left.min(std::time::Duration::from_millis(10)));
+                !self.inner.rx.is_empty()
+            }
+        }
     }
 
     /// Send wake-ups to this window from now on. Called when a window is created.
@@ -102,6 +132,10 @@ impl Waker {
     /// Forget a pending wake-up: the pump is about to look at everything anyway.
     pub fn clear(&self) {
         while self.inner.rx.try_recv().is_ok() {}
+        #[cfg(windows)]
+        if let Some(event) = &self.inner.event {
+            event.reset();
+        }
     }
 
     fn window(&self) -> std::sync::MutexGuard<'_, Option<egui::Context>> {

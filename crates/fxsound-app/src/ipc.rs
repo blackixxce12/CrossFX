@@ -23,6 +23,17 @@
 //! there is dead, and can unlink and rebind it without a liveness probe and without racing a
 //! second starter doing the same.
 //!
+//! # On Windows
+//!
+//! The transport is a named pipe, `\\.\pipe\fxsound-<user SID>` (`crate::win::pipe`), and its
+//! first instance is the lock: Windows refuses `FILE_FLAG_FIRST_PIPE_INSTANCE` while any instance
+//! of the name exists, and lets the name go with the last handle, so there is no lock file and
+//! nothing for a crash to leave behind. The pipe's types have the methods of the socket's, so
+//! everything below the transport — the frames, the deadlines, the connection limit, the
+//! `--watch` streams — is this module's one implementation on both systems. Only this user may
+//! connect: the pipe's access control names the user's SID alone, and a client checks the pipe's
+//! owner before it sends anything.
+//!
 //! # Why argv and not a command line
 //!
 //! The request frame carries real `argv`. JUCE re-derives the tail of `GetCommandLineW()` and
@@ -92,12 +103,20 @@
 //! the pump's next keepalive (0.4.0 design §12). The headless pump waits on the channel itself
 //! ([`Server::arrivals`]).
 
+#[cfg(unix)]
 use std::fs::{self, File, TryLockError};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::os::unix::net::{UnixListener, UnixStream};
+// The transport, by the names of the socket's types: a Unix socket, or on Windows the control
+// pipe, whose types have the same methods (see "On Windows" above).
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener as Acceptor, UnixStream as Stream};
 use std::path::{Path, PathBuf};
+
+#[cfg(windows)]
+use crate::win::pipe::{PipeListener as Acceptor, PipeStream as Stream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
@@ -280,8 +299,41 @@ impl Instance {
     ///
     /// If the runtime directory cannot be created, or the lock file cannot be opened, or the
     /// socket is stale but cannot be replaced.
+    #[cfg(unix)]
     pub fn acquire() -> io::Result<Self> {
         Self::acquire_in(&runtime_dir())
+    }
+
+    /// Decide the role using the user's control pipe, `\\.\pipe\fxsound-<user SID>`.
+    ///
+    /// # Errors
+    ///
+    /// If the user's SID cannot be read, or the pipe cannot be created for a reason other than
+    /// another instance holding it.
+    #[cfg(windows)]
+    pub fn acquire() -> io::Result<Self> {
+        Self::acquire_pipe(crate::win::pipe::default_path()?)
+    }
+
+    /// Decide the role using an explicit directory. Tests use this; so would a second profile.
+    /// On Windows the directory names a pipe of its own (`crate::win::pipe::path_in`), and holds
+    /// nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`Instance::acquire`].
+    #[cfg(windows)]
+    pub fn acquire_in(dir: &Path) -> io::Result<Self> {
+        Self::acquire_pipe(crate::win::pipe::path_in(dir)?)
+    }
+
+    /// The first instance of the pipe at `path` makes this process the primary.
+    #[cfg(windows)]
+    fn acquire_pipe(path: PathBuf) -> io::Result<Self> {
+        match Acceptor::bind_first(&path)? {
+            Some(listener) => Ok(Self::Primary(Listener { listener, path })),
+            None => Ok(Self::Secondary(Client { path })),
+        }
     }
 
     /// Decide the role using an explicit directory. Tests use this; so would a second profile.
@@ -289,6 +341,7 @@ impl Instance {
     /// # Errors
     ///
     /// As [`Instance::acquire`].
+    #[cfg(unix)]
     pub fn acquire_in(dir: &Path) -> io::Result<Self> {
         prepare_dir(dir)?;
         let socket = dir.join(SOCKET_NAME);
@@ -310,7 +363,7 @@ impl Instance {
                     Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                     Err(e) => return Err(e),
                 }
-                let listener = UnixListener::bind(&socket)?;
+                let listener = Acceptor::bind(&socket)?;
                 record_pid(&lock);
                 Ok(Self::Primary(Listener {
                     listener,
@@ -330,7 +383,9 @@ impl Instance {
 /// enforcement is to lose the race before doing any expensive startup work — and only start
 /// serving once there is something to serve.
 pub struct Listener {
-    listener: UnixListener,
+    listener: Acceptor,
+    /// On Windows the pipe's first instance is the lock, and there is no file.
+    #[cfg(unix)]
     lock: File,
     path: PathBuf,
 }
@@ -379,10 +434,13 @@ impl Listener {
     fn start(self, status: Option<StatusSource>, waker: Waker) -> io::Result<Server> {
         let Self {
             listener,
+            #[cfg(unix)]
             lock,
             path,
         } = self;
         listener.set_nonblocking(false)?;
+        #[cfg(windows)]
+        let stop_accepting = listener.stopper();
 
         let (tx, rx) = unbounded();
         let tx = WakingSender::new(tx, waker);
@@ -410,7 +468,10 @@ impl Listener {
             shutdown,
             worker: Some(worker),
             shared,
+            #[cfg(unix)]
             _lock: lock,
+            #[cfg(windows)]
+            stop_accepting,
         })
     }
 }
@@ -535,7 +596,12 @@ pub struct Server {
     /// What the connection threads share: the way to the GUI thread and the subscribers.
     shared: Arc<Shared>,
     /// Held for the lifetime of the process: releasing it would let a second instance start.
+    #[cfg(unix)]
     _lock: File,
+    /// Wakes the accept loop on the way out. The pipe's lock is the listener itself, which the
+    /// loop holds until it returns.
+    #[cfg(windows)]
+    stop_accepting: crate::win::pipe::Stopper,
 }
 
 impl Server {
@@ -583,6 +649,7 @@ impl Server {
 
     /// A way into the GUI thread for callers that are not on the socket — the D-Bus service. What
     /// it sends arrives through [`Server::drain`] like any forwarded command line.
+    #[cfg(target_os = "linux")]
     #[must_use]
     pub fn control(&self) -> Control {
         Control {
@@ -640,7 +707,11 @@ impl Drop for Server {
         self.shutdown.store(true, Ordering::SeqCst);
         // The accept loop is parked inside `accept()`; connecting to ourselves wakes it so it can
         // see the flag. The connection is closed immediately and the loop discards it.
-        let _ = UnixStream::connect(&self.path);
+        #[cfg(unix)]
+        let _ = Stream::connect(&self.path);
+        // The pipe's accept waits on an event beside the connection, which this sets.
+        #[cfg(windows)]
+        self.stop_accepting.stop();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -648,6 +719,8 @@ impl Drop for Server {
         // before the server goes (`Runtime::shutdown`), exits 0; any other — one still waiting for
         // its status document, say — exits 1, its stream cut off.
         self.shared.broadcaster.close();
+        // A pipe has no file to remove: its name went with the listener's last instance.
+        #[cfg(unix)]
         if let Err(e) = fs::remove_file(&self.path)
             && e.kind() != io::ErrorKind::NotFound
         {
@@ -805,12 +878,16 @@ impl std::fmt::Debug for Forwarded {
 /// (`crate::dbus`, 0.4.0 design §9). A command list sent here is a [`Forwarded`] like any other,
 /// drained by the GUI thread and carried out by the same `commands::run`, and it is answered
 /// under the same [`HANDLER_TIMEOUT`] and with the same refusals as a forwarded command line.
+///
+/// Linux only: Windows has no D-Bus, and the control pipe is its one way in.
+#[cfg(target_os = "linux")]
 #[derive(Clone)]
 pub struct Control {
     tx: WakingSender<Forwarded>,
     closing: Closing,
 }
 
+#[cfg(target_os = "linux")]
 impl Control {
     /// A control channel whose other end is `tx` — for a test that plays the GUI thread itself.
     #[cfg(test)]
@@ -872,6 +949,7 @@ impl Control {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl std::fmt::Debug for Control {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Control").finish_non_exhaustive()
@@ -957,7 +1035,7 @@ pub fn watch_to(
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> i32 {
-    let stream = match UnixStream::connect(socket) {
+    let stream = match Stream::connect(socket) {
         Ok(stream) => stream,
         Err(e) => {
             log::debug!("could not connect to {}: {e}", socket.display());
@@ -1065,9 +1143,12 @@ pub fn forward_to(
     cwd: &Path,
     timeout: Duration,
 ) -> io::Result<Response> {
-    let stream = UnixStream::connect(socket)?;
+    let stream = Stream::connect(socket)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
+    // A window the line opens or raises comes to the front, as the user who typed it expects.
+    #[cfg(windows)]
+    stream.let_the_other_end_take_the_foreground();
 
     let request = Request {
         v: PROTOCOL_VERSION,
@@ -1107,6 +1188,7 @@ fn hung_up(e: &io::Error) -> bool {
 }
 
 /// Where the primary's socket lives.
+#[cfg(unix)]
 #[must_use]
 pub fn socket_path() -> PathBuf {
     runtime_dir().join(SOCKET_NAME)
@@ -1115,6 +1197,7 @@ pub fn socket_path() -> PathBuf {
 /// `$XDG_RUNTIME_DIR/fxsound`, or `/tmp/fxsound-<uid>` when the session has no runtime directory
 /// — cron and `ssh` without `pam_systemd` are the usual cases
 /// (`docs/spec/07-startup-tray.md` §4.7).
+#[cfg(unix)]
 #[must_use]
 pub fn runtime_dir() -> PathBuf {
     runtime_dir_from(dirs::runtime_dir(), current_uid())
@@ -1125,6 +1208,7 @@ pub fn runtime_dir() -> PathBuf {
 /// Split out so both branches can be tested on any machine. Reading `dirs::runtime_dir()` inside
 /// the test instead means the fallback branch is exercised only where `XDG_RUNTIME_DIR` happens to
 /// be unset — which on a developer's desktop is never, and on a CI runner is always.
+#[cfg(unix)]
 fn runtime_dir_from(session: Option<PathBuf>, uid: u32) -> PathBuf {
     session.map_or_else(
         || PathBuf::from(format!("/tmp/fxsound-{uid}")),
@@ -1134,6 +1218,7 @@ fn runtime_dir_from(session: Option<PathBuf>, uid: u32) -> PathBuf {
 
 /// Our own uid, read from `/proc/self` so that no libc binding is needed in a crate that is
 /// otherwise `forbid(unsafe_code)`.
+#[cfg(unix)]
 fn current_uid() -> u32 {
     fs::metadata("/proc/self").map_or(0, |m| m.uid())
 }
@@ -1144,6 +1229,7 @@ fn current_uid() -> u32 {
 /// somewhere else. `std` cannot open a directory with that flag, so we check afterwards with
 /// `symlink_metadata`, which is a race in theory and adequate in practice: the parent
 /// `$XDG_RUNTIME_DIR` is already `0700` and only the `/tmp` fallback is world-writable.
+#[cfg(unix)]
 fn prepare_dir(dir: &Path) -> io::Result<()> {
     fs::create_dir_all(dir)?;
     let meta = fs::symlink_metadata(dir)?;
@@ -1159,6 +1245,7 @@ fn prepare_dir(dir: &Path) -> io::Result<()> {
 /// Write our pid into the lock file, the way `$XDG_RUNTIME_DIR/…/instance.lock` is described in
 /// §3.3. Purely informational — the lock itself is what enforces anything — so a failure is
 /// logged and swallowed.
+#[cfg(unix)]
 fn record_pid(lock: &File) {
     let pid = std::process::id();
     let mut handle: &File = lock;
@@ -1170,7 +1257,7 @@ fn record_pid(lock: &File) {
     }
 }
 
-fn write_frame(mut stream: &UnixStream, frame: &impl Serialize) -> io::Result<()> {
+fn write_frame(mut stream: &Stream, frame: &impl Serialize) -> io::Result<()> {
     let mut line =
         serde_json::to_vec(frame).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     line.push(b'\n');
@@ -1190,7 +1277,7 @@ struct Shared {
     connections: AtomicUsize,
 }
 
-fn accept_loop(listener: &UnixListener, shared: &Arc<Shared>, shutdown: &AtomicBool) {
+fn accept_loop(listener: &Acceptor, shared: &Arc<Shared>, shutdown: &AtomicBool) {
     let mut failures = AcceptFailures::default();
     for stream in listener.incoming() {
         if shutdown.load(Ordering::SeqCst) {
@@ -1262,7 +1349,7 @@ impl AcceptFailures {
 }
 
 /// Answer one caller on a thread of its own, so that the next one is accepted at once.
-fn spawn_handler(stream: UnixStream, shared: &Arc<Shared>) {
+fn spawn_handler(stream: Stream, shared: &Arc<Shared>) {
     if shared.connections.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
         shared.connections.fetch_sub(1, Ordering::SeqCst);
         let _ = stream.set_write_timeout(Some(WATCH_WRITE_TIMEOUT));
@@ -1288,7 +1375,7 @@ impl Drop for ConnectionSlot {
     }
 }
 
-fn handle_connection(stream: UnixStream, shared: &Shared) {
+fn handle_connection(stream: Stream, shared: &Shared) {
     if let Err(e) = stream.set_write_timeout(Some(REQUEST_TIMEOUT)) {
         log::warn!("could not arm the control socket timeouts: {e}");
         return;
@@ -1318,13 +1405,13 @@ fn handle_connection(stream: UnixStream, shared: &Shared) {
     answer(&stream, &dispatch(request, &shared.tx, &shared.closing));
 }
 
-fn answer(stream: &UnixStream, response: &Response) {
+fn answer(stream: &Stream, response: &Response) {
     if let Err(e) = write_frame(stream, response) {
         log::warn!("could not answer a forwarded command line: {e}");
     }
 }
 
-fn refuse(stream: &UnixStream, why: impl Into<String>) {
+fn refuse(stream: &Stream, why: impl Into<String>) {
     answer(stream, &Response::failed(why));
 }
 
@@ -1334,7 +1421,7 @@ fn refuse(stream: &UnixStream, why: impl Into<String>) {
 /// with every byte, so a caller trickling one byte every few seconds would otherwise hold its
 /// connection — one of [`MAX_CONNECTIONS`] — for as long as [`MAX_REQUEST_BYTES`] takes at that
 /// pace, which is days.
-fn read_request(stream: &UnixStream, within: Duration) -> Result<Request, String> {
+fn read_request(stream: &Stream, within: Duration) -> Result<Request, String> {
     let mut line = Vec::new();
     let reader = Deadline {
         stream,
@@ -1366,7 +1453,7 @@ fn read_request(stream: &UnixStream, within: Duration) -> Result<Request, String
 
 /// A stream read against one deadline: each read waits at most for what is left of it.
 struct Deadline<'a> {
-    stream: &'a UnixStream,
+    stream: &'a Stream,
     until: Instant,
 }
 
@@ -1435,7 +1522,7 @@ struct Subscribers {
 
 struct Subscriber {
     id: u64,
-    stream: UnixStream,
+    stream: Stream,
     /// One JSON object per line rather than `event key=value`.
     json: bool,
     /// Asked for `input_meters`.
@@ -1468,7 +1555,7 @@ impl Broadcaster {
     }
 
     /// Register `stream`, send it the status document, then whatever was published meanwhile.
-    fn subscribe(&self, stream: UnixStream, json: bool, meters: bool, status: &StatusSource) {
+    fn subscribe(&self, stream: Stream, json: bool, meters: bool, status: &StatusSource) {
         // The stream is only written from now on, and never for longer than a publish may wait.
         if let Err(e) = stream
             .set_read_timeout(None)
@@ -1589,7 +1676,7 @@ impl Broadcaster {
 
 /// Write one whole line; a stream that cannot take it within its timeout is done for, since the
 /// half that went out cannot be taken back.
-fn write_line(mut stream: &UnixStream, line: &str) -> bool {
+fn write_line(mut stream: &Stream, line: &str) -> bool {
     match stream.write_all(line.as_bytes()) {
         Ok(()) => true,
         Err(e) => {
@@ -1601,7 +1688,7 @@ fn write_line(mut stream: &UnixStream, line: &str) -> bool {
 
 /// Whether the caller at the other end of a watch stream has hung up. Watchers never write after
 /// their request, so end-of-file is the only thing a read can find.
-fn peer_closed(stream: &UnixStream) -> bool {
+fn peer_closed(stream: &Stream) -> bool {
     if stream.set_nonblocking(true).is_err() {
         return true;
     }
@@ -1640,6 +1727,19 @@ mod tests {
             .collect()
     }
 
+    /// Where an instance kept in `dir` listens: the socket in it, or on Windows the pipe named
+    /// for it.
+    fn socket_in(dir: &Path) -> PathBuf {
+        #[cfg(unix)]
+        {
+            dir.join(SOCKET_NAME)
+        }
+        #[cfg(windows)]
+        {
+            crate::win::pipe::path_in(dir).expect("a pipe name")
+        }
+    }
+
     /// Wait for the accept loop to hand something over. The loop is a real thread on a real
     /// socket, so the test has to wait for it rather than assume it has already run.
     fn wait_for(server: &Server) -> Forwarded {
@@ -1663,7 +1763,7 @@ mod tests {
         else {
             panic!("the first instance in an empty directory must be the primary");
         };
-        assert_eq!(listener.path(), dir.path().join(SOCKET_NAME));
+        assert_eq!(listener.path(), socket_in(dir.path()));
 
         let server = listener.serve().expect("serve");
         assert!(
@@ -1761,6 +1861,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_socket_left_behind_by_a_crash_is_replaced_rather_than_believed() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -1768,7 +1869,7 @@ mod tests {
 
         // Exactly what a SIGKILLed primary leaves: the inode is there, nothing is listening.
         // Dropping a `UnixListener` does not unlink it.
-        drop(UnixListener::bind(&socket).expect("bind a doomed listener"));
+        drop(Acceptor::bind(&socket).expect("bind a doomed listener"));
         assert!(socket.exists(), "the stale socket should still be on disk");
 
         let Instance::Primary(listener) = Instance::acquire_in(dir.path()).expect("acquire") else {
@@ -1797,6 +1898,7 @@ mod tests {
         assert!(sender.join().expect("client thread").ok);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_regular_file_squatting_on_the_socket_path_is_cleared_too() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -1808,6 +1910,7 @@ mod tests {
         assert!(listener.path().exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn dropping_the_server_unlinks_the_socket_and_frees_the_lock() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -1831,6 +1934,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_runtime_directory_is_private_to_the_user() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -1843,6 +1947,7 @@ mod tests {
         assert_eq!(mode & 0o777, 0o700, "got {:o}", mode & 0o777);
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_runtime_directory_falls_back_to_tmp_when_the_session_has_none() {
         assert_eq!(
@@ -1867,7 +1972,7 @@ mod tests {
         let path = listener.path().to_path_buf();
         let server = listener.serve().expect("serve");
 
-        let stream = UnixStream::connect(&path).expect("connect");
+        let stream = Stream::connect(&path).expect("connect");
         stream
             .set_read_timeout(Some(REPLY_TIMEOUT))
             .expect("timeout");
@@ -1902,7 +2007,7 @@ mod tests {
 
         // Connected, and silent for as long as the test runs. Before 0.4.0 the accept loop sat
         // on this caller for the whole `REQUEST_TIMEOUT`.
-        let _silent = UnixStream::connect(server.path()).expect("connect");
+        let _silent = Stream::connect(server.path()).expect("connect");
 
         let started = Instant::now();
         let socket = server.path().to_path_buf();
@@ -1934,7 +2039,7 @@ mod tests {
         };
         let server = listener.serve().expect("serve");
 
-        let mut stream = UnixStream::connect(server.path()).expect("connect");
+        let mut stream = Stream::connect(server.path()).expect("connect");
         stream
             .set_read_timeout(Some(REPLY_TIMEOUT))
             .expect("timeout");
@@ -2026,8 +2131,8 @@ mod tests {
         let server = serve_with(dir.path(), json!({}));
 
         // Connected and silent: each holds a thread, and a place, until its request times out.
-        let mut silent: Vec<UnixStream> = (0..MAX_CONNECTIONS)
-            .map(|_| UnixStream::connect(server.path()).expect("connect"))
+        let mut silent: Vec<Stream> = (0..MAX_CONNECTIONS)
+            .map(|_| Stream::connect(server.path()).expect("connect"))
             .collect();
         wait_until("every silent caller has a thread", || {
             connections(&server) == MAX_CONNECTIONS
@@ -2133,6 +2238,7 @@ mod tests {
         assert_eq!(failures.failed(&failure(EMFILE)), (true, ACCEPT_RETRY_MIN));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_listener_that_keeps_failing_still_answers_callers_and_still_shuts_down() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -2180,6 +2286,7 @@ mod tests {
 
     // ---- the control channel -----------------------------------------------------------------
 
+    #[cfg(target_os = "linux")]
     fn block_on<F: std::future::Future>(future: F) -> F::Output {
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -2188,6 +2295,7 @@ mod tests {
             .block_on(future)
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_command_list_from_the_control_channel_is_drained_like_a_forwarded_command_line() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -2211,6 +2319,7 @@ mod tests {
         assert_eq!(response.stderr, "a note");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_refusal_on_the_control_channel_comes_back_failed_with_its_text() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -2241,6 +2350,7 @@ mod tests {
         assert!(!Response::ok().is_unanswered());
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_control_channel_of_a_server_that_is_gone_refuses_at_once() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -2297,8 +2407,8 @@ mod tests {
     }
 
     /// Connect and ask to watch with `args`, the way `fxsound --watch …` does.
-    fn subscribe(socket: &Path, args: &[&str]) -> BufReader<UnixStream> {
-        let stream = UnixStream::connect(socket).expect("connect");
+    fn subscribe(socket: &Path, args: &[&str]) -> BufReader<Stream> {
+        let stream = Stream::connect(socket).expect("connect");
         stream
             .set_read_timeout(Some(REPLY_TIMEOUT))
             .expect("timeout");
@@ -2316,7 +2426,7 @@ mod tests {
         BufReader::new(stream)
     }
 
-    fn next_line(reader: &mut BufReader<UnixStream>) -> String {
+    fn next_line(reader: &mut BufReader<Stream>) -> String {
         let mut line = String::new();
         reader.read_line(&mut line).expect("read an event");
         assert!(line.ends_with('\n'), "a whole line: {line:?}");
@@ -2548,7 +2658,7 @@ mod tests {
     fn the_request_flag_asks_for_meters_as_well_as_the_command_line() {
         let dir = tempfile::tempdir().expect("temp dir");
         let server = serve_with(dir.path(), json!({}));
-        let stream = UnixStream::connect(server.path()).expect("connect");
+        let stream = Stream::connect(server.path()).expect("connect");
         write_frame(
             &stream,
             &Request {
@@ -2640,7 +2750,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = watch_to(
-            &dir.path().join(SOCKET_NAME),
+            &socket_in(dir.path()),
             &argv(&["--watch"]),
             Path::new("/"),
             false,
@@ -2711,7 +2821,7 @@ mod tests {
     fn a_new_watcher_after_the_server_closed_is_turned_away() {
         let broadcaster = Broadcaster::default();
         broadcaster.close();
-        let (ours, theirs) = UnixStream::pair().expect("pair");
+        let (ours, theirs) = Stream::pair().expect("pair");
         theirs
             .set_read_timeout(Some(REPLY_TIMEOUT))
             .expect("timeout");
@@ -2871,6 +2981,7 @@ mod tests {
         assert_eq!(response.stderr, SHUTTING_DOWN);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_control_channel_refuses_at_once_once_the_way_out_began() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -2921,7 +3032,7 @@ mod tests {
 
     #[test]
     fn a_request_trickled_a_byte_at_a_time_is_cut_off_at_one_deadline_for_the_whole_line() {
-        let (ours, theirs) = UnixStream::pair().expect("pair");
+        let (ours, theirs) = Stream::pair().expect("pair");
         let trickle = thread::spawn(move || {
             let mut theirs = theirs;
             // A byte every 20 ms, each well inside any per-read timeout, and never a newline.
@@ -2943,7 +3054,7 @@ mod tests {
 
     #[test]
     fn a_whole_request_inside_the_deadline_is_read() {
-        let (ours, mut theirs) = UnixStream::pair().expect("pair");
+        let (ours, mut theirs) = Stream::pair().expect("pair");
         write_frame(
             &theirs,
             &Request {
@@ -2972,7 +3083,7 @@ mod tests {
     /// A stand-in instance on `socket` that reads one request and writes `stream` before it
     /// hangs up.
     fn instance_that_writes(socket: &Path, stream: &'static str) -> thread::JoinHandle<()> {
-        let listener = UnixListener::bind(socket).expect("bind");
+        let listener = Acceptor::bind(socket).expect("bind");
         thread::spawn(move || {
             let (connection, _) = listener.accept().expect("accept");
             let mut line = String::new();
@@ -3003,7 +3114,7 @@ mod tests {
     #[test]
     fn a_watch_stream_cut_off_without_quit_exits_one_and_says_so() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let socket = dir.path().join(SOCKET_NAME);
+        let socket = socket_in(dir.path());
         // A reader that fell behind: the last write stopped half-way through a line.
         let instance = instance_that_writes(&socket, "status power=true\npower on=fal");
         let (code, out, err) = watch(&socket);
@@ -3016,7 +3127,7 @@ mod tests {
     #[test]
     fn a_watch_stream_that_ends_after_quit_exits_zero_quietly() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let socket = dir.path().join(SOCKET_NAME);
+        let socket = socket_in(dir.path());
         let instance = instance_that_writes(
             &socket,
             "{\"v\":1,\"event\":\"status\",\"ts\":1}\n{\"v\":1,\"event\":\"quit\",\"ts\":2}\n",

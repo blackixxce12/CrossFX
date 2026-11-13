@@ -3667,6 +3667,7 @@ mod tests {
         assert!(outcome.window.is_empty());
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_self_test_without_json_answers_one_line_per_check() {
         let (_tmp, env) = crate::selftest::tests::installed();
@@ -3684,6 +3685,33 @@ mod tests {
         );
     }
 
+    /// Windows' twin of the two around it: a line per check, and the scratch prefix asks this
+    /// machine's audio nothing.
+    #[cfg(windows)]
+    #[test]
+    fn a_self_test_on_windows_answers_a_line_per_check_and_probes_no_audio_from_a_scratch_prefix() {
+        let (_tmp, env) = crate::selftest::tests::installed();
+        assert!(!env.probe_audio);
+        let outcome = self_test_outcome(&env, false);
+        let first = outcome.stdout.lines().next().expect("a line");
+        assert!(first.starts_with("version: ok"), "{first}");
+        for check in [
+            "windows_audio: skip",
+            "virtual_device: skip",
+            "control_pipe: ok",
+        ] {
+            assert!(
+                outcome.stdout.lines().any(|line| line.starts_with(check)),
+                "no {check:?} in:\n{}",
+                outcome.stdout
+            );
+        }
+        let report: Value =
+            serde_json::from_str(&self_test_outcome(&env, true).stdout).expect("JSON");
+        assert_eq!(report["checks"].as_array().map(Vec::len), Some(10));
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_scratch_prefix_the_command_tests_use_probes_neither_pipewire_nor_the_bus() {
         let (_tmp, env) = crate::selftest::tests::installed();
@@ -5249,8 +5277,12 @@ mod tests {
             "a line that says what the window does is taken at its word"
         );
         // D-Bus never raises it: its calls come from keybinds and status bars.
-        let commands = crate::dbus::apply_commands(&["--balance=2".to_owned()]).expect("parses");
-        assert!(run_forwarded(&mut a, &commands, false).window.is_empty());
+        #[cfg(target_os = "linux")]
+        {
+            let commands =
+                crate::dbus::apply_commands(&["--balance=2".to_owned()]).expect("parses");
+            assert!(run_forwarded(&mut a, &commands, false).window.is_empty());
+        }
         let outcome = forward_line(&mut a, &["--windows-parity=off", "--balance=2"]);
         assert!(outcome.window.is_empty(), "back at Off, quiet again");
     }

@@ -137,3 +137,5 @@ countries: th
 "Restart WirePlumber" = "เริ่ม WirePlumber ใหม่"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "เริ่ม WirePlumber ใหม่ตอนนี้หรือไม่? เสียงของทุกแอปจะหยุดชั่วครู่"
 "Could not change WirePlumber's settings" = "ไม่สามารถเปลี่ยนการตั้งค่าของ WirePlumber ได้"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "ไม่มีอุปกรณ์เล่นเสียงเสมือน: ติดตั้งไดรเวอร์ FxSound หรือ VB-CABLE"
+"The Windows audio service is not available" = "บริการเสียงของ Windows ไม่พร้อมใช้งาน"

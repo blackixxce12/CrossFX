@@ -137,3 +137,5 @@ countries: kr
 "Restart WirePlumber" = "WirePlumber 다시 시작"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "지금 WirePlumber를 다시 시작할까요? 모든 앱의 소리가 잠시 끊깁니다."
 "Could not change WirePlumber's settings" = "WirePlumber 설정을 변경할 수 없습니다"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "가상 재생 장치가 없습니다: FxSound 드라이버나 VB-CABLE을 설치하세요"
+"The Windows audio service is not available" = "Windows 오디오 서비스를 사용할 수 없습니다"

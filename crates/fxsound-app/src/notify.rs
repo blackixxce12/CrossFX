@@ -60,15 +60,24 @@
 //!
 //! Connecting and sending are blocking D-Bus round trips, so they must never happen on the egui
 //! thread. [`Notifier`] owns a worker thread and the GUI only ever hands it a [`Message`].
+//!
+//! # On Windows
+//!
+//! The messages, their weights and the one slot are the same; what delivers them is a toast
+//! (`crate::win::toast`), and everything D-Bus here is Linux's alone.
 
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
+#[cfg(target_os = "linux")]
 use notify_rust::{Hint, Notification, Timeout, Urgency};
 
+#[cfg(target_os = "linux")]
 use crate::tray::APP_ID;
 use fxsound_core::i18n::{tr, tr_args};
 
@@ -110,6 +119,7 @@ pub enum Weight {
     Alert,
 }
 
+#[cfg(target_os = "linux")]
 impl Weight {
     /// The urgency hint it is sent with.
     #[must_use]
@@ -316,6 +326,7 @@ impl Message {
 /// `suppress-sound` is `NIIF_NOSOUND` (`FxSystemTrayView.cpp:411`), and `desktop-entry` is what
 /// lets a shell attribute the notification to our window. The urgency is the message's
 /// [`Weight`].
+#[cfg(target_os = "linux")]
 #[must_use]
 pub fn build(message: &Message, replaces: Option<u32>) -> Notification {
     let mut notification = Notification::new();
@@ -349,11 +360,14 @@ pub trait Sink: Send + 'static {
     fn deliver(&mut self, message: &Message, replaces: Option<u32>) -> Option<u32>;
 }
 
+#[cfg(target_os = "linux")]
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
+#[cfg(target_os = "linux")]
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
 /// Delivery over `org.freedesktop.Notifications`, on one connection kept open from the first
 /// message to the last (see "One connection, kept" in the module docs).
+#[cfg(target_os = "linux")]
 pub struct DesktopSink {
     /// The bus to connect to: the session's when `None`.
     address: Option<String>,
@@ -366,8 +380,10 @@ pub struct DesktopSink {
 }
 
 /// Follows a link a notification was clicked for.
+#[cfg(target_os = "linux")]
 type Opener = Arc<dyn Fn(&str) + Send + Sync>;
 
+#[cfg(target_os = "linux")]
 impl Default for DesktopSink {
     fn default() -> Self {
         Self {
@@ -379,6 +395,7 @@ impl Default for DesktopSink {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl std::fmt::Debug for DesktopSink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DesktopSink")
@@ -388,6 +405,7 @@ impl std::fmt::Debug for DesktopSink {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl DesktopSink {
     /// Delivery to the session bus's notification daemon.
     #[must_use]
@@ -453,6 +471,7 @@ impl DesktopSink {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Sink for DesktopSink {
     fn deliver(&mut self, message: &Message, replaces: Option<u32>) -> Option<u32> {
         let notification = build(message, replaces);
@@ -486,6 +505,7 @@ impl Sink for DesktopSink {
 
 /// The notifications go with the connection, on GNOME, when FxSound quits: they would otherwise
 /// offer to open an application that is not running.
+#[cfg(target_os = "linux")]
 impl Drop for DesktopSink {
     fn drop(&mut self) {
         self.disconnect();
@@ -494,6 +514,7 @@ impl Drop for DesktopSink {
 
 /// Listen on `connection` for a click on the notification in `link`, and follow its link. The
 /// thread ends when the connection does.
+#[cfg(target_os = "linux")]
 fn follow_links(
     connection: &zbus::blocking::Connection,
     link: Arc<Mutex<Option<(u32, String)>>>,
@@ -565,10 +586,14 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    /// A notifier that talks to the session's notification daemon.
+    /// A notifier that talks to the session's notification daemon — on Windows, that shows toasts.
     #[must_use]
     pub fn new(hide_notifications: bool) -> Self {
-        Self::with_sink(hide_notifications, DesktopSink::session())
+        #[cfg(target_os = "linux")]
+        let sink = DesktopSink::session();
+        #[cfg(windows)]
+        let sink = crate::win::toast::ToastSink::new();
+        Self::with_sink(hide_notifications, sink)
     }
 
     /// A notifier that delivers through `sink`.
@@ -639,25 +664,22 @@ fn deliver_loop(rx: &Receiver<Message>, mut sink: impl Sink) {
     }
 }
 
-/// Open a link with `xdg-open`.
+/// Open a link a notification was clicked for, with `xdg-open` ([`crate::platform::open_url`]).
 ///
 /// Spawned directly, never through a shell: `URL::launchInDefaultBrowser()`
 /// (`FxSystemTrayView.cpp:280-283`) hands the string to the shell on Windows, and doing the
 /// equivalent here would make any URL that reaches this function a command-injection path. The
 /// scheme is checked for the same reason — every caller in the catalogue passes a constant, but
 /// [`Message::with_link`] is public.
+#[cfg(target_os = "linux")]
 fn open_url(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        log::warn!("refusing to open a notification link that is not http(s)");
-        return;
-    }
-    match std::process::Command::new("xdg-open").arg(url).spawn() {
-        Ok(_) => {}
-        Err(e) => log::warn!("could not open {url}: {e}"),
+    if let Err(e) = crate::platform::open_url(url) {
+        log::warn!("could not open a notification link: {e}");
     }
 }
 
-#[cfg(test)]
+// The D-Bus delivery's: `crate::win::toast` has the toasts' own.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use std::time::Instant;

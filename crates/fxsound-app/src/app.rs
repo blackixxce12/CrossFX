@@ -782,8 +782,9 @@ impl App {
             window_minimised: false,
             wizard_holds_microphone: false,
             microphone_held: false,
-            // The user's WirePlumber only for a run that may write the user's files.
-            wireplumber: if persist {
+            // The user's WirePlumber only for a run that may write the user's files, and never on
+            // Windows, which has none to look for: the option shows unavailable there.
+            wireplumber: if persist && cfg!(target_os = "linux") {
                 wireplumber::WirePlumberHost::of_user()
             } else {
                 wireplumber::WirePlumberHost::none()
@@ -4042,7 +4043,7 @@ impl App {
                 false
             }
             PresetsAction::RevealExportFolder => {
-                if let Err(err) = reveal_folder(&self.export_dir) {
+                if let Err(err) = crate::platform::open_folder(&self.export_dir) {
                     log::warn!("could not open {}: {err}", self.export_dir.display());
                     self.raise_notice(tr_args(
                         "Presets exported to %s",
@@ -4421,6 +4422,7 @@ fn engine_error_notice(message: &str) -> String {
     use fxsound_audio::AudioError;
     let is = |error: AudioError| message == error.to_string();
     let unavailable = AudioError::PipewireUnavailable(String::new()).to_string();
+    let windows_unavailable = AudioError::WindowsAudioUnavailable(String::new()).to_string();
     tr(if is(AudioError::NoOutputDevices) {
         "No playback devices are present"
     } else if is(AudioError::NoInputDevices) {
@@ -4435,6 +4437,13 @@ fn engine_error_notice(message: &str) -> String {
         "The connection to PipeWire was lost"
     } else if is(AudioError::FormatNegotiation) {
         "The audio format could not be agreed with PipeWire"
+    } else if is(AudioError::NoVirtualDevice) {
+        // The Windows engine's: what is missing, and the two drivers that give FxSound one.
+        "No virtual playback device: install the FxSound driver or VB-CABLE"
+    } else if message.starts_with(windows_unavailable.trim_end()) {
+        // The Windows engine's, whatever the detail the log has: the service every WASAPI client
+        // talks to (`Audiosrv`, "Windows Audio" in the list of services).
+        "The Windows audio service is not available"
     } else {
         "The audio engine reported an error"
     })
@@ -4588,29 +4597,6 @@ fn default_export_dir() -> PathBuf {
         .join("Export")
 }
 
-/// `File::revealToUser()` (`FxPresetExportDialog.cpp:196`): open the export folder in whatever
-/// the desktop uses for folders.
-///
-/// The portal route (`org.freedesktop.portal.OpenURI.OpenDirectory`) needs a D-Bus crate this
-/// crate does not depend on, so this is the fallback `docs/spec/06-dialogs.md` §9.3 names:
-/// `xdg-open <dir>`, which dispatches to the user's own file manager rather than a hardcoded one.
-/// The child is reaped on a helper thread so it never lingers as a zombie.
-fn reveal_folder(dir: &Path) -> std::io::Result<()> {
-    use std::process::{Command, Stdio};
-    let mut child = Command::new("xdg-open")
-        .arg(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    std::thread::Builder::new()
-        .name("fxsound-reveal".into())
-        .spawn(move || {
-            let _ = child.wait();
-        })
-        .map(|_| ())
-}
-
 impl App {
     /// The persisted settings, for the Settings window to edit a copy of.
     #[must_use]
@@ -4625,7 +4611,7 @@ impl App {
     pub fn settings_state(&self) -> SettingsState {
         let mut state = SettingsState::new(self.settings.clone());
         state.version = env!("CARGO_PKG_VERSION").to_owned();
-        state.launch_on_startup = autostart_enabled();
+        state.launch_on_startup = crate::platform::autostart_enabled();
         state.wireplumber_hook = self.wireplumber.state();
         state.devices = self.device_rows(DeviceDirection::Output);
         state.microphones = self.device_rows(DeviceDirection::Input);
@@ -5102,7 +5088,7 @@ impl App {
             A::SetLaunchOnStartup(on) => {
                 // The Windows build writes an HKCU\...\Run value; the XDG equivalent is a
                 // .desktop file in ~/.config/autostart (`docs/spec/07-startup-tray.md`).
-                match set_autostart(*on) {
+                match crate::platform::set_autostart(*on) {
                     Ok(()) => state.launch_on_startup = *on,
                     Err(err) => {
                         log::warn!("could not change the autostart entry: {err}");
@@ -5204,7 +5190,7 @@ impl App {
             }
 
             A::OpenUrl(url) => {
-                if let Err(err) = open_url(url) {
+                if let Err(err) = crate::platform::open_url(url) {
                     log::warn!("could not open {url}: {err}");
                     self.raise_notice(tr("Could not open the link"));
                 }
@@ -5668,62 +5654,8 @@ impl App {
 /// The notice when "Smooth moves in WirePlumber" could not install the hook or take it away.
 pub(crate) const WIREPLUMBER_NOT_CHANGED: &str = "Could not change WirePlumber's settings";
 
-/// `~/.config/autostart/fxsound.desktop` — the XDG Autostart entry that stands in for the
-/// `HKCU\…\CurrentVersion\Run` value (`FxController.cpp:2789-2812`).
-fn autostart_path() -> std::io::Result<PathBuf> {
-    Ok(dirs::config_dir()
-        .ok_or_else(|| std::io::Error::other("no config directory"))?
-        .join("autostart")
-        .join("fxsound.desktop"))
-}
-
-/// Whether FxSound starts with the session: the entry exists and is not `Hidden=true`, which is
-/// how a desktop's own autostart editor disables one without deleting it.
-#[must_use]
-pub fn autostart_enabled() -> bool {
-    autostart_path()
-        .ok()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .is_some_and(|text| !text.lines().any(|line| line.trim() == "Hidden=true"))
-}
-
-/// Hand a URL to the desktop. Never fatal — a missing `xdg-open` is not worth a crash.
-fn open_url(url: &str) -> std::io::Result<()> {
-    std::process::Command::new("xdg-open")
-        .arg(url)
-        .spawn()
-        .map(|_| ())
-}
-
-/// Create or remove `~/.config/autostart/fxsound.desktop`.
-fn set_autostart(enabled: bool) -> std::io::Result<()> {
-    let path = autostart_path()?;
-    let dir = path
-        .parent()
-        .ok_or_else(|| std::io::Error::other("no autostart directory"))?
-        .to_path_buf();
-
-    if !enabled {
-        return match std::fs::remove_file(&path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            other => other,
-        };
-    }
-
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(
-        &path,
-        "[Desktop Entry]\n\
-         Type=Application\n\
-         Name=FxSound\n\
-         Comment=Start FxSound minimised to the system tray on login\n\
-         Exec=fxsound --hide\n\
-         Icon=fxsound\n\
-         Terminal=false\n\
-         Categories=AudioVideo;Audio;\n\
-         X-GNOME-Autostart-enabled=true\n",
-    )
-}
+/// Whether FxSound starts with the session ([`crate::platform::autostart_enabled`]).
+pub use crate::platform::autostart_enabled;
 
 #[cfg(test)]
 mod tests {
@@ -7991,6 +7923,14 @@ mod tests {
                 AudioError::FormatNegotiation,
                 "The audio format could not be agreed with PipeWire",
             ),
+            (
+                AudioError::NoVirtualDevice,
+                "No virtual playback device: install the FxSound driver or VB-CABLE",
+            ),
+            (
+                AudioError::WindowsAudioUnavailable("IMMDeviceEnumerator: 0x80070422".to_owned()),
+                "The Windows audio service is not available",
+            ),
         ];
         for (error, shown) in cases {
             assert_eq!(engine_error_notice(&error.to_string()), shown, "{error:?}");
@@ -8394,12 +8334,17 @@ mod tests {
         let incoming = dir.path().join("incoming");
         std::fs::create_dir_all(&incoming).unwrap();
         let long = "Rock Ballad Extended Night Mix For The Living Room Speakers 2026";
-        let stems = [
+        let mut stems = vec![
             format!("{long} v1"),
             format!("{long} v2"),
             "Rock".to_owned(),
-            "rock".to_owned(),
         ];
+        // Two files whose names differ in case alone are one file where file names do not see
+        // case, as on Windows: there the long names are the pair.
+        let case_pair = cfg!(not(windows));
+        if case_pair {
+            stems.push("rock".to_owned());
+        }
         for (gain, stem) in stems.iter().enumerate() {
             let preset = Preset {
                 name: stem.clone(),
@@ -8416,7 +8361,11 @@ mod tests {
         summary.skipped.sort();
 
         assert_eq!(summary.imported, ["Rock", cut.as_str()]);
-        assert_eq!(summary.skipped, [stems[1].as_str(), "rock"]);
+        if case_pair {
+            assert_eq!(summary.skipped, [stems[1].as_str(), "rock"]);
+        } else {
+            assert_eq!(summary.skipped, [stems[1].as_str()]);
+        }
         assert_eq!(names(&app), ["Rock", cut.as_str()]);
         let (kept, _) = app.presets.load(&cut).expect("load");
         assert_eq!(
@@ -14309,6 +14258,7 @@ mod tests {
         assert_eq!(engine.take_sent(), [UiToAudio::SystemSleeping(true)]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn loginds_signal_reaches_the_engine_as_the_system_sleeping() {
         // The whole mapping, without a bus: the signal as logind sends it, read by the watcher,
@@ -15339,6 +15289,7 @@ mod tests {
             crate::commands::status_document(&app).windows_parity,
             "sound"
         );
+        #[cfg(target_os = "linux")]
         assert_eq!(
             crate::dbus::Properties::of(&app).windows_parity,
             WindowsParity::Sound

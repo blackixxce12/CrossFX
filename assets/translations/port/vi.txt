@@ -138,3 +138,5 @@ countries: vn
 "Restart WirePlumber" = "Khởi động lại WirePlumber"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Khởi động lại WirePlumber ngay? Âm thanh của mọi ứng dụng sẽ ngắt trong giây lát."
 "Could not change WirePlumber's settings" = "Không thể thay đổi cài đặt của WirePlumber"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Không có thiết bị phát ảo: hãy cài trình điều khiển FxSound hoặc VB-CABLE"
+"The Windows audio service is not available" = "Dịch vụ âm thanh của Windows không khả dụng"

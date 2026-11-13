@@ -137,3 +137,5 @@ countries: tr
 "Restart WirePlumber" = "WirePlumber'ı yeniden başlat"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "WirePlumber şimdi yeniden başlatılsın mı? Tüm uygulamaların sesi bir an kesilir."
 "Could not change WirePlumber's settings" = "WirePlumber'ın ayarları değiştirilemedi"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Sanal çalma aygıtı yok: FxSound sürücüsünü veya VB-CABLE'ı yükleyin"
+"The Windows audio service is not available" = "Windows ses hizmeti kullanılamıyor"
