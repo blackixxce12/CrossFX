@@ -49,7 +49,7 @@ usvg = "0.50.0"
 tiny-skia = "0.12.0"
 
 ksni = "0.3.7"
-notify-rust = "4.18.0"
+notify-rust = "4.19.0"
 rfd = "0.18.0"
 # `ksni` is not runtime-agnostic: its `default = ["tokio"]` feature is a hard requirement
 # (`ksni-0.3.6/src/compat.rs:1-5` is a `compile_error!` when neither runtime is on), and its
@@ -58,9 +58,11 @@ rfd = "0.18.0"
 # (`ksni-0.3.6/src/compat.rs:24-35`). Pin the flavour here instead of inheriting whatever ksni's
 # own transitive `features = ["rt", "macros"]` happens to resolve to.
 tokio = { version = "1.54.1", default-features = false, features = ["rt"] }
-# The D-Bus service's own dependency on the zbus ksni and notify-rust already bring in; the
-# features are the app's to choose (`crates/fxsound-app/Cargo.toml`).
-zbus = { version = "5.19.0", default-features = false }
+# The zbus the D-Bus service, the desktop notifications and the suspend watcher speak through: the
+# major version notify-rust 4.19 is built on, which `crates/fxsound-app/src/notify.rs` relies on to
+# send notify-rust's own encoding of its hints. ksni 0.3.7 keeps zbus 5 to itself, and no type
+# crosses between the two. The features are the app's to choose (`crates/fxsound-app/Cargo.toml`).
+zbus = { version = "6.3.0", default-features = false }
 
 crossbeam-channel = "0.5.17"
 # A Wayland client gets no close request from `kill`, `systemctl --user stop` or a logout hook;

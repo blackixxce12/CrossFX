@@ -1925,23 +1925,21 @@ mod tests {
     fn watcher(
         address: &str,
     ) -> (
-        zbus::blocking::Connection,
+        crate::private_bus::Client,
         Arc<std::sync::Mutex<Vec<String>>>,
     ) {
         let registered = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let connection = zbus::blocking::connection::Builder::address(address)
-            .expect("an address")
-            .name("org.kde.StatusNotifierWatcher")
-            .expect("a well-known name")
-            .serve_at(
-                "/StatusNotifierWatcher",
-                Watcher {
-                    registered: Arc::clone(&registered),
-                },
-            )
-            .expect("a path")
-            .build()
-            .expect("the watcher is on the bus");
+        let connection = crate::private_bus::Client::build(
+            zbus::connection::Builder::address(address)
+                .name("org.kde.StatusNotifierWatcher")
+                .serve_at(
+                    "/StatusNotifierWatcher",
+                    Watcher {
+                        registered: Arc::clone(&registered),
+                    },
+                ),
+        )
+        .expect("the watcher is on the bus");
         (connection, registered)
     }
 

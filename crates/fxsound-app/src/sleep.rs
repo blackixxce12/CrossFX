@@ -20,9 +20,9 @@
 //! # Threads and runtimes
 //!
 //! The watcher builds a current-thread tokio runtime on its own thread, as the D-Bus service does
-//! on its own ([`crate::dbus`]), and never touches the global runtime zbus keeps for its blocking
-//! API: a call parked in there for the whole session would be driving every other blocking zbus
-//! call in the process, notify-rust's toasts among them.
+//! on its own ([`crate::dbus`]), and never goes through `zbus::block_on`: with zbus's `tokio`
+//! feature that runs one runtime for the whole process, and a wait parked in it for the whole
+//! session would be the thread driving every other connection made inside it.
 
 use std::future::Future;
 use std::pin::{Pin, pin};
@@ -287,13 +287,16 @@ fn watch(
 
 /// Connect to `bus` and ask it for logind's `PrepareForSleep`.
 async fn subscribe(bus: &SleepBus) -> Result<MessageStream, String> {
-    let builder = match bus {
-        SleepBus::System => zbus::connection::Builder::system()
-            .map_err(|err| format!("there is no system bus ({err})"))?,
-        SleepBus::Address(address) => zbus::connection::Builder::address(address.as_str())
+    // The address first, on its own: zbus 6's builder keeps every error for `build`, and a
+    // missing system bus is a different thing to report from an unreachable one.
+    let address = match bus {
+        SleepBus::System => {
+            zbus::Address::system().map_err(|err| format!("there is no system bus ({err})"))?
+        }
+        SleepBus::Address(address) => zbus::Address::try_from(address.as_str())
             .map_err(|err| format!("{address} is not a bus address ({err})"))?,
     };
-    let connection = builder
+    let connection = zbus::connection::Builder::address(address)
         .build()
         .await
         .map_err(|err| format!("the system bus could not be reached ({err})"))?;
@@ -304,13 +307,13 @@ async fn subscribe(bus: &SleepBus) -> Result<MessageStream, String> {
 
 /// logind's `PrepareForSleep`, from logind only.
 fn rule() -> zbus::Result<MatchRule<'static>> {
-    Ok(MatchRule::builder()
+    MatchRule::builder()
         .msg_type(Type::Signal)
-        .sender(LOGIND)?
-        .path(LOGIND_PATH)?
-        .interface(LOGIND_MANAGER)?
-        .member(PREPARE_FOR_SLEEP)?
-        .build())
+        .sender(LOGIND)
+        .path(LOGIND_PATH)
+        .interface(LOGIND_MANAGER)
+        .member(PREPARE_FOR_SLEEP)
+        .build()
 }
 
 /// The next message on `stream`; `None` once the connection has gone.
@@ -340,7 +343,7 @@ async fn until_stopped<F: Future>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::private_bus::PrivateBus;
+    use crate::private_bus::{Client, PrivateBus};
     use crossbeam_channel::{Receiver, RecvTimeoutError};
 
     /// Long enough for a private bus on a loaded test machine; a pass takes milliseconds.
@@ -350,7 +353,6 @@ mod tests {
 
     fn signal(sleeping: bool) -> Message {
         Message::signal(LOGIND_PATH, LOGIND_MANAGER, PREPARE_FOR_SLEEP)
-            .expect("a signal header")
             .build(&sleeping)
             .expect("a signal")
     }
@@ -366,7 +368,6 @@ mod tests {
     #[test]
     fn another_signal_of_logind_says_nothing_about_sleep() {
         let shutdown = Message::signal(LOGIND_PATH, LOGIND_MANAGER, "PrepareForShutdown")
-            .expect("a header")
             .build(&true)
             .expect("a signal");
         assert_eq!(prepare_for_sleep(&shutdown), None);
@@ -375,7 +376,6 @@ mod tests {
             LOGIND_MANAGER,
             PREPARE_FOR_SLEEP,
         )
-        .expect("a header")
         .build(&true)
         .expect("a signal");
         assert_eq!(prepare_for_sleep(&elsewhere), None);
@@ -384,7 +384,6 @@ mod tests {
             "org.freedesktop.login1.Session",
             PREPARE_FOR_SLEEP,
         )
-        .expect("a header")
         .build(&true)
         .expect("a signal");
         assert_eq!(prepare_for_sleep(&other_interface), None);
@@ -393,12 +392,10 @@ mod tests {
     #[test]
     fn a_body_that_is_not_one_boolean_says_nothing() {
         let text = Message::signal(LOGIND_PATH, LOGIND_MANAGER, PREPARE_FOR_SLEEP)
-            .expect("a header")
             .build(&"true")
             .expect("a signal");
         assert_eq!(prepare_for_sleep(&text), None);
         let empty = Message::signal(LOGIND_PATH, LOGIND_MANAGER, PREPARE_FOR_SLEEP)
-            .expect("a header")
             .build(&())
             .expect("a signal");
         assert_eq!(prepare_for_sleep(&empty), None);
@@ -407,9 +404,7 @@ mod tests {
     #[test]
     fn a_signal_addressed_to_fxsound_alone_is_not_logind_speaking() {
         let aimed = Message::signal(LOGIND_PATH, LOGIND_MANAGER, PREPARE_FOR_SLEEP)
-            .expect("a header")
             .destination(":1.42")
-            .expect("a destination")
             .build(&true)
             .expect("a signal");
         assert_eq!(prepare_for_sleep(&aimed), None);
@@ -440,21 +435,23 @@ mod tests {
     }
 
     /// A connection to `bus` that owns logind's name, as logind's own does on the system bus.
-    fn logind(bus: &PrivateBus) -> zbus::blocking::Connection {
-        let connection = bus.client();
-        connection.request_name(LOGIND).expect("the name is free");
-        connection
+    fn logind(bus: &PrivateBus) -> Client {
+        let client = bus.client();
+        client
+            .block_on(client.connection().request_name(LOGIND))
+            .expect("the name is free");
+        client
     }
 
-    fn say(connection: &zbus::blocking::Connection, sleeping: bool) {
-        connection
-            .emit_signal(
+    fn say(client: &Client, sleeping: bool) {
+        client
+            .block_on(client.connection().emit_signal(
                 None::<()>,
                 LOGIND_PATH,
                 LOGIND_MANAGER,
                 PREPARE_FOR_SLEEP,
                 &sleeping,
-            )
+            ))
             .expect("the signal is sent");
     }
 

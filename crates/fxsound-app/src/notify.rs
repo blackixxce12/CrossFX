@@ -60,14 +60,24 @@
 //!
 //! Connecting and sending are blocking D-Bus round trips, so they must never happen on the egui
 //! thread. [`Notifier`] owns a worker thread and the GUI only ever hands it a [`Message`].
+//!
+//! zbus 6 has no blocking API. [`DesktopSink`] runs its connection on a current-thread tokio
+//! runtime of its own and blocks the worker on each round trip with `Runtime::block_on`; the
+//! thread that follows a clicked notification's link drives the same runtime while it waits, so a
+//! click is taken in between two messages too. The runtime is none of the D-Bus service's
+//! ([`crate::dbus`]), the suspend watcher's ([`crate::sleep`]) or ksni's ([`crate::tray`]).
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use notify_rust::{Hint, Notification, Timeout, Urgency};
+use tokio::runtime::Runtime;
+use zbus::export::futures_core::Stream;
 
 use crate::tray::APP_ID;
 use fxsound_core::i18n::{tr, tr_args};
@@ -354,15 +364,31 @@ const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
 /// Delivery over `org.freedesktop.Notifications`, on one connection kept open from the first
 /// message to the last (see "One connection, kept" in the module docs).
+///
+/// [`Sink::deliver`] waits for D-Bus round trips, and so does dropping the sink: both belong on
+/// the worker thread, never inside a tokio runtime, where waiting on another runtime panics.
 pub struct DesktopSink {
     /// The bus to connect to: the session's when `None`.
     address: Option<String>,
-    connection: Option<zbus::blocking::Connection>,
+    kept: Option<Kept>,
     /// The notification whose link a click follows, and the link: the last one delivered, if it
     /// had a link. Shared with the thread that listens for the click.
     link: Arc<Mutex<Option<(u32, String)>>>,
     /// What following a link does: [`open_url`], or a test's recorder.
     open: Opener,
+}
+
+/// The kept connection, and the runtime it runs on.
+///
+/// zbus 6 has no blocking API, so the connection runs on a current-thread tokio runtime made with
+/// it, and the worker waits for each round trip with [`Runtime::block_on`]. The thread that
+/// follows links drives the same runtime for as long as the connection lasts — tokio lets one
+/// thread wait on a current-thread runtime that another one drives — so the socket is read while
+/// no message is being sent as well.
+struct Kept {
+    /// Declared first, so that it goes before the runtime it runs on.
+    connection: zbus::Connection,
+    runtime: Arc<Runtime>,
 }
 
 /// Follows a link a notification was clicked for.
@@ -372,7 +398,7 @@ impl Default for DesktopSink {
     fn default() -> Self {
         Self {
             address: None,
-            connection: None,
+            kept: None,
             link: Arc::default(),
             open: Arc::new(open_url),
         }
@@ -383,7 +409,7 @@ impl std::fmt::Debug for DesktopSink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DesktopSink")
             .field("address", &self.address)
-            .field("connected", &self.connection.is_some())
+            .field("connected", &self.kept.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -405,58 +431,87 @@ impl DesktopSink {
 
     /// The kept connection, made on the first call. A new one also starts the thread that follows
     /// links; it ends with the connection.
-    fn connection(&mut self) -> zbus::Result<zbus::blocking::Connection> {
-        if let Some(connection) = &self.connection {
-            return Ok(connection.clone());
-        }
-        let builder = match &self.address {
-            Some(address) => zbus::blocking::connection::Builder::address(address.as_str())?,
-            None => zbus::blocking::connection::Builder::session()?,
+    fn kept(&mut self) -> zbus::Result<&Kept> {
+        let kept = match self.kept.take() {
+            Some(kept) => kept,
+            None => self.connect()?,
         };
-        let connection = builder.build()?;
-        follow_links(&connection, Arc::clone(&self.link), Arc::clone(&self.open));
-        self.connection = Some(connection.clone());
-        Ok(connection)
+        Ok(&*self.kept.insert(kept))
+    }
+
+    /// A new connection, on a runtime of its own, and the thread that follows its links.
+    fn connect(&self) -> zbus::Result<Kept> {
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()?,
+        );
+        let builder = match &self.address {
+            Some(address) => zbus::connection::Builder::address(address.as_str()),
+            None => zbus::connection::Builder::session(),
+        };
+        // Built inside the runtime, which is what puts the connection on it.
+        let connection = runtime.block_on(builder.build())?;
+        follow_links(
+            &runtime,
+            &connection,
+            Arc::clone(&self.link),
+            Arc::clone(&self.open),
+        );
+        Ok(Kept {
+            connection,
+            runtime,
+        })
     }
 
     /// Close the kept connection, which also ends the thread that follows links on it: its
     /// signal stream holds a clone, so dropping ours alone would leave both behind.
     fn disconnect(&mut self) {
-        if let Some(connection) = self.connection.take() {
-            let _ = connection.close();
+        if let Some(Kept {
+            connection,
+            runtime,
+        }) = self.kept.take()
+        {
+            let _ = runtime.block_on(connection.close());
         }
     }
 
     fn send(&mut self, notification: &Notification, replaces: Option<u32>) -> zbus::Result<u32> {
-        let connection = self.connection()?;
-        let hints: HashMap<&str, zbus::zvariant::Value<'_>> =
+        let kept = self.kept()?;
+        // notify-rust's own encoding of its hints, into the `Variant` of the zbus it is built on:
+        // the same zbus 6 as this crate's, which is what lets the map go into the call as it is.
+        let hints: HashMap<&str, zbus::Variant<'_>> =
             notification.hints.iter().map(Into::into).collect();
-        connection
-            .call_method(
-                Some(NOTIFICATIONS),
-                NOTIFICATIONS_PATH,
-                Some(NOTIFICATIONS),
-                "Notify",
-                &(
-                    &notification.appname,
-                    replaces.unwrap_or(0),
-                    &notification.icon,
-                    &notification.summary,
-                    &notification.body,
-                    &notification.actions,
-                    hints,
-                    i32::from(notification.timeout),
-                ),
-            )?
-            .body()
-            .deserialize()
+        kept.runtime.block_on(async {
+            kept.connection
+                .call_method(
+                    Some(NOTIFICATIONS),
+                    NOTIFICATIONS_PATH,
+                    Some(NOTIFICATIONS),
+                    "Notify",
+                    &(
+                        &notification.appname,
+                        replaces.unwrap_or(0),
+                        &notification.icon,
+                        &notification.summary,
+                        &notification.body,
+                        &notification.actions,
+                        hints,
+                        i32::from(notification.timeout),
+                    ),
+                )
+                .await?
+                .body()
+                .deserialize()
+        })
     }
 }
 
 impl Sink for DesktopSink {
     fn deliver(&mut self, message: &Message, replaces: Option<u32>) -> Option<u32> {
         let notification = build(message, replaces);
-        let kept = self.connection.is_some();
+        let kept = self.kept.is_some();
         let mut sent = self.send(&notification, replaces);
         if sent.is_err() && kept {
             // The kept connection may be the one that failed — the bus restarted under it — so
@@ -493,63 +548,79 @@ impl Drop for DesktopSink {
 }
 
 /// Listen on `connection` for a click on the notification in `link`, and follow its link. The
-/// thread ends when the connection does.
+/// thread ends when the connection does; until then it is the one driving `runtime`, the
+/// connection's.
 fn follow_links(
-    connection: &zbus::blocking::Connection,
+    runtime: &Arc<Runtime>,
+    connection: &zbus::Connection,
     link: Arc<Mutex<Option<(u32, String)>>>,
     open: Opener,
 ) {
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .interface(NOTIFICATIONS)
-        .and_then(|rule| rule.path(NOTIFICATIONS_PATH))
-        .map(zbus::match_rule::Builder::build);
+        .path(NOTIFICATIONS_PATH)
+        .build();
     let signals = rule.and_then(|rule| {
-        zbus::blocking::MessageIterator::for_match_rule(rule, connection, Some(16))
+        runtime.block_on(zbus::MessageStream::for_match_rule(
+            rule,
+            connection,
+            NonZeroUsize::new(16),
+        ))
     });
-    let signals = match signals {
+    let mut signals = match signals {
         Ok(signals) => signals,
         Err(e) => {
             log::warn!("notification links will not open: {e}");
             return;
         }
     };
+    let driven = Arc::clone(runtime);
     let spawned = thread::Builder::new()
         .name("fxsound-notify-links".to_owned())
         .spawn(move || {
-            for signal in signals {
-                let Ok(signal) = signal else { break };
-                let header = signal.header();
-                let member = header.member().map(zbus::names::MemberName::as_str);
-                let mut link = link
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                match member {
-                    Some("ActionInvoked") => {
-                        let Ok((id, _action)) = signal.body().deserialize::<(u32, String)>() else {
-                            continue;
-                        };
-                        if link.as_ref().is_some_and(|(shown, _)| *shown == id)
-                            && let Some((_, url)) = link.take()
-                        {
-                            open(&url);
+            driven.block_on(async move {
+                while let Some(signal) = next_signal(&mut signals).await {
+                    let Ok(signal) = signal else { break };
+                    let header = signal.header();
+                    let member = header.member().map(zbus::names::MemberName::as_str);
+                    let mut link = link
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    match member {
+                        Some("ActionInvoked") => {
+                            let Ok((id, _action)) = signal.body().deserialize::<(u32, String)>()
+                            else {
+                                continue;
+                            };
+                            if link.as_ref().is_some_and(|(shown, _)| *shown == id)
+                                && let Some((_, url)) = link.take()
+                            {
+                                open(&url);
+                            }
                         }
-                    }
-                    Some("NotificationClosed") => {
-                        let Ok((id, _reason)) = signal.body().deserialize::<(u32, u32)>() else {
-                            continue;
-                        };
-                        if link.as_ref().is_some_and(|(shown, _)| *shown == id) {
-                            *link = None;
+                        Some("NotificationClosed") => {
+                            let Ok((id, _reason)) = signal.body().deserialize::<(u32, u32)>()
+                            else {
+                                continue;
+                            };
+                            if link.as_ref().is_some_and(|(shown, _)| *shown == id) {
+                                *link = None;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
+            });
         });
     if let Err(e) = spawned {
         log::warn!("notification links will not open: {e}");
     }
+}
+
+/// The next message on `stream`; `None` once the connection has gone.
+async fn next_signal(stream: &mut zbus::MessageStream) -> Option<zbus::Result<zbus::Message>> {
+    std::future::poll_fn(|cx| Pin::new(&mut *stream).poll_next(cx)).await
 }
 
 /// The GUI thread's end of the notification path.
@@ -742,7 +813,7 @@ mod tests {
     #[test]
     fn an_id_to_replace_is_carried_into_the_call() {
         // `Notification::id` is write-only in notify-rust — the field is `pub(crate)`
-        // (`notify-rust-4.18.0/src/notification.rs:61`) and `.id()` is the setter — so the derived
+        // (`notify-rust-4.19.0/src/notification.rs:121`) and `.id()` is the setter — so the derived
         // `Debug` is the only way to see what was stored.
         let replacing = format!("{:?}", build(&Message::output_disconnected(), Some(42)));
         assert!(replacing.contains("id: Some(42)"), "{replacing}");
@@ -934,7 +1005,7 @@ mod tests {
             _summary: String,
             _body: String,
             _actions: Vec<String>,
-            hints: HashMap<String, zbus::zvariant::OwnedValue>,
+            hints: HashMap<String, zbus::OwnedVariant>,
             _expire_timeout: i32,
         ) -> u32 {
             let sender = header.sender().map(ToString::to_string).unwrap_or_default();
@@ -1016,21 +1087,19 @@ mod tests {
     fn daemon_on(
         bus: &crate::private_bus::PrivateBus,
         tx: Sender<Received>,
-    ) -> zbus::blocking::Connection {
-        zbus::blocking::connection::Builder::address(bus.address.as_str())
-            .expect("an address")
-            .name("org.freedesktop.Notifications")
-            .expect("a well-known name")
-            .serve_at(
-                "/org/freedesktop/Notifications",
-                Daemon {
-                    tx,
-                    next_id: std::sync::atomic::AtomicU32::new(0),
-                },
-            )
-            .expect("a path")
-            .build()
-            .expect("the daemon is on the bus")
+    ) -> crate::private_bus::Client {
+        crate::private_bus::Client::build(
+            zbus::connection::Builder::address(bus.address.as_str())
+                .name("org.freedesktop.Notifications")
+                .serve_at(
+                    "/org/freedesktop/Notifications",
+                    Daemon {
+                        tx,
+                        next_id: std::sync::atomic::AtomicU32::new(0),
+                    },
+                ),
+        )
+        .expect("the daemon is on the bus")
     }
 
     #[test]
@@ -1047,25 +1116,25 @@ mod tests {
         });
         let emit = |member: &str, body: &(u32, &str)| {
             daemon
-                .emit_signal(
+                .block_on(daemon.connection().emit_signal(
                     None::<&str>,
                     NOTIFICATIONS_PATH,
                     NOTIFICATIONS,
                     member,
                     body,
-                )
+                ))
                 .expect("the signal is sent");
         };
         let click = |id: u32| emit("ActionInvoked", &(id, "default"));
         let closed = |id: u32| {
             daemon
-                .emit_signal(
+                .block_on(daemon.connection().emit_signal(
                     None::<&str>,
                     NOTIFICATIONS_PATH,
                     NOTIFICATIONS,
                     "NotificationClosed",
                     &(id, 2_u32),
-                )
+                ))
                 .expect("the signal is sent");
         };
         let next_opened = || {
