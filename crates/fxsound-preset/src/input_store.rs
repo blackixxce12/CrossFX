@@ -472,7 +472,9 @@ mod tests {
     fn the_default_directories_keep_voice_presets_apart_from_the_fac_set() {
         let store = InputPresetStore::with_default_dirs();
         assert!(
-            store.user_dir().ends_with("fxsound/presets/Input"),
+            store.user_dir().ends_with(
+                std::path::Path::new(fxsound_core::settings::APP_DIR_NAME).join("presets/Input")
+            ),
             "{}",
             store.user_dir().display()
         );
