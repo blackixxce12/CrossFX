@@ -415,7 +415,8 @@ impl Settings {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 return Self::sanitised_default();
             }
-            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory => {
+            // Windows refuses to open a directory as a file with "access denied", not EISDIR.
+            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory || path.is_dir() => {
                 log::warn!("{}: {err}; using defaults", path.display());
                 return Self::sanitised_default();
             }
@@ -1369,13 +1370,11 @@ input_preset = \"Headset\"
 
     #[test]
     fn a_settings_file_this_user_may_not_read_is_moved_aside_rather_than_replaced() {
-        use std::os::unix::fs::PermissionsExt as _;
-
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("settings.toml");
         let text = "output_preset = \"Jazz\"\n";
         std::fs::write(&path, text).expect("write");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        assert!(crate::atomic::tests::forbid_reading(&path), "chmod");
         if std::fs::read(&path).is_ok() {
             // Root reads a mode-000 file anyway, so there is no unreadable file to test with.
             return;
@@ -1389,7 +1388,7 @@ input_preset = \"Headset\"
         );
 
         loaded_defaults().save_to(&path).expect("save");
-        std::fs::set_permissions(&aside, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        assert!(crate::atomic::tests::allow_reading(&aside), "chmod");
         assert_eq!(
             std::fs::read_to_string(&aside).expect("readable once allowed"),
             text,
@@ -1457,7 +1456,9 @@ input_preset = \"Headset\"
         let mut original = loaded_defaults();
         original.output_preset = "Rock".into();
         original.save_to(&real).expect("save the dotfiles copy");
-        std::os::unix::fs::symlink(&real, &link).expect("link");
+        let Some(()) = crate::atomic::tests::symlink(&real, &link) else {
+            return;
+        };
 
         let mut settings = Settings::load_from(&link);
         assert_eq!(settings.output_preset, "Rock");

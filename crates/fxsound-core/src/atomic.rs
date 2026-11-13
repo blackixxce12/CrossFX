@@ -239,7 +239,7 @@ pub fn numbered(name: &OsStr, n: u32) -> OsString {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A new directory of the test's own, removed with the handle — also when the test panics.
@@ -315,6 +315,150 @@ mod tests {
         names
     }
 
+    /// A symbolic link at `link` to `target`, a file or nothing yet, or `None` where this test
+    /// process may not make one: Windows makes symbolic links only for an administrator or with
+    /// Developer Mode on, and a test without one has nothing to check. Unix always may.
+    ///
+    /// # Panics
+    /// The link could not be made for another reason.
+    pub(crate) fn symlink(target: &Path, link: &Path) -> Option<()> {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).expect("a symbolic link");
+        #[cfg(windows)]
+        {
+            /// `ERROR_PRIVILEGE_NOT_HELD`: no `SeCreateSymbolicLinkPrivilege`.
+            const PRIVILEGE_NOT_HELD: i32 = 1314;
+            match std::os::windows::fs::symlink_file(target, link) {
+                Ok(()) => {}
+                Err(err) if err.raw_os_error() == Some(PRIVILEGE_NOT_HELD) => {
+                    eprintln!("skipped: this process may not make symbolic links ({err})");
+                    return None;
+                }
+                Err(err) => panic!("a symbolic link at {}: {err}", link.display()),
+            }
+        }
+        Some(())
+    }
+
+    /// Take away this user's right to read `path`'s contents, and nothing else: mode 000 on Unix;
+    /// on Windows an entry denying everyone `FILE_READ_DATA`, made with `icacls` (no Win32 binding
+    /// in a crate that forbids `unsafe`), which leaves the rename and the delete a move aside and
+    /// the scratch directory's removal need. `false` when it could not be done.
+    pub(crate) fn forbid_reading(path: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            icacls(path, &["/deny", "*S-1-1-0:(RD)"])
+        }
+    }
+
+    /// Give back what [`forbid_reading`] took: mode 600 on Unix, the denying entry removed on
+    /// Windows.
+    pub(crate) fn allow_reading(path: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            icacls(path, &["/remove:d", "*S-1-1-0"])
+        }
+    }
+
+    /// `icacls <path> <args>`, from the system directory; whether it succeeded. Everyone is named
+    /// by its SID, `S-1-1-0`, which no translation of Windows renames.
+    #[cfg(windows)]
+    fn icacls(path: &Path, args: &[&str]) -> bool {
+        let system = std::env::var_os("SystemRoot")
+            .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+        std::process::Command::new(system.join(r"System32\icacls.exe"))
+            .arg(path)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    /// Windows: a rename over a file another handle holds open with `FILE_SHARE_DELETE` — as the
+    /// standard library opens every file, and as a reader that holds the settings open does —
+    /// replaces it as on Unix, and the reader keeps reading what it opened.
+    #[cfg(windows)]
+    #[test]
+    fn a_write_replaces_a_file_a_reader_holds_open() {
+        use std::io::Read as _;
+
+        let dir = temp_dir("open");
+        let path = dir.path().join("settings.toml");
+        write(&path, b"old").expect("write");
+        let mut reader = std::fs::File::open(&path).expect("open");
+
+        write(&path, b"new").expect("a rename over an open file");
+
+        assert_eq!(std::fs::read(&path).expect("read"), b"new");
+        let mut held = Vec::new();
+        reader.read_to_end(&mut held).expect("still readable");
+        assert_eq!(held, b"old", "the reader keeps the file it opened");
+        drop(reader);
+        assert_eq!(listing(dir.path()), vec!["settings.toml".to_owned()]);
+    }
+
+    /// Windows: a file another program holds open without letting it be deleted — an editor, a
+    /// backup or sync client — cannot be renamed over. The write fails, the file keeps what it
+    /// had, and the temporary file is gone.
+    #[cfg(windows)]
+    #[test]
+    fn a_write_over_a_file_held_without_share_delete_fails_and_leaves_it_whole() {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        /// `FILE_SHARE_READ` alone: readers may come, no rename or delete may.
+        const FILE_SHARE_READ: u32 = 1;
+
+        let dir = temp_dir("locked");
+        let path = dir.path().join("preset.fac");
+        write(&path, b"original").expect("write");
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&path)
+            .expect("open without FILE_SHARE_DELETE");
+
+        assert!(write(&path, b"replacement").is_err());
+
+        assert_eq!(std::fs::read(&path).expect("read"), b"original");
+        assert_eq!(listing(dir.path()), vec!["preset.fac".to_owned()]);
+        drop(held);
+        write(&path, b"replacement").expect("once it is let go");
+        assert_eq!(std::fs::read(&path).expect("read"), b"replacement");
+    }
+
+    /// A path past Windows' old `MAX_PATH` of 260 characters, which a preset of a long name in a
+    /// deep profile reaches: the standard library hands such paths to Windows in their `\\?\`
+    /// form, so the temporary file, the rename and the backup all work there as anywhere.
+    #[test]
+    fn a_write_and_its_backup_work_on_a_path_longer_than_260_characters() {
+        let dir = temp_dir("long");
+        let mut deep = dir.path().to_path_buf();
+        for _ in 0..6 {
+            deep.push("a directory with a name of some forty-odd chars");
+        }
+        let path = deep.join("A preset with a long name of its own, Rock Ballad.fac");
+        assert!(path.as_os_str().len() > 300, "{}", path.display());
+
+        write(&path, b"first").expect("write");
+        write_with_backup(&path, b"second").expect("overwrite");
+
+        assert_eq!(std::fs::read(&path).expect("read"), b"second");
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".bak");
+        assert_eq!(std::fs::read(Path::new(&backup)).expect("backup"), b"first");
+        assert_eq!(listing(&deep).len(), 2, "{:?}", listing(&deep));
+    }
+
     #[test]
     fn a_write_through_a_symbolic_link_replaces_the_file_it_points_to_and_keeps_the_link() {
         // What GNU Stow and chezmoi's symlink mode leave in ~/.config: the file is a link into
@@ -328,7 +472,10 @@ mod tests {
         let real = dotfiles.join("settings.toml");
         std::fs::write(&real, b"power = false").expect("write");
         let link = config.join("settings.toml");
-        std::os::unix::fs::symlink("../dotfiles/settings.toml", &link).expect("link");
+        let target = Path::new("..").join("dotfiles").join("settings.toml");
+        let Some(()) = symlink(&target, &link) else {
+            return;
+        };
 
         write(&link, b"power = true").expect("write through the link");
 
@@ -341,7 +488,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_link(&link).expect("read the link"),
-            Path::new("../dotfiles/settings.toml"),
+            target,
             "pointing where it pointed"
         );
         assert_eq!(std::fs::read(&real).expect("read"), b"power = true");
@@ -355,9 +502,11 @@ mod tests {
         let real = dir.path().join("real.toml");
         std::fs::write(&real, b"old").expect("write");
         let middle = dir.path().join("middle.toml");
-        std::os::unix::fs::symlink(&real, &middle).expect("absolute link");
+        let Some(()) = symlink(&real, &middle) else {
+            return;
+        };
         let outer = dir.path().join("outer.toml");
-        std::os::unix::fs::symlink("middle.toml", &outer).expect("relative link");
+        symlink(Path::new("middle.toml"), &outer).expect("a relative link");
 
         write(&outer, b"new").expect("write through both links");
 
@@ -380,7 +529,9 @@ mod tests {
         let dir = temp_dir("dangling");
         let link = dir.path().join("settings.toml");
         let real = dir.path().join("dotfiles").join("settings.toml");
-        std::os::unix::fs::symlink(&real, &link).expect("link");
+        let Some(()) = symlink(&real, &link) else {
+            return;
+        };
 
         write(&link, b"first").expect("write through the link");
 
@@ -398,8 +549,6 @@ mod tests {
         // What home-manager's default links end at: a read-only file in the Nix store. A
         // single-user Nix install lets its user write the store's directory, as this one is, so
         // without the refusal the rename would change the store in place.
-        use std::os::unix::fs::PermissionsExt as _;
-
         let dir = temp_dir("read-only");
         let store = dir.path().join("store");
         let config = dir.path().join("config");
@@ -407,9 +556,22 @@ mod tests {
         std::fs::create_dir_all(&config).expect("create");
         let real = store.join("hm_settings.toml");
         std::fs::write(&real, b"power = false").expect("write");
-        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o444)).expect("chmod");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o444)).expect("chmod");
+        }
+        // Windows' read-only attribute, which is what `Permissions::readonly` reads there.
+        #[cfg(windows)]
+        {
+            let mut read_only = std::fs::metadata(&real).expect("there").permissions();
+            read_only.set_readonly(true);
+            std::fs::set_permissions(&real, read_only).expect("make it read-only");
+        }
         let link = config.join("settings.toml");
-        std::os::unix::fs::symlink(&real, &link).expect("link");
+        let Some(()) = symlink(&real, &link) else {
+            return;
+        };
 
         let err = write(&link, b"power = true").expect_err("a read-only file is not written");
 
@@ -432,8 +594,10 @@ mod tests {
         let dir = temp_dir("loop");
         let a = dir.path().join("a.toml");
         let b = dir.path().join("b.toml");
-        std::os::unix::fs::symlink(&b, &a).expect("link");
-        std::os::unix::fs::symlink(&a, &b).expect("link");
+        let Some(()) = symlink(&b, &a) else {
+            return;
+        };
+        symlink(&a, &b).expect("a link");
 
         write(&a, b"plain").expect("write");
 

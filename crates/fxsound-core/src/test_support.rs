@@ -34,6 +34,7 @@ impl ScratchDir {
     /// [`Self::new`], with room left in its path for a Unix socket a few levels down: a socket's
     /// path may not be longer than 108 bytes, which a deep `TMPDIR` can use up on its own. In
     /// `/tmp` itself when the temporary directory is that deep.
+    #[cfg(unix)]
     #[must_use]
     pub fn for_sockets(tag: &str) -> Self {
         let parent = std::env::temp_dir();
@@ -44,6 +45,14 @@ impl ScratchDir {
         } else {
             Self::within(Path::new("/tmp"), tag)
         }
+    }
+
+    /// [`Self::new`]: the standard library has no Unix sockets on Windows, and so no path whose
+    /// length a test must mind, nor a `/tmp` to fall back to.
+    #[cfg(windows)]
+    #[must_use]
+    pub fn for_sockets(tag: &str) -> Self {
+        Self::new(tag)
     }
 
     fn within(parent: &Path, tag: &str) -> Self {
@@ -106,6 +115,7 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
 /// [`command`], for a program that writes a file for as long as it runs, such as `pw-record`:
 /// no file it writes can grow past `bytes`. It is run under `ulimit -f` — and dies of `SIGXFSZ`,
 /// without a core file, when it tries — so a recorder that nobody stopped cannot fill `/tmp`.
+#[cfg(unix)]
 #[must_use]
 pub fn command_writing_at_most(program: impl AsRef<OsStr>, bytes: u64) -> Command {
     let program = program.as_ref();
@@ -121,6 +131,16 @@ pub fn command_writing_at_most(program: impl AsRef<OsStr>, bytes: u64) -> Comman
         ))
         .arg(program);
     command
+}
+
+/// [`command`], with no limit on what the program writes: Windows has no `ulimit -f`, and its
+/// job objects, which limit memory and time, are out of reach of a crate that forbids `unsafe`,
+/// and limit no file's size either. What [`spawn`] promises still holds — the program does not
+/// outlive the test — so a recorder nobody stopped writes for no longer than the test runs.
+#[cfg(windows)]
+#[must_use]
+pub fn command_writing_at_most(program: impl AsRef<OsStr>, _bytes: u64) -> Command {
+    command(program)
 }
 
 /// Start `command` — made by [`command`] or [`command_writing_at_most`] — as a child that goes
@@ -189,7 +209,7 @@ impl Guarded {
         self.child.stdout.take()
     }
 
-    /// Kill the child with `SIGKILL`, as [`Child::kill`] does.
+    /// Kill the child with `SIGKILL` (`TerminateProcess` on Windows), as [`Child::kill`] does.
     ///
     /// # Errors
     ///
@@ -320,7 +340,13 @@ fn on_path(program: &OsStr) -> Option<PathBuf> {
     };
     #[cfg(not(unix))]
     let executable = |path: &Path| path.is_file() || path.with_extension("exe").is_file();
-    if program.as_encoded_bytes().contains(&b'/') {
+    // A Windows path may be spelt with either separator, and `current_exe` spells it with `\`.
+    let separators: &[u8] = if cfg!(windows) { b"/\\" } else { b"/" };
+    if program
+        .as_encoded_bytes()
+        .iter()
+        .any(|byte| separators.contains(byte))
+    {
         let path = PathBuf::from(program);
         return executable(&path).then_some(path);
     }
@@ -357,12 +383,39 @@ fn spawned_by_the_keeper(command: Command) -> io::Result<Child> {
 /// A shell that kills `pid` once its standard input ends. Nothing is ever written to it, so it
 /// ends only when the write end closes, and that end is this process's alone — it is opened
 /// close-on-exec, so no other child holds a copy — and closes when this process dies.
+#[cfg(unix)]
 fn watchdog(pid: u32) -> io::Result<Child> {
     Command::new("sh")
         .arg("-c")
         .arg("read -r line; kill -KILL \"$1\" 2>/dev/null")
         .arg("fxsound-test-watchdog")
         .arg(pid.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
+/// [`watchdog`] on Windows, where `sh`'s `kill` — Git for Windows' or none at all — knows no
+/// Windows process ids: `cmd` waits on `set /p` for its standard input to end and then has
+/// `taskkill` end `pid` and whatever it started. The pipe's write end is this process's alone, as
+/// on Unix: the standard library lets only the child it starts inherit a handle.
+///
+/// A job object that kills its processes when its last handle closes would need no second
+/// process, but no Win32 call is open to a crate that forbids `unsafe`.
+#[cfg(windows)]
+fn watchdog(pid: u32) -> io::Result<Child> {
+    use std::os::windows::process::CommandExt as _;
+
+    let system = std::env::var_os("SystemRoot")
+        .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
+        .join("System32");
+    // `cmd` parses its own command line, so it is passed as written, not quoted as an argument.
+    Command::new(system.join("cmd.exe"))
+        .raw_arg(format!(
+            "/d /q /c \"set /p line= & \"{}\" /F /T /PID {pid} >nul 2>&1\"",
+            system.join("taskkill.exe").display()
+        ))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -382,6 +435,7 @@ mod tests {
 
     /// Whether the process `pid` is still one of the `sleep 600`s started here. A zombie, an id
     /// nobody has, or an id a later process got is not.
+    #[cfg(unix)]
     fn sleeping(pid: u32) -> bool {
         let alive = std::fs::read_to_string(format!("/proc/{pid}/stat"))
             .ok()
@@ -394,6 +448,45 @@ mod tests {
         alive
             && std::fs::read(format!("/proc/{pid}/cmdline"))
                 .is_ok_and(|cmdline| cmdline == b"sleep\x00600\x00")
+    }
+
+    /// Whether the process `pid` is still one of the sleepers started here ([`sleeper`]), as
+    /// `tasklist` lists it: Windows has no `/proc`, and lists no process that has ended, whoever
+    /// still holds a handle to it.
+    #[cfg(windows)]
+    fn sleeping(pid: u32) -> bool {
+        let Ok(listed) = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        else {
+            return false;
+        };
+        // `"PING.EXE","1234",...`: the image name, then the id.
+        String::from_utf8_lossy(&listed.stdout)
+            .to_ascii_lowercase()
+            .contains(&format!("\"ping.exe\",\"{pid}\""))
+    }
+
+    /// A program that does nothing for ten minutes: `sleep 600`, and on Windows, which has no
+    /// `sleep` (and whose `timeout` refuses a standard input that is not a console), `ping` of the
+    /// loopback address 600 times, a second apart.
+    fn sleeper(make: fn(&OsStr) -> Command) -> Command {
+        #[cfg(unix)]
+        {
+            let mut sleeper = make(OsStr::new("sleep"));
+            sleeper.arg("600");
+            sleeper
+        }
+        #[cfg(windows)]
+        {
+            let mut sleeper = make(OsStr::new("ping"));
+            sleeper
+                .args(["-n", "600", "127.0.0.1"])
+                .stdout(Stdio::null());
+            sleeper
+        }
     }
 
     /// Wait until every one of `pids` is sleeping: `setpriv` is still becoming `sleep` for a moment
@@ -426,13 +519,9 @@ mod tests {
     /// Two `sleep`s, one started through [`command`] — `setpriv`'s, where it is installed — and
     /// one as a plain command, which always gets the watchdog.
     fn two_sleepers() -> [Guarded; 2] {
-        let mut through_setpriv = command("sleep");
-        through_setpriv.arg("600");
-        let mut watched = Command::new("sleep");
-        watched.arg("600");
         [
-            spawn(through_setpriv).expect("sleep, through command()"),
-            spawn(watched).expect("sleep, watched"),
+            spawn(sleeper(|program| command(program))).expect("sleep, through command()"),
+            spawn(sleeper(|program| Command::new(program))).expect("sleep, watched"),
         ]
     }
 
@@ -462,6 +551,8 @@ mod tests {
         assert!(!dir.exists(), "{} is still there", dir.display());
     }
 
+    // Unix only: the 108 bytes are Unix sockets'; on Windows it is a scratch directory like any.
+    #[cfg(unix)]
     #[test]
     fn a_directory_for_sockets_leaves_room_for_one() {
         let dir = ScratchDir::for_sockets("sockets");
@@ -519,19 +610,36 @@ mod tests {
     fn a_child_that_failed_is_accounted_for_with_its_status_and_its_standard_error() {
         let dir = ScratchDir::new("account");
         let log = dir.join("stderr");
-        let mut failing = command("sh");
+        #[cfg(unix)]
+        let mut failing = {
+            let mut failing = command("sh");
+            failing.args(["-c", "echo 'no such option: --raw' >&2; exit 3"]);
+            failing
+        };
+        #[cfg(windows)]
+        let mut failing = {
+            use std::os::windows::process::CommandExt as _;
+            let mut failing = command("cmd");
+            failing.raw_arg("/d /q /c \"echo no such option: --raw 1>&2& exit 3\"");
+            failing
+        };
         failing
-            .args(["-c", "echo 'no such option: --raw' >&2; exit 3"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(log_to(&log));
         let mut failing = spawn(failing).expect("sh");
         let account = failing.account(Some(&log));
-        assert!(account.contains("exit status: 3"), "{account}");
+        // How the standard library prints an exit status: Windows' are codes.
+        let exited = if cfg!(windows) {
+            "exit code: 3"
+        } else {
+            "exit status: 3"
+        };
+        assert!(account.contains(exited), "{account}");
         assert!(account.contains("no such option: --raw"), "{account}");
 
-        let mut quiet = command("sleep");
-        quiet.arg("600").stderr(log_to(&dir.join("quiet")));
+        let mut quiet = sleeper(|program| command(program));
+        quiet.stderr(log_to(&dir.join("quiet")));
         let mut quiet = spawn(quiet).expect("sleep");
         let account = quiet.account(Some(&dir.join("quiet")));
         assert!(account.contains("still running"), "{account}");
@@ -539,6 +647,8 @@ mod tests {
         assert!(quiet.account(None).contains("still running"));
     }
 
+    // Unix only: Windows has no `ulimit -f` (`command_writing_at_most`).
+    #[cfg(unix)]
     #[test]
     fn a_recording_stops_at_its_size_limit() {
         let dir = ScratchDir::new("size-limit");
@@ -623,7 +733,8 @@ mod tests {
         );
         process.kill().expect("SIGKILL");
         process.wait().expect("the child half ended");
-        // What is left is the kernel's `setpriv` signal and the watchdog: no destructor ran.
+        // What is left is the kernel's `setpriv` signal and the watchdog — on Windows the
+        // watchdog alone: no destructor ran.
         assert_eq!(still_sleeping_after(&pids, Duration::from_secs(10)), []);
     }
 }

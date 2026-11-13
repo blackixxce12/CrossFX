@@ -393,7 +393,8 @@ impl AppRules {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Self::default(),
-            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory => {
+            // Windows refuses to open a directory as a file with "access denied", not EISDIR.
+            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory || path.is_dir() => {
                 log::warn!("{}: {err}; no per-application presets", path.display());
                 return Self::default();
             }
@@ -1145,13 +1146,11 @@ output_preset = \"Volume Boost\"
 
     #[test]
     fn a_file_this_user_may_not_read_is_moved_aside_rather_than_replaced() {
-        use std::os::unix::fs::PermissionsExt as _;
-
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("apps.toml");
         let text = "[[app]]\nname = \"Discord\"\ninput_preset = \"Headset\"\n";
         std::fs::write(&path, text).expect("write");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        assert!(crate::atomic::tests::forbid_reading(&path), "chmod");
         if std::fs::read(&path).is_ok() {
             // Root reads a mode-000 file anyway, so there is no unreadable file to test with.
             return;
@@ -1167,7 +1166,7 @@ output_preset = \"Volume Boost\"
         let mut rules = AppRules::default();
         rules.seen(&key("firefox", "Firefox", ""), 2);
         rules.save_to(&path).expect("save");
-        std::fs::set_permissions(&aside, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        assert!(crate::atomic::tests::allow_reading(&aside), "chmod");
         assert_eq!(
             std::fs::read_to_string(&aside).expect("readable once allowed"),
             text,

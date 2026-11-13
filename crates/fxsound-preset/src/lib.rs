@@ -1081,6 +1081,8 @@ Band 10
         install_data_dirs_for(Some(std::path::Path::new(exe)))
     }
 
+    // Not on Windows, which installs FxSound in one folder (the twin below).
+    #[cfg(not(windows))]
     #[test]
     fn a_binary_under_usr_local_takes_its_own_presets_before_a_packages_under_usr() {
         // The tarball's binary beside a distribution package: the package's presets may be an
@@ -1091,6 +1093,8 @@ Band 10
         );
     }
 
+    // Not on Windows, which installs FxSound in one folder (the twin below).
+    #[cfg(not(windows))]
     #[test]
     fn a_binary_under_usr_takes_its_own_presets_before_those_under_usr_local() {
         assert_eq!(
@@ -1099,6 +1103,8 @@ Band 10
         );
     }
 
+    // Not on Windows, which installs FxSound in one folder (the twin below).
+    #[cfg(not(windows))]
     #[test]
     fn a_binary_under_neither_prefix_searches_usr_then_usr_local() {
         for exe in [
@@ -1116,6 +1122,25 @@ Band 10
             install_data_dirs_for(None),
             ["/usr/share/fxsound", "/usr/local/share/fxsound"].map(std::path::PathBuf::from),
             "no executable path to go by"
+        );
+    }
+
+    /// Windows: the factory presets are where the installer put `fxsound.exe`, wherever that is,
+    /// and nowhere else; with no executable path to go by, nowhere.
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_binary_takes_the_presets_installed_beside_it() {
+        assert_eq!(
+            data_dirs_for(r"C:\Program Files\FxSound\fxsound.exe"),
+            [std::path::PathBuf::from(r"C:\Program Files\FxSound")]
+        );
+        assert_eq!(
+            data_dirs_for(r"D:\Portable\FxSound\fxsound.exe"),
+            [std::path::PathBuf::from(r"D:\Portable\FxSound")]
+        );
+        assert_eq!(
+            install_data_dirs_for(None),
+            Vec::<std::path::PathBuf>::new()
         );
     }
 }

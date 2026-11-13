@@ -114,11 +114,24 @@ fn measure(rate: f32, channels: usize, params: &InputDspParams, channel: usize) 
         .collect()
 }
 
+/// How far a window may be from the 0.3.0 number, relative to it.
+///
+/// The numbers were measured on Linux, where `sin`, `exp` and `powf` are glibc's. Other maths
+/// libraries round them differently in the last place — Windows' C runtime does, in the fixture
+/// and in every coefficient the chain computes — and the gate and the compressor turn that into
+/// windows up to 4.7e-5 apart on Windows (measured). There the bound is 1e-4, still well under
+/// what a change of one coefficient moves a window: a tenth of a decibel is 1.2e-2.
+const RELATIVE: f32 = if cfg!(target_os = "linux") {
+    2.0e-5
+} else {
+    1.0e-4
+};
+
 fn check(name: &str, got: &[(f32, f32)], want: &[(f32, f32)]) {
     assert_eq!(got.len(), want.len(), "{name}: window count");
     for (w, ((rms, peak), (want_rms, want_peak))) in got.iter().zip(want).enumerate() {
-        let rms_ok = (rms - want_rms).abs() <= want_rms.abs() * 2.0e-5 + 1.0e-7;
-        let peak_ok = (peak - want_peak).abs() <= want_peak.abs() * 2.0e-5 + 1.0e-7;
+        let rms_ok = (rms - want_rms).abs() <= want_rms.abs() * RELATIVE + 1.0e-7;
+        let peak_ok = (peak - want_peak).abs() <= want_peak.abs() * RELATIVE + 1.0e-7;
         assert!(
             rms_ok && peak_ok,
             "{name} window {w}: rms {rms:.7} peak {peak:.7}, the 0.3.0 chain gave rms \

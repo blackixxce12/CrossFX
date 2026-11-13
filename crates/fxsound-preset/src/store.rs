@@ -1355,6 +1355,7 @@ mod tests {
 
     /// The user directory as 0.3.0 left a preset saved from its window: the file under the name
     /// as written, `Rock:Live.fac`, and its unsaved edits under the same name in `AutoSave/`.
+    #[cfg(unix)]
     fn as_0_3_0_left_it(tag: &str) -> (ScratchDir, PresetStore) {
         let tmp = tempdir(tag);
         let user = tmp.join("user");
@@ -1365,6 +1366,8 @@ mod tests {
         (tmp, store)
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn the_unsaved_edits_0_3_0_kept_under_a_name_as_written_are_found() {
         let (_tmp, store) = as_0_3_0_left_it("legacy-autosave-found");
@@ -1377,6 +1380,8 @@ mod tests {
         assert_eq!(loaded.main_midi[0], 77);
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn a_user_preset_is_saved_over_the_file_it_is_listed_from_whatever_that_is_called() {
         // 0.3.0 filed "Rock:Live" as `Rock:Live.fac`. The save went to `RockLive.fac`, the list
@@ -1425,6 +1430,8 @@ mod tests {
         assert_eq!(store.load("Evening Jazz").expect("load").0.main_midi[0], 6);
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn the_next_autosave_moves_0_3_0_edits_to_the_names_own_file() {
         let (tmp, store) = as_0_3_0_left_it("legacy-autosave-moves");
@@ -1447,6 +1454,8 @@ mod tests {
         assert_eq!(loaded.main_midi[0], 55);
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn undoing_or_deleting_a_preset_takes_its_0_3_0_edits_with_it() {
         let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-clear");
@@ -1471,6 +1480,8 @@ mod tests {
         );
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn a_rename_brings_the_0_3_0_edits_along_and_never_takes_over_another_names() {
         let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-rename");
@@ -1919,6 +1930,9 @@ mod tests {
         );
     }
 
+    // Unix only: Windows cannot name the source `Mu:sic?.fac` to begin with; the sanitiser's own
+    // tests cover the name on every system.
+    #[cfg(unix)]
     #[test]
     fn an_imported_file_is_saved_under_a_name_windows_can_file_and_carries_it_inside() {
         // 0.4.0 audit #15: `a:b.fac` became `ab.fac` with `a:b` inside it.
