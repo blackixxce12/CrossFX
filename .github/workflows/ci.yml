@@ -63,7 +63,7 @@ jobs:
           # between profiles: the only card — PipeWire `Device` — a private daemon can make without
           # hardware is Bluetooth's enumerator, on a private system bus.
 
-      # rust-toolchain.toml pins 1.98.1 and asks for rustfmt and clippy, so rustup installs
+      # rust-toolchain.toml pins 1.100.0 and asks for rustfmt and clippy, so rustup installs
       # exactly what the developers use rather than whatever the runner image happens to ship.
       - name: Show the toolchain
         run: |
@@ -214,6 +214,35 @@ jobs:
           { grep 'WARNING' "$report" || true; } | while IFS= read -r line; do
             echo "::warning title=Click report::$line"
           done
+
+  # The Windows build: the `check` job's lints, warnings denied, for every crate as Windows
+  # compiles it — the WASAPI backend, the notification-area icon and the Windows halves of the app
+  # are code no Linux job builds — and the tests of the crates whose tests run on Windows: the
+  # DSP, RNNoise, the presets and the settings. fxsound-audio's want an audio device, which a
+  # runner does not have; fxsound-ui's and fxsound-app's join this list once they are known to
+  # pass on Windows. packages.yml's windows job runs the packaged binary.
+  windows:
+    name: Lint and test on Windows
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      # rust-toolchain.toml's toolchain and components, installed outright rather than on first use.
+      - name: Install the toolchain
+        run: |
+          rustup toolchain install
+          rustc --version
+          cargo clippy --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Lints
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: cargo test -p fxsound-core -p fxsound-dsp -p fxsound-rnnoise -p fxsound-preset
 
   # The workflows themselves: actionlint checks their syntax, expressions, runner labels and job
   # dependencies, and hands every `run:` script to shellcheck. Shellcheck's warnings and errors
