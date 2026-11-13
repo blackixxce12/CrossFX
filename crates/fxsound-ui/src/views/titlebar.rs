@@ -303,7 +303,11 @@ fn drag_region(
     bar: Rect,
     response: &mut UiResponse,
 ) {
-    let drag = ui.interact(bar, Id::new("fx_title_bar_drag"), Sense::click_and_drag());
+    let drag = ui.interact(
+        bar,
+        Id::unique("fx_title_bar_drag"),
+        Sense::click_and_drag(),
+    );
     if drag.drag_started()
         && drag
             .interact_pointer_pos()
@@ -446,7 +450,7 @@ fn close(ui: &mut Ui, state: &UiState, palette: Palette, rect: Rect, tip: &str) 
     let mut response = ui
         .interact(
             icon_button::hit_rect(rect, icon_button::MIN_HIT_SIZE),
-            Id::new("fx_close_button"),
+            Id::unique("fx_close_button"),
             Sense::click(),
         )
         .on_hover_cursor(CursorIcon::PointingHand);

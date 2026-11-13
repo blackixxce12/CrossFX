@@ -365,7 +365,7 @@ impl<'a> DialogChrome<'a> {
             shadow,
         } = self;
 
-        let id = Id::new("fx_dialog_chrome").with(id_salt);
+        let id = Id::unique("fx_dialog_chrome").with(id_salt);
         let frame = frame_rect(outer);
         let title_bar = title_bar_rect(outer);
         let corner = CornerRadius::same(WINDOW_CORNER_RADIUS as u8);
@@ -619,7 +619,7 @@ impl<'a> TextButton<'a> {
         id_salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> egui::Response {
         let Self { label, enabled } = self;
-        let id = Id::new("fx_text_button").with(id_salt);
+        let id = Id::unique("fx_text_button").with(id_salt);
         let sense = if enabled {
             Sense::click()
         } else {
@@ -680,7 +680,7 @@ pub fn link(
     align: Align2,
     id_salt: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let id = Id::new("fx_dialog_link").with(id_salt);
+    let id = Id::unique("fx_dialog_link").with(id_salt);
     let colour = palette.color(FxColor::DefaultText);
     let mut job = LayoutJob::single_section(
         text.to_owned(),

@@ -1421,7 +1421,7 @@ mod tests {
             harness.settle(&state);
             harness.ctx.memory_mut(|m| {
                 m.request_focus(
-                    egui::Id::new("fx_slider").with(("fx_level", Level::MasterGain as u8)),
+                    egui::Id::unique("fx_slider").with(("fx_level", Level::MasterGain as u8)),
                 );
             });
             harness.frame(&state, Vec::new());
@@ -1445,7 +1445,7 @@ mod tests {
             harness.settle(&state);
             harness.ctx.memory_mut(|m| {
                 m.request_focus(
-                    egui::Id::new("fx_slider").with(("fx_level", Level::MasterGain as u8)),
+                    egui::Id::unique("fx_slider").with(("fx_level", Level::MasterGain as u8)),
                 );
             });
             harness.frame(&state, Vec::new());

@@ -210,7 +210,7 @@ impl<'a> FxSlider<'a> {
             fine,
         } = self;
 
-        let id = Id::new("fx_slider").with(id_salt);
+        let id = Id::unique("fx_slider").with(id_salt);
         let sense = if enabled {
             Sense::click_and_drag()
         } else {
@@ -766,6 +766,7 @@ mod tests {
             unit,
             delta,
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
             modifiers,
         }
     }

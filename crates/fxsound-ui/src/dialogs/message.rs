@@ -270,7 +270,7 @@ impl<'a> MessageBox<'a> {
         id_salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> Option<ConfirmChoice> {
         let Self { text, style } = self;
-        let id = Id::new("fx_message_box").with(id_salt);
+        let id = Id::unique("fx_message_box").with(id_salt);
 
         let ChromeResponse {
             content,
@@ -332,7 +332,7 @@ impl<'a> MessageBox<'a> {
         assets: &mut AssetCache,
         id_salt: impl std::hash::Hash + std::fmt::Debug + Clone,
     ) -> Option<ConfirmChoice> {
-        let id = Id::new("fx_message_modal").with(id_salt.clone());
+        let id = Id::unique("fx_message_modal").with(id_salt.clone());
         let response = egui::Modal::new(id)
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {

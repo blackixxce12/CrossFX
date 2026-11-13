@@ -1389,8 +1389,8 @@ mod tests {
             volume_leveling_db: 4.0,
             ..DspParams::default()
         };
-        for band in 0..10 {
-            params.band_boost_db[band] = if band % 2 == 0 { 9.0 } else { -6.0 };
+        for (band, boost) in params.band_boost_db.iter_mut().take(10).enumerate() {
+            *boost = if band % 2 == 0 { 9.0 } else { -6.0 };
         }
         params
     }
@@ -1967,8 +1967,8 @@ mod tests {
         for id in EffectId::ALL {
             params.set_effect(id, 1.0);
         }
-        for band in 0..10 {
-            params.band_boost_db[band] = 12.0;
+        for boost in params.band_boost_db.iter_mut().take(10) {
+            *boost = 12.0;
         }
         params.master_gain_db = 20.0;
         engine.apply(&params);
@@ -2028,8 +2028,8 @@ mod tests {
                 volume_leveling_db: 2.0,
                 ..DspParams::default()
             };
-            for band in 0..10 {
-                params.band_boost_db[band] = if band % 2 == 0 { 6.0 } else { -6.0 };
+            for (band, boost) in params.band_boost_db.iter_mut().take(10).enumerate() {
+                *boost = if band % 2 == 0 { 6.0 } else { -6.0 };
             }
             engine.apply(&params);
 
@@ -2337,8 +2337,8 @@ mod tests {
             let mut engine = Engine::new(48_000.0, 4096, 2);
             let mut params = DspParams::default();
             params.set_effect(EffectId::Ambience, 1.0);
-            for band in 0..10 {
-                params.band_boost_db[band] = 6.0;
+            for boost in params.band_boost_db.iter_mut().take(10) {
+                *boost = 6.0;
             }
             engine.apply(&params);
 
@@ -3008,8 +3008,8 @@ mod tests {
                     eq_on: random.next() > 0.1,
                     ..DspParams::default()
                 };
-                for band in 0..10 {
-                    params.band_boost_db[band] = random.between(-12.0, 12.0);
+                for boost in params.band_boost_db.iter_mut().take(10) {
+                    *boost = random.between(-12.0, 12.0);
                 }
                 for effect in EffectId::ALL {
                     params.set_effect(effect, random.next());

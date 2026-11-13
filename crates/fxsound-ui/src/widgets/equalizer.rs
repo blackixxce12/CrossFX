@@ -1079,7 +1079,7 @@ impl<'a> EqualizerWidget<'a> {
         let mut gains: Vec<f32> = state.eq_bands.iter().map(|band| band.boost_db).collect();
         for (band, gain) in gains.iter_mut().enumerate().take(layout.num_bands) {
             let hit = translate(layout.gain_hit_rect(band), rect.min.to_vec2());
-            let id = Id::new("fx_eq_band").with(band);
+            let id = Id::unique("fx_eq_band").with(band);
             let sense = if powered {
                 Sense::click_and_drag()
             } else {
@@ -1696,7 +1696,7 @@ fn wheel(
     } else {
         Sense::hover()
     };
-    let mut wheel_response = ui.interact(rect, Id::new("fx_eq_wheel").with(band), sense);
+    let mut wheel_response = ui.interact(rect, Id::unique("fx_eq_wheel").with(band), sense);
 
     if interactive {
         if wheel_response.hovered() {

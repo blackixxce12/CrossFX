@@ -709,10 +709,21 @@ fn remove_if_there(path: &Path) {
 
 /// Whether two paths are one file: the same inode, which on a filesystem that folds case is what
 /// `rock.fac` and `Rock.fac` are.
+#[cfg(unix)]
 fn same_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt as _;
     match (std::fs::metadata(a), std::fs::metadata(b)) {
         (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+/// Whether two paths are one file. NTFS folds case, and `canonicalize` hands back the name as the
+/// volume spells it, so `rock.fac` and `Rock.fac` resolve to the same path.
+#[cfg(not(unix))]
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
         _ => false,
     }
 }

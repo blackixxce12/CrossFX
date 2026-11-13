@@ -98,7 +98,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime};
+#[cfg(unix)]
+use std::time::Duration;
+use std::time::SystemTime;
 
 /// The hook itself, a WirePlumber 0.5 Lua script.
 pub const SCRIPT: &str = include_str!("wireplumber_hook/fade-on-move.lua");
@@ -366,6 +368,7 @@ pub fn restart() -> io::Result<()> {
 /// Read from `/proc`: each process of this user named `wireplumber`, its start in clock ticks after
 /// boot (`stat`'s 22nd field), set against the time since boot now (`/proc/uptime`). One started
 /// before `when` is enough: that one has not read it.
+#[cfg(unix)]
 #[must_use]
 pub fn running_since_before(when: SystemTime) -> Option<bool> {
     let proc = Path::new("/proc");
@@ -403,10 +406,20 @@ pub fn running_since_before(when: SystemTime) -> Option<bool> {
 
 /// The clock ticks of `/proc/<pid>/stat`'s start time: `USER_HZ`, which the kernel keeps at 100 for
 /// what it shows user space on every architecture a desktop runs (`sysconf(_SC_CLK_TCK)`).
+#[cfg(unix)]
 const TICKS_PER_SECOND: f64 = 100.0;
+
+/// Whether the user's WirePlumber has run since before `when`: never on Windows, which has no
+/// WirePlumber to ask about.
+#[cfg(not(unix))]
+#[must_use]
+pub fn running_since_before(_when: SystemTime) -> Option<bool> {
+    None
+}
 
 /// When the process of `stat` (`/proc/<pid>/stat`) started, given `uptime` (`/proc/uptime`) read
 /// at `now`. `None` when either cannot be read.
+#[cfg(unix)]
 fn started_at(stat: &str, uptime: &str, now: SystemTime) -> Option<SystemTime> {
     // The command name, the second field, is in parentheses and may hold spaces and parentheses
     // itself: the fields are counted from the last `)`.

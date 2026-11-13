@@ -161,7 +161,7 @@ fn notice_strip(
     let placed = Rect::from_center_size(strip.center(), galley.size());
     ui.painter().galley(placed.min, galley, colour);
 
-    let hit = ui.interact(strip, Id::new("fx_notice_strip"), Sense::click());
+    let hit = ui.interact(strip, Id::unique("fx_notice_strip"), Sense::click());
     if hit.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
@@ -422,9 +422,9 @@ mod tests {
                     },
                 ],
             );
-            // `FxComboBox` hangs its menu off `Id::new("fx_combo_box").with(id_salt)`, and
+            // `FxComboBox` hangs its menu off `Id::unique("fx_combo_box").with(id_salt)`, and
             // `Popup::default_response_id` is that id with "popup" mixed in.
-            let popup_id = egui::Id::new("fx_combo_box").with(salt).with("popup");
+            let popup_id = egui::Id::unique("fx_combo_box").with(salt).with("popup");
             assert!(
                 egui::Popup::is_id_open(&ctx, popup_id),
                 "{salt} should open with the power off"
@@ -458,7 +458,10 @@ mod tests {
             &mut assets,
             vec![Event::PointerMoved(at), button(true), button(false)],
         );
-        egui::Popup::is_id_open(&ctx, egui::Id::new("fx_combo_box").with(salt).with("popup"))
+        egui::Popup::is_id_open(
+            &ctx,
+            egui::Id::unique("fx_combo_box").with(salt).with("popup"),
+        )
     }
 
     #[test]

@@ -1474,7 +1474,7 @@ impl<'a> Shell<'a> {
         let mut committed: Option<(EditorPurpose, String)> = None;
         let mut close = false;
 
-        let area = egui::Area::new(egui::Id::new("fxsound.menu"))
+        let area = egui::Area::new(egui::Id::unique("fxsound.menu"))
             .fixed_pos(egui::pos2(anchor.left(), top))
             // It fits where it is by construction ([`MENU_MAX_WIDTH`], `room`); egui would move it
             // up to the window's top on the frame it opens, before it knows the menu's size.
@@ -2231,7 +2231,7 @@ fn compositor_sized(surface: egui::Vec2, asked: Option<egui::Vec2>, in_flight: b
 /// afterwards sits on top of the backdrop and gets the pointer as before.
 fn dim_backdrop(ui: &egui::Ui, window: egui::Rect, pane: &str) {
     // One per pane: the changelog and the wizard open over Settings, each over its own backdrop.
-    let id = egui::Id::new(("fxsound.pane.backdrop", pane));
+    let id = egui::Id::unique(("fxsound.pane.backdrop", pane));
     ui.interact(window, id, egui::Sense::click_and_drag());
     ui.painter().rect_filled(
         window,
@@ -2594,7 +2594,7 @@ fn name_editor(
     let response = ui.place(
         inner,
         egui::TextEdit::singleline(&mut editor.text)
-            .id(egui::Id::new("fxsound.menu.name_editor"))
+            .id(egui::Id::unique("fxsound.menu.name_editor"))
             .font(theme::semibold(NAME_EDITOR_FONT))
             .text_color(palette.color(FxColor::DefaultText))
             .hint_text(
@@ -2605,7 +2605,7 @@ fn name_editor(
             .char_limit(MAX_PRESET_NAME_CHARS)
             .frame(egui::Frame::NONE)
             .margin(egui::Margin::symmetric(4, 2))
-            .vertical_align(egui::Align::Center)
+            .align(egui::Align2::LEFT_CENTER)
             .min_size(inner.size())
             .desired_width(inner.width() - 8.0),
     );

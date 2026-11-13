@@ -185,6 +185,7 @@ pub fn new_preset_name(name: &str) -> String {
 
 /// The two prefixes an installed FxSound's presets are looked for under — only these, see the
 /// manual page's FILES — in their usual order.
+#[cfg(not(windows))]
 const INSTALL_PREFIXES: [&str; 2] = ["/usr", "/usr/local"];
 
 /// Where an installed FxSound keeps its shared presets, `<prefix>/share/fxsound`, in the order the
@@ -201,7 +202,18 @@ pub fn install_data_dirs() -> Vec<std::path::PathBuf> {
     install_data_dirs_for(std::env::current_exe().ok().as_deref())
 }
 
+/// [`install_data_dirs`] for a binary at `exe`: on Windows, the directory the installer put
+/// `fxsound.exe` in, whose `presets` folder holds the factory presets beside it.
+#[cfg(windows)]
+fn install_data_dirs_for(exe: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
+    exe.and_then(std::path::Path::parent)
+        .map(std::path::Path::to_path_buf)
+        .into_iter()
+        .collect()
+}
+
 /// [`install_data_dirs`] for a binary at `exe`.
+#[cfg(not(windows))]
 fn install_data_dirs_for(exe: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
     use std::path::Path;
     // `<prefix>/bin/fxsound`: the prefix is two above the executable.

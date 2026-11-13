@@ -123,7 +123,7 @@ impl<'a> PowerButton<'a> {
             hide_tooltips,
         } = self;
 
-        let id = Id::new("fx_power_button").with(id_salt);
+        let id = Id::unique("fx_power_button").with(id_salt);
         let sense = if enabled {
             Sense::click()
         } else {

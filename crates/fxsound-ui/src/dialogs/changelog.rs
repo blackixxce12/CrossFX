@@ -138,7 +138,7 @@ impl<'a> ChangelogPane<'a> {
         palette: Palette,
         assets: &mut AssetCache,
     ) -> DialogResponse<ChangelogAction> {
-        let id = Id::new("fx_changelog_pane");
+        let id = Id::unique("fx_changelog_pane");
         let mut response = DialogResponse::default();
         let ChromeResponse {
             content,

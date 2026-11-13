@@ -22,7 +22,6 @@ fxsound-preset = { workspace = true }
 fxsound-audio = { workspace = true }
 eframe = { workspace = true }
 rfd = { workspace = true }
-anyhow = { workspace = true }
 env_logger = { workspace = true }
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }

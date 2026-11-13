@@ -390,7 +390,7 @@ fn notice_bubble(
     ui.painter()
         .galley(pos2(bubble.center().x, top), galley, colour);
 
-    let hit = ui.interact(bubble, Id::new("fx_notice_bubble"), Sense::click());
+    let hit = ui.interact(bubble, Id::unique("fx_notice_bubble"), Sense::click());
     if hit.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
@@ -743,7 +743,11 @@ fn input_meters(ui: &Ui, state: &UiState, palette: Palette, strip: Rect) {
 
         if let Some(tip) = slot.tip {
             let _ = ui
-                .interact(area, Id::new("fx_strip_slot").with(index), Sense::hover())
+                .interact(
+                    area,
+                    Id::unique("fx_strip_slot").with(index),
+                    Sense::hover(),
+                )
                 .on_hover_text(
                     egui::RichText::new(tip)
                         .font(caption_font(METER_FONT_PX + 2.0))
@@ -1405,7 +1409,7 @@ mod tests {
         };
         let focus = || {
             ctx.memory_mut(|m| {
-                m.request_focus(egui::Id::new("fx_slider").with(Effect::Surround.key()));
+                m.request_focus(egui::Id::unique("fx_slider").with(Effect::Surround.key()));
             });
         };
         frame(&ctx, &state, &mut scratch, &mut assets, Vec::new());
@@ -1479,6 +1483,7 @@ mod tests {
             unit: egui::MouseWheelUnit::Line,
             delta: egui::vec2(0.0, 1.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
             modifiers,
         };
         let state = surround_between_positions();
@@ -2771,7 +2776,7 @@ mod tests {
         let ctx = test_context();
         let mut scratch = ViewScratch::new();
         let mut assets = AssetCache::new();
-        let slot = Id::new("fx_strip_slot").with(0);
+        let slot = Id::unique("fx_strip_slot").with(0);
 
         let shown = UiState {
             denoise_running: false,

@@ -1094,7 +1094,7 @@ impl InFlight {
     /// One more call in flight, or `None` when [`ipc::MAX_CONNECTIONS`] are already.
     fn try_enter(self: &Arc<Self>) -> Option<Busy> {
         self.count
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
                 (count < ipc::MAX_CONNECTIONS).then_some(count + 1)
             })
             .ok()?;

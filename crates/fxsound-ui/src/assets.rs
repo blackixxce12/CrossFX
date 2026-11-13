@@ -193,7 +193,8 @@ fn rasterise_area(svg: &[u8], width_px: u32, height_px: u32, ink: bool) -> Optio
 
     let size = tree.size();
     let area = if ink {
-        let bounds = tree.root().abs_stroke_bounding_box();
+        // resvg 0.50: `None` for a tree with nothing drawn in it.
+        let bounds = tree.root().abs_stroke_bounding_box()?;
         (bounds.x(), bounds.y(), bounds.width(), bounds.height())
     } else {
         (0.0, 0.0, size.width(), size.height())
@@ -431,7 +432,7 @@ mod tests {
         let options = usvg::Options::default();
         for image in ALL {
             let tree = usvg::Tree::from_data(svg_bytes(image, ThemeMode::Dark), &options).unwrap();
-            let ink = tree.root().abs_stroke_bounding_box();
+            let ink = tree.root().abs_stroke_bounding_box().expect("drawn");
             let size = tree.size();
             let spans = (ink.width() / size.width()).max(ink.height() / size.height());
             assert_eq!(spans < 0.5, fitted_by_ink(image), "{image:?} spans {spans}");

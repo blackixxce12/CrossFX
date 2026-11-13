@@ -39,8 +39,40 @@ pub enum Discarded {
 ///
 /// # Errors
 /// No move could be made; the file is where it was.
+#[cfg(unix)]
 pub fn discard(path: &Path) -> io::Result<Discarded> {
     discard_to(path, home_trash(), move_to_volume_trash)
+}
+
+/// Move `path` to the Windows Recycle Bin — the trash Explorer lists and restores from — or,
+/// when the Recycle Bin cannot take it (a network share, a removable drive with the bin turned
+/// off), set it aside as `<path>.N.bak`.
+///
+/// [`Discarded::Trash`] carries the path the file had: the Recycle Bin keeps it under a name of
+/// its own, which Explorer's "Restore" puts back here.
+///
+/// # Errors
+/// No move could be made; the file is where it was.
+#[cfg(windows)]
+pub fn discard(path: &Path) -> io::Result<Discarded> {
+    let path = std::path::absolute(path)?;
+    match trash::delete(&path) {
+        Ok(()) if !path.exists() => Ok(Discarded::Trash(path)),
+        Ok(()) => {
+            log::info!(
+                "{}: the Recycle Bin did not take it; keeping it as a .bak",
+                path.display()
+            );
+            set_aside(&path).map(Discarded::Backup)
+        }
+        Err(err) => {
+            log::info!(
+                "{}: not moved to the Recycle Bin ({err}); keeping it as a .bak",
+                path.display()
+            );
+            set_aside(&path).map(Discarded::Backup)
+        }
+    }
 }
 
 /// [`discard`] into `trash`, laid out as a trash, rather than the home trash.
@@ -98,6 +130,7 @@ pub fn set_aside(path: &Path) -> io::Result<PathBuf> {
 }
 
 /// `$XDG_DATA_HOME/Trash`, with the specification's fallback of `~/.local/share`.
+#[cfg(unix)]
 fn home_trash() -> io::Result<PathBuf> {
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
@@ -116,15 +149,13 @@ fn home_trash() -> io::Result<PathBuf> {
 /// it went. An error of kind [`io::ErrorKind::CrossesDevices`] when the trash is on another
 /// filesystem, with nothing made.
 fn move_to_trash(path: &Path, trash: &Path) -> io::Result<PathBuf> {
-    use std::os::unix::fs::MetadataExt as _;
-
     let path = std::path::absolute(path)?;
     let data_home = trash.parent().unwrap_or(trash);
     std::fs::create_dir_all(data_home)?;
     let data_home = &std::fs::canonicalize(data_home)?;
     // "the implementation SHOULD check that it is on the same device" — a rename across devices
     // fails anyway, but only after the `.trashinfo` would have promised otherwise.
-    if std::fs::metadata(&path)?.dev() != std::fs::metadata(data_home)?.dev() {
+    if !same_device(&path, data_home)? {
         return Err(io::Error::new(
             io::ErrorKind::CrossesDevices,
             "the trash is on another filesystem",
@@ -135,8 +166,51 @@ fn move_to_trash(path: &Path, trash: &Path) -> io::Result<PathBuf> {
     trash_into(&path, trash, &encode_path(&path))
 }
 
+/// Whether `a` and `b` are on one filesystem, so that a rename between them is a rename.
+#[cfg(unix)]
+fn same_device(a: &Path, b: &Path) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    Ok(std::fs::metadata(a)?.dev() == std::fs::metadata(b)?.dev())
+}
+
+/// Whether `a` and `b` are on one volume: the same drive letter or UNC share, compared without
+/// regard to case, as Windows compares them. Both are absolute.
+#[cfg(windows)]
+fn same_device(a: &Path, b: &Path) -> io::Result<bool> {
+    use std::path::Component;
+
+    let volume = |path: &Path| -> io::Result<String> {
+        let path = std::fs::canonicalize(path.parent().unwrap_or(path))
+            .or_else(|_| std::path::absolute(path))?;
+        Ok(match path.components().next() {
+            Some(Component::Prefix(prefix)) => prefix
+                .as_os_str()
+                .to_string_lossy()
+                .trim_start_matches(r"\\?\")
+                .to_lowercase(),
+            _ => String::new(),
+        })
+    };
+    Ok(volume(a)? == volume(b)?)
+}
+
 /// Move `path` into the trash of the filesystem it is on, `$topdir/.Trash/$uid` or
 /// `$topdir/.Trash-$uid` ([`volume_trash`]), and return where it went.
+///
+/// Windows has no per-volume trash of this kind (the Recycle Bin is [`discard`]'s), so there a
+/// store's own trash on another drive sets the file aside instead.
+#[cfg(windows)]
+fn move_to_volume_trash(_path: &Path) -> io::Result<PathBuf> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "no trash of its own on that drive",
+    ))
+}
+
+/// Move `path` into the trash of the filesystem it is on, `$topdir/.Trash/$uid` or
+/// `$topdir/.Trash-$uid` ([`volume_trash`]), and return where it went.
+#[cfg(unix)]
 fn move_to_volume_trash(path: &Path) -> io::Result<PathBuf> {
     let path = std::path::absolute(path)?;
     let name = path
@@ -148,6 +222,7 @@ fn move_to_volume_trash(path: &Path) -> io::Result<PathBuf> {
 }
 
 /// [`move_to_volume_trash`] for `path`, which is under `topdir`, as user `uid`.
+#[cfg(unix)]
 fn move_to_trash_on(path: &Path, topdir: &Path, uid: u32) -> io::Result<PathBuf> {
     let trash = volume_trash(topdir, uid)?;
     // "The system SHOULD support absolute pathnames only in the home trash directory": here the
@@ -167,6 +242,7 @@ fn move_to_trash_on(path: &Path, topdir: &Path, uid: u32) -> io::Result<PathBuf>
 /// specification's shared trash, which an administrator makes — and otherwise, or when that
 /// cannot be used, `$topdir/.Trash-$uid`. Either must be a directory of the user's own, not a
 /// symbolic link: a trash someone else controls would receive the user's file.
+#[cfg(unix)]
 fn volume_trash(topdir: &Path, uid: u32) -> io::Result<PathBuf> {
     use std::os::unix::fs::PermissionsExt as _;
 
@@ -188,6 +264,7 @@ fn volume_trash(topdir: &Path, uid: u32) -> io::Result<PathBuf> {
 
 /// Make `dir` with mode 0700 when it is missing; either way it must then be a real directory
 /// owned by `uid`.
+#[cfg(unix)]
 fn own_dir(dir: &Path, uid: u32) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt as _;
 
@@ -202,11 +279,17 @@ fn own_dir(dir: &Path, uid: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// `mkdir` with mode 0700; one already there is fine.
+/// `mkdir` with mode 0700; one already there is fine. On Windows the directory inherits the
+/// user profile's ACL, which is private to the user already.
 fn make_private_dir(dir: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt as _;
-
-    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        builder.mode(0o700);
+    }
+    match builder.create(dir) {
         Err(err) if err.kind() != io::ErrorKind::AlreadyExists => Err(err),
         _ => Ok(()),
     }
@@ -214,6 +297,7 @@ fn make_private_dir(dir: &Path) -> io::Result<()> {
 
 /// Where the filesystem `dir` is on is mounted: the highest directory above `dir` still on its
 /// device. `dir` is canonical, so no symbolic link takes the walk elsewhere.
+#[cfg(unix)]
 fn mount_point(dir: &Path) -> io::Result<PathBuf> {
     use std::os::unix::fs::MetadataExt as _;
 
@@ -230,6 +314,7 @@ fn mount_point(dir: &Path) -> io::Result<PathBuf> {
 
 /// This process's uid, read from `/proc/self` so that no libc binding is needed in a crate that
 /// forbids `unsafe` (as `fxsound-app`'s control socket does).
+#[cfg(unix)]
 fn own_uid() -> io::Result<u32> {
     use std::os::unix::fs::MetadataExt as _;
 
@@ -301,10 +386,17 @@ fn trash_into(path: &Path, trash: &Path, record_path: &str) -> io::Result<PathBu
 
 /// The `Path=` value: the absolute path, URI-escaped byte by byte as RFC 2396 says, `/` kept.
 pub(crate) fn encode_path(path: &Path) -> String {
-    use std::os::unix::ffi::OsStrExt as _;
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStrExt as _;
+        path.as_os_str().as_bytes().to_vec()
+    };
+    // Windows paths are UTF-16; the record is UTF-8, with the separators as `/`.
+    #[cfg(not(unix))]
+    let bytes = path.to_string_lossy().replace('\\', "/").into_bytes();
 
     let mut out = String::new();
-    for &byte in path.as_os_str().as_bytes() {
+    for &byte in &bytes {
         if byte.is_ascii_alphanumeric() || b"/-_.!~*'()".contains(&byte) {
             out.push(char::from(byte));
         } else {

@@ -1106,7 +1106,7 @@ impl<'a> SettingsDialog<'a> {
         assets: &mut AssetCache,
         icons: &mut NavIcons,
     ) -> DialogResponse<SettingsAction> {
-        let id = Id::new("fx_settings_dialog");
+        let id = Id::unique("fx_settings_dialog");
         let mut response = DialogResponse::default();
 
         let ChromeResponse {
@@ -1208,7 +1208,7 @@ fn nav_button(
 ) -> bool {
     let response = ui.interact(
         rect,
-        Id::new("fx_settings_nav").with(tab.nav_label()),
+        Id::unique("fx_settings_nav").with(tab.nav_label()),
         Sense::click(),
     );
 
@@ -1721,7 +1721,7 @@ impl RowList<'_> {
             DeviceDirection::Output => "fx_device_row",
             DeviceDirection::Input => "fx_microphone_row",
         };
-        Id::new(list).with(&device.id)
+        Id::unique(list).with(&device.id)
     }
 }
 
@@ -2881,7 +2881,7 @@ fn app_row(
     assets: &mut AssetCache,
     response: &mut DialogResponse<SettingsAction>,
 ) {
-    let id = Id::new("fx_app_row").with(&app.app);
+    let id = Id::unique("fx_app_row").with(&app.app);
     let first = app_line_rect(row, 0);
 
     if app.running {
@@ -4631,7 +4631,7 @@ mod tests {
                     state,
                     Palette::new(mode),
                     &mut assets,
-                    Id::new("fx_settings_dialog"),
+                    Id::unique("fx_settings_dialog"),
                     &mut response,
                 );
             });
@@ -5600,7 +5600,7 @@ mod tests {
                     state,
                     Palette::new(mode),
                     &mut assets,
-                    Id::new("fx_settings_dialog"),
+                    Id::unique("fx_settings_dialog"),
                     &mut response,
                 );
             });
@@ -6056,6 +6056,7 @@ mod tests {
             unit: egui::MouseWheelUnit::Point,
             delta: vec2(0.0, -10_000.0),
             phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
             modifiers: egui::Modifiers::default(),
         };
         window.frame(&state, vec![egui::Event::PointerMoved(over)]);
@@ -6551,7 +6552,7 @@ mod tests {
         let mut actions = window.frame(&state, Vec::new()).0;
         window.ctx.memory_mut(|m| {
             m.request_focus(
-                Id::new("fx_slider").with(Id::new("fx_settings_dialog").with("parity")),
+                Id::unique("fx_slider").with(Id::unique("fx_settings_dialog").with("parity")),
             );
         });
         actions.extend(window.frame(&state, Vec::new()).0);
@@ -6583,6 +6584,7 @@ mod tests {
                     unit: egui::MouseWheelUnit::Line,
                     delta: vec2(0.0, 1.0),
                     phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Wheel,
                     modifiers: egui::Modifiers::NONE,
                 },
             ],

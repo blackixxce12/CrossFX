@@ -90,8 +90,8 @@ use fxsound_dsp::Engine as DspEngine;
 use fxsound_dsp::{ChainSpec, InputEngine};
 use triple_buffer::{Input, Output, TripleBuffer};
 
+use crate::LANE_CHANNELS as CHANNELS;
 use crate::per_direction::PerDirection;
-use crate::volume::CHANNELS;
 use crate::{DEFAULT_SAMPLE_RATE, MAX_CHANNELS, MAX_QUANTUM_FRAMES, MIN_CHANNELS};
 
 /// How long a new pair takes to rise from silence to its volume: inside the 20–50 ms the

@@ -410,7 +410,7 @@ pub const MAX_POSITIONS: usize = MAX_CHANNELS as usize;
 ///
 /// Fixed-size and `Copy` so a layout can be carried into the process callback's neighbourhood
 /// without an allocation. The ids are the ones in `spa/param/audio/raw.h:153-194`, reached through
-/// `libspa::sys` because 0.10.1 has no `AudioChannel` wrapper type.
+/// [`crate::spa_channels`], the values `libspa::sys` has, so that Windows builds them too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChannelMap {
     ids: [u32; MAX_POSITIONS],
@@ -419,21 +419,21 @@ pub struct ChannelMap {
 
 /// The channel names PipeWire prints in `audio.position`, with their SPA ids.
 const CHANNEL_NAMES: [(&str, u32); 15] = [
-    ("MONO", libspa::sys::SPA_AUDIO_CHANNEL_MONO),
-    ("FL", libspa::sys::SPA_AUDIO_CHANNEL_FL),
-    ("FR", libspa::sys::SPA_AUDIO_CHANNEL_FR),
-    ("FC", libspa::sys::SPA_AUDIO_CHANNEL_FC),
-    ("LFE", libspa::sys::SPA_AUDIO_CHANNEL_LFE),
-    ("SL", libspa::sys::SPA_AUDIO_CHANNEL_SL),
-    ("SR", libspa::sys::SPA_AUDIO_CHANNEL_SR),
-    ("RL", libspa::sys::SPA_AUDIO_CHANNEL_RL),
-    ("RR", libspa::sys::SPA_AUDIO_CHANNEL_RR),
-    ("RC", libspa::sys::SPA_AUDIO_CHANNEL_RC),
-    ("FLC", libspa::sys::SPA_AUDIO_CHANNEL_FLC),
-    ("FRC", libspa::sys::SPA_AUDIO_CHANNEL_FRC),
-    ("TC", libspa::sys::SPA_AUDIO_CHANNEL_TC),
-    ("NA", libspa::sys::SPA_AUDIO_CHANNEL_NA),
-    ("UNK", libspa::sys::SPA_AUDIO_CHANNEL_UNKNOWN),
+    ("MONO", crate::spa_channels::SPA_AUDIO_CHANNEL_MONO),
+    ("FL", crate::spa_channels::SPA_AUDIO_CHANNEL_FL),
+    ("FR", crate::spa_channels::SPA_AUDIO_CHANNEL_FR),
+    ("FC", crate::spa_channels::SPA_AUDIO_CHANNEL_FC),
+    ("LFE", crate::spa_channels::SPA_AUDIO_CHANNEL_LFE),
+    ("SL", crate::spa_channels::SPA_AUDIO_CHANNEL_SL),
+    ("SR", crate::spa_channels::SPA_AUDIO_CHANNEL_SR),
+    ("RL", crate::spa_channels::SPA_AUDIO_CHANNEL_RL),
+    ("RR", crate::spa_channels::SPA_AUDIO_CHANNEL_RR),
+    ("RC", crate::spa_channels::SPA_AUDIO_CHANNEL_RC),
+    ("FLC", crate::spa_channels::SPA_AUDIO_CHANNEL_FLC),
+    ("FRC", crate::spa_channels::SPA_AUDIO_CHANNEL_FRC),
+    ("TC", crate::spa_channels::SPA_AUDIO_CHANNEL_TC),
+    ("NA", crate::spa_channels::SPA_AUDIO_CHANNEL_NA),
+    ("UNK", crate::spa_channels::SPA_AUDIO_CHANNEL_UNKNOWN),
 ];
 
 impl ChannelMap {
@@ -481,7 +481,7 @@ impl ChannelMap {
     /// not understand — and for the stereo pair a mono microphone is up-mixed into.
     #[must_use]
     pub fn default_for(channels: u32) -> Self {
-        use libspa::sys::{
+        use crate::spa_channels::{
             SPA_AUDIO_CHANNEL_FC, SPA_AUDIO_CHANNEL_FL, SPA_AUDIO_CHANNEL_FR,
             SPA_AUDIO_CHANNEL_LFE, SPA_AUDIO_CHANNEL_MONO, SPA_AUDIO_CHANNEL_RC,
             SPA_AUDIO_CHANNEL_RL, SPA_AUDIO_CHANNEL_RR, SPA_AUDIO_CHANNEL_SL, SPA_AUDIO_CHANNEL_SR,
@@ -554,7 +554,7 @@ impl ChannelMap {
     pub fn lfe_index(&self) -> Option<usize> {
         self.ids()
             .iter()
-            .position(|&id| id == libspa::sys::SPA_AUDIO_CHANNEL_LFE)
+            .position(|&id| id == crate::spa_channels::SPA_AUDIO_CHANNEL_LFE)
     }
 
     /// Indices of the front left and front right channels, when the layout names both.
@@ -568,11 +568,11 @@ impl ChannelMap {
         let left = self
             .ids()
             .iter()
-            .position(|&id| id == libspa::sys::SPA_AUDIO_CHANNEL_FL)?;
+            .position(|&id| id == crate::spa_channels::SPA_AUDIO_CHANNEL_FL)?;
         let right = self
             .ids()
             .iter()
-            .position(|&id| id == libspa::sys::SPA_AUDIO_CHANNEL_FR)?;
+            .position(|&id| id == crate::spa_channels::SPA_AUDIO_CHANNEL_FR)?;
         (left != right).then_some((left, right))
     }
 
@@ -590,8 +590,7 @@ impl ChannelMap {
     /// [`ChannelSide::Centre`]: fxsound_dsp::ChannelSide::Centre
     #[must_use]
     pub fn sides(&self) -> ([fxsound_dsp::ChannelSide; MAX_POSITIONS], usize) {
-        use fxsound_dsp::ChannelSide;
-        use libspa::sys::{
+        use crate::spa_channels::{
             SPA_AUDIO_CHANNEL_BLC, SPA_AUDIO_CHANNEL_BRC, SPA_AUDIO_CHANNEL_FL,
             SPA_AUDIO_CHANNEL_FLC, SPA_AUDIO_CHANNEL_FLH, SPA_AUDIO_CHANNEL_FLW,
             SPA_AUDIO_CHANNEL_FR, SPA_AUDIO_CHANNEL_FRC, SPA_AUDIO_CHANNEL_FRH,
@@ -601,6 +600,7 @@ impl ChannelMap {
             SPA_AUDIO_CHANNEL_TFR, SPA_AUDIO_CHANNEL_TFRC, SPA_AUDIO_CHANNEL_TRL,
             SPA_AUDIO_CHANNEL_TRR, SPA_AUDIO_CHANNEL_TSL, SPA_AUDIO_CHANNEL_TSR,
         };
+        use fxsound_dsp::ChannelSide;
         const LEFT: [u32; 12] = [
             SPA_AUDIO_CHANNEL_FL,
             SPA_AUDIO_CHANNEL_SL,
@@ -694,8 +694,8 @@ impl ChannelMap {
     /// The layout as the `[u32; 64]` array `libspa::param::audio::AudioInfoRaw::set_position`
     /// wants.
     #[must_use]
-    pub fn to_spa_position(&self) -> [u32; libspa::param::audio::MAX_CHANNELS] {
-        let mut position = [0_u32; libspa::param::audio::MAX_CHANNELS];
+    pub fn to_spa_position(&self) -> [u32; crate::spa_channels::SPA_AUDIO_MAX_CHANNELS] {
+        let mut position = [0_u32; crate::spa_channels::SPA_AUDIO_MAX_CHANNELS];
         for (slot, &id) in position.iter_mut().zip(self.ids()) {
             *slot = id;
         }
@@ -1467,7 +1467,8 @@ pub fn default_node_value(node_name: &str) -> String {
     format!("{{\"name\":\"{node_name}\"}}")
 }
 
-#[cfg(test)]
+// Linux only: the fixtures are `pw-dump`s and the UCM laptop of `crate::routes`.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 

@@ -523,7 +523,7 @@ impl<'a> CalibrationDialog<'a> {
         id_salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> DialogResponse<CalibrationAction> {
         let view = self.view;
-        let id = Id::new("fx_calibration_dialog").with(id_salt);
+        let id = Id::unique("fx_calibration_dialog").with(id_salt);
         let mut response = DialogResponse::default();
 
         let chrome = DialogChrome::titled(&tr("Calibrate microphone")).show(

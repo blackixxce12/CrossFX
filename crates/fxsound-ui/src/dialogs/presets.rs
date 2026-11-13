@@ -241,7 +241,7 @@ impl<'a> ImportDialog<'a> {
         assets: &mut AssetCache,
         id_salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> DialogResponse<PresetsAction> {
-        let id = Id::new("fx_import_dialog").with(id_salt);
+        let id = Id::unique("fx_import_dialog").with(id_salt);
         let mut response = DialogResponse::default();
 
         if let Some(summary) = &self.state.summary {
@@ -634,7 +634,7 @@ impl<'a> ExportDialog<'a> {
         assets: &mut AssetCache,
         id_salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> DialogResponse<PresetsAction> {
-        let id = Id::new("fx_export_dialog").with(id_salt);
+        let id = Id::unique("fx_export_dialog").with(id_salt);
         let mut response = DialogResponse::default();
 
         let chrome = DialogChrome::titled(&tr("Export Presets")).show(

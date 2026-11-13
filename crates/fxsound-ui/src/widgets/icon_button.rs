@@ -265,7 +265,7 @@ impl<'a> IconButton<'a> {
             hide_tooltips,
         } = self;
 
-        let id = Id::new("fx_icon_button").with(id_salt);
+        let id = Id::unique("fx_icon_button").with(id_salt);
         let sense = if enabled {
             Sense::click()
         } else {
@@ -355,7 +355,7 @@ mod tests {
                 let tree = usvg::Tree::from_data(svg_bytes(image, theme), &options)
                     .unwrap_or_else(|e| panic!("{image:?} {theme:?} failed to parse: {e}"));
                 let (width, height) = if crate::assets::fitted_by_ink(image) {
-                    let ink = tree.root().abs_stroke_bounding_box();
+                    let ink = tree.root().abs_stroke_bounding_box().expect("drawn");
                     (ink.width(), ink.height())
                 } else {
                     (tree.size().width(), tree.size().height())

@@ -10,6 +10,7 @@
 
 use std::ffi::OsStr;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
@@ -310,10 +311,15 @@ fn setpriv() -> Option<&'static Path> {
 /// Where `program` is: itself when it names a path, the first executable file of that name on
 /// `PATH` otherwise.
 fn on_path(program: &OsStr) -> Option<PathBuf> {
+    // Windows has no execute bit: a file is a program by its name, which `Command` completes
+    // with `.exe` itself.
+    #[cfg(unix)]
     let executable = |path: &Path| {
         path.metadata()
             .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
     };
+    #[cfg(not(unix))]
+    let executable = |path: &Path| path.is_file() || path.with_extension("exe").is_file();
     if program.as_encoded_bytes().contains(&b'/') {
         let path = PathBuf::from(program);
         return executable(&path).then_some(path);

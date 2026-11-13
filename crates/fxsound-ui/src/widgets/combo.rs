@@ -261,7 +261,7 @@ pub fn popup_list_height(items: usize, headers: usize, separator: bool, row_heig
 pub const POPUP_WINDOW_MARGIN: f32 = 4.0;
 
 fn popup_bounds_id() -> Id {
-    Id::new("fx_combo_popup_bounds")
+    Id::unique("fx_combo_popup_bounds")
 }
 
 /// Where an open list may hang, in points: under the title bar and down to the window's bottom
@@ -545,7 +545,7 @@ impl<'a> FxComboBox<'a> {
             keep,
         } = self;
 
-        let id = Id::new("fx_combo_box").with(id_salt);
+        let id = Id::unique("fx_combo_box").with(id_salt);
         let sense = if enabled {
             Sense::click()
         } else {

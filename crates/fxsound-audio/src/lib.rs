@@ -163,29 +163,56 @@
 // made it, and a new `unsafe` anywhere else still fails the build.
 #![deny(unsafe_code)]
 
+// Two backends behind one API. Everything PipeWire is Linux's: the nodes, the graph, the echo
+// canceller, the per-application routes, the handover and WirePlumber's volume. Windows has its
+// own (`wasapi`), the way FxSound for Windows itself works: the system default moved to a virtual
+// playback device, captured with WASAPI loopback, processed and played to the real speakers. The
+// DSP of a lane (`lane_dsp`), the device rules (`devices`), the paths to the GUI and the public
+// types are the same code on both.
+#[cfg(not(any(target_os = "linux", windows)))]
+compile_error!("FxSound builds for Linux (PipeWire) and Windows (WASAPI)");
+
+#[cfg(target_os = "linux")]
 mod aec;
+#[cfg(target_os = "linux")]
 mod app_routes;
+#[cfg(target_os = "linux")]
 mod app_streams;
 pub mod devices;
+#[cfg(target_os = "linux")]
 pub mod engine;
+// The Windows skeleton (`wasapi`) builds the lanes but does not run them yet.
+#[cfg_attr(windows, allow(dead_code))]
 mod lane_dsp;
 pub mod locale;
+#[cfg_attr(windows, allow(dead_code))]
 mod per_direction;
+#[cfg(target_os = "linux")]
 mod routes;
+mod spa_channels;
+#[cfg(target_os = "linux")]
 mod stranded;
+#[cfg(target_os = "linux")]
 mod stream_handover;
+#[cfg(target_os = "linux")]
 mod volume;
+#[cfg(windows)]
+mod wasapi;
 pub mod wireplumber_hook;
 
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TrySendError};
+#[cfg(target_os = "linux")]
+use crossbeam_channel::RecvTimeoutError;
+use crossbeam_channel::{Receiver, Sender, TrySendError};
 use fxsound_core::DeviceDirection;
 use fxsound_core::messages::{
     AudioToUi, DspEvent, DspParams, InputDspParams, Meters, TargetVolume, UiToAudio,
 };
-use triple_buffer::{Input, Output, TripleBuffer};
+#[cfg(target_os = "linux")]
+use triple_buffer::TripleBuffer;
+use triple_buffer::{Input, Output};
 
 use crate::per_direction::PerDirection;
 
@@ -217,6 +244,7 @@ pub const SOURCE_NODE_NAME: &str = "fxsound_source";
 
 /// `application.id` of every node FxSound makes. Stable too: WirePlumber keyed the volume it kept
 /// for the two virtual nodes by it, and 0.4.0 reads that volume back once (`volume::inherited`).
+#[cfg(target_os = "linux")]
 pub(crate) const APP_ID: &str = "com.fxsound.FxSound";
 
 /// `node.name` of the echo canceller's capture stream: the one that hears the microphone
@@ -388,6 +416,10 @@ pub const fn our_node_name(direction: DeviceDirection) -> &'static str {
 /// than being truncated.
 pub const MAX_QUANTUM_FRAMES: usize = 2048;
 
+/// How many channels a lane's gains are kept for: every channel FxSound will ever run
+/// ([`MAX_CHANNELS`]). The size of `lane_dsp`'s per-channel arrays on both backends.
+pub(crate) const LANE_CHANNELS: usize = MAX_CHANNELS as usize;
+
 /// The quantum FxSound asks for by default: 512 frames, ≈10.7 ms at 48 kHz, the `Normal` row of
 /// the spec's latency table.
 pub const DEFAULT_QUANTUM_FRAMES: u32 = 512;
@@ -446,6 +478,17 @@ pub enum AudioError {
     /// The server would not agree a format we can process. ≡ `-35` / `-36`.
     #[error("format negotiation failed")]
     FormatNegotiation,
+    /// Windows only: no virtual playback device to stand in front of the speakers. FxSound for
+    /// Windows installs its own kernel driver for that ("FxSound Audio Enhancer"); this port ships
+    /// no driver, and uses the FxSound driver or a virtual cable the user installed
+    /// (`docs/1.0.0-windows-port.md`). ≡ the original's "audio device is missing" state.
+    #[error("no virtual playback device is installed")]
+    NoVirtualDevice,
+    /// Windows only: the Windows audio service could not be reached — COM, the MMDevice
+    /// enumerator or an `IAudioClient` failed outright. The Windows twin of
+    /// [`AudioError::PipewireUnavailable`].
+    #[error("Windows audio is not available: {0}")]
+    WindowsAudioUnavailable(String),
 }
 
 /// Map the legacy `buffer_ms` setting onto a PipeWire quantum.
@@ -537,13 +580,22 @@ pub struct DevicePriority {
     pub new_devices_first: bool,
 }
 
-/// The audio backend. Owns the PipeWire thread and everything on it.
+/// The control channel to the audio thread: PipeWire's own on Linux, whose sender wakes the
+/// thread's loop, and on Windows `wasapi::Control`, a channel and the event that wakes the WASAPI
+/// thread out of its wait. Both have `send(message) -> Result<(), UiToAudio>`.
+#[cfg(target_os = "linux")]
+type ControlSender = pipewire::channel::Sender<UiToAudio>;
+#[cfg(windows)]
+type ControlSender = wasapi::Control;
+
+/// The audio backend. Owns the audio thread and everything on it: the PipeWire thread on Linux,
+/// the WASAPI thread on Windows.
 ///
 /// There is no public constructor other than [`AudioEngine::start`], which hands back an
 /// [`EngineHandle`] that owns this. The GUI never touches an `AudioEngine` directly, because
-/// every PipeWire object it transitively owns is thread-affine.
+/// every PipeWire object (and every WASAPI client) it transitively owns is thread-affine.
 pub struct AudioEngine {
-    control: pipewire::channel::Sender<UiToAudio>,
+    control: ControlSender,
     join: Option<JoinHandle<()>>,
 }
 
@@ -598,6 +650,7 @@ impl AudioEngine {
     /// Also reads, once and before connecting, the level WirePlumber kept for FxSound's two nodes
     /// before 0.4.0 took their volume over: what a lane with nothing remembered for its direction
     /// starts no louder than (`docs/spec/12-audio-io.md` §19.7.1).
+    #[cfg(target_os = "linux")]
     pub fn start_with_options(options: StartOptions) -> Result<EngineHandle, AudioError> {
         Self::start_with(
             None,
@@ -609,6 +662,17 @@ impl AudioEngine {
         )
     }
 
+    /// [`AudioEngine::start`], with everything the first pair of streams depends on
+    /// ([`StartOptions`]): on Windows, the WASAPI backend (`wasapi`). What the options mean for
+    /// PipeWire's nodes they mean for the loopback capture and the render stream there.
+    ///
+    /// # Errors
+    /// [`AudioError::WindowsAudioUnavailable`] when the audio thread cannot be started.
+    #[cfg(windows)]
+    pub fn start_with_options(options: StartOptions) -> Result<EngineHandle, AudioError> {
+        wasapi::start(options)
+    }
+
     /// [`AudioEngine::start`], against a named PipeWire socket rather than the session default.
     ///
     /// Crate-internal because the public surface is fixed, but it is the seam the tests use: a
@@ -616,6 +680,7 @@ impl AudioEngine {
     /// the error mapping and the thread shutdown — without a server and without creating a single
     /// node in the user's live graph. Nor does it read the user's WirePlumber state: a test's
     /// first pair starts where the test says, not where this machine's FxSound was last left.
+    #[cfg(target_os = "linux")]
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn start_with_remote(remote: Option<&str>) -> Result<EngineHandle, AudioError> {
         Self::start_with(
@@ -631,7 +696,7 @@ impl AudioEngine {
     /// [`Self::start_with_remote`], with a per-application route nobody uses kept for `idle`
     /// rather than [`app_routes::ROUTE_IDLE`]: a test watches a route go without waiting ten
     /// seconds for it.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn start_with_route_idle(
         remote: Option<&str>,
         idle: Duration,
@@ -648,7 +713,7 @@ impl AudioEngine {
 
     /// [`Self::start_with_remote`], with [`StartOptions`], and WirePlumber's state read from
     /// `wireplumber_state` — a file the test wrote — rather than the user's.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn start_for_tests(
         remote: Option<&str>,
         options: StartOptions,
@@ -667,7 +732,7 @@ impl AudioEngine {
     /// [`Self::start_with_remote`], with the handover's journal kept at `journal` — a file of the
     /// test's — rather than in memory: what a test of a run killed in the middle of a handover
     /// reads, and hands the next run.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn start_with_journal(
         remote: Option<&str>,
         journal: std::path::PathBuf,
@@ -687,7 +752,7 @@ impl AudioEngine {
     /// For the tests: `aec/libspa-aec-null` passes the microphone through untouched, which is all a
     /// test of where the canceller's nodes go needs, and a library that does not exist is how a
     /// test makes the load fail the way a missing `libspa-aec-webrtc` would.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn start_with_canceller(
         remote: Option<&str>,
         library: &'static str,
@@ -702,6 +767,7 @@ impl AudioEngine {
         )
     }
 
+    #[cfg(target_os = "linux")]
     fn start_with(
         remote: Option<&str>,
         options: StartOptions,
@@ -821,6 +887,7 @@ impl EngineHandle {
     /// The one place the two sides are paired, so a lane's meters buffer and event queue are
     /// created together with the lane's ends of them and cannot be crossed over. Also the seam the
     /// tests use to drive both lanes' DSP through a real handle without a server.
+    #[cfg(target_os = "linux")]
     fn wire(
         remote: Option<&str>,
         language: Option<&str>,
@@ -982,10 +1049,11 @@ impl EngineHandle {
     }
 }
 
-#[cfg(test)]
+// Both against PipeWire: a private daemon for the graph tests, the PipeWire seams for the rest.
+#[cfg(all(test, target_os = "linux"))]
 mod graph_churn;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
