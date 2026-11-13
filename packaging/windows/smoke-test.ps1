@@ -113,6 +113,8 @@ function Get-VersionOutput([string]$exe) {
     $process = [System.Diagnostics.Process]::Start($info)
     try {
         $stdout = $process.StandardOutput.ReadToEndAsync()
+        # Drained as well, so that a full pipe cannot stall the program.
+        $null = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(30000)) {
             $process.Kill()
             throw "$exe --version was still running after 30 s"
