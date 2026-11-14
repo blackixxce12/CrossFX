@@ -88,6 +88,8 @@ windows = { workspace = true, features = [
     "Win32_System_LibraryLoader",
     # "Run at startup": `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
     "Win32_System_Registry",
+    # The user's display language, for the interface's "the system's language" (`win::language`).
+    "Win32_Globalization",
     # Links and folders (`ShellExecuteW`), and COM for the shell and the audio endpoints.
     "Win32_UI_Shell",
     "Win32_System_Com",

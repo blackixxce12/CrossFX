@@ -1167,10 +1167,16 @@ pub fn forward_to(
         return Err(unsent.unwrap_or(e));
     }
     if line.trim().is_empty() {
+        // Said to the user who typed the command, so in the words of their system.
+        let channel = if cfg!(windows) {
+            "control pipe"
+        } else {
+            "control socket"
+        };
         return Err(unsent.unwrap_or_else(|| {
             io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "the running instance closed the control socket without answering",
+                format!("the running instance closed the {channel} without answering"),
             )
         }));
     }

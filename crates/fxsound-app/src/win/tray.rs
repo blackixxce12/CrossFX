@@ -48,7 +48,7 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW, GetMessageW,
     MSG, PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSMICON, TranslateMessage,
-    WINDOW_EX_STYLE, WM_APP, WM_DESTROY, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW,
+    WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_DESTROY, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW,
     WS_OVERLAPPED,
 };
 use windows::core::{PCWSTR, w};
@@ -561,6 +561,11 @@ unsafe extern "system" fn tray_window(
                 let _ = DestroyWindow(window);
                 LRESULT(0)
             }
+            // `taskkill` without `/F`, or an installer closing FxSound, sends every top-level
+            // window of the process `WM_CLOSE`. The session watcher hears it as the tray's Exit
+            // (`crate::win::session`); this window stays, and the icon with it, until that way
+            // out takes them away with `WM_QUIT_TRAY`.
+            WM_CLOSE => LRESULT(0),
             WM_DESTROY => {
                 PostQuitMessage(0);
                 LRESULT(0)
@@ -585,12 +590,13 @@ fn create_window() -> Result<HWND, String> {
         // SAFETY: `class` outlives the call.
         unsafe { RegisterClassW(&raw const class) };
     });
-    // SAFETY: the class is registered; the window is this thread's, never shown.
+    // SAFETY: the class is registered; the window is this thread's, never shown. Its title is
+    // the port's, not FxSound LLC's FxSound's (see `crate::win::session`).
     unsafe {
         CreateWindowExW(
             WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0),
             class_name,
-            w!("FxSound tray"),
+            w!("FxSound Port tray"),
             WS_OVERLAPPED,
             0,
             0,

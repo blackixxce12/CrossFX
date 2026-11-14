@@ -85,11 +85,14 @@
 //! notification area for the StatusNotifierItem, no D-Bus service, and the power notification for
 //! logind. A release build is a GUI program, so that no console window opens with it; it takes
 //! the console of the terminal it was started from, if any, so that `fxsound --status` still
-//! prints there. The tray-only state pumps the GUI thread's window messages while it waits
-//! ([`wait_for_any`]): eframe's event loop keeps a hidden window on this thread between two
-//! windows, and a thread that does not answer its windows' messages holds up the end of the
-//! session. Ctrl+C, the console closing, log-off and shutdown are the tray's Exit, as the
-//! signals are on Linux (`fxsound_app::win::session`).
+//! prints there, and the running FxSound gives it back once its command line has been answered
+//! (`fxsound_app::platform::release_terminal`). The tray-only state pumps the GUI thread's
+//! window messages while it waits ([`wait_for_any`]): eframe's event loop keeps a hidden window
+//! on this thread between two windows, and a thread that does not answer its windows' messages
+//! holds up the end of the session. Ctrl+C and the console closing (a console of FxSound's own,
+//! the debug build's), log-off, shutdown and a `taskkill` without `/F` are the tray's Exit, as
+//! the signals are on Linux (`fxsound_app::win::session`). The window carries FxSound's icon,
+//! which Windows takes from the window rather than from the app id ([`native_options`]).
 
 #![forbid(unsafe_code)]
 // No console window of its own in a release build; `main` attaches to its parent's instead.
@@ -170,6 +173,8 @@ const ZOOM_TOLERANCE: f32 = 0.01;
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 fn main() -> eframe::Result<()> {
+    // Before anything reads it: Windows says the desktop's language where Linux's session does.
+    fxsound_app::platform::adopt_desktop_language();
     // Before anything prints: a GUI build started from a terminal prints there.
     fxsound_app::platform::attach_parent_console();
     env_logger::Builder::from_env(
@@ -309,6 +314,9 @@ fn main() -> eframe::Result<()> {
     if !cold.stderr.is_empty() {
         eprintln!("{}", cold.stderr);
     }
+    // Everything the command line had to say is said: a release build on Windows gives the
+    // terminal it borrowed for it back, and runs on as a program of its own.
+    fxsound_app::platform::release_terminal();
     // `--hide` and the saved "start minimised" preference start in the tray-only state; there is
     // no such thing as a hidden window here (see the module docs). An explicit `--show` overrides
     // the preference, as `--hide` overrides it the other way (`Cli::cold_start_commands`), and so
@@ -1027,19 +1035,22 @@ fn wait_for_any(channels: &[&dyn Watched], waker: &Waker, deadline: Instant) -> 
 
 /// The window eframe is asked for, sized for the current view.
 fn native_options(view: ViewMode) -> eframe::NativeOptions {
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("FxSound")
+        // Must match packaging/fxsound.desktop's filename stem, or the compositor cannot
+        // associate the window with its icon and rules.
+        .with_app_id("com.fxsound.FxSound")
+        .with_inner_size(fxsound_ui::window_size(view))
+        .with_min_inner_size(layout::lite::WINDOW_SIZE)
+        .with_resizable(false)
+        // FxSound draws its own title bar, so no server-side decorations.
+        .with_decorations(false)
+        // Needed for the 21 px rounded corners not to be filled in black.
+        .with_transparent(true);
+    #[cfg(windows)]
+    let viewport = with_windows_icon(viewport);
     eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("FxSound")
-            // Must match packaging/fxsound.desktop's filename stem, or the compositor cannot
-            // associate the window with its icon and rules.
-            .with_app_id("com.fxsound.FxSound")
-            .with_inner_size(fxsound_ui::window_size(view))
-            .with_min_inner_size(layout::lite::WINDOW_SIZE)
-            .with_resizable(false)
-            // FxSound draws its own title bar, so no server-side decorations.
-            .with_decorations(false)
-            // Needed for the 21 px rounded corners not to be filled in black.
-            .with_transparent(true),
+        viewport,
         // See the module docs: vsync blocks the main thread on a workspace the compositor is
         // not showing. The loop is paced by `request_repaint_after` instead.
         glow_options: eframe::egui_glow::GlowConfiguration {
@@ -1047,6 +1058,22 @@ fn native_options(view: ViewMode) -> eframe::NativeOptions {
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+/// FxSound's icon on the window, for its taskbar button and Alt+Tab. A desktop on Linux finds the
+/// icon through the app id above; Windows takes it from the window itself, and eframe puts egui's
+/// own logo there when it is given none. The same picture the Linux packages install as the
+/// application icon, at 256 px, which eframe scales to the sizes Windows asks for.
+#[cfg(windows)]
+fn with_windows_icon(viewport: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    const ICON_PNG: &[u8] = include_bytes!("../../../assets/images/fxsound_large.png");
+    match eframe::icon_data::from_png_bytes(ICON_PNG) {
+        Ok(icon) => viewport.with_icon(Arc::new(icon)),
+        Err(err) => {
+            log::warn!("the window keeps eframe's icon: FxSound's could not be read ({err})");
+            viewport
+        }
     }
 }
 
@@ -4957,5 +4984,22 @@ mod theme_tests {
             .set_windows_parity(WindowsParity::Off, false)
             .expect("offered");
         assert_eq!(frame_edge(&mut shell, &ctx).color, light.divider());
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_icon_tests {
+    use super::*;
+
+    #[test]
+    fn the_window_carries_fxsounds_own_icon_rather_than_eframes() {
+        let options = native_options(ViewMode::Pro);
+        let icon = options.viewport.icon.expect("an icon of FxSound's own");
+        assert_eq!((icon.width, icon.height), (256, 256));
+        assert_eq!(icon.rgba.len(), 256 * 256 * 4);
+        assert!(
+            icon.rgba.chunks(4).any(|pixel| pixel[3] == 255),
+            "something opaque is drawn"
+        );
     }
 }

@@ -8,6 +8,8 @@
 //! |---|---|---|
 //! | [`open_url`], [`open_folder`] | `xdg-open` | `ShellExecuteW` (`win::shell`) |
 //! | [`autostart_enabled`], [`set_autostart`] | `~/.config/autostart/fxsound.desktop` | `HKCU\…\Run`, `FxSound Port` (`win::autostart`) |
+//! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the display language, as `LANG` (`win::language`) |
+//! | [`attach_parent_console`], [`release_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
 
 use std::path::Path;
 
@@ -165,6 +167,15 @@ fn set_autostart_entry(enabled: bool) -> std::io::Result<()> {
     )
 }
 
+/// The desktop's language, where the interface's "the system's language" reads it: on Windows the
+/// user's display language, put in `LANG` for this process unless `LC_ALL`, `LC_MESSAGES` or
+/// `LANG` says otherwise already (`win::language`). A no-op on Linux, whose session says it in
+/// those itself. First thing in `main`, before anything reads them.
+pub fn adopt_desktop_language() {
+    #[cfg(windows)]
+    crate::win::language::adopt_display_language();
+}
+
 /// Attach to the console of the process that started this one, when there is one: a release
 /// build on Windows is a GUI program, which gets no console of its own, so `fxsound --status`,
 /// `--help` and `--version` typed in a terminal would print nowhere without it. A no-op where
@@ -173,6 +184,17 @@ fn set_autostart_entry(enabled: bool) -> std::io::Result<()> {
 pub fn attach_parent_console() {
     #[cfg(windows)]
     crate::win::session::attach_parent_console();
+}
+
+/// Let go of the terminal [`attach_parent_console`] borrowed, once this process is the running
+/// FxSound and has printed what its command line had to say. The shell did not wait for a GUI
+/// program, so the terminal is the next command's: a Ctrl+C typed there — for an `fxsound
+/// --watch`, say — and the terminal closing must not end the FxSound that happened to be started
+/// from it, as they do not end a job sent to the background on Linux. A no-op on Linux, and for a
+/// console FxSound has of its own, the debug build's, whose Ctrl+C is the tray's Exit.
+pub fn release_terminal() {
+    #[cfg(windows)]
+    crate::win::session::release_borrowed_console();
 }
 
 #[cfg(test)]
