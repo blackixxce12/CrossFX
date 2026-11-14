@@ -90,14 +90,16 @@
 //! notification area for the StatusNotifierItem, no D-Bus service, and the power notification for
 //! logind. A release build is a GUI program, so that no console window opens with it; it takes
 //! the console of the terminal it was started from, if any, so that `fxsound --status` still
-//! prints there, and the running FxSound gives it back once its command line has been answered
-//! (`fxsound_app::platform::release_terminal`). The tray-only state pumps the GUI thread's
-//! window messages while it waits ([`wait_for_any`]): eframe's event loop keeps a hidden window
-//! on this thread between two windows, and a thread that does not answer its windows' messages
-//! holds up the end of the session. Ctrl+C and the console closing (a console of FxSound's own,
-//! the debug build's), log-off, shutdown and a `taskkill` without `/F` are the tray's Exit, as
-//! the signals are on Linux (`fxsound_app::win::session`). The window carries FxSound's icon,
-//! which Windows takes from the window rather than from the app id ([`native_options`]).
+//! prints there, and the running FxSound gives it back before its engine starts
+//! (`fxsound_app::platform::release_terminal`), borrowing it again only for the moment it takes
+//! to print the report of the options it was started with. The tray-only state pumps the GUI
+//! thread's window messages while it waits ([`wait_for_any`]): eframe's event loop keeps a hidden
+//! window on this thread between two windows, and a thread that does not answer its windows'
+//! messages holds up the end of the session. Ctrl+C and the console closing (a console of
+//! FxSound's own, the debug build's), log-off, shutdown and a `taskkill` without `/F` are the
+//! tray's Exit, as the signals are on Linux (`fxsound_app::win::session`). The window carries
+//! FxSound's icon, which Windows takes from the window rather than from the app id
+//! ([`native_options`]).
 
 #![forbid(unsafe_code)]
 // No console window of its own in a release build; `main` attaches to its parent's instead.
@@ -282,6 +284,11 @@ fn main() -> eframe::Result<()> {
     if !forgotten.stderr.is_empty() {
         eprintln!("{}", forgotten.stderr);
     }
+    // This process is the running FxSound, and what remains to be said waits for the engine: a
+    // release build on Windows gives back the terminal it borrowed before the engine starts, and
+    // runs on as a program of its own. Held, a Ctrl+C typed there or the terminal closing would
+    // end it halfway through taking over the default device.
+    fxsound_app::platform::release_terminal();
 
     // The UI language, decided before anything is drawn or named: the desktop's unless the
     // settings say otherwise (`fxsound_core::i18n`). The engine gets it too, for the node
@@ -311,17 +318,19 @@ fn main() -> eframe::Result<()> {
     // before FxSound is then reached by its own streams, as a running FxSound would reach it.
     app.hold_app_presets();
     let cold = commands::run(&mut app, &cli.cold_start_commands());
-    if !cold.stdout.is_empty() {
-        println!("{}", cold.stdout);
-    }
-    // A cold start reports and carries on: the device list has not arrived yet, so `--output` has
-    // been held rather than refused, and there is nothing here worth refusing to start over.
-    if !cold.stderr.is_empty() {
-        eprintln!("{}", cold.stderr);
-    }
-    // Everything the command line had to say is said: a release build on Windows gives the
-    // terminal it borrowed for it back, and runs on as a program of its own.
-    fxsound_app::platform::release_terminal();
+    // Said where the line was typed: on Windows the terminal given back above is borrowed again
+    // for as long as the printing takes (`fxsound_app::platform::on_the_terminal`).
+    fxsound_app::platform::on_the_terminal(|| {
+        if !cold.stdout.is_empty() {
+            println!("{}", cold.stdout);
+        }
+        // A cold start reports and carries on: the device list has not arrived yet, so
+        // `--output` has been held rather than refused, and there is nothing here worth refusing
+        // to start over.
+        if !cold.stderr.is_empty() {
+            eprintln!("{}", cold.stderr);
+        }
+    });
     // `--hide` and the saved "start minimised" preference start in the tray-only state; there is
     // no such thing as a hidden window here (see the module docs). An explicit `--show` overrides
     // the preference, as `--hide` overrides it the other way (`Cli::cold_start_commands`), and so

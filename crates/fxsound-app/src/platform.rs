@@ -9,7 +9,7 @@
 //! | [`open_url`], [`open_folder`] | `xdg-open` | `ShellExecuteW` (`win::shell`) |
 //! | [`autostart_enabled`], [`set_autostart`] | `~/.config/autostart/fxsound.desktop` | `HKCU\…\Run`, `FxSound Port` (`win::autostart`) |
 //! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the display language, as `LANG` (`win::language`) |
-//! | [`attach_parent_console`], [`release_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
+//! | [`attach_parent_console`], [`release_terminal`], [`on_the_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
 
 use std::path::Path;
 
@@ -187,14 +187,28 @@ pub fn attach_parent_console() {
 }
 
 /// Let go of the terminal [`attach_parent_console`] borrowed, once this process is the running
-/// FxSound and has printed what its command line had to say. The shell did not wait for a GUI
-/// program, so the terminal is the next command's: a Ctrl+C typed there — for an `fxsound
-/// --watch`, say — and the terminal closing must not end the FxSound that happened to be started
-/// from it, as they do not end a job sent to the background on Linux. A no-op on Linux, and for a
-/// console FxSound has of its own, the debug build's, whose Ctrl+C is the tray's Exit.
+/// FxSound and before its engine starts. The shell did not wait for a GUI program, so the
+/// terminal is the next command's: a Ctrl+C typed there — for an `fxsound --watch`, say — and the
+/// terminal closing must not end the FxSound that happened to be started from it, as they do not
+/// end a job sent to the background on Linux; and a process attached to a console is ended by
+/// either, which in the middle of the engine's start would leave the default device on FxSound's
+/// own. What the start has to say after that goes through [`on_the_terminal`]. A no-op on Linux,
+/// and for a console FxSound has of its own, the debug build's, whose Ctrl+C is the tray's Exit.
 pub fn release_terminal() {
     #[cfg(windows)]
     crate::win::session::release_borrowed_console();
+}
+
+/// Run `print`, which prints what the start has to say once [`release_terminal`] has let go of
+/// the terminal — the report of the options FxSound was started with — where it was typed. On
+/// Windows the terminal is borrowed again for as long as `print` takes, and Ctrl+C typed there
+/// meanwhile stays the next command's (`win::session`); on Linux, whose FxSound always has the
+/// terminal it was started from, and for a console of FxSound's own, `print` just runs.
+pub fn on_the_terminal(print: impl FnOnce()) {
+    #[cfg(windows)]
+    crate::win::session::on_the_terminal(print);
+    #[cfg(not(windows))]
+    print();
 }
 
 #[cfg(test)]
