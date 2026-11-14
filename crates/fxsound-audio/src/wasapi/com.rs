@@ -65,7 +65,7 @@ use windows::Win32::Media::Audio::{
     eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::StructuredStorage::{
-    PROPVARIANT, PropVariantClear, PropVariantToGUID, PropVariantToStringAlloc, PropVariantToUInt32,
+    PROPVARIANT, PropVariantToGUID, PropVariantToStringAlloc, PropVariantToUInt32,
 };
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
@@ -216,8 +216,10 @@ impl Drop for WaitEvent {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         // SAFETY: the handle `CreateEventW` returned, closed once. An audio client it was handed
-        // to (`SetEventHandle`) holds a reference of its own and is released before this, by the
-        // order of the fields of the structs that own both.
+        // to (`SetEventHandle`) is released before this on every path: by the order of the fields
+        // of the stream that owns both once it is built, and on the open functions' early returns
+        // by the order of their locals — the event is made before the client, and locals drop in
+        // the reverse of the order they were made in.
         let _ = unsafe { CloseHandle(self.0) };
     }
 }
@@ -454,17 +456,6 @@ impl IMMNotificationClient_Impl for Notifier_Impl {
 /// One endpoint.
 pub(crate) struct Device(IMMDevice);
 
-/// A `PROPVARIANT` read from a property store, cleared when dropped.
-struct Property(PROPVARIANT);
-
-impl Drop for Property {
-    #[allow(unsafe_code)]
-    fn drop(&mut self) {
-        // SAFETY: the variant the store handed over, owned here and cleared once.
-        let _ = unsafe { PropVariantClear(&raw mut self.0) };
-    }
-}
-
 impl Device {
     /// The endpoint ID (`IMMDevice::GetId`).
     #[allow(unsafe_code)]
@@ -479,28 +470,30 @@ impl Device {
         let id = self.id()?;
         // SAFETY: the device is alive; the store is owned by this frame.
         let store = unsafe { self.0.OpenPropertyStore(STGM_READ) }?;
-        let read = |key: &PROPERTYKEY| -> Option<Property> {
-            // SAFETY: the store is alive and `key` is a static key; the variant returned is ours,
-            // and `Property` clears it.
-            unsafe { store.GetValue(key) }.ok().map(Property)
+        // The `PROPVARIANT` the store returns owns what it holds and clears itself when dropped
+        // (the `windows` crate's own `Drop`, which calls `PropVariantClear`): each one below is
+        // read through a pointer that does not outlive it, and cleared once, by that `Drop`.
+        let read = |key: &PROPERTYKEY| -> Option<PROPVARIANT> {
+            // SAFETY: the store is alive and `key` is a static key; the variant returned is ours.
+            unsafe { store.GetValue(key) }.ok()
         };
         let text = |key: &PROPERTYKEY| -> String {
             read(key)
                 .and_then(|value| {
                     // SAFETY: `value` is a live variant; the string allocated is ours to free,
                     // which `take_string` does. An empty variant reads as an error, and as "".
-                    unsafe { PropVariantToStringAlloc(&raw const value.0) }.ok()
+                    unsafe { PropVariantToStringAlloc(&raw const value) }.ok()
                 })
                 .map(take_string)
                 .unwrap_or_default()
         };
         let form_factor = read(&PKEY_AudioEndpoint_FormFactor).and_then(|value| {
             // SAFETY: `value` is a live variant, read and not kept.
-            unsafe { PropVariantToUInt32(&raw const value.0) }.ok()
+            unsafe { PropVariantToUInt32(&raw const value) }.ok()
         });
         let container = read(&PKEY_Device_ContainerId).and_then(|value| {
             // SAFETY: as above.
-            unsafe { PropVariantToGUID(&raw const value.0) }
+            unsafe { PropVariantToGUID(&raw const value) }
                 .ok()
                 .map(|guid| format!("{guid:?}"))
         });
@@ -772,7 +765,9 @@ impl CaptureStream {
             Source::Loopback => AUDCLNT_STREAMFLAGS_LOOPBACK,
             Source::Microphone => 0,
         };
-        // Event-driven first; a fresh client without the event when that is refused.
+        // Event-driven first; a fresh client without the event when that is refused. The event is
+        // made before the client, so that on every early return below the client — a local made
+        // after it — is released first (`WaitEvent`'s `Drop`).
         let event = WaitEvent::new()?;
         let evented = device.client()?;
         // SAFETY: a fresh client; `pointer` points at a format that outlives the call (`mix` or
@@ -788,12 +783,13 @@ impl CaptureStream {
             )
         }
         .and_then(|()| {
-            // SAFETY: the client was initialised event-driven just now; the event outlives it
-            // (field order).
+            // SAFETY: the client was initialised event-driven just now; the event outlives it on
+            // every path (declared before it here, after it in `Self`).
             unsafe { evented.SetEventHandle(event.0) }
         });
-        let (client, event) = match started {
-            Ok(()) => (evented, Some(event)),
+        // `event` bound before `client`, so dropped after it on the early returns below.
+        let (event, client) = match started {
+            Ok(()) => (Some(event), evented),
             Err(error) => {
                 log::debug!("capture without an event ({error}); polling instead");
                 let polled = device.client()?;
@@ -808,7 +804,7 @@ impl CaptureStream {
                         None,
                     )
                 }?;
-                (polled, None)
+                (None, polled)
             }
         };
         let mut period = 0_i64;
@@ -927,9 +923,11 @@ impl RenderStream {
     /// another application holds in exclusive mode, above all.
     #[allow(unsafe_code)]
     pub(crate) fn open(device: &Device, format: &StreamFormat) -> windows_core::Result<Self> {
+        // The event first, the client after it: on every early return below the client, the
+        // later local, is released before the event it was handed (`WaitEvent`'s `Drop`).
+        let event = WaitEvent::new()?;
         let client = device.client()?;
         let wave = format.to_wave_format();
-        let event = WaitEvent::new()?;
         // SAFETY: a fresh client; `wave` is a local that outlives the call.
         unsafe {
             client.Initialize(
@@ -944,7 +942,8 @@ impl RenderStream {
                 None,
             )
         }?;
-        // SAFETY: the client was initialised event-driven; the event outlives it (field order).
+        // SAFETY: the client was initialised event-driven; the event outlives it on every path
+        // (declared before it here, after it in `Self`).
         unsafe { client.SetEventHandle(event.0) }?;
         // SAFETY: the client is initialised.
         let buffer = unsafe { client.GetBufferSize() }? as usize;
