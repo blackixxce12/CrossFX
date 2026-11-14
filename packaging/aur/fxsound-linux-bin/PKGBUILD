@@ -74,9 +74,10 @@ package() {
 
   # README, CHANGELOG, the licences, the Hyprland rules and the autostart entry.
   install -Dm644 share/doc/fxsound-linux/* -t "${pkgdir}/usr/share/doc/${_pkgname}/"
-  # The AGPL, and the notices of the two parts of the binary that are not AGPL and whose licences
-  # make shipping their text a condition of shipping the binary: the RNNoise code and model
-  # (BSD-3-Clause) and the embedded Noto fallback faces (SIL OFL 1.1).
-  install -Dm644 share/doc/fxsound-linux/{LICENSE,COPYING.rnnoise,OFL.noto} \
+  # The AGPL, and the notices of the three parts of the binary that are not AGPL and whose
+  # licences make shipping their text a condition of shipping the binary: the RNNoise code and
+  # model (BSD-3-Clause), and the embedded Noto fallback faces and Manrope interface faces (both
+  # SIL OFL 1.1, each with its own notice).
+  install -Dm644 share/doc/fxsound-linux/{LICENSE,COPYING.rnnoise,OFL.noto,OFL.manrope} \
     -t "${pkgdir}/usr/share/licenses/${_pkgname}/"
 }

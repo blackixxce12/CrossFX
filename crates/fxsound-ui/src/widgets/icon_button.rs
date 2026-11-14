@@ -44,7 +44,8 @@ pub const MIN_HIT_SIZE: f32 = 24.0;
 const TOOLTIP_FONT_PX: f32 = 14.0;
 
 /// `juce::Font::withHeight(h)` sets ascent + descent to `h` pixels; `egui::FontId::size` is the em
-/// size, and for Gilroy ascent + descent ≈ 1.2 em (`docs/spec/01-window-layout.md §2.3`).
+/// size, and for Gilroy ascent + descent ≈ 1.2 em (`docs/spec/01-window-layout.md §2.3`). Manrope's
+/// type scale gives it the same line ([`crate::typeface::MANROPE`]), so this holds for both faces.
 pub const JUCE_HEIGHT_PER_EM: f32 = 1.2;
 
 /// The whole texture, for [`egui::Painter::image`].
@@ -475,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tooltip_font_is_gilroy_semibold_at_fourteen_juce_pixels() {
+    fn the_tooltip_font_is_the_semibold_weight_at_fourteen_juce_pixels() {
         let font = theme::semibold(TOOLTIP_FONT_PX / JUCE_HEIGHT_PER_EM);
         assert!((font.size - 11.666_667).abs() < 1e-4, "{font:?}");
         assert_eq!(font.family, theme::semibold(1.0).family);

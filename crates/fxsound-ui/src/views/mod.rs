@@ -138,6 +138,10 @@ pub fn window_origin(ui: &Ui) -> Pos2 {
 }
 
 /// Draw whichever window [`UiState::view`] selects.
+///
+/// First, the window's face is brought up to date: a Gilroy added or chosen in Settings, or the
+/// original look switched on from the command line, shows from the next frame on
+/// ([`crate::typeface::sync`]).
 pub fn show(
     ui: &mut Ui,
     state: &UiState,
@@ -145,6 +149,7 @@ pub fn show(
     palette: Palette,
     assets: &mut AssetCache,
 ) -> UiResponse {
+    crate::typeface::sync(ui.ctx(), palette.is_windows());
     match state.view {
         ViewMode::Pro => pro::show(ui, state, scratch, palette, assets),
         ViewMode::Lite => lite::show(ui, state, scratch, palette, assets),

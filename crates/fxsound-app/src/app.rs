@@ -686,6 +686,7 @@ impl App {
     #[must_use]
     pub fn new(engine: Option<EngineHandle>, waker: &crate::wake::Waker) -> Self {
         let settings = Settings::load();
+        crate::fonts::install(&settings);
         let mut presets = PresetStore::with_default_dirs();
         presets.rescan();
         let mut voice_presets = InputPresetStore::with_default_dirs();
@@ -5209,6 +5210,11 @@ impl App {
                     self.raise_notice(tr("Could not open the link"));
                 }
             }
+            A::Font(action) => {
+                if crate::fonts::act(action, &mut self.settings, state) {
+                    self.persist_settings();
+                }
+            }
 
             // The microphone pane (0.4.0 design §1.4). Each is written, saved, and published to
             // the voice chain at once, whichever lane the window is editing.
@@ -5361,6 +5367,7 @@ impl App {
             state.apps = apps;
         }
         state.can_reset_presets = self.can_reset_presets();
+        crate::fonts::refresh(state);
         // A restart of WirePlumber asked for from the pane, over.
         if let Some(hook) = self.wireplumber.restart_settled() {
             state.wireplumber_hook = hook;

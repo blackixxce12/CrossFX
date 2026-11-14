@@ -47,6 +47,13 @@ pipewire-sys = "0.10.1"
 resvg = "0.50.0"
 usvg = "0.50.0"
 tiny-skia = "0.12.0"
+# The name table and the character map of a font the user hands FxSound: whether a file is a
+# Gilroy, which of its faces, and whether it has the letters of the language in force
+# (`fxsound-ui/src/typeface.rs`). Not the newest skrifa but the one egui parses fonts with
+# (epaint's own dependency, its features a subset of epaint's): a file read here is then a file
+# egui loads, where a file egui could not parse would be a panic at every start. A test in
+# `typeface` fails when egui moves to another.
+skrifa = { version = "0.44.0", default-features = false, features = ["std"] }
 
 ksni = "0.3.7"
 notify-rust = "4.18.0"

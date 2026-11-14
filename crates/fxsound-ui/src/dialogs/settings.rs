@@ -57,8 +57,8 @@
 //! always shown.
 
 use super::{
-    ChromeResponse, DialogChrome, DialogResponse, TextButton, draw_truncated, draw_wrapped, link,
-    normal_font, small_font, title_font,
+    ChromeResponse, DialogChrome, DialogResponse, TextButton, draw_fitted, draw_truncated,
+    draw_wrapped, link, normal_font, small_font, title_font,
 };
 use crate::assets::{AssetCache, FxImage, rasterise};
 use crate::state::EchoCancelTrouble;
@@ -71,8 +71,9 @@ use egui::{
     TextureHandle, TextureOptions, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use fxsound_core::{
-    AppKey, DeEsserMode, DenoiseChannelsOverride, DereverbLevel, DeviceDirection,
-    NoiseSuppressionOverride, ParityClass, Settings, WindowsLook, WindowsParity,
+    AppKey, DeEsserMode, DenoiseChannelsOverride, DereverbLevel, DeviceDirection, InterfaceFont,
+    NoiseSuppressionOverride, Original, ParityClass, Platform, Settings, WindowsLook,
+    WindowsParity,
 };
 use std::collections::HashMap;
 
@@ -445,6 +446,29 @@ impl SettingsTab {
     #[must_use]
     pub const fn windows_has(self) -> bool {
         matches!(self, Self::Audio | Self::General | Self::Help)
+    }
+
+    /// Whether `platform` has what the tab sets: every tab but Applications, whose per-application
+    /// presets need PipeWire's routing ([`Platform::app_presets`]).
+    #[must_use]
+    pub const fn offered_on(self, platform: Platform) -> bool {
+        match self {
+            Self::Applications => platform.app_presets,
+            Self::Audio | Self::General | Self::Help | Self::Microphone | Self::Experimental => {
+                true
+            }
+        }
+    }
+
+    /// The row of the nav the tab's button takes on `platform`: its place among the tabs offered
+    /// there, so that a tab a platform lacks leaves no gap.
+    #[must_use]
+    pub fn row(self, platform: Platform) -> usize {
+        Self::ALL
+            .into_iter()
+            .take(self.index())
+            .filter(|tab| tab.offered_on(platform))
+            .count()
     }
 
     /// The level of «Как в Windows» at which this tab stops being what it is in FxSound for
@@ -857,7 +881,59 @@ pub struct SettingsState {
     /// reason [`SettingsState::launch_on_startup`] is not: it is two files in WirePlumber's own
     /// directories, and the app layer reads them and fills this in.
     pub wireplumber_hook: WirePlumberHook,
+    /// Settings ▸ General ▸ "Interface font": the Gilroy FxSound found, and what the last action
+    /// there came to. Live state, as the hook's is: the app layer fills it in; the choice itself
+    /// is `settings.interface_font`.
+    pub font: FontPane,
+    /// The platform the window is drawn for: this build's ([`fxsound_core::PLATFORM`]). What it
+    /// lacks is not drawn — the Applications tab, echo cancellation, the WirePlumber hook, the
+    /// Wayland note over the shortcuts — and the «Like …» mode is named for its original. A
+    /// field rather than the constant, so that a test can draw either platform's window on either.
+    pub platform: Platform,
 }
+
+/// What Settings ▸ General says about Gilroy under "Interface font".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FontPane {
+    /// The Gilroy FxSound found: in its own data folder, where "Add Gilroy files…" copies the
+    /// user's files, or installed on the system.
+    pub gilroy: GilroyFound,
+    /// Whether the Gilroy found lacks letters the language in force needs, which leaves the
+    /// window in Manrope (`typeface::GilroyFaces::sets`).
+    pub lacks_letters: bool,
+    /// What the last "Add Gilroy files…" or "Buy Gilroy" came to, when it was not what was
+    /// asked; `None` once it was.
+    pub message: Option<FontMessage>,
+}
+
+/// How much of Gilroy FxSound found.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum GilroyFound {
+    /// No Gilroy face at all.
+    #[default]
+    None,
+    /// Some of its faces, not all three the window is set in: Regular, SemiBold or Medium, Bold.
+    Incomplete,
+    /// All three.
+    Whole,
+}
+
+/// What an action under "Interface font" came to, when it was not what was asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontMessage {
+    /// Of the files the user picked, these are not Gilroy faces the window uses, by file name.
+    LeftOut(Vec<String>),
+    /// The Gilroy files could not be copied into FxSound's folder.
+    NotCopied,
+    /// The file picker could not be opened.
+    NoPicker,
+    /// The store's page could not be opened.
+    NoBrowser,
+}
+
+/// The designer's own store for Gilroy, which "Buy Gilroy" opens: Radomir Tinkov's family on
+/// MyFonts. FxSound neither sells nor downloads it.
+pub const GILROY_STORE: &str = "https://www.myfonts.com/collections/gilroy-font-radomir-tinkov";
 
 /// "Smooth moves in WirePlumber" (roadmap 0.5.0 §7, D5): FxSound's hook in the user's WirePlumber,
 /// which fades the streams WirePlumber moves itself — a device picked in the desktop's sound
@@ -913,6 +989,8 @@ impl SettingsState {
             input_processing: false,
             has_microphone: false,
             wireplumber_hook: WirePlumberHook::default(),
+            font: FontPane::default(),
+            platform: fxsound_core::PLATFORM,
         }
     }
 
@@ -1025,6 +1103,8 @@ pub enum SettingsAction {
     /// Show the shipped `packaging/hyprland.conf.example`. The app knows where its own data files
     /// were installed; this crate must not guess.
     ShowHotkeyExample,
+    /// Something under "Interface font": the face chosen, or one of Gilroy's two buttons.
+    Font(FontAction),
 
     // ---- help pane ----------------------------------------------------------------------------
     /// Open a URL in the user's browser.
@@ -1082,6 +1162,19 @@ pub enum SettingsAction {
     Close,
 }
 
+/// What Settings ▸ General ▸ "Interface font" asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontAction {
+    /// The option moved to this face. `interface_font` is written as it is: Gilroy chosen and
+    /// not found keeps the window in Manrope, and the pane says what to do about it.
+    Choose(InterfaceFont),
+    /// "Buy Gilroy": open [`GILROY_STORE`] in the user's browser.
+    Buy,
+    /// "Add Gilroy files…": the file picker, for the files the user licensed, which the app reads,
+    /// checks and copies into FxSound's own folder, and sets the window in at once.
+    AddFiles,
+}
+
 // =============================================================================================
 // The window
 // =============================================================================================
@@ -1108,6 +1201,8 @@ impl<'a> SettingsDialog<'a> {
     ) -> DialogResponse<SettingsAction> {
         let id = Id::unique("fx_settings_dialog");
         let mut response = DialogResponse::default();
+        // The face chosen in the General pane, or the Gilroy just added there, at once.
+        crate::typeface::sync(ui.ctx(), palette.is_windows());
 
         let ChromeResponse {
             content,
@@ -1139,33 +1234,41 @@ impl<'a> SettingsDialog<'a> {
             .windows_parity
             .offered_or_below()
             .windows_look(WindowsLook::NavCaptions);
+        let platform = self.state.platform;
+        // A tab the platform lacks has no button, and is never shown: the first tab is instead.
+        let shown = if self.state.tab.offered_on(platform) {
+            self.state.tab
+        } else {
+            SettingsTab::default()
+        };
         for tab in SettingsTab::ALL {
-            let rect = nav_button_rect(content, tab.index());
+            if !tab.offered_on(platform) {
+                continue;
+            }
+            let rect = nav_button_rect(content, tab.row(platform));
             let windows_caption = windows_captions && tab.windows_has();
-            if nav_button(
-                ui,
-                rect,
-                tab,
-                self.state.tab == tab,
-                windows_caption,
-                palette,
-                icons,
-            ) {
+            if nav_button(ui, rect, tab, shown == tab, windows_caption, palette, icons) {
                 response.push(SettingsAction::SelectTab(tab));
             }
         }
 
         let pane = pane_rect(content);
+        let title = if shown == self.state.tab {
+            tr(self.state.tab.pane_title())
+        } else {
+            // `SettingsTab::default()`'s.
+            tr("Audio")
+        };
         draw_truncated(
             ui.painter(),
-            &tr(self.state.tab.pane_title()),
+            &title,
             title_font(),
             palette.color(FxColor::HighlightedText),
             pane_title_rect(pane),
             Align2::LEFT_CENTER,
         );
 
-        match self.state.tab {
+        match shown {
             SettingsTab::Audio => {
                 audio_pane(ui, pane, self.state, palette, assets, id, &mut response);
             }
@@ -1916,9 +2019,59 @@ pub mod general {
     /// Height of the explanatory note above the table — four lines of the small font, which is
     /// what the English text wraps to at the pane's width.
     pub const NOTE_HEIGHT: f32 = 70.0;
-    /// Height of the link to the shipped example.
-    pub const LINK_HEIGHT: f32 = 24.0;
+    /// The "Interface font" row: the checkboxes' height, in the slot under them that the
+    /// original's fourth, "Disable keyboard shortcuts", had.
+    pub const FONT_ROW_HEIGHT: f32 = TOGGLE_HEIGHT;
+    /// Its stepper: the Microphone pane's.
+    pub const FONT_STEPPER_WIDTH: f32 = 200.0;
+    /// Between its caption and its stepper, as on the Microphone pane.
+    pub const FONT_LABEL_GAP: f32 = 10.0;
+    /// Between the row and the lines under it, and between those lines.
+    pub const FONT_LINE_GAP: f32 = 5.0;
+    /// "Buy Gilroy" and "Add Gilroy files…": a line of the reset button's height each…
+    pub const FONT_BUTTON_HEIGHT: f32 = 24.0;
+    /// …side by side, this far apart.
+    pub const FONT_BUTTON_GAP: f32 = 10.0;
+    /// Between the font's row, or the lines under it, and the shortcuts' heading.
+    pub const GAP_BEFORE_SHORTCUTS: f32 = 5.0;
+    /// Kept clear under the last row.
+    pub const BOTTOM_MARGIN: f32 = 4.0;
+    /// When what the pane holds is taller than the pane, everything from here down scrolls: the
+    /// pane's title stays.
+    pub const SCROLL_TOP: f32 = 40.0;
 }
+
+/// The caption of the face option.
+pub const INTERFACE_FONT: &str = "Interface font";
+/// Under it, with Gilroy chosen and none found: what Gilroy is and what to do about it.
+pub const GILROY_EXPLAINED: &str = "Gilroy is Radomir Tinkov's commercial typeface, so FxSound \
+cannot include it. You can buy a licence and add its files here.";
+/// The same, with some of Gilroy found and not all three faces.
+pub const GILROY_INCOMPLETE: &str = "Some of Gilroy is missing: add its Regular, SemiBold (or \
+Medium) and Bold files.";
+/// The button that opens [`GILROY_STORE`].
+pub const BUY_GILROY: &str = "Buy Gilroy";
+/// The button that opens the file picker.
+pub const ADD_GILROY_FILES: &str = "Add Gilroy files…";
+/// The note by the option whenever Gilroy is chosen: whose files they are.
+pub const GILROY_LICENCE: &str = "The files are used only on this computer, and your licence has \
+to allow it.";
+/// With a Gilroy found that lacks letters of the language in force.
+pub const GILROY_LACKS_LETTERS: &str = "Gilroy lacks letters of this language, so Manrope is \
+used.";
+/// With Manrope chosen, a Gilroy found and the original look on: `%s` is the mode's name, which
+/// each language puts in its own quotation marks.
+pub const ORIGINAL_LOOK_USES_GILROY: &str = "“%s” uses Gilroy while it is on.";
+/// Files the user picked that were not added — not a Gilroy face the window uses, or not
+/// readable: `%s` is their names.
+pub const GILROY_LEFT_OUT: &str =
+    "Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold.";
+/// The files could not be copied into FxSound's folder.
+pub const GILROY_NOT_COPIED: &str = "The Gilroy files could not be copied.";
+/// The file picker could not be opened.
+pub const NO_FILE_PICKER: &str = "Could not open the file picker";
+/// The store's page could not be opened.
+pub const NO_BROWSER: &str = "Could not open the link";
 
 /// `"Launch on system startup"` (`FxSettingsDialog.cpp:337`).
 pub const LAUNCH_ON_STARTUP: &str = "Launch on system startup";
@@ -1959,51 +2112,219 @@ pub fn toggle_rect(pane: Rect, index: usize) -> Rect {
     )
 }
 
-/// The hotkey block's heading, in the exact slot the "Disable keyboard shortcuts" checkbox had:
-/// ten points below the last checkbox (`FxSettingsDialog.cpp:438-440`).
+/// The "Interface font" row: the caption and its stepper, in the slot the original's fourth
+/// checkbox, "Disable keyboard shortcuts", had — ten points under the third
+/// (`FxSettingsDialog.cpp:438-440`), as wide as the Microphone pane's rows.
 #[must_use]
-pub fn hotkey_title_rect(pane: Rect) -> Rect {
+pub fn font_row_rect(pane: Rect) -> Rect {
     let last = toggle_rect(pane, 2);
     Rect::from_min_size(
         pos2(
             pane.left() + X_MARGIN,
             last.bottom() + general::GAP_BETWEEN_TOGGLES,
         ),
-        vec2(pane.width() - X_MARGIN, general::HOTKEY_ROW_HEIGHT),
+        vec2(pane.width() - X_MARGIN * 2.0, general::FONT_ROW_HEIGHT),
     )
 }
 
-/// The note explaining that the compositor owns the bindings.
+/// The face's stepper, flush with the row's right end.
 #[must_use]
-pub fn hotkey_note_rect(pane: Rect) -> Rect {
-    let title = hotkey_title_rect(pane);
+pub fn font_stepper_rect(pane: Rect) -> Rect {
+    let row = font_row_rect(pane);
     Rect::from_min_size(
-        pos2(title.left(), title.bottom() + 5.0),
-        vec2(title.width(), general::NOTE_HEIGHT),
+        pos2(row.right() - general::FONT_STEPPER_WIDTH, row.top()),
+        vec2(general::FONT_STEPPER_WIDTH, row.height()),
     )
 }
 
-/// One hotkey row: `(45, …, paneWidth - 45, 20)`, five points below the note and then thirty
-/// apart (`FxSettingsDialog.cpp:442-447`).
+/// "Interface font", from the margin to a gap short of the stepper.
 #[must_use]
-pub fn hotkey_row_rect(pane: Rect, index: usize) -> Rect {
-    Rect::from_min_size(
+pub fn font_caption_rect(pane: Rect) -> Rect {
+    let row = font_row_rect(pane);
+    Rect::from_min_max(
+        row.min,
         pos2(
-            pane.left() + general::HOTKEY_X,
-            hotkey_note_rect(pane).bottom() + 5.0 + index as f32 * general::HOTKEY_PITCH,
+            font_stepper_rect(pane).left() - general::FONT_LABEL_GAP,
+            row.bottom(),
         ),
-        vec2(pane.width() - general::HOTKEY_X, general::HOTKEY_ROW_HEIGHT),
     )
 }
 
-/// The link to `packaging/hyprland.conf.example`, under the table.
+/// Where the General pane puts what follows the font's row, for `font_lines` points of lines and
+/// buttons under that row ([`font_lines`]) on `platform`.
+///
+/// The shortcut table, the port's in place of the original's five editors, starts five points
+/// under them. Where the compositor owns the shortcuts (Wayland, [`Platform::compositor_shortcuts`])
+/// the note saying so stands between its heading and its rows, and the link to the example
+/// configuration at the right end of the heading's row; elsewhere there is neither.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeneralLayout {
+    /// The lines and buttons under the font's row.
+    pub font_lines: Rect,
+    /// The shortcut table's heading, its row as wide as the pane allows.
+    pub hotkey_title: Rect,
+    /// The note under the heading: the compositor owns the bindings.
+    pub hotkey_note: Option<Rect>,
+    /// The five rows: `(45, …, paneWidth - 45, 20)`, thirty apart (`FxSettingsDialog.cpp:442-447`).
+    pub hotkey_rows: [Rect; 5],
+    /// The link to `packaging/hyprland.conf.example`: the heading's row, which it ends.
+    pub hotkey_link: Option<Rect>,
+}
+
+impl GeneralLayout {
+    #[must_use]
+    pub fn new(pane: Rect, font_lines: f32, platform: Platform) -> Self {
+        let row = font_row_rect(pane);
+        let lines = Rect::from_min_size(
+            pos2(
+                row.left(),
+                row.bottom()
+                    + if font_lines > 0.0 {
+                        general::FONT_LINE_GAP
+                    } else {
+                        0.0
+                    },
+            ),
+            vec2(row.width(), font_lines.max(0.0)),
+        );
+        let hotkey_title = Rect::from_min_size(
+            pos2(
+                pane.left() + X_MARGIN,
+                lines.bottom() + general::GAP_BEFORE_SHORTCUTS,
+            ),
+            vec2(pane.width() - X_MARGIN * 2.0, general::HOTKEY_ROW_HEIGHT),
+        );
+        // As wide as the original's rows, to the pane's edge: the width the note's four lines
+        // were measured in.
+        let hotkey_note = platform.compositor_shortcuts.then(|| {
+            Rect::from_min_size(
+                pos2(hotkey_title.left(), hotkey_title.bottom() + 5.0),
+                vec2(pane.width() - X_MARGIN, general::NOTE_HEIGHT),
+            )
+        });
+        let first = hotkey_note.unwrap_or(hotkey_title).bottom() + 5.0;
+        let hotkey_rows = std::array::from_fn(|index| {
+            Rect::from_min_size(
+                pos2(
+                    pane.left() + general::HOTKEY_X,
+                    first + index as f32 * general::HOTKEY_PITCH,
+                ),
+                vec2(pane.width() - general::HOTKEY_X, general::HOTKEY_ROW_HEIGHT),
+            )
+        });
+        Self {
+            font_lines: lines,
+            hotkey_title,
+            hotkey_note,
+            hotkey_rows,
+            hotkey_link: platform.compositor_shortcuts.then_some(hotkey_title),
+        }
+    }
+
+    /// The bottom of the last row.
+    #[must_use]
+    pub fn bottom(&self) -> f32 {
+        self.hotkey_rows[HotkeyCommand::ALL.len() - 1].bottom()
+    }
+}
+
+/// One line, or a few, under the "Interface font" row ([`font_lines`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontLine {
+    /// Text in the small font, wrapped to the row; `note` sets it in the hint colour.
+    Text { text: String, note: bool },
+    /// "Buy Gilroy" and "Add Gilroy files…", side by side.
+    Buttons,
+}
+
+/// What stands under the "Interface font" row, top to bottom: nothing for Manrope as it is; for
+/// Gilroy chosen and found, the note on whose the files are; for Gilroy chosen and not found, what
+/// Gilroy is, the two buttons and the note. And what the last action came to, when it went wrong.
 #[must_use]
-pub fn hotkey_link_rect(pane: Rect) -> Rect {
-    let last = hotkey_row_rect(pane, HotkeyCommand::ALL.len() - 1);
-    Rect::from_min_size(
-        pos2(last.left(), last.bottom() + 10.0),
-        vec2(last.width(), general::LINK_HEIGHT),
-    )
+pub fn font_lines(state: &SettingsState) -> Vec<FontLine> {
+    let text = |text: String| FontLine::Text { text, note: false };
+    let note = || FontLine::Text {
+        text: tr(GILROY_LICENCE),
+        note: true,
+    };
+    let pane = &state.font;
+    let original_look = state.settings.windows_parity.offered_or_below().interface();
+    let mut lines = match (state.settings.interface_font, pane.gilroy) {
+        (InterfaceFont::Gilroy, GilroyFound::Whole) if pane.lacks_letters => {
+            vec![text(tr(GILROY_LACKS_LETTERS)), note()]
+        }
+        (InterfaceFont::Gilroy, GilroyFound::Whole) => vec![note()],
+        (InterfaceFont::Gilroy, GilroyFound::None) => {
+            vec![text(tr(GILROY_EXPLAINED)), FontLine::Buttons, note()]
+        }
+        (InterfaceFont::Gilroy, GilroyFound::Incomplete) => {
+            vec![text(tr(GILROY_INCOMPLETE)), FontLine::Buttons, note()]
+        }
+        // The original look sets the window in a Gilroy that is there, whatever was chosen.
+        (InterfaceFont::Manrope, GilroyFound::Whole) if original_look && !pane.lacks_letters => {
+            let mode = parity_title(state.platform.original);
+            vec![text(i18n::tr_args(ORIGINAL_LOOK_USES_GILROY, &[&mode]))]
+        }
+        (InterfaceFont::Manrope, _) => Vec::new(),
+    };
+    if let Some(message) = &pane.message {
+        lines.push(text(match message {
+            FontMessage::LeftOut(names) => i18n::tr_args(GILROY_LEFT_OUT, &[&names.join(", ")]),
+            FontMessage::NotCopied => tr(GILROY_NOT_COPIED),
+            FontMessage::NoPicker => tr(NO_FILE_PICKER),
+            FontMessage::NoBrowser => tr(NO_BROWSER),
+        }));
+    }
+    lines
+}
+
+/// How tall `line` is in a row `width` wide.
+fn font_line_height(ctx: &Context, line: &FontLine, width: f32) -> f32 {
+    match line {
+        FontLine::Text { text, .. } => ctx.fonts_mut(|fonts| {
+            fonts
+                .layout(text.clone(), small_font(), Color32::PLACEHOLDER, width)
+                .size()
+                .y
+        }),
+        FontLine::Buttons => general::FONT_BUTTON_HEIGHT,
+    }
+}
+
+/// How tall `lines` stand, one under the other.
+#[must_use]
+pub fn font_lines_height(ctx: &Context, lines: &[FontLine], width: f32) -> f32 {
+    let gaps = lines.len().saturating_sub(1) as f32 * general::FONT_LINE_GAP;
+    lines
+        .iter()
+        .map(|line| font_line_height(ctx, line, width))
+        .sum::<f32>()
+        + gaps
+}
+
+/// "Buy Gilroy" and "Add Gilroy files…" in `row`, `labels` being the two as translated: each as
+/// wide as its label and a button's height more (`getBestWidthForHeight`), no narrower than a
+/// third of the row and no wider than half of it less the gap.
+#[must_use]
+pub fn gilroy_button_rects(ctx: &Context, row: Rect, labels: [&str; 2]) -> [Rect; 2] {
+    let widest = (row.width() - general::FONT_BUTTON_GAP) / 2.0;
+    let narrowest = (row.width() / 3.0).min(widest);
+    let mut left = row.left();
+    labels.map(|label| {
+        let text = ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(label.to_owned(), normal_font(), Color32::PLACEHOLDER)
+                .size()
+                .x
+        });
+        let width = (text + general::FONT_BUTTON_HEIGHT).clamp(narrowest, widest);
+        let rect = Rect::from_min_size(
+            pos2(left, row.top()),
+            vec2(width, general::FONT_BUTTON_HEIGHT),
+        );
+        left = rect.right() + general::FONT_BUTTON_GAP;
+        rect
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2016,6 +2337,64 @@ fn general_pane(
     id: Id,
     response: &mut DialogResponse<SettingsAction>,
 ) {
+    let lines = font_lines(state);
+    let height = font_lines_height(ui.ctx(), &lines, font_row_rect(pane).width());
+    let needed = GeneralLayout::new(pane, height, state.platform).bottom() + general::BOTTOM_MARGIN;
+    if needed <= pane.bottom() {
+        general_contents(
+            ui, pane, &lines, height, state, palette, assets, id, response,
+        );
+        return;
+    }
+    // Taller than the pane — Gilroy explained under the font's row, or a long translation —
+    // everything under the title scrolls, rather than anything being cut off.
+    let viewport = Rect::from_min_max(
+        pos2(pane.left(), pane.top() + general::SCROLL_TOP),
+        pane.max,
+    );
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(viewport)
+            .id_salt(id.with("general")),
+        |ui| {
+            // The bar stays up, thin and over the pane's margin: without it, a row cut at the
+            // pane's edge would be all that said there is more under it.
+            ui.style_mut().spacing.scroll = egui::style::ScrollStyle::thin();
+            egui::ScrollArea::vertical()
+                .id_salt(id.with("general-scroll"))
+                .auto_shrink([false, false])
+                .max_height(viewport.height())
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                .show_viewport(ui, |ui, visible| {
+                    ui.set_min_size(vec2(viewport.width(), needed - viewport.top()));
+                    // egui keeps the bar's room out of the content's clip; the bar floats over
+                    // the pane's margin instead, and the note under the shortcuts' heading, which
+                    // wraps to the pane's edge, keeps its last point.
+                    ui.set_clip_rect(ui.clip_rect().with_max_x(pane.right()));
+                    let scrolled = pane.translate(vec2(0.0, -visible.min.y));
+                    general_contents(
+                        ui, scrolled, &lines, height, state, palette, assets, id, response,
+                    );
+                });
+        },
+    );
+}
+
+/// Everything the General pane draws, laid out in `pane` — the pane itself, or a copy of it
+/// moved up by as far as the pane is scrolled.
+#[allow(clippy::too_many_arguments)]
+fn general_contents(
+    ui: &mut Ui,
+    pane: Rect,
+    lines: &[FontLine],
+    lines_height: f32,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let layout = GeneralLayout::new(pane, lines_height, state.platform);
     let choice = LanguageChoice::current(&state.settings);
     if let Some(next) = language_switch(
         ui,
@@ -2060,38 +2439,121 @@ fn general_pane(
         }
     }
 
-    draw_truncated(
+    interface_font(
+        ui, pane, &layout, lines, state, palette, assets, id, response,
+    );
+
+    // The link to the example ends the heading's row; the heading has what is left of it.
+    let mut title = layout.hotkey_title;
+    if let Some(row) = layout.hotkey_link {
+        let placed = super::link_in(
+            ui,
+            row,
+            HOTKEY_EXAMPLE_FILE,
+            small_font(),
+            palette,
+            Align2::RIGHT_CENTER,
+            id.with("hotkey-example"),
+        );
+        if placed.clicked() {
+            response.push(SettingsAction::ShowHotkeyExample);
+        }
+        title.set_right(placed.rect.left() - general::HOTKEY_GUTTER);
+    }
+    draw_fitted(
         ui.painter(),
         &tr(HOTKEY_TITLE),
         normal_font(),
         palette.color(FxColor::HighlightedText),
-        hotkey_title_rect(pane),
+        title,
         Align2::LEFT_CENTER,
     );
-    draw_wrapped(
-        ui.painter(),
-        &tr(HOTKEY_NOTE),
-        small_font(),
-        palette.color(FxColor::DefaultText),
-        hotkey_note_rect(pane),
-    );
-
-    let names = hotkey_name_font(ui.ctx());
-    for (index, command) in HotkeyCommand::ALL.into_iter().enumerate() {
-        hotkey_row(ui, hotkey_row_rect(pane, index), command, &names, palette);
+    if let Some(note) = layout.hotkey_note {
+        draw_wrapped(
+            ui.painter(),
+            &tr(HOTKEY_NOTE),
+            small_font(),
+            palette.color(FxColor::DefaultText),
+            note,
+        );
     }
 
-    if link(
+    let names = hotkey_name_font(ui.ctx());
+    for (row, command) in layout.hotkey_rows.into_iter().zip(HotkeyCommand::ALL) {
+        hotkey_row(ui, row, command, &names, palette);
+    }
+}
+
+/// "Interface font": its caption and stepper, and what stands under them ([`font_lines`]).
+#[allow(clippy::too_many_arguments)]
+fn interface_font(
+    ui: &mut Ui,
+    pane: Rect,
+    layout: &GeneralLayout,
+    lines: &[FontLine],
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    super::draw_fitted(
+        ui.painter(),
+        &tr(INTERFACE_FONT),
+        normal_font(),
+        palette.color(FxColor::HighlightedText),
+        font_caption_rect(pane),
+        Align2::LEFT_CENTER,
+    );
+    let chosen = state.settings.interface_font;
+    // A face's own name, never translated.
+    if let Some(steps) = stepper(
         ui,
-        hotkey_link_rect(pane),
-        HOTKEY_EXAMPLE_FILE,
+        font_stepper_rect(pane),
+        chosen.name(),
         palette,
-        Align2::LEFT_TOP,
-        id.with("hotkey-example"),
-    )
-    .clicked()
-    {
-        response.push(SettingsAction::ShowHotkeyExample);
+        assets,
+        id.with("interface-font"),
+    ) {
+        response.push(SettingsAction::Font(FontAction::Choose(cycle(
+            &InterfaceFont::ALL,
+            chosen,
+            steps,
+        ))));
+    }
+
+    let width = layout.font_lines.width();
+    let mut top = layout.font_lines.top();
+    for line in lines {
+        let height = font_line_height(ui.ctx(), line, width);
+        let rect = Rect::from_min_size(pos2(layout.font_lines.left(), top), vec2(width, height));
+        match line {
+            FontLine::Text { text, note } => {
+                let colour = if *note {
+                    palette.color(FxColor::HintText)
+                } else {
+                    palette.color(FxColor::DefaultText)
+                };
+                draw_wrapped(ui.painter(), text, small_font(), colour, rect);
+            }
+            FontLine::Buttons => {
+                let (buy_label, add_label) = (tr(BUY_GILROY), tr(ADD_GILROY_FILES));
+                let [buy, add] = gilroy_button_rects(ui.ctx(), rect, [&buy_label, &add_label]);
+                if TextButton::new(&buy_label)
+                    .show(ui, buy, palette, id.with("buy-gilroy"))
+                    .clicked()
+                {
+                    response.push(SettingsAction::Font(FontAction::Buy));
+                }
+                if TextButton::new(&add_label)
+                    .show(ui, add, palette, id.with("add-gilroy"))
+                    .clicked()
+                {
+                    response.push(SettingsAction::Font(FontAction::AddFiles));
+                }
+            }
+        }
+        top = rect.bottom() + general::FONT_LINE_GAP;
     }
 }
 
@@ -2382,6 +2844,24 @@ pub fn calibrate_button_rect(pane: Rect, size: Vec2) -> Rect {
     )
 }
 
+/// "Calibrate microphone…" on `platform`: under the echo canceller's line where the platform has
+/// one ([`Platform::echo_cancel`]), and ten points under the last stepper, in the checkbox's
+/// place, where it does not. What stands under the button follows it up.
+#[must_use]
+pub fn calibrate_button_rect_on(pane: Rect, size: Vec2, platform: Platform) -> Rect {
+    if platform.echo_cancel {
+        return calibrate_button_rect(pane, size);
+    }
+    let last = microphone_row_rect(pane, microphone::STEPPER_ROWS - 1);
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            last.bottom() + microphone::GAP_BEFORE_TOGGLE,
+        ),
+        size,
+    )
+}
+
 /// The last calibration's one line, under the button.
 #[must_use]
 pub fn calibration_record_rect(pane: Rect, button: Rect) -> Rect {
@@ -2508,30 +2988,33 @@ fn microphone_pane(
         }
     }
 
-    if toggle(
-        ui,
-        echo_toggle_rect(pane),
-        &tr(ECHO_CANCELLATION),
-        state.settings.echo_cancel,
-        true,
-        palette,
-        id.with("echo-cancel"),
-    ) {
-        response.push(SettingsAction::SetEchoCancel(!state.settings.echo_cancel));
-    }
-    if let Some(status) = state.echo_cancel_status() {
-        draw_truncated(
-            ui.painter(),
-            &status,
-            small_font(),
-            palette.color(FxColor::HintText),
-            echo_status_rect(pane),
-            Align2::LEFT_CENTER,
-        );
+    // PipeWire's echo canceller, where there is one.
+    if state.platform.echo_cancel {
+        if toggle(
+            ui,
+            echo_toggle_rect(pane),
+            &tr(ECHO_CANCELLATION),
+            state.settings.echo_cancel,
+            true,
+            palette,
+            id.with("echo-cancel"),
+        ) {
+            response.push(SettingsAction::SetEchoCancel(!state.settings.echo_cancel));
+        }
+        if let Some(status) = state.echo_cancel_status() {
+            draw_truncated(
+                ui.painter(),
+                &status,
+                small_font(),
+                palette.color(FxColor::HintText),
+                echo_status_rect(pane),
+                Align2::LEFT_CENTER,
+            );
+        }
     }
 
     let (label, size) = calibrate_button_size(ui);
-    let button = calibrate_button_rect(pane, size);
+    let button = calibrate_button_rect_on(pane, size, state.platform);
     if TextButton::new(&label)
         .enabled(state.has_microphone)
         .show(ui, button, palette, id.with("calibrate"))
@@ -3022,6 +3505,42 @@ pub const LIKE_WINDOWS_TITLE: &str = "Like FxSound for Windows";
 pub const LIKE_WINDOWS_TIP: &str = "Always kept: the preset trash and autosave, fixed port errors, \
 click-free switching, the command line and D-Bus. No setting is deleted.";
 
+/// The heading on Windows, where the mode follows FxSound LLC's own FxSound beside this one
+/// ([`Original::FxSoundLlc`]): "like Windows" would say nothing there.
+pub const LIKE_ORIGINAL_TITLE: &str = "Like the original FxSound LLC";
+/// The tooltip on Windows, which has no D-Bus to keep.
+pub const LIKE_ORIGINAL_TIP: &str = "Always kept: the preset trash and autosave, this FxSound's \
+fixes, click-free switching and the command line. No setting is deleted.";
+/// The line under each position on Windows: [`WindowsParity::hint`]'s, with the original FxSound
+/// for Windows, and this FxSound for FxSound for Linux.
+pub const ORIGINAL_OFF_HINT: &str = "This FxSound as it is.";
+pub const ORIGINAL_INTERFACE_HINT: &str = "Window and controls as in the original. Same sound.";
+pub const ORIGINAL_SOUND_HINT: &str = "Plus the original's sound: presets sound the same.";
+pub const ORIGINAL_FULL_HINT: &str = "Only what the original has; the rest is hidden.";
+
+/// The line under the position `shown`, for the original `original`.
+#[must_use]
+pub fn parity_hint(shown: WindowsParity, original: Original) -> String {
+    match original {
+        Original::WindowsBuild => tr(shown.hint()),
+        Original::FxSoundLlc => match shown {
+            WindowsParity::Off => tr(ORIGINAL_OFF_HINT),
+            WindowsParity::Interface => tr(ORIGINAL_INTERFACE_HINT),
+            WindowsParity::Sound => tr(ORIGINAL_SOUND_HINT),
+            WindowsParity::Full => tr(ORIGINAL_FULL_HINT),
+        },
+    }
+}
+
+/// The heading, «Like …», for the original `original`.
+#[must_use]
+pub fn parity_title(original: Original) -> String {
+    match original {
+        Original::WindowsBuild => tr(LIKE_WINDOWS_TITLE),
+        Original::FxSoundLlc => tr(LIKE_ORIGINAL_TITLE),
+    }
+}
+
 /// The checkbox of FxSound's hook in WirePlumber.
 pub const WIREPLUMBER_HOOK: &str = "Smooth moves in WirePlumber";
 /// The line under it: what it does, and whose settings it changes.
@@ -3186,7 +3705,8 @@ fn experimental_pane(
     response: &mut DialogResponse<SettingsAction>,
 ) {
     let current = state.settings.windows_parity;
-    let heading = tr(LIKE_WINDOWS_TITLE);
+    let original = state.platform.original;
+    let heading = parity_title(original);
     draw_truncated(
         ui.painter(),
         &heading,
@@ -3249,7 +3769,7 @@ fn experimental_pane(
         shown
     };
 
-    let hint = tr(shown.hint());
+    let hint = parity_hint(shown, original);
     let label = tr(shown.label());
     slider.widget_info(|| {
         let mut info = egui::WidgetInfo::slider(true, shown.index() as f64, &heading);
@@ -3258,8 +3778,12 @@ fn experimental_pane(
         info
     });
     if !state.settings.hide_help_tooltips {
+        let kept = match original {
+            Original::WindowsBuild => tr(LIKE_WINDOWS_TIP),
+            Original::FxSoundLlc => tr(LIKE_ORIGINAL_TIP),
+        };
         slider = slider.on_hover_text(icon_button::tooltip_text(
-            &slider::with_reset_tip(Some(&tr(LIKE_WINDOWS_TIP))),
+            &slider::with_reset_tip(Some(&kept)),
             palette,
         ));
     }
@@ -3301,7 +3825,10 @@ fn experimental_pane(
         response.push(SettingsAction::SetWindowsParity(level));
     }
 
-    wireplumber_hook(ui, pane, state.wireplumber_hook, palette, id, response);
+    // Where there is no WirePlumber, there is nothing to make smooth.
+    if state.platform.wireplumber {
+        wireplumber_hook(ui, pane, state.wireplumber_hook, palette, id, response);
+    }
 }
 
 /// "Smooth moves in WirePlumber", the line under it, and "Restart WirePlumber" while a restart is
@@ -3537,7 +4064,10 @@ fn toggle(
             .line_segment([elbow, pos2(tick.right(), tick.top())], stroke);
     }
 
-    draw_truncated(
+    // JUCE draws a toggle's text with `drawFittedText`, which squeezes a line too long for the
+    // button before it cuts it: Polish and Japanese "Hide help tips for audio controls" are set
+    // smaller rather than elided.
+    draw_fitted(
         ui.painter(),
         label,
         normal_font(),
@@ -3575,6 +4105,15 @@ mod tests {
         r.translate(-pane.min.to_vec2())
     }
 
+    /// The state of a window drawn as FxSound for Linux draws it — the window these tests
+    /// describe, on whichever platform they run. Windows' own is drawn where a test says so.
+    fn linux() -> SettingsState {
+        SettingsState {
+            platform: Platform::LINUX,
+            ..SettingsState::default()
+        }
+    }
+
     fn populated() -> SettingsState {
         let devices = vec![
             DevicePriority {
@@ -3598,7 +4137,7 @@ mod tests {
             devices,
             selected_device: Some(0),
             can_reset_presets: true,
-            ..SettingsState::new(Settings::default())
+            ..linux()
         }
     }
 
@@ -3928,22 +4467,35 @@ mod tests {
             assert!((row.min - pos2(20.0, top)).length() < 1e-4, "{row:?}");
             assert!((row.size() - vec2(429.0, 30.0)).length() < 1e-4);
         }
-        // …and the hotkey block starts in the slot "Disable keyboard shortcuts" used to occupy.
-        let title = local(pane, hotkey_title_rect(pane));
-        assert!((title.top() - 230.0).abs() < 1e-4, "{title:?}");
-        assert!(hotkey_note_rect(pane).bottom() <= hotkey_row_rect(pane, 0).top());
+        // …the interface font's row in the slot "Disable keyboard shortcuts" used to occupy…
+        let font = local(pane, font_row_rect(pane));
+        assert!((font.min - pos2(20.0, 230.0)).length() < 1e-4, "{font:?}");
+        assert!((font.height() - 30.0).abs() < 1e-4);
+        // …and the shortcut table five points under it.
+        for platform in [Platform::LINUX, Platform::WINDOWS] {
+            let layout = GeneralLayout::new(pane, 0.0, platform);
+            let title = local(pane, layout.hotkey_title);
+            assert!((title.top() - 265.0).abs() < 1e-4, "{title:?}");
+            let first = layout.hotkey_note.unwrap_or(layout.hotkey_title);
+            assert!(first.bottom() <= layout.hotkey_rows[0].top());
 
-        // Five rows, thirty apart, indented to x 45 and 20 tall — all as in the original.
-        let rows: Vec<Rect> = (0..5).map(|i| hotkey_row_rect(pane, i)).collect();
-        for row in &rows {
-            assert!((row.left() - (pane.left() + 45.0)).abs() < 1e-4);
-            assert!((row.height() - 20.0).abs() < 1e-4);
+            // Five rows, thirty apart, indented to x 45 and 20 tall — all as in the original.
+            for row in &layout.hotkey_rows {
+                assert!((row.left() - (pane.left() + 45.0)).abs() < 1e-4);
+                assert!((row.height() - 20.0).abs() < 1e-4);
+            }
+            for pair in layout.hotkey_rows.windows(2) {
+                assert!((pair[1].top() - pair[0].top() - 30.0).abs() < 1e-4);
+            }
+            // And the whole of it fits the pane without scrolling.
+            assert!(layout.bottom() + general::BOTTOM_MARGIN <= pane.bottom());
         }
-        for pair in rows.windows(2) {
-            assert!((pair[1].top() - pair[0].top() - 30.0).abs() < 1e-4);
-        }
-        // And the whole block still fits the pane.
-        assert!(hotkey_link_rect(pane).bottom() <= pane.bottom());
+        // The note and the link to the example are Wayland's: the link ends the heading's row.
+        let linux = GeneralLayout::new(pane, 0.0, Platform::LINUX);
+        assert_eq!(linux.hotkey_link, Some(linux.hotkey_title));
+        assert!(linux.hotkey_note.is_some());
+        let windows = GeneralLayout::new(pane, 0.0, Platform::WINDOWS);
+        assert!(windows.hotkey_note.is_none() && windows.hotkey_link.is_none());
     }
 
     #[test]
@@ -3953,7 +4505,9 @@ mod tests {
         // taller for the CJK face.
         let ctx = test_context();
         let pane = pane_rect(content());
-        let box_ = hotkey_note_rect(pane);
+        let box_ = GeneralLayout::new(pane, 0.0, Platform::LINUX)
+            .hotkey_note
+            .expect("Linux has the note");
         let mut problems = Vec::new();
         frame(&ctx, |ui| {
             for (code, text) in every_translation(HOTKEY_NOTE) {
@@ -4120,7 +4674,7 @@ mod tests {
     fn the_version_string_is_not_translated_and_carries_its_v() {
         let state = SettingsState {
             version: "1.1.25".into(),
-            ..SettingsState::default()
+            ..linux()
         };
         assert_eq!(state.version_text(), "v1.1.25");
     }
@@ -4190,7 +4744,7 @@ mod tests {
         let mut assets = AssetCache::new();
         let mut icons = NavIcons::new();
         let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
-        let state = SettingsState::default();
+        let state = linux();
         frame(&ctx, |ui| {
             let response = SettingsDialog::new(&state).show(
                 ui,
@@ -5345,7 +5899,7 @@ mod tests {
         for mode in [ThemeMode::Dark, ThemeMode::Light] {
             let palette = Palette::new(mode);
             let mut window = Window::new(mode);
-            let (_, shapes) = window.frame(&SettingsState::default(), Vec::new());
+            let (_, shapes) = window.frame(&linux(), Vec::new());
             let content = content();
             let rule = divider_x(content);
             let lines: Vec<(egui::Pos2, egui::Pos2)> = shapes
@@ -6312,7 +6866,7 @@ mod tests {
     fn experimental_state(level: WindowsParity) -> SettingsState {
         let mut state = SettingsState {
             tab: SettingsTab::Experimental,
-            ..SettingsState::default()
+            ..linux()
         };
         state.settings.windows_parity = level;
         state
@@ -6871,5 +7425,262 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ---- the platform and the interface font ---------------------------------------------------
+
+    /// Every line of text a frame painted.
+    fn painted(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        crate::views::testing::texts(shapes)
+            .into_iter()
+            .map(|(text, _, _)| text)
+            .collect()
+    }
+
+    #[test]
+    fn windows_has_no_applications_tab_and_its_nav_leaves_no_gap() {
+        for tab in SettingsTab::ALL {
+            assert!(tab.offered_on(Platform::LINUX), "{tab:?}");
+            assert_eq!(tab.row(Platform::LINUX), tab.index(), "{tab:?}");
+        }
+        assert!(!SettingsTab::Applications.offered_on(Platform::WINDOWS));
+        let rows: Vec<usize> = SettingsTab::ALL
+            .into_iter()
+            .filter(|tab| tab.offered_on(Platform::WINDOWS))
+            .map(|tab| tab.row(Platform::WINDOWS))
+            .collect();
+        assert_eq!(rows, (0..SettingsTab::ALL.len() - 1).collect::<Vec<_>>());
+
+        // Asked for anyway — a remembered tab, a link — the pane Windows lacks shows the first
+        // one instead, and its tab is drawn nowhere.
+        for (platform, applications) in [(Platform::LINUX, true), (Platform::WINDOWS, false)] {
+            let state = SettingsState {
+                tab: SettingsTab::Applications,
+                platform,
+                ..linux()
+            };
+            let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            assert_eq!(
+                texts.iter().any(|text| text == "Applications"),
+                applications,
+                "{texts:?}"
+            );
+            assert_eq!(
+                texts.iter().any(|text| text == OUTPUT_PREFERENCE_TITLE),
+                !applications,
+                "{texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_names_the_mode_after_the_original_fxsound_llc_and_linux_keeps_its_words() {
+        assert_eq!(parity_title(Original::WindowsBuild), LIKE_WINDOWS_TITLE);
+        assert_eq!(parity_title(Original::FxSoundLlc), LIKE_ORIGINAL_TITLE);
+        for level in WindowsParity::ALL {
+            assert_eq!(parity_hint(level, Original::WindowsBuild), level.hint());
+            let hint = parity_hint(level, Original::FxSoundLlc);
+            assert!(
+                !hint.contains("Windows") && !hint.contains("Linux"),
+                "{hint}"
+            );
+        }
+        // No D-Bus to keep on Windows.
+        assert!(LIKE_WINDOWS_TIP.contains("D-Bus") && !LIKE_ORIGINAL_TIP.contains("D-Bus"));
+
+        // Drawn: each platform's heading and hint, and WirePlumber's hook only where there is one.
+        for (platform, title, hook) in [
+            (Platform::LINUX, LIKE_WINDOWS_TITLE, true),
+            (Platform::WINDOWS, LIKE_ORIGINAL_TITLE, false),
+        ] {
+            let state = SettingsState {
+                platform,
+                ..experimental_state(WindowsParity::Off)
+            };
+            let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            let hint = parity_hint(WindowsParity::Off, platform.original);
+            assert!(texts.iter().any(|text| text == title), "{texts:?}");
+            assert!(texts.contains(&hint), "{texts:?}");
+            assert_eq!(
+                texts.iter().any(|text| text == WIREPLUMBER_HOOK),
+                hook,
+                "{texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_has_no_echo_cancellation_and_the_calibration_button_takes_its_place() {
+        let pane = pane_rect(content());
+        let size = vec2(200.0, 30.0);
+        let on_linux = calibrate_button_rect_on(pane, size, Platform::LINUX);
+        assert_eq!(on_linux, calibrate_button_rect(pane, size));
+        let on_windows = calibrate_button_rect_on(pane, size, Platform::WINDOWS);
+        assert!(on_windows.top() < on_linux.top(), "{on_windows:?}");
+        let last = microphone_row_rect(pane, microphone::STEPPER_ROWS - 1);
+        assert!(on_windows.top() >= last.bottom(), "{on_windows:?} {last:?}");
+
+        for (platform, echo) in [(Platform::LINUX, true), (Platform::WINDOWS, false)] {
+            let state = SettingsState {
+                tab: SettingsTab::Microphone,
+                platform,
+                has_microphone: true,
+                ..linux()
+            };
+            let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            assert_eq!(
+                texts.iter().any(|text| text == ECHO_CANCELLATION),
+                echo,
+                "{texts:?}"
+            );
+            assert!(
+                texts.iter().any(|text| text == CALIBRATE_MICROPHONE),
+                "{texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_lines_under_the_interface_font_say_what_there_is_to_say() {
+        use InterfaceFont::{Gilroy, Manrope};
+        let state = |font, gilroy, lacks_letters, level| {
+            let mut state = SettingsState {
+                tab: SettingsTab::General,
+                ..linux()
+            };
+            state.settings.interface_font = font;
+            state.settings.windows_parity = level;
+            state.font = FontPane {
+                gilroy,
+                lacks_letters,
+                message: None,
+            };
+            state
+        };
+        let text = |text: &str| FontLine::Text {
+            text: text.to_owned(),
+            note: false,
+        };
+        let note = FontLine::Text {
+            text: GILROY_LICENCE.to_owned(),
+            note: true,
+        };
+        let off = WindowsParity::Off;
+        // Manrope as it is: nothing to say, whatever was found.
+        assert!(font_lines(&state(Manrope, GilroyFound::None, false, off)).is_empty());
+        assert!(font_lines(&state(Manrope, GilroyFound::Whole, false, off)).is_empty());
+        // Gilroy chosen and not all there: what it is, the two buttons, whose files they are.
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::None, false, off)),
+            [text(GILROY_EXPLAINED), FontLine::Buttons, note.clone()]
+        );
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::Incomplete, false, off)),
+            [text(GILROY_INCOMPLETE), FontLine::Buttons, note.clone()]
+        );
+        // Found: the note; found without the language's letters, why the window is in Manrope.
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::Whole, false, off)),
+            std::slice::from_ref(&note)
+        );
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::Whole, true, off)),
+            [text(GILROY_LACKS_LETTERS), note]
+        );
+        // The original look sets the window in a Gilroy that is there, and the pane says so.
+        assert_eq!(
+            font_lines(&state(
+                Manrope,
+                GilroyFound::Whole,
+                false,
+                WindowsParity::Interface
+            )),
+            [text(&i18n::tr_args(
+                ORIGINAL_LOOK_USES_GILROY,
+                &[LIKE_WINDOWS_TITLE]
+            ))]
+        );
+        // And what the last action came to, last.
+        let mut left_out = state(Gilroy, GilroyFound::None, false, off);
+        left_out.font.message = Some(FontMessage::LeftOut(vec![
+            "Gilroy-Light.ttf".to_owned(),
+            "notes.txt".to_owned(),
+        ]));
+        assert_eq!(
+            font_lines(&left_out).last(),
+            Some(&text(&i18n::tr_args(
+                GILROY_LEFT_OUT,
+                &["Gilroy-Light.ttf, notes.txt"]
+            )))
+        );
+    }
+
+    #[test]
+    fn the_font_option_steps_to_the_other_face_and_gilroys_buttons_ask_for_theirs() {
+        let mut state = SettingsState {
+            tab: SettingsTab::General,
+            ..linux()
+        };
+        let stepper = font_stepper_rect(pane_rect(content()));
+        // The › arrow, as `stepper` places it.
+        let next = pos2(stepper.right() - 17.0, stepper.top() + 15.0);
+        assert_eq!(
+            Window::new(ThemeMode::Dark).click(&state, next),
+            [SettingsAction::Font(FontAction::Choose(
+                InterfaceFont::Gilroy
+            ))]
+        );
+        state.settings.interface_font = InterfaceFont::Gilroy;
+        assert_eq!(
+            Window::new(ThemeMode::Dark).click(&state, next),
+            [SettingsAction::Font(FontAction::Choose(
+                InterfaceFont::Manrope
+            ))]
+        );
+
+        // Chosen and not found: the two buttons, on both platforms, each asking for its own.
+        for platform in [Platform::LINUX, Platform::WINDOWS] {
+            state.platform = platform;
+            let mut window = Window::new(ThemeMode::Dark);
+            let (_, shapes) = window.frame(&state, Vec::new());
+            let at = |label: &str| {
+                crate::views::testing::texts(&shapes)
+                    .into_iter()
+                    .find(|(text, _, _)| text == label)
+                    .map(|(_, rect, _)| rect.center())
+                    .unwrap_or_else(|| panic!("{label} is not drawn"))
+            };
+            let (buy, add) = (at(BUY_GILROY), at(ADD_GILROY_FILES));
+            assert_eq!(
+                window.click(&state, buy),
+                [SettingsAction::Font(FontAction::Buy)]
+            );
+            assert_eq!(
+                window.click(&state, add),
+                [SettingsAction::Font(FontAction::AddFiles)]
+            );
+        }
+        // Found, there is nothing to buy or add.
+        state.font.gilroy = GilroyFound::Whole;
+        let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+        let texts = painted(&shapes);
+        assert!(
+            !texts
+                .iter()
+                .any(|text| text == BUY_GILROY || text == ADD_GILROY_FILES),
+            "{texts:?}"
+        );
+        assert!(texts.iter().any(|text| text == GILROY_LICENCE), "{texts:?}");
+    }
+
+    #[test]
+    fn the_designers_store_is_the_page_buy_gilroy_opens() {
+        assert_eq!(
+            GILROY_STORE,
+            "https://www.myfonts.com/collections/gilroy-font-radomir-tinkov"
+        );
     }
 }

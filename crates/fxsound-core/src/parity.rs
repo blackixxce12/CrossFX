@@ -25,6 +25,12 @@
 //! [`ParityClass`] is how every command, Settings tab and D-Bus call declares the level it belongs
 //! to. Each classification is an exhaustive `match` with no `_` arm, so a new option, tab or
 //! method does not compile until someone has decided which level changes it.
+//!
+//! Built for Windows, the same mode follows FxSound LLC's own FxSound, which runs beside it there,
+//! and is called «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC"
+//! ([`crate::Original`]). The levels and what they change are the same; the interface's words
+//! for them are the Windows build's own (`fxsound_ui::dialogs::settings`), and so are the
+//! refusals below. [`WindowsParity::label`] and [`WindowsParity::hint`] are FxSound for Linux's.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -458,18 +464,51 @@ impl WindowsParity {
 
 /// What the command line and D-Bus answer to Everything in 0.5.0, which does not offer it
 /// ([`WindowsParity::offered`]). Plain English, as every refusal of theirs.
-pub const FULL_NOT_YET: &str = "\"Like FxSound for Windows\" = Everything arrives in a later \
-version of FxSound. This one offers off, interface and sound.";
+///
+/// On Windows the mode is "Like the original FxSound LLC" ([`crate::Original::FxSoundLlc`]): the
+/// interface's name for it, and the one a refusal there has to use ([`full_not_yet`]).
+pub const FULL_NOT_YET: &str = full_not_yet(crate::PLATFORM.original);
 
 /// What the command line and D-Bus answer when a move to Everything would take something live
 /// away and nobody said to go ahead: they cannot ask, as the window does, so they refuse. Kept
 /// for Everything, which arrives in 0.6.0 (W4); until then [`FULL_NOT_YET`] is the answer.
 ///
-/// The confirmation's words, and how to say "go ahead" on each path.
-pub const FULL_REFUSAL: &str = "\"Like FxSound for Windows\" = Everything would switch off \
-FxSound's microphone and application presets now: programs recording through FxSound or playing \
-through their own preset would move straight to the devices. Your settings are kept. Add --force \
-to switch anyway (force = true over D-Bus).";
+/// The confirmation's words, and how to say "go ahead" on each path ([`full_refusal`]).
+pub const FULL_REFUSAL: &str = full_refusal(crate::PLATFORM.original);
+
+/// [`FULL_NOT_YET`] where the mode follows `original`.
+#[must_use]
+pub const fn full_not_yet(original: crate::Original) -> &'static str {
+    match original {
+        crate::Original::WindowsBuild => {
+            "\"Like FxSound for Windows\" = Everything arrives in a later version of FxSound. \
+             This one offers off, interface and sound."
+        }
+        crate::Original::FxSoundLlc => {
+            "\"Like the original FxSound LLC\" = Everything arrives in a later version of \
+             FxSound. This one offers off, interface and sound."
+        }
+    }
+}
+
+/// [`FULL_REFUSAL`] where the mode follows `original`. Windows has neither the applications'
+/// presets nor D-Bus ([`crate::Platform::WINDOWS`]), so its refusal names neither.
+#[must_use]
+pub const fn full_refusal(original: crate::Original) -> &'static str {
+    match original {
+        crate::Original::WindowsBuild => {
+            "\"Like FxSound for Windows\" = Everything would switch off FxSound's microphone and \
+             application presets now: programs recording through FxSound or playing through \
+             their own preset would move straight to the devices. Your settings are kept. Add \
+             --force to switch anyway (force = true over D-Bus)."
+        }
+        crate::Original::FxSoundLlc => {
+            "\"Like the original FxSound LLC\" = Everything would switch off FxSound's \
+             microphone now: programs recording through FxSound would move straight to the \
+             microphone. Your settings are kept. Add --force to switch anyway."
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -606,6 +645,37 @@ mod tests {
         for feature in [GlobalShortcuts, Mcp, Cava] {
             assert!(WindowsParity::Full.keeps(feature), "{feature:?}");
         }
+    }
+
+    #[test]
+    fn the_refusals_keep_their_linux_words_and_name_the_original_and_no_d_bus_on_windows() {
+        use crate::Original::{FxSoundLlc, WindowsBuild};
+        // Linux's, word for word as 0.5.0 printed them.
+        assert_eq!(
+            full_not_yet(WindowsBuild),
+            "\"Like FxSound for Windows\" = Everything arrives in a later version of FxSound. \
+             This one offers off, interface and sound."
+        );
+        assert_eq!(
+            full_refusal(WindowsBuild),
+            "\"Like FxSound for Windows\" = Everything would switch off FxSound's microphone and \
+             application presets now: programs recording through FxSound or playing through \
+             their own preset would move straight to the devices. Your settings are kept. Add \
+             --force to switch anyway (force = true over D-Bus)."
+        );
+        for text in [full_not_yet(FxSoundLlc), full_refusal(FxSoundLlc)] {
+            assert!(
+                text.starts_with("\"Like the original FxSound LLC\""),
+                "{text}"
+            );
+            assert!(
+                !text.contains("Windows") && !text.contains("D-Bus"),
+                "{text}"
+            );
+        }
+        assert!(full_refusal(FxSoundLlc).contains("--force"));
+        assert_eq!(FULL_NOT_YET, full_not_yet(crate::PLATFORM.original));
+        assert_eq!(FULL_REFUSAL, full_refusal(crate::PLATFORM.original));
     }
 
     #[test]

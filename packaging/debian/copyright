@@ -5,11 +5,16 @@ Source: https://github.com/blackixxce12/fxsound-linux
 Comment:
  A note on what this file does and does not cover. Everything described below
  is a file that is actually in the source tarball, and three parts of it are
- not AGPL: the RNNoise code under crates/fxsound-rnnoise (BSD-3-Clause), the
- Noto faces under assets/fonts (SIL OFL 1.1) and the Gilroy faces beside them
- (all rights reserved). All three are compiled into the binary, and the
- stanzas below reproduce their notices and licences, which is what the first
- two licences make the condition of shipping it.
+ not AGPL: the RNNoise code under crates/fxsound-rnnoise (BSD-3-Clause), and
+ the Noto and the Manrope faces under assets/fonts (SIL OFL 1.1, each with its
+ own notice). All three are compiled into the binary, and the stanzas below
+ reproduce their notices and licences, which is what both licences make the
+ condition of shipping it.
+ .
+ Gilroy, the face of FxSound for Windows, is not in the tree and the binary
+ neither carries nor downloads it: it is Radomir Tinkov's commercial typeface,
+ which the interface uses only when the user adds the files they licensed
+ themselves.
  .
  The binary is also statically linked against roughly three hundred crates
  resolved from crates.io through Cargo.lock, which the source package does not
@@ -77,21 +82,18 @@ Comment:
  fallbacks for those scripts. assets/fonts/OFL.txt is the same notice and
  licence, which the other packages install beside LICENSE.
 
-Files: assets/fonts/Gilroy-*
-Copyright: 2016 Radomir Tinkov
-License: Gilroy
- Copyright © 2016 by Radomir Tinkov. All rights reserved.
+Files: assets/fonts/Manrope-* assets/fonts/OFL-Manrope.txt
+Copyright: 2018-2019 The Manrope Project Authors (https://github.com/googlefonts/manrope)
+License: OFL-1.1
 Comment:
- Gilroy is Radomir Tinkov's commercial typeface, and the port's interface
- face: the Regular, Semibold and Bold files are compiled into the binary. They
- are the copies in upstream FxSound's repository, whose Windows build embeds
- them too. The notice above, from the files' own name tables, is the only
- licence text they carry: the tables have no licence field, their OS/2
- embedding bits allow preview-and-print embedding only, and the AGPL that
- covers the rest of this tree does not cover them. No licence to redistribute
- them is known to this port. A package for an archive that accepts only free
- software has to replace them; docs/spec/13-assets.md §7 names OFL faces that
- would.
+ Manrope, designed by Mikhail Sharanda: the interface's face. The Regular,
+ SemiBold and Bold files are the static TTFs of the googlefonts/manrope
+ repository, version 4.505, unchanged; they are compiled into the binary,
+ which adjusts their line spacing and turns off their ligatures in memory when
+ it loads them. The copyright line is the one their name tables give (2019) and
+ the upstream licence file's (2018). assets/fonts/OFL-Manrope.txt is the
+ upstream notice and licence, which the other packages install beside LICENSE
+ as OFL.manrope.
 
 Files: debian/*
 Copyright: 2026 FxSound Linux port contributors

@@ -61,7 +61,8 @@ use fxsound_core::{Effect, ViewMode, WindowsLook, scale};
 ///
 /// `juce::Font::withHeight` sets **ascent + descent** to this many pixels, which is exactly why the
 /// caption's label box is also 14 points tall — the glyphs fill it. `egui::FontId::size` is the em
-/// size instead, about 1.2 times smaller for Gilroy, so the number has to be converted rather than
+/// size instead, about 1.2 times smaller for Gilroy and for Manrope at its type scale
+/// ([`crate::typeface::MANROPE`]), so the number has to be converted rather than
 /// copied (`docs/spec/01-window-layout.md` §2.3, [`icon_button::JUCE_HEIGHT_PER_EM`]). Passing 14
 /// straight to `FontId::new` would lay out a ~17 point line inside a 14 point box and push the
 /// descenders into the slider below it; the test at the bottom of this file is what keeps that
@@ -95,7 +96,7 @@ const UNMEASURED: &str = "—";
 /// (`FxAudioControls.cpp:188`), converted the same way.
 pub const VALUE_FONT_PX: f32 = 12.0;
 
-/// A [`FontId`](egui::FontId) for a JUCE font height, in Gilroy Semibold — `getNormalFont()`.
+/// A [`FontId`](egui::FontId) for a JUCE font height, in the semibold weight — `getNormalFont()`.
 #[must_use]
 pub fn caption_font(juce_height_px: f32) -> egui::FontId {
     theme::semibold(juce_height_px / icon_button::JUCE_HEIGHT_PER_EM)

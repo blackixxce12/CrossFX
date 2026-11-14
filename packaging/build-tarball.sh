@@ -22,7 +22,7 @@
 #   share/fxsound/presets/{Factsoft,BonusPresets}/*.fac  share/fxsound/presets/Input/*.toml
 #   share/man/man1/fxsound.1
 #   share/metainfo/com.fxsound.FxSound.metainfo.xml
-#   share/doc/fxsound-linux/{README.md,CHANGELOG.md,LICENSE,COPYING.rnnoise,OFL.noto,
+#   share/doc/fxsound-linux/{README.md,CHANGELOG.md,LICENSE,COPYING.rnnoise,OFL.noto,OFL.manrope,
 #                            hyprland.conf.example,fxsound-autostart.desktop}
 #   install.sh
 #
@@ -101,12 +101,14 @@ install -Dm644 packaging/com.fxsound.FxSound.metainfo.xml \
 install -Dm644 README.md CHANGELOG.md LICENSE \
   packaging/hyprland.conf.example packaging/fxsound-autostart.desktop \
   -t "${pkg}/share/doc/fxsound-linux/"
-# Beside the AGPL, the notices of the two parts of the binary that are not AGPL, whose licences
+# Beside the AGPL, the notices of the three parts of the binary that are not AGPL, whose licences
 # make shipping the text a condition of shipping the binary: the RNNoise code and model
-# (BSD-3-Clause) and the embedded Noto fallback faces (SIL OFL 1.1). fxsound-linux-bin installs
-# all three from here into /usr/share/licenses.
+# (BSD-3-Clause), the embedded Noto fallback faces and the Manrope interface faces (both SIL OFL
+# 1.1, each with its own notice). fxsound-linux-bin installs all four from here into
+# /usr/share/licenses.
 install -Dm644 crates/fxsound-rnnoise/COPYING "${pkg}/share/doc/fxsound-linux/COPYING.rnnoise"
 install -Dm644 assets/fonts/OFL.txt "${pkg}/share/doc/fxsound-linux/OFL.noto"
+install -Dm644 assets/fonts/OFL-Manrope.txt "${pkg}/share/doc/fxsound-linux/OFL.manrope"
 
 cat > "${pkg}/install.sh" <<'INNER'
 #!/usr/bin/env sh

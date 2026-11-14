@@ -5,9 +5,9 @@
 //! alpha at each use site, so [`Palette::color`] returns an opaque colour and the callers that need
 //! transparency say so explicitly — exactly as the C++ does.
 
-use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Visuals};
+use crate::typeface::Weight;
+use egui::{Color32, CornerRadius, FontDefinitions, FontId, Stroke, Visuals};
 use fxsound_core::ThemeMode;
-use std::sync::Arc;
 
 /// Every named colour in the original theme, in `FxColor` order.
 ///
@@ -294,91 +294,35 @@ impl Default for Palette {
 }
 
 /// Font family names registered with egui.
-pub mod fonts {
-    /// Gilroy Regular — body text.
-    pub const REGULAR: &str = "Gilroy-Regular";
-    /// Gilroy Semibold — labels and values.
-    pub const SEMIBOLD: &str = "Gilroy-Semibold";
-    /// Gilroy Bold — headings and the preset name.
-    pub const BOLD: &str = "Gilroy-Bold";
-}
+pub use crate::typeface::families as fonts;
 
-/// The Gilroy faces, embedded so the binary does not depend on a font being installed.
-const GILROY_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Gilroy-Regular.ttf");
-const GILROY_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Gilroy-Semibold.ttf");
-const GILROY_BOLD: &[u8] = include_bytes!("../../../assets/fonts/Gilroy-Bold.ttf");
-
-/// Script fallbacks, so a Chinese, Korean, Arabic or Thai UI language still renders.
-const NOTO_SC: &[u8] = include_bytes!("../../../assets/fonts/NotoSansSC-Regular.otf");
-const NOTO_KR: &[u8] = include_bytes!("../../../assets/fonts/NotoSansKR-Regular.otf");
-const NOTO_ARABIC: &[u8] = include_bytes!("../../../assets/fonts/NotoSansArabic-Regular.ttf");
-const NOTO_THAI: &[u8] = include_bytes!("../../../assets/fonts/NotoSansThai-Regular.ttf");
-
-/// Register Gilroy plus the CJK/Arabic/Thai fallbacks.
+/// The fonts of the face the interface is shown in while the original look is off: Manrope, or
+/// the Gilroy the user chose when FxSound found it, with the CJK, Arabic and Thai fallbacks
+/// behind either ([`crate::typeface`]).
 ///
-/// `Proportional` resolves to Gilroy Regular and falls back through the Noto faces, so a mixed
-/// string renders without tofu. The semibold and bold faces are their own families because the
-/// original picks a face per control rather than deriving a weight.
+/// The semibold and bold weights are families of their own because the original picks a face per
+/// control rather than deriving a weight. A test sets its context in these for the real faces.
 #[must_use]
 pub fn font_definitions() -> FontDefinitions {
-    let mut defs = FontDefinitions::default();
-
-    let mut insert = |name: &str, bytes: &'static [u8]| {
-        defs.font_data
-            .insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
-    };
-    insert(fonts::REGULAR, GILROY_REGULAR);
-    insert(fonts::SEMIBOLD, GILROY_SEMIBOLD);
-    insert(fonts::BOLD, GILROY_BOLD);
-    insert("NotoSansSC", NOTO_SC);
-    insert("NotoSansKR", NOTO_KR);
-    insert("NotoSansArabic", NOTO_ARABIC);
-    insert("NotoSansThai", NOTO_THAI);
-
-    let fallbacks = [
-        "NotoSansSC".to_owned(),
-        "NotoSansKR".to_owned(),
-        "NotoSansArabic".to_owned(),
-        "NotoSansThai".to_owned(),
-    ];
-
-    // Proportional: Gilroy first, then the scripts Gilroy has no glyphs for, then egui's own
-    // default face so symbols and emoji still resolve.
-    let proportional = defs.families.entry(FontFamily::Proportional).or_default();
-    let stock = std::mem::take(proportional);
-    proportional.push(fonts::REGULAR.to_owned());
-    proportional.extend(fallbacks.iter().cloned());
-    proportional.extend(stock);
-
-    for (family, primary) in [
-        (fonts::SEMIBOLD, fonts::SEMIBOLD),
-        (fonts::BOLD, fonts::BOLD),
-    ] {
-        let chain = std::iter::once(primary.to_owned())
-            .chain(fallbacks.iter().cloned())
-            .collect();
-        defs.families.insert(FontFamily::Name(family.into()), chain);
-    }
-
-    defs
+    crate::typeface::shown_definitions(false)
 }
 
-/// A [`FontId`] in the Gilroy regular family.
+/// A [`FontId`] in the regular weight: egui's proportional family.
 #[must_use]
 pub fn regular(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Proportional)
+    FontId::new(size, Weight::Regular.family())
 }
 
-/// A [`FontId`] in the Gilroy semibold family.
+/// A [`FontId`] in the semibold weight: the original's `getNormalFont()`.
 #[must_use]
 pub fn semibold(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(fonts::SEMIBOLD.into()))
+    FontId::new(size, Weight::SemiBold.family())
 }
 
-/// A [`FontId`] in the Gilroy bold family.
+/// A [`FontId`] in the bold weight: the original's `getTitleFont()`.
 #[must_use]
 pub fn bold(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(fonts::BOLD.into()))
+    FontId::new(size, Weight::Bold.family())
 }
 
 /// The pitch of the `nav_caption` role's lines, as a share of its size.
@@ -398,8 +342,13 @@ pub fn nav_caption(size: f32, colour: egui::Color32) -> egui::TextFormat {
 }
 
 /// Install fonts and visuals on a context. Call once at startup and again on a theme change.
+///
+/// The face follows the palette: the Windows build's palette is the original look
+/// ([`Palette::is_windows`], «Like FxSound for Windows» = Interface and above), which is set in
+/// Gilroy when the user has it ([`crate::typeface::shown`]). From here on the views keep the face
+/// up to date by themselves ([`crate::typeface::sync`]).
 pub fn apply(ctx: &egui::Context, palette: Palette) {
-    ctx.set_fonts(font_definitions());
+    crate::typeface::install(ctx, palette.is_windows());
     ctx.set_visuals(palette.visuals());
 }
 

@@ -3,14 +3,15 @@
 //! each Arch recipe in a plain bash, the way makepkg calls it. What cannot be run here — an RPM
 //! build, dpkg — is read: the Fedora spec's `%files` and Debian's machine-readable `copyright`.
 //!
-//! Two things are held. The first is the licences. The binary carries two parts that are not AGPL:
-//! the RNNoise code and model in `crates/fxsound-rnnoise` (BSD-3-Clause, whose second clause makes
-//! reproducing the notice in the accompanying materials the condition of shipping a binary) and
-//! the Noto fallback faces embedded in the window (SIL OFL 1.1, whose second condition asks the
-//! same of the font's notice and licence). 0.4.0's first packages installed only `LICENSE`, and
-//! Debian's `copyright` called every file in the tree AGPL, fonts included. The second is that the
-//! tarball script packs the binary of the tree it sits in: it used to build only when there was no
-//! binary at all, so a 0.3.0 left in `target/release` went out under the 0.4.0 name.
+//! Two things are held. The first is the licences. The binary carries three parts that are not
+//! AGPL: the RNNoise code and model in `crates/fxsound-rnnoise` (BSD-3-Clause, whose second clause
+//! makes reproducing the notice in the accompanying materials the condition of shipping a binary),
+//! and the Noto fallback faces and the Manrope interface faces embedded in the window (SIL OFL 1.1,
+//! whose second condition asks the same of each font's notice and licence). 0.4.0's first packages
+//! installed only `LICENSE`, and Debian's `copyright` called every file in the tree AGPL, fonts
+//! included. The second is that the tarball script packs the binary of the tree it sits in: it
+//! used to build only when there was no binary at all, so a 0.3.0 left in `target/release` went
+//! out under the 0.4.0 name.
 
 use std::fs;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
@@ -52,14 +53,15 @@ fn transcript(output: &Output) -> String {
     )
 }
 
-/// The two notices every package has to carry beside `LICENSE`, as (installed name, source).
-fn notices() -> [(&'static str, PathBuf); 2] {
+/// The three notices every package has to carry beside `LICENSE`, as (installed name, source).
+fn notices() -> [(&'static str, PathBuf); 3] {
     [
         (
             "COPYING.rnnoise",
             repo().join("crates/fxsound-rnnoise/COPYING"),
         ),
         ("OFL.noto", repo().join("assets/fonts/OFL.txt")),
+        ("OFL.manrope", repo().join("assets/fonts/OFL-Manrope.txt")),
     ]
 }
 
@@ -524,11 +526,12 @@ fn debian_copyright_gives_the_fonts_and_the_vendored_rnnoise_the_licences_they_c
     }
     for path in files_under("assets/fonts") {
         let name = path.rsplit('/').next().expect("a file name");
-        if name.starts_with("Noto") || name == "OFL.txt" {
+        if name.starts_with("Noto")
+            || name == "OFL.txt"
+            || name.starts_with("Manrope-")
+            || name == "OFL-Manrope.txt"
+        {
             expect(&path, "OFL-1.1");
-        } else if name.starts_with("Gilroy-") {
-            // All rights reserved, which debian/copyright states as it is under a name of its own.
-            expect(&path, "Gilroy");
         } else {
             expect(&path, "a licence this test has been told of");
         }
@@ -627,6 +630,40 @@ fn debian_copyright_reproduces_the_rnnoise_notice_and_the_ofl_word_for_word() {
         words(licence),
         "debian/copyright's OFL-1.1 text is not assets/fonts/OFL.txt's"
     );
+    // Manrope's upstream notice carries the same licence, so the one paragraph serves both.
+    let manrope = text(repo().join("assets/fonts/OFL-Manrope.txt"));
+    let manrope_licence = &manrope[manrope
+        .find("-----------------------------------------------------------\nSIL OPEN FONT")
+        .expect("OFL-Manrope.txt carries the licence")..];
+    assert_eq!(
+        words(manrope_licence),
+        words(licence),
+        "assets/fonts/OFL-Manrope.txt's licence is not the OFL 1.1 of OFL.txt"
+    );
+}
+
+#[test]
+fn the_tree_carries_manropes_notice_and_no_gilroy() {
+    // Gilroy is Radomir Tinkov's commercial typeface: FxSound neither ships nor downloads it, and
+    // the window uses it only when the user adds files they licensed (fxsound-app's `fonts`).
+    let notice = text(repo().join("assets/fonts/OFL-Manrope.txt"));
+    assert!(
+        notice.starts_with("Copyright 2018 The Manrope Project Authors"),
+        "{notice:.80}"
+    );
+    let fonts = files_under("assets/fonts");
+    for face in ["Regular", "SemiBold", "Bold"] {
+        let path = format!("assets/fonts/Manrope-{face}.ttf");
+        assert!(fonts.contains(&path), "{path} is not in the tree");
+    }
+    let gilroy: Vec<String> = files_under("assets")
+        .into_iter()
+        .filter(|path| {
+            let name = path.rsplit('/').next().unwrap_or_default().to_lowercase();
+            name.contains("gilroy") && (name.ends_with(".ttf") || name.ends_with(".otf"))
+        })
+        .collect();
+    assert!(gilroy.is_empty(), "Gilroy files in the tree: {gilroy:?}");
 }
 
 #[test]

@@ -13,9 +13,11 @@
 
 pub mod apps;
 pub mod atomic;
+pub mod fonts;
 pub mod i18n;
 pub mod messages;
 pub mod parity;
+pub mod platform;
 pub mod settings;
 #[cfg(feature = "test-support")]
 pub mod test_support;
@@ -25,7 +27,8 @@ pub use messages::{
     AppRoute, AppStream, AudioToUi, DspCompat, RouteParams, TargetVolume, UiToAudio,
 };
 pub use parity::{LaterFeature, ParityClass, WindowsLook, WindowsParity};
-pub use settings::{Settings, ThemeMode, ViewMode};
+pub use platform::{Original, PLATFORM, Platform};
+pub use settings::{InterfaceFont, Settings, ThemeMode, ViewMode};
 
 /// The five user-facing effects, in the order the GUI lays them out.
 ///
