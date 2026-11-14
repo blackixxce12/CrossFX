@@ -706,6 +706,103 @@ fn switching_the_speakers_lane_off_and_on_leaves_the_microphone_on_its_cable() {
     assert_eq!(h.defaults(IN), all_roles(&a_out.id));
 }
 
+/// Where in `did` the input lane stopped, and where the output lane started capturing `cable`.
+fn microphone_stopped_and_speakers_started(did: &[Did], cable: &str) -> (usize, usize) {
+    let stopped = did
+        .iter()
+        .position(|did| matches!(did, Did::Stopped(IN, _)))
+        .unwrap_or_else(|| panic!("the microphone's stream stops: {did:?}"));
+    let started = did
+        .iter()
+        .position(|did| matches!(did, Did::Started(OUT, capture, _) if capture == cable))
+        .unwrap_or_else(|| panic!("the speakers' lane starts on the cable: {did:?}"));
+    (stopped, started)
+}
+
+#[test]
+fn the_speakers_lane_switched_on_onto_the_microphone_s_cable_takes_it_once_the_microphone_is_off() {
+    // VB-Cable alone, and the speakers' lane off: the microphone plays into the cable.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions {
+            output_enabled: false,
+            ..StartOptions::default()
+        },
+    );
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert_eq!(h.defaults(IN), all_roles(&cable_out.id));
+    h.forget();
+    // The user switches the speakers' lane on by picking the speakers.
+    h.send(UiToAudio::SelectDevice {
+        node_name: speakers().id,
+        direction: OUT,
+    });
+    let did = h.did();
+    let (stopped, started) = microphone_stopped_and_speakers_started(&did, &cable_in.id);
+    assert!(
+        stopped < started,
+        "nothing captured from the cable while the microphone still plays into it: {did:?}"
+    );
+    let handed_back = did
+        .iter()
+        .position(|did| *did == Did::SetDefault(IN, microphone().id, Role::Console))
+        .expect("the recording default goes back to the microphone");
+    assert!(handed_back < started, "{did:?}");
+    assert_eq!(
+        did[stopped],
+        Did::Stopped(IN, HAND_BACK_TAIL),
+        "its tail plays into the cable while the recorders move, before anything captures it"
+    );
+    assert!(h.messages().contains(&AudioToUi::Error {
+        direction: Some(IN),
+        message: AudioError::NoVirtualInputDevice.to_string(),
+    }));
+}
+
+#[test]
+fn a_device_change_that_moves_the_speakers_onto_the_microphone_s_cable_stops_the_microphone_first()
+{
+    // FxSound's driver for the speakers, VB-Cable for the microphone — until the driver goes.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out,
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    h.forget();
+    h.fake()
+        .endpoints
+        .retain(|endpoint| endpoint.id != fxsound().id);
+    h.event(Event::Devices);
+    let did = h.did();
+    let (stopped, started) = microphone_stopped_and_speakers_started(&did, &cable_in.id);
+    assert!(stopped < started, "{did:?}");
+}
+
 #[test]
 fn while_the_original_fxsound_runs_the_output_lane_stands_aside_and_says_why() {
     let mut h = harness();

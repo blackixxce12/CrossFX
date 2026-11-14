@@ -1767,6 +1767,20 @@ impl<S: System> Engine<S> {
             );
             return;
         };
+        if direction == DeviceDirection::Output && self.input_stands_on(&virtual_device.render) {
+            // The microphone's cable is the speakers' now — the speakers' lane switched on, or the
+            // device it stood on gone. The input lane leaves it first: it hands its recording
+            // default back, plays on into the cable while the recorders move, and stops — all
+            // before this lane's loopback captures whatever plays into the cable, and claims it,
+            // which would otherwise play the microphone out of the speakers until the input lane's
+            // own rules ran.
+            self.apply_rules(DeviceDirection::Input, now);
+            if self.input_stands_on(&virtual_device.render) {
+                // Its rules are waiting for something: it stops all the same, and they run later.
+                self.stop_lane(DeviceDirection::Input, Stop::HandBack);
+                self.lanes.input.needs_rules = self.lanes.input.enabled;
+            }
+        }
         // Another device is other endpoints: a name is not an identity. "FxSound Speakers" renamed
         // in the Sound control panel is the same endpoint under another friendly name, and the
         // claim on it — the roles the user yielded with it — stands.
@@ -1896,6 +1910,16 @@ impl<S: System> Engine<S> {
                 self.give_back_the_choice(direction, &selection, fresh_pick, start_over);
             }
         }
+    }
+
+    /// Whether the input lane plays into, or holds the default of, the cable whose playback side
+    /// is `render`.
+    fn input_stands_on(&self, render: &str) -> bool {
+        let lane = &self.lanes.input;
+        lane.virtual_device
+            .as_ref()
+            .is_some_and(|device| device.render == render)
+            && (lane.stream.is_some() || lane.claim.is_some())
     }
 
     /// Start a lane's stream on `plan`'s devices.
