@@ -739,7 +739,11 @@ mod tests {
         let ru = language("ru").expect("ru");
         let merged = Catalogue::for_language(ru);
         let (original, port) = (ru.original_catalogue(), ru.port_catalogue());
-        assert!(port.len() < original.len());
+        // Two layers, each with strings the other has not: the Windows build's, and the port's
+        // own and its repairs. Not which is the longer: the port's own strings outnumber the
+        // original's since the interface font's and the Windows mode's came.
+        assert!(original.keys().any(|key| port.get(key).is_none()));
+        assert!(port.keys().any(|key| original.get(key).is_none()));
         // The port wins where both have a string: Windows' Russian says "with Windows".
         assert_ne!(
             original.get("Launch on system startup"),
