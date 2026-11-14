@@ -50,6 +50,28 @@
 #define AppUserModelId "FxSoundPort.FxSound"
 #define NotificationIcon "notification.png"
 
+; Every file this version ships in the folders CurStepChanged below cleans up after an upgrade, as
+; "|presets\Factsoft\General.fac|...|": read from the staged tree as the script is compiled, the
+; tree [Files] packs, so that the list and the package cannot disagree. The four folders here and
+; there are the same four.
+#define Shipped "|"
+#define ShippedIn ""
+#define FindHandle
+#define FindResult
+#sub AddShipped
+  #expr Shipped = Shipped + ShippedIn + FindGetFileName(FindHandle) + "|"
+#endsub
+#sub ListShipped
+  #for {FindHandle = FindResult = FindFirst(StageDir + "\" + ShippedIn + "*", 0); FindResult; FindResult = FindNext(FindHandle)} AddShipped
+  #if FindHandle
+    #expr FindClose(FindHandle)
+  #endif
+#endsub
+#expr ShippedIn = "", ListShipped
+#expr ShippedIn = "presets\Factsoft\", ListShipped
+#expr ShippedIn = "presets\BonusPresets\", ListShipped
+#expr ShippedIn = "presets\Input\", ListShipped
+
 [Setup]
 ; Fixed for good: it is how a later setup finds this installation to replace it, and how
 ; Apps and Features keys it (the double brace is a literal one).
@@ -118,21 +140,6 @@ russian.OnlyProgramFiles=FxSound Port можно установить тольк
 english.CloseRunning=FxSound Port is running and will be closed so that it can be uninstalled. Like Exit in its menu, it first gives the default playback device back.%n%nClick OK to go on, or Cancel to leave it running and not uninstall it.
 russian.CloseRunning=Программа FxSound Port запущена. Для удаления она будет закрыта — так же, как по команде «Закрыть» в её меню: сначала она вернёт прежнее устройство воспроизведения по умолчанию.%n%nНажмите «OK», чтобы продолжить, или «Отмена», чтобы оставить её работать и не удалять.
 
-[InstallDelete]
-; What an earlier version installed and this one may not ship: a preset dropped or renamed since,
-; a licence of something no longer built in. Setup installs over the old version instead of
-; uninstalling it first, and the stores list every .fac and .toml in these folders, so a file left
-; over would be a factory preset for good — or, renamed with the same name inside, the one listed
-; in place of the new copy. Cleared first, the folder holds what this version ships, as after an
-; upgrade of the .msi. Only the package's own kinds of file in the package's own folders: the
-; folder is always Program Files\FxSound Port (PrepareToInstall), and user presets are kept under
-; %APPDATA%, never here. The uninstaller and its log are left alone.
-Type: files; Name: "{app}\presets\Factsoft\*.fac"
-Type: files; Name: "{app}\presets\BonusPresets\*.fac"
-Type: files; Name: "{app}\presets\Input\*.toml"
-Type: files; Name: "{app}\COPYING.*"
-Type: files; Name: "{app}\OFL.*"
-
 [Files]
 ; The staged tree as it is: the files and folders build-windows.ps1 put there are the package.
 ; uninsrestartdelete is for a copy of FxSound Port the uninstaller could not close (in another
@@ -155,6 +162,8 @@ const
   MsiUpgradeCode = '{B9D37BB7-CC1E-4A59-ABE5-4CEAEF9B6496}';
   ErrorSuccess = 0;
   ErrorMoreData = 234;
+  // The preprocessor's list above (Shipped), apostrophes doubled for Pascal: "70's.fac".
+  ShippedFiles = '{#StringChange(Shipped, "'", "''")}';
 
 function MsiEnumRelatedProducts(UpgradeCode: String; Reserved: Cardinal; Index: Cardinal;
   ProductCode: String): Cardinal;
@@ -210,6 +219,64 @@ begin
   Only := ExpandConstant('{autopf}\{#AppName}');
   if CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), Only) <> 0 then
     Result := FmtMessage(CustomMessage('OnlyProgramFiles'), [Only]);
+end;
+
+// What an earlier version installed and this one does not ship: a preset dropped or renamed since,
+// a licence of something no longer built in. Setup installs over the old version instead of
+// uninstalling it first, and the stores list every .fac and .toml in these folders, so a file left
+// over would be a factory preset for good — or, renamed with the same name inside, the one listed
+// in place of the new copy. Removed, the folder holds what this version ships, as after an upgrade
+// of the .msi.
+//
+// Only once the installation has succeeded (ssPostInstall), and only the files this version does
+// not ship. An installation that fails or is cancelled part-way is rolled back, which deletes every
+// file it copied that was not there before it started: had the old presets been cleared first, as
+// [InstallDelete] clears them, the new copies would count as new and go with the rollback, leaving
+// no presets at all. Only the package's own kinds of file in the package's own folders, too: the
+// folder is always Program Files\FxSound Port (PrepareToInstall), user presets are kept under
+// %APPDATA%, never here, and the uninstaller and its log are left alone. A name is compared
+// without regard to case, as NTFS compares it, so that no shipped file is taken for another.
+// Dir is the installation's folder with a backslash, Folder one of its folders, Mask the kind.
+procedure RemoveLeftovers(const Dir, Folder, Mask: String);
+var
+  Found: TFindRec;
+  Shipped, Relative: String;
+begin
+  Shipped := AnsiLowercase(ShippedFiles);
+  if not FindFirst(Dir + Folder + Mask, Found) then
+    Exit;
+  try
+    repeat
+      Relative := Folder + Found.Name;
+      if (Found.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0) and
+        (Pos('|' + AnsiLowercase(Relative) + '|', Shipped) = 0) then
+      begin
+        if DeleteFile(Dir + Relative) then
+          Log('Removed ' + Relative + ', which this version does not ship')
+        else
+          Log('Could not remove ' + Relative + ', which this version does not ship');
+      end;
+    until not FindNext(Found);
+  finally
+    FindClose(Found);
+  end;
+end;
+
+// The folders here are the ones the preprocessor lists the shipped files of (Shipped, at the top):
+// one cleaned here and not listed there would lose every file in it.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Dir: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    Dir := ExpandConstant('{app}\');
+    RemoveLeftovers(Dir, 'presets\Factsoft\', '*.fac');
+    RemoveLeftovers(Dir, 'presets\BonusPresets\', '*.fac');
+    RemoveLeftovers(Dir, 'presets\Input\', '*.toml');
+    RemoveLeftovers(Dir, '', 'COPYING.*');
+    RemoveLeftovers(Dir, '', 'OFL.*');
+  end;
 end;
 
 // A running FxSound Port has fxsound.exe loaded, which cannot be deleted, and it would go on

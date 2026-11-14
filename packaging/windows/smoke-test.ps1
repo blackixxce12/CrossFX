@@ -22,6 +22,8 @@
       * the setup program only: run again over itself, as an upgrade is, with files an earlier
         version might have shipped and this one does not planted in its folder, which the
         upgrade has to leave out of the tree;
+      * the setup program only: run again while a preset is held open, so that the upgrade fails
+        part-way and is rolled back, which has to leave the installed tree as it was;
       * the setup program only: FxSound Port started (--hide) to be running when it is
         uninstalled, as it usually is, which the uninstaller has to close;
       * what FxSound writes for itself set as it would: the HKCU Run value "Launch on system
@@ -314,6 +316,24 @@ foreach ($relative in $dropped) {
 Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=`"$logs\setup-upgrade.log`""
 Assert-Installed 'the upgrade' $setupFiles $treeVersion
 Write-Host "  an upgrade leaves out the $($dropped.Count) files this version does not ship"
+
+# An upgrade that fails part-way, here on a preset another program holds open, which Setup cannot
+# replace: silent, it gives up (exit 5, Abort at the Retry box) and rolls back, deleting every file
+# it copied that was not there before it started. The files the version before shipped and this one
+# does not are removed only after a successful installation, so nothing the installed version has
+# may go with the rollback: cleared before the copy, the presets copied again would have counted
+# as new. Not a .fac or .toml the Restart Manager is asked about (only *.exe, *.dll, *.chm are), so
+# Setup does not try to close this script to free it.
+$held = @($expected.Keys | Where-Object { $_ -like 'presets\Input\*' })[0]
+$holder = [System.IO.File]::Open((Join-Path $installDir $held), [System.IO.FileMode]::Open,
+    [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+try {
+    Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=`"$logs\setup-failed-upgrade.log`"" -Refused
+} finally {
+    $holder.Dispose()
+}
+Assert-Installed 'an upgrade that failed' $setupFiles $treeVersion
+Write-Host "  an upgrade that fails on $held is rolled back with nothing of the installation lost"
 
 # Uninstalled while FxSound Port runs, as it usually is: it sits in the notification area once
 # started. The uninstaller has to close it, or fxsound.exe and its folder stay behind.
