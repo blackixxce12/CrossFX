@@ -356,15 +356,34 @@ impl Harness {
     }
 }
 
-fn claimed_for_every_role(direction: DeviceDirection, id: &str) -> Vec<Did> {
-    Role::ALL
-        .into_iter()
+/// What a claim of the lane of `direction` writes, and what giving it back writes: the roles the
+/// lane takes (`Role::claimed_by`), each made `id`.
+fn claimed(direction: DeviceDirection, id: &str) -> Vec<Did> {
+    written(direction, id, Role::claimed_by(direction))
+}
+
+/// Every role made `id`: what giving back a default a run left in every role writes.
+fn every_role(direction: DeviceDirection, id: &str) -> Vec<Did> {
+    written(direction, id, &Role::ALL)
+}
+
+fn written(direction: DeviceDirection, id: &str, roles: &[Role]) -> Vec<Did> {
+    roles
+        .iter()
+        .copied()
         .map(|role| Did::SetDefault(direction, id.to_owned(), role))
         .collect()
 }
 
+/// The output lane's virtual endpoint in the two playback roles, and calls on `calls`.
+fn playback_on(id: &str, calls: &str) -> Defaults {
+    let mut defaults = all_roles(id);
+    defaults.set(Role::Communications, Some(calls.to_owned()));
+    defaults
+}
+
 #[test]
-fn the_output_lane_plays_the_virtual_device_to_the_speakers_and_takes_every_role_for_it() {
+fn the_output_lane_plays_the_virtual_device_to_the_speakers_and_takes_the_playback_roles_for_it() {
     let mut h = harness();
     h.start();
     let did = h.did();
@@ -373,8 +392,12 @@ fn the_output_lane_plays_the_virtual_device_to_the_speakers_and_takes_every_role
         Some(&Did::Started(OUT, fxsound().id, speakers().id)),
         "the stream first, so that nothing played into the virtual device is lost"
     );
-    assert_eq!(did[1..], claimed_for_every_role(OUT, &fxsound().id));
-    assert_eq!(h.defaults(OUT), all_roles(&fxsound().id));
+    assert_eq!(did[1..], claimed(OUT, &fxsound().id));
+    assert_eq!(
+        h.defaults(OUT),
+        playback_on(&fxsound().id, &speakers().id),
+        "calls stay where they were"
+    );
     let messages = h.messages();
     assert!(messages.contains(&AudioToUi::RememberedDefault {
         direction: OUT,
@@ -400,22 +423,22 @@ fn the_output_lane_plays_the_virtual_device_to_the_speakers_and_takes_every_role
 }
 
 #[test]
-fn shutting_down_gives_every_role_back_before_the_stream_stops() {
+fn shutting_down_gives_the_default_back_before_the_stream_stops() {
     let mut h = harness();
     h.start();
     h.forget();
     h.engine.shutdown();
     let did = h.did();
-    let mut expected = claimed_for_every_role(OUT, &speakers().id);
+    let mut expected = claimed(OUT, &speakers().id);
     expected.push(Did::Stopped(OUT, HAND_BACK_TAIL));
     assert_eq!(did, expected);
     assert_eq!(h.defaults(OUT), all_roles(&speakers().id));
 }
 
 #[test]
-fn each_role_goes_back_to_what_it_was_and_a_role_the_user_moved_is_left_alone() {
-    let mut defaults = all_roles(&speakers().id);
-    defaults.set(Role::Communications, Some(headphones().id));
+fn calls_stay_on_the_device_the_user_set_for_them_while_the_output_lane_plays() {
+    // Music on the speakers, calls on the headphones — this machine's fifine headset, say.
+    let defaults = playback_on(&speakers().id, &headphones().id);
     let mut h = harness_with(
         vec![speakers(), headphones(), fxsound(), microphone()],
         defaults.clone(),
@@ -423,36 +446,41 @@ fn each_role_goes_back_to_what_it_was_and_a_role_the_user_moved_is_left_alone() 
         &StartOptions::default(),
     );
     h.start();
-    assert_eq!(h.defaults(OUT), all_roles(&fxsound().id));
+    assert_eq!(
+        h.defaults(OUT),
+        playback_on(&fxsound().id, &headphones().id),
+        "calls are not played through the lane's one device"
+    );
+    assert!(
+        !h.did()
+            .iter()
+            .any(|did| matches!(did, Did::SetDefault(_, _, Role::Communications))),
+        "{:?}",
+        h.did()
+    );
+    // Every start, and every power off and on, leaves them there.
+    h.send(UiToAudio::SetAsDefault {
+        direction: OUT,
+        want: false,
+    });
+    h.send(UiToAudio::SetAsDefault {
+        direction: OUT,
+        want: true,
+    });
+    assert_eq!(
+        h.defaults(OUT),
+        playback_on(&fxsound().id, &headphones().id)
+    );
     h.engine.shutdown();
     assert_eq!(
         h.defaults(OUT),
         defaults,
-        "calls back to the headphones, music to the speakers"
+        "music back to the speakers, calls never moved"
     );
-
-    // The user puts calls on the speakers while FxSound holds the default: theirs, not written.
-    let mut h = harness_with(
-        vec![speakers(), headphones(), fxsound(), microphone()],
-        defaults,
-        all_roles(&microphone().id),
-        &StartOptions::default(),
-    );
-    h.start();
-    h.fake()
-        .defaults
-        .output
-        .set(Role::Communications, Some(speakers().id));
-    h.event(Event::DefaultChanged {
-        direction: OUT,
-        role: Role::Communications,
-        id: Some(speakers().id),
-    });
-    h.forget();
-    h.engine.shutdown();
     assert!(
         !h.did()
-            .contains(&Did::SetDefault(OUT, headphones().id, Role::Communications))
+            .iter()
+            .any(|did| matches!(did, Did::SetDefault(_, _, Role::Communications)))
     );
 }
 
@@ -465,7 +493,7 @@ fn the_power_off_gives_the_default_back_and_stops_and_the_power_on_takes_it_agai
         direction: OUT,
         want: false,
     });
-    let mut expected = claimed_for_every_role(OUT, &speakers().id);
+    let mut expected = claimed(OUT, &speakers().id);
     expected.push(Did::Stopped(OUT, HAND_BACK_TAIL));
     assert_eq!(h.did(), expected);
     h.tick(SUPERVISOR_PERIOD);
@@ -485,7 +513,7 @@ fn the_power_off_gives_the_default_back_and_stops_and_the_power_on_takes_it_agai
     });
     let did = h.did();
     assert_eq!(did[0], Did::Started(OUT, fxsound().id, speakers().id));
-    assert_eq!(did[1..], claimed_for_every_role(OUT, &fxsound().id));
+    assert_eq!(did[1..], claimed(OUT, &fxsound().id));
 }
 
 #[test]
@@ -582,7 +610,7 @@ fn the_microphone_plays_into_a_cable_whose_recording_side_becomes_the_default() 
         did[0],
         Did::Started(IN, microphone().id, cable_in.id.clone())
     );
-    assert_eq!(did[1..], claimed_for_every_role(IN, &cable_out.id));
+    assert_eq!(did[1..], claimed(IN, &cable_out.id));
     let messages = h.messages();
     assert!(messages.contains(&AudioToUi::RememberedDefault {
         direction: IN,
@@ -603,7 +631,7 @@ fn the_microphone_plays_into_a_cable_whose_recording_side_becomes_the_default() 
     // Detached, it gives the recording default back to the microphone and says so.
     h.forget();
     h.send(UiToAudio::DetachLane(IN));
-    let mut expected = claimed_for_every_role(IN, &microphone().id);
+    let mut expected = claimed(IN, &microphone().id);
     expected.push(Did::Stopped(IN, HAND_BACK_TAIL));
     assert_eq!(h.did(), expected);
     assert!(h.messages().contains(&AudioToUi::Attached {
@@ -702,7 +730,7 @@ fn while_the_original_fxsound_runs_the_output_lane_stands_aside_and_says_why() {
         did.first(),
         Some(&Did::Started(OUT, fxsound().id, speakers().id))
     );
-    assert_eq!(did[1..], claimed_for_every_role(OUT, &fxsound().id));
+    assert_eq!(did[1..], claimed(OUT, &fxsound().id));
 }
 
 #[test]
@@ -737,7 +765,7 @@ fn a_device_the_desktop_picks_is_the_users_pick_and_the_default_is_taken_back() 
     );
     h.start();
     // FxSound's own writes come back first, and are no pick.
-    for role in Role::ALL {
+    for &role in Role::claimed_by(OUT) {
         h.event(Event::DefaultChanged {
             direction: OUT,
             role,
@@ -839,32 +867,58 @@ fn with_a_ranking_a_desktop_pick_moves_nothing() {
     );
 }
 
+/// A headset's microphone, for calls: what a user may record calls from instead of FxSound.
+fn headset_microphone() -> Endpoint {
+    Endpoint {
+        enumerator: "USB".to_owned(),
+        ..endpoint(
+            "{0.0.1.00000000}.{fifine-mic}",
+            IN,
+            "Микрофон (3- fifine Microphone)",
+            "Микрофон",
+            "3- fifine Microphone",
+        )
+    }
+}
+
 #[test]
 fn calls_the_user_moves_while_fxsound_holds_them_stay_where_they_were_put() {
+    let [cable_in, cable_out] = cable();
     let mut h = harness_with(
-        vec![speakers(), headphones(), fxsound(), microphone()],
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            headset_microphone(),
+            cable_in,
+            cable_out.clone(),
+        ],
         all_roles(&speakers().id),
         all_roles(&microphone().id),
         &StartOptions::default(),
     );
     h.start();
-    for role in Role::ALL {
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    for &role in Role::claimed_by(IN) {
         h.event(Event::DefaultChanged {
-            direction: OUT,
+            direction: IN,
             role,
-            id: Some(fxsound().id),
+            id: Some(cable_out.id.clone()),
         });
     }
     h.forget();
-    // A call application's device, picked in the sound settings.
+    // A call application's microphone, picked in the sound settings.
     h.fake()
         .defaults
-        .output
-        .set(Role::Communications, Some(headphones().id));
+        .input
+        .set(Role::Communications, Some(headset_microphone().id));
     h.event(Event::DefaultChanged {
-        direction: OUT,
+        direction: IN,
         role: Role::Communications,
-        id: Some(headphones().id),
+        id: Some(headset_microphone().id),
     });
     // A device comes and goes, and the rules run again; so does a supervisor tick.
     h.event(Event::Devices);
@@ -872,22 +926,22 @@ fn calls_the_user_moves_while_fxsound_holds_them_stay_where_they_were_put() {
     assert_eq!(
         h.did(),
         [],
-        "calls are not taken back, and the music never moved"
+        "calls are not taken back, and the microphone never moved"
     );
     assert!(
         !h.messages()
             .iter()
             .any(|message| matches!(message, AudioToUi::DesktopPick { .. })),
-        "calls are not where the music plays"
+        "calls are not where the lane records"
     );
     h.engine.shutdown();
     assert_eq!(
-        h.defaults(OUT).get(Role::Communications),
-        Some(headphones().id.as_str())
+        h.defaults(IN).get(Role::Communications),
+        Some(headset_microphone().id.as_str())
     );
     assert_eq!(
-        h.defaults(OUT).get(Role::Multimedia),
-        Some(speakers().id.as_str())
+        h.defaults(IN).get(Role::Multimedia),
+        Some(microphone().id.as_str())
     );
 }
 
@@ -1085,7 +1139,7 @@ fn once_the_original_fxsound_is_gone_a_default_it_was_killed_holding_is_given_ba
     for _ in 0..=(REPAIR_PATIENCE.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
         h.tick(SUPERVISOR_PERIOD);
     }
-    assert_eq!(h.did(), claimed_for_every_role(OUT, &speakers().id));
+    assert_eq!(h.did(), every_role(OUT, &speakers().id));
 }
 
 #[test]
@@ -1109,7 +1163,7 @@ fn a_default_a_killed_run_left_on_the_virtual_device_is_given_back_once_the_app_
     for _ in 0..(REPAIR_PATIENCE.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
         h.tick(SUPERVISOR_PERIOD);
     }
-    assert_eq!(h.did(), claimed_for_every_role(OUT, &headphones().id));
+    assert_eq!(h.did(), every_role(OUT, &headphones().id));
     assert_eq!(h.defaults(OUT), all_roles(&headphones().id));
     // Once.
     h.forget();

@@ -2,23 +2,27 @@
 //!
 //! Windows keeps three defaults for each direction, one per `ERole` — `eConsole` (what the sound
 //! settings call the default device), `eMultimedia` (the one most applications follow) and
-//! `eCommunications` (calls) — and a lane takes all three: the virtual device is what every
-//! application plays into, or records from, whichever role it asks for. The original took only
-//! `eConsole` (`sndDevicesSet.cpp:60`), which Windows applies to `eMultimedia` with it; the
-//! communications default it left where it was, so a call application played past FxSound.
+//! `eCommunications` (calls). The output lane takes the two playback roles and leaves calls where
+//! they are, as the original does: it wrote `eConsole` alone (`sndDevicesSet.cpp:60`), which
+//! Windows applies to `eMultimedia` with it. The lane has one real device to play to, so calls
+//! taken through it would leave the headset the user chose for them for the lane's speakers for
+//! as long as FxSound runs — and every start would take them again. The input lane takes all
+//! three on the cable's recording side: what a call application records is the microphone it is
+//! there to process ([`Role::claimed_by`]).
 //!
 //! Each role is remembered before it is taken. The two playback roles go back to the lane's own
 //! device — the one the user picked, or the one the lane played to — as the original's
 //! `sndDevicesRestoreDefaultDevice` gives the default back (`sndDevicesSetupDevices.cpp:617-630`);
-//! the communications role goes back to what it was, so a user whose calls go to a headset and
-//! whose music goes to the speakers gets both back as they were ([`hand_back`]). A role the user
-//! has moved off the virtual device since — the desktop's sound settings, a call application — and
-//! that FxSound did not take back as a pick is theirs for as long as the claim stands: it is
-//! neither claimed again nor written back ([`Claim::yield_role`]).
+//! the communications role, where the lane took it, goes back to what it was ([`hand_back`]). A
+//! role the user has moved off the virtual device since — the desktop's sound settings, a call
+//! application — and that FxSound did not take back as a pick is theirs for as long as the claim
+//! stands: it is neither claimed again nor written back ([`Claim::yield_role`]).
 //!
 //! Pure: the writes themselves are `super::com::PolicyConfig`'s.
 
 use std::collections::VecDeque;
+
+use fxsound_core::DeviceDirection;
 
 /// One of the three roles a default device is kept for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,6 +35,18 @@ pub(crate) enum Role {
 impl Role {
     /// Every role, in the order they are written: `eConsole` first, as the original wrote it.
     pub(crate) const ALL: [Self; 3] = [Self::Console, Self::Multimedia, Self::Communications];
+
+    /// The two playback roles: what the output lane claims.
+    pub(crate) const PLAYBACK: [Self; 2] = [Self::Console, Self::Multimedia];
+
+    /// The roles the lane of `direction` makes its virtual endpoint the default for (module
+    /// docs): the two playback roles for the output lane, every role for the input lane.
+    pub(crate) const fn claimed_by(direction: DeviceDirection) -> &'static [Self] {
+        match direction {
+            DeviceDirection::Output => &Self::PLAYBACK,
+            DeviceDirection::Input => &Self::ALL,
+        }
+    }
 
     const fn index(self) -> usize {
         match self {
@@ -81,7 +97,7 @@ impl Defaults {
 /// was before, and the roles the user has taken from it since.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Claim {
-    /// The virtual device's endpoint the claim put in every role.
+    /// The virtual device's endpoint the claim put in the roles its lane takes.
     pub(crate) endpoint: String,
     /// Each role's default from before the claim — never a virtual device's.
     pub(crate) before: Defaults,
@@ -114,18 +130,19 @@ impl Claim {
     }
 }
 
-/// The roles whose default is not `endpoint` yet, and that the user has not taken from the claim:
-/// what a claim, or a claim taken back after a desktop pick, writes. Each of them is first
-/// remembered in `claim`, unless what it holds is a virtual device's (`is_virtual`): the default
-/// from before FxSound is never FxSound's.
+/// The roles among `roles` ([`Role::claimed_by`]) whose default is not `endpoint` yet, and that
+/// the user has not taken from the claim: what a claim, or a claim taken back after a desktop pick,
+/// writes. Each of them is first remembered in `claim`, unless what it holds is a virtual device's
+/// (`is_virtual`): the default from before FxSound is never FxSound's.
 pub(crate) fn claim_roles(
     current: &Defaults,
     endpoint: &str,
+    roles: &[Role],
     claim: &mut Claim,
     is_virtual: impl Fn(&str) -> bool,
 ) -> Vec<Role> {
     let mut writes = Vec::new();
-    for role in Role::ALL {
+    for &role in roles {
         let now = current.get(role);
         if now == Some(endpoint) || claim.has_yielded(role) {
             continue;
@@ -247,7 +264,7 @@ mod tests {
     fn a_claim_takes_every_role_and_remembers_each_one_s_default() {
         let current = defaults(SPEAKERS, SPEAKERS, HEADSET);
         let mut claim = fresh_claim();
-        let writes = claim_roles(&current, FX, &mut claim, |id| id == FX);
+        let writes = claim_roles(&current, FX, &Role::ALL, &mut claim, |id| id == FX);
         assert_eq!(writes, Role::ALL);
         assert_eq!(
             claim.before, current,
@@ -257,19 +274,50 @@ mod tests {
     }
 
     #[test]
+    fn the_output_lane_takes_the_playback_roles_and_leaves_calls_where_they_are() {
+        assert_eq!(
+            Role::claimed_by(DeviceDirection::Output),
+            [Role::Console, Role::Multimedia]
+        );
+        assert_eq!(Role::claimed_by(DeviceDirection::Input), Role::ALL);
+        let current = defaults(SPEAKERS, SPEAKERS, HEADSET);
+        let mut claim = fresh_claim();
+        let writes = claim_roles(
+            &current,
+            FX,
+            Role::claimed_by(DeviceDirection::Output),
+            &mut claim,
+            |id| id == FX,
+        );
+        assert_eq!(writes, [Role::Console, Role::Multimedia]);
+        assert_eq!(claim.before.get(Role::Communications), None);
+        // Calls never left the headset, and nothing gives them back.
+        let held = defaults(FX, FX, HEADSET);
+        assert_eq!(
+            hand_back(&held, &claim, Some(SPEAKERS), |_| true),
+            [
+                (Role::Console, SPEAKERS.to_owned()),
+                (Role::Multimedia, SPEAKERS.to_owned()),
+            ]
+        );
+    }
+
+    #[test]
     fn a_role_already_on_the_virtual_device_is_neither_written_nor_remembered_as_the_user_s() {
         // A killed run left the multimedia role on FxSound: adopted, and nothing remembered for it.
         let current = defaults(SPEAKERS, FX, "");
         let mut claim = fresh_claim();
         assert_eq!(
-            claim_roles(&current, FX, &mut claim, |id| id == FX),
+            claim_roles(&current, FX, &Role::ALL, &mut claim, |id| id == FX),
             [Role::Console, Role::Communications]
         );
         assert_eq!(claim.before, defaults(SPEAKERS, "", ""));
         // A default on another virtual device is not the user's device either.
         let mut claim = fresh_claim();
         let current = defaults("cable", "cable", "cable");
-        claim_roles(&current, FX, &mut claim, |id| id == FX || id == "cable");
+        claim_roles(&current, FX, &Role::ALL, &mut claim, |id| {
+            id == FX || id == "cable"
+        });
         assert_eq!(claim.before, Defaults::default());
     }
 
@@ -279,6 +327,7 @@ mod tests {
         claim_roles(
             &defaults(SPEAKERS, SPEAKERS, HEADSET),
             FX,
+            &Role::ALL,
             &mut claim,
             |id| id == FX,
         );
@@ -307,6 +356,7 @@ mod tests {
         claim_roles(
             &defaults(SPEAKERS, SPEAKERS, HEADSET),
             FX,
+            &Role::ALL,
             &mut claim,
             |id| id == FX,
         );
@@ -347,6 +397,7 @@ mod tests {
         claim_roles(
             &defaults(SPEAKERS, SPEAKERS, HEADSET),
             FX,
+            &Role::ALL,
             &mut claim,
             |id| id == FX,
         );
@@ -375,7 +426,7 @@ mod tests {
         let mut claim = fresh_claim();
         let current = defaults(SPEAKERS, SPEAKERS, HEADSET);
         assert_eq!(
-            claim_roles(&current, FX, &mut claim, |id| id == FX).len(),
+            claim_roles(&current, FX, &Role::ALL, &mut claim, |id| id == FX).len(),
             3
         );
         // The user puts calls on the speakers while FxSound holds every role.
@@ -384,7 +435,7 @@ mod tests {
         assert!(!claim.has_yielded(Role::Console));
         let now = defaults(FX, FX, SPEAKERS);
         assert!(
-            claim_roles(&now, FX, &mut claim, |id| id == FX).is_empty(),
+            claim_roles(&now, FX, &Role::ALL, &mut claim, |id| id == FX).is_empty(),
             "a later run of the rules takes nothing back"
         );
         assert_eq!(claim.before.get(Role::Communications), Some(HEADSET));

@@ -3,7 +3,7 @@
 //! ```text
 //!  OUTPUT LANE
 //!
-//!  apps ──► virtual playback device, made the default for all three roles (IPolicyConfig)
+//!  apps ──► virtual playback device, made the default for the two playback roles (IPolicyConfig)
 //!                │  WASAPI loopback capture (AUDCLNT_STREAMFLAGS_LOOPBACK)
 //!                ▼
 //!           lane DSP: the music chain (crate::lane_dsp, the Linux lanes' own)
@@ -40,16 +40,18 @@
 //! # The default devices
 //!
 //! A lane that is running and wants the default ([`StartOptions::want_default`],
-//! [`UiToAudio::SetAsDefault`]) makes its virtual endpoint the default of its direction for every
-//! role — remembering each role's default first, and saying what it was
-//! ([`AudioToUi::RememberedDefault`]) so that the settings keep it — and gives each back when it
-//! stops: on [`UiToAudio::Shutdown`], on [`UiToAudio::DetachLane`], on `SetAsDefault` with `want:
-//! false` (the power off: the sound goes straight to the speakers, and the lane stops), and
-//! whenever it ends for good. The playback roles go back to the lane's device, the communications
-//! role to where calls went before ([`defaults`]). The default goes back *before* the streams
-//! stop, so the applications are on their way to the real device while the last of what they
-//! played is still heard. A move to another real device keeps the default where it is: the
-//! applications never notice.
+//! [`UiToAudio::SetAsDefault`]) makes its virtual endpoint the default of its direction — the
+//! output lane for the two playback roles, leaving calls on the device the user set for them as
+//! the original does, the input lane for every role ([`Role::claimed_by`]) — remembering each
+//! role's default first, and saying what it was ([`AudioToUi::RememberedDefault`]) so that the
+//! settings keep it, and gives each back when it stops: on [`UiToAudio::Shutdown`], on
+//! [`UiToAudio::DetachLane`], on `SetAsDefault` with `want: false` (the power off: the sound goes
+//! straight to the speakers, and the lane stops), and whenever it ends for good. The playback roles
+//! go back to the lane's device, the input lane's communications role to where calls recorded
+//! from before ([`defaults`]). The default goes back *before* the streams stop, so the
+//! applications are on their way to the real device while the last of what they played is still
+//! heard. A move to another real device keeps the default where it is: the applications never
+//! notice.
 //!
 //! The release profile aborts on a panic, and a process can be killed, so no `Drop` can be counted
 //! on: a run that dies holding the default leaves it on the virtual device, which swallows every
@@ -1976,8 +1978,8 @@ impl<S: System> Engine<S> {
 
     // ---- the defaults ------------------------------------------------------------------------
 
-    /// Make the lane's virtual endpoint the default of its direction for every role it is not yet
-    /// the default of, remembering each first.
+    /// Make the lane's virtual endpoint the default of its direction for every role the lane takes
+    /// ([`Role::claimed_by`]) that it is not yet the default of, remembering each first.
     fn claim(&mut self, direction: DeviceDirection) {
         let lane = self.lanes.get(direction);
         if !lane.want_default {
@@ -2003,8 +2005,13 @@ impl<S: System> Engine<S> {
         // Written down before the first write, so that a run killed at any point after it is
         // known to have left the default here (`record`).
         self.keep_claimed(direction, Some(&endpoint));
-        let roles =
-            defaults::claim_roles(&current, &endpoint, &mut claim, |id| self.is_virtual(id));
+        let roles = defaults::claim_roles(
+            &current,
+            &endpoint,
+            Role::claimed_by(direction),
+            &mut claim,
+            |id| self.is_virtual(id),
+        );
         if !roles.is_empty() {
             // Said out loud, so that it reaches the settings file: this memory is exactly what a
             // kill destroys.
