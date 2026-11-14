@@ -110,17 +110,49 @@ pub(crate) struct Claim {
     /// not take back as a pick: a call application's device picked in the sound settings, or a
     /// playback device picked while a ranking decides the lane's. Theirs until the claim ends.
     yielded: [bool; 3],
+    /// The roles the claim found on its endpoint already, the user's own: a cable they had made
+    /// their default, which no run of FxSound's put there ([`Self::finding_theirs`]). Neither
+    /// adopted nor given back — theirs before FxSound, and after it.
+    theirs: [bool; 3],
 }
 
 impl Claim {
     /// A claim on `endpoint` with nothing remembered and nothing yielded: a new one, or one adopted
-    /// from a run that left the default on the endpoint.
+    /// from a run that left the default on the endpoint — whatever it finds there is FxSound's.
     pub(crate) fn new(endpoint: String) -> Self {
         Self {
             endpoint,
             before: Defaults::default(),
             yielded: [false; 3],
+            theirs: [false; 3],
         }
+    }
+
+    /// A new claim on `endpoint`, a cable's side no run of FxSound's is known to have left a
+    /// default on, as `current` stands: every role already on it is the user's own. A user who
+    /// plays into "CABLE Input" for a streaming program, or records the desktop from "CABLE
+    /// Output", made it their default; the lane standing on that cable takes nothing from them,
+    /// and gives nothing of theirs away when it ends.
+    pub(crate) fn finding_theirs(endpoint: String, current: &Defaults) -> Self {
+        let mut claim = Self::new(endpoint);
+        for role in Role::ALL {
+            claim.theirs[role.index()] = current.get(role) == Some(claim.endpoint.as_str());
+        }
+        claim
+    }
+
+    /// Whether `role` was the user's own on the endpoint when the claim was made.
+    pub(crate) const fn is_theirs(&self, role: Role) -> bool {
+        self.theirs[role.index()]
+    }
+
+    /// Whether the claim holds a role on its endpoint, as `current` stands: one it wrote, or
+    /// adopted from a run that left it there — not one of the user's own. A claim holding nothing
+    /// is no default a killed run would leave behind.
+    pub(crate) fn holds(&self, current: &Defaults) -> bool {
+        Role::ALL
+            .into_iter()
+            .any(|role| current.get(role) == Some(self.endpoint.as_str()) && !self.is_theirs(role))
     }
 
     /// The user has moved `role` off the endpoint, and FxSound leaves it there: the claim neither
@@ -140,6 +172,7 @@ impl Claim {
     /// is a later word.
     pub(crate) const fn take_back(&mut self, role: Role) {
         self.yielded[role.index()] = false;
+        self.theirs[role.index()] = false;
     }
 }
 
@@ -163,6 +196,8 @@ pub(crate) fn claim_roles(
         if let Some(now) = now.filter(|now| !is_virtual(now)) {
             claim.before.set(role, Some(now.to_owned()));
         }
+        // Written by FxSound, so FxSound's from here on, whoever had it there before.
+        claim.theirs[role.index()] = false;
         writes.push(role);
     }
     writes
@@ -181,7 +216,8 @@ pub(crate) fn claim_roles(
 ///
 /// "What it was before" counts only while it is there (`present`). A role with neither is left as
 /// it is: writing nothing is better than writing a device that is not there. A role the user has
-/// moved off the endpoint since is theirs, and is left alone.
+/// moved off the endpoint since is theirs, and is left alone; so is one that was theirs on the
+/// endpoint before the claim ([`Claim::finding_theirs`]).
 pub(crate) fn hand_back(
     current: &Defaults,
     claim: &Claim,
@@ -190,7 +226,9 @@ pub(crate) fn hand_back(
 ) -> Vec<(Role, String)> {
     Role::ALL
         .into_iter()
-        .filter(|&role| current.get(role) == Some(claim.endpoint.as_str()))
+        .filter(|&role| {
+            current.get(role) == Some(claim.endpoint.as_str()) && !claim.is_theirs(role)
+        })
         .filter_map(|role| {
             let before = claim
                 .before

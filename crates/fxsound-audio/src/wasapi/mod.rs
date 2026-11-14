@@ -35,7 +35,12 @@
 //! Virtual Audio Cable ([`endpoints`], which says how each is found). The input lane needs a cable
 //! of its own besides. With none for a lane the lane is not half-run: it reports
 //! [`AudioError::NoVirtualDevice`] (the output lane) or [`AudioError::NoVirtualInputDevice`] (the
-//! input lane) and processes nothing. No virtual endpoint is ever offered as a device to pick.
+//! input lane) and processes nothing. No endpoint of FxSound's driver, and neither side of a cable
+//! a lane stands on, is ever offered as a device to pick; a cable no lane stands on is a device
+//! like any other, as every endpoint but its driver's is to the original, and a user's own default
+//! there is remembered, played to and given back there. The microphone never takes a cable the
+//! user has in use, and a default the speakers' lane finds on its cable already, put there by the
+//! user rather than by a run of FxSound's, stays theirs.
 //!
 //! # The default devices
 //!
@@ -1002,6 +1007,7 @@ impl<S: System> Engine<S> {
     /// The device list as the GUI wants it: every output by name, then every input by name —
     /// the Linux engine's order, which the GUI draws its sections from.
     fn devices(&self) -> Vec<AudioDevice> {
+        let ours = self.fxsound_endpoints();
         let mut published = Vec::new();
         for direction in DeviceDirection::ALL {
             let default = self.defaults.get(direction).main();
@@ -1009,7 +1015,7 @@ impl<S: System> Engine<S> {
                 .endpoints
                 .iter()
                 .filter(|endpoint| {
-                    endpoint.direction == direction && endpoints::is_offered(endpoint)
+                    endpoint.direction == direction && endpoints::is_offered(endpoint, &ours)
                 })
                 .map(|endpoint| {
                     endpoint
@@ -1022,35 +1028,95 @@ impl<S: System> Engine<S> {
         published
     }
 
-    /// Every real device, as the device rules see devices.
+    /// Every real device, as the device rules see devices: a cable no lane stands on among them.
     fn device_infos(&self) -> Vec<DeviceInfo> {
+        let ours = self.fxsound_endpoints();
         self.endpoints
             .iter()
-            .filter(|endpoint| endpoints::is_offered(endpoint))
+            .filter(|endpoint| endpoints::is_offered(endpoint, &ours))
             .map(|endpoint| {
                 endpoint.to_device_info(self.ids.get(&endpoint.id).copied().unwrap_or(0))
             })
             .collect()
     }
 
-    /// Whether `id` is an endpoint of a virtual device: listed as one, or the device a lane
-    /// stands on.
+    /// FxSound's own endpoints, never a device (`endpoints::fxsound_endpoints`): its driver's, and
+    /// both sides of the cable each lane stands on — the output lane's by its plan whether or not
+    /// it is on, because a cable it would capture is never a device to play to, and the one it
+    /// stands on now besides; the input lane's while it is on.
+    fn fxsound_endpoints(&self) -> Vec<String> {
+        let planned = endpoints::plan(&self.endpoints, false, None, |_| false).output;
+        let lanes: Vec<&VirtualDevice> = [
+            planned.as_ref(),
+            self.lanes
+                .output
+                .virtual_device
+                .as_ref()
+                .filter(|_| self.lanes.output.enabled),
+            self.lanes
+                .input
+                .virtual_device
+                .as_ref()
+                .filter(|_| self.lanes.input.enabled),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        endpoints::fxsound_endpoints(&self.endpoints, &lanes)
+    }
+
+    /// Whether `id` is FxSound's, never the user's device nor the default they had before
+    /// FxSound: one of FxSound's own endpoints, the endpoint a lane holds its defaults on — listed
+    /// or not — or the one FxSound's record says a run left them on ([`record`]).
     fn is_virtual(&self, id: &str) -> bool {
-        self.endpoints
-            .iter()
-            .any(|endpoint| endpoint.id == id && endpoint.virtual_kind().is_some())
+        self.fxsound_endpoints().iter().any(|ours| ours == id)
             || self.lanes.iter().any(|(direction, lane)| {
                 lane.virtual_device
                     .as_ref()
                     .and_then(|device| device.default_endpoint(direction))
                     == Some(id)
             })
+            || self
+                .claimed
+                .iter()
+                .any(|(_, endpoint)| endpoint.as_deref() == Some(id))
+    }
+
+    /// Whether `id` is an endpoint of FxSound's own driver, which is never a device, whatever the
+    /// lanes stand on.
+    fn is_driver(&self, id: &str) -> bool {
+        self.endpoints.iter().any(|endpoint| {
+            endpoint.id == id && endpoint.virtual_kind() == Some(endpoints::VirtualKind::FxSound)
+        })
+    }
+
+    /// Whether `id` is in the user's own use, so that the input lane takes no cable either side of
+    /// which it is (`endpoints::plan`): the real device the output lane plays to — a cable it
+    /// plays into — or a default the user has there, which no claim of a lane's and no record of
+    /// FxSound's put there.
+    fn in_users_use(&self, id: &str) -> bool {
+        let played_to =
+            self.lanes.output.enabled && self.lanes.output.target.as_deref() == Some(id);
+        played_to
+            || DeviceDirection::ALL.into_iter().any(|direction| {
+                self.defaults.get(direction).any_is(id)
+                    && self
+                        .lanes
+                        .get(direction)
+                        .claim
+                        .as_ref()
+                        .is_none_or(|claim| claim.endpoint != id)
+                    && self.claimed.get(direction).as_deref() != Some(id)
+            })
     }
 
     /// Whether `id` is a real device of `direction` that is there now.
     fn is_listed(&self, direction: DeviceDirection, id: &str) -> bool {
+        let ours = self.fxsound_endpoints();
         self.endpoints.iter().any(|endpoint| {
-            endpoint.id == id && endpoint.direction == direction && endpoints::is_offered(endpoint)
+            endpoint.id == id
+                && endpoint.direction == direction
+                && endpoints::is_offered(endpoint, &ours)
         })
     }
 
@@ -1271,10 +1337,12 @@ impl<S: System> Engine<S> {
         let memory = self.memory.get(direction);
         let picked =
             !memory.user_selected.is_empty() && memory.user_selected == memory.most_recent_playback;
-        // A virtual device is never a device, ranked or not.
+        // FxSound's driver is never a device, ranked or not. A cable is one while no lane stands
+        // on it, and the rules only ever see it then (`Self::device_infos`): ranked, it keeps its
+        // place for when it is.
         let names: Vec<String> = names
             .into_iter()
-            .filter(|name| !self.is_virtual(name))
+            .filter(|name| !self.is_driver(name))
             .collect();
         let preference = self.preference.get_mut(direction);
         let coming_into_force = preference.ranking.is_empty();
@@ -1305,6 +1373,8 @@ impl<S: System> Engine<S> {
         lane.last_error = None;
         lane.target = None;
         lane.held = false;
+        // A lane that is off stands on nothing: the microphone's cable is a device again.
+        lane.virtual_device = None;
         lane.attached = None;
         lane.wake_wait = None;
         lane.wake_mute_until = None;
@@ -1316,6 +1386,8 @@ impl<S: System> Engine<S> {
             // The speakers' cable may be the microphone's now.
             self.lanes.input.needs_rules = self.lanes.input.enabled;
         }
+        // What the lists show changed with what the lane stands on.
+        self.list_dirty = true;
         self.notify(AudioToUi::Attached {
             direction,
             node_name: None,
@@ -1765,19 +1837,28 @@ impl<S: System> Engine<S> {
             }
             self.mark_enabled_lanes();
         }
-        if self.list_dirty {
-            self.list_dirty = false;
-            let devices = self.devices();
-            if self.last_devices.as_ref() != Some(&devices) {
-                self.last_devices = Some(devices.clone());
-                self.notify(AudioToUi::Devices(devices));
-            }
-        }
+        self.publish_devices();
         for direction in DeviceDirection::ALL {
             let lane = self.lanes.get(direction);
             if lane.needs_rules && now >= lane.next_attempt {
                 self.apply_rules(direction, now);
             }
+        }
+        // A lane that moved onto a cable, or off one, changed what the lists offer.
+        self.publish_devices();
+    }
+
+    /// The device list, when something it is made of changed and it reads otherwise than the GUI
+    /// was last told.
+    fn publish_devices(&mut self) {
+        if !self.list_dirty {
+            return;
+        }
+        self.list_dirty = false;
+        let devices = self.devices();
+        if self.last_devices.as_ref() != Some(&devices) {
+            self.last_devices = Some(devices.clone());
+            self.notify(AudioToUi::Devices(devices));
         }
     }
 
@@ -1898,13 +1979,18 @@ impl<S: System> Engine<S> {
             .virtual_device
             .as_ref()
             .map(|device| device.render.as_str());
-        let plan = endpoints::plan(&self.endpoints, self.lanes.output.enabled, input_on);
+        let plan = endpoints::plan(&self.endpoints, self.lanes.output.enabled, input_on, |id| {
+            self.in_users_use(id)
+        });
         let Some(virtual_device) = plan.get(direction).cloned() else {
             self.stop_lane(direction, Stop::HandBack);
             let lane = self.lanes.get_mut(direction);
             lane.target = None;
             lane.held = false;
-            lane.virtual_device = None;
+            if lane.virtual_device.take().is_some() {
+                // Its cable is a device again.
+                self.list_dirty = true;
+            }
             self.report_error(
                 direction,
                 match direction {
@@ -1957,7 +2043,12 @@ impl<S: System> Engine<S> {
                 virtual_device.name
             );
         }
-        self.lanes.get_mut(direction).virtual_device = Some(virtual_device.clone());
+        let lane = self.lanes.get_mut(direction);
+        if lane.virtual_device.as_ref() != Some(&virtual_device) {
+            // What the lists offer changed with what the lane stands on.
+            self.list_dirty = true;
+        }
+        lane.virtual_device = Some(virtual_device.clone());
 
         let ours = virtual_device
             .default_endpoint(direction)
@@ -2180,16 +2271,24 @@ impl<S: System> Engine<S> {
         };
         let current = self.system.defaults(direction);
         *self.defaults.get_mut(direction) = current.clone();
+        // What a new claim finds on the endpoint is FxSound's to adopt — on its driver, which
+        // nothing plays while neither FxSound runs, or where the record says a run left it — and
+        // otherwise the user's own: a cable they made their default (`Claim::finding_theirs`).
+        let adopts = self.is_driver(&endpoint)
+            || self.claimed.get(direction).as_deref() == Some(endpoint.as_str());
         let lane = self.lanes.get_mut(direction);
         lane.reclaim = false;
         let mut claim = lane
             .claim
             .take()
             .filter(|claim| claim.endpoint == endpoint)
-            .unwrap_or_else(|| Claim::new(endpoint.clone()));
-        // Written down before the first write, so that a run killed at any point after it is
-        // known to have left the default here (`record`).
-        self.keep_claimed(direction, Some(&endpoint));
+            .unwrap_or_else(|| {
+                if adopts {
+                    Claim::new(endpoint.clone())
+                } else {
+                    Claim::finding_theirs(endpoint.clone(), &current)
+                }
+            });
         let roles = defaults::claim_roles(
             &current,
             &endpoint,
@@ -2197,6 +2296,19 @@ impl<S: System> Engine<S> {
             &mut claim,
             |id| self.is_virtual(id),
         );
+        // Written down before the first write, so that a run killed at any point after it is
+        // known to have left the default here (`record`) — and only for a claim that holds
+        // something: one whose every role was the user's own already leaves nothing behind.
+        if !roles.is_empty() || claim.holds(&current) {
+            self.keep_claimed(direction, Some(&endpoint));
+        }
+        if let Some(role) = Role::ALL.into_iter().find(|&role| claim.is_theirs(role)) {
+            log::info!(
+                "{} lane: the {role:?} default was on {endpoint} already, the user's own; it is left \
+                 there",
+                direction.key()
+            );
+        }
         if !roles.is_empty() {
             // Said out loud, so that it reaches the settings file: this memory is exactly what a
             // kill destroys.
@@ -2240,10 +2352,20 @@ impl<S: System> Engine<S> {
 
     /// Write every role `claim` still holds back to a real device ([`defaults::hand_back`]), and
     /// strike the claim from the record once none is left on its endpoint.
+    ///
+    /// Never back onto the claim's own device: a cable no lane stands on is a device like any
+    /// other, but the one a default is being given back from — a killed run's, which no lane
+    /// stands on any more — is the device it is leaving.
     fn give_back(&mut self, direction: DeviceDirection, claim: &Claim) {
         let current = self.system.defaults(direction);
         *self.defaults.get_mut(direction) = current.clone();
-        let infos = self.device_infos();
+        let leaving = endpoints::device_of(&claim.endpoint, &self.endpoints);
+        let elsewhere = |id: &str| !leaving.iter().any(|side| side == id);
+        let infos: Vec<DeviceInfo> = self
+            .device_infos()
+            .into_iter()
+            .filter(|info| elsewhere(&info.name))
+            .collect();
         let device =
             devices::restore_default_candidate(self.memory.get(direction), &infos, direction)
                 .or_else(|| {
@@ -2254,7 +2376,7 @@ impl<S: System> Engine<S> {
                         .get(direction)
                         .target
                         .clone()
-                        .filter(|target| self.is_listed(direction, target))
+                        .filter(|target| self.is_listed(direction, target) && elsewhere(target))
                         .or_else(|| {
                             infos
                                 .iter()
@@ -2263,12 +2385,12 @@ impl<S: System> Engine<S> {
                         })
                 });
         let writes = defaults::hand_back(&current, claim, device.as_deref(), |id| {
-            self.is_listed(direction, id)
+            self.is_listed(direction, id) && elsewhere(id)
         });
         for (role, target) in writes {
             self.write_default(direction, &target, role);
         }
-        if self.defaults.get(direction).any_is(&claim.endpoint) {
+        if claim.holds(self.defaults.get(direction)) {
             // Kept in the record: the next start gives it back once there is somewhere to.
             log::warn!(
                 "{} lane: nothing to give the default back to; it stays on the virtual device",

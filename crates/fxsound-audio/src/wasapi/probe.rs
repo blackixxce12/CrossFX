@@ -60,6 +60,14 @@ fn report() -> Result<String, AudioError> {
     ];
     let mut out = String::new();
     let _ = writeln!(out, "FxSound WASAPI probe (read only: nothing is changed)");
+    // As though both lanes were on: what each would stand on is FxSound's, every other endpoint a
+    // device — a cable no lane would use among them.
+    let plan = endpoints::plan(&all, true, None, |_| false);
+    let lanes: Vec<_> = [plan.output.as_ref(), plan.input.as_ref()]
+        .into_iter()
+        .flatten()
+        .collect();
+    let fxsound_ids = endpoints::fxsound_endpoints(&all, &lanes);
 
     for (direction, defaults) in DeviceDirection::ALL.into_iter().zip(&defaults) {
         let _ = writeln!(
@@ -74,7 +82,7 @@ fn report() -> Result<String, AudioError> {
             .iter()
             .filter(|endpoint| endpoint.direction == direction)
         {
-            describe(&mut out, &enumerator, endpoint, defaults);
+            describe(&mut out, &enumerator, endpoint, defaults, &fxsound_ids);
         }
         let _ = writeln!(
             out,
@@ -86,7 +94,6 @@ fn report() -> Result<String, AudioError> {
     }
 
     let _ = writeln!(out, "\nVirtual devices:");
-    let plan = endpoints::plan(&all, true, None);
     match plan.output.as_ref() {
         Some(device) => {
             let _ = writeln!(out, "  output lane: {} ({:?})", device.name, device.kind);
@@ -160,7 +167,7 @@ fn report() -> Result<String, AudioError> {
     let infos: Vec<_> = all
         .iter()
         .enumerate()
-        .filter(|(_, endpoint)| endpoints::is_offered(endpoint))
+        .filter(|(_, endpoint)| endpoints::is_offered(endpoint, &fxsound_ids))
         .map(|(index, endpoint)| endpoint.to_device_info(index as u32))
         .collect();
     for (direction, defaults) in DeviceDirection::ALL.into_iter().zip(&defaults) {
@@ -272,6 +279,7 @@ fn describe(
     enumerator: &com::Enumerator,
     endpoint: &Endpoint,
     defaults: &Defaults,
+    ours: &[String],
 ) {
     let roles: Vec<&str> = Role::ALL
         .into_iter()
@@ -317,7 +325,10 @@ fn describe(
         out,
         "      {}",
         match endpoint.virtual_kind() {
-            Some(kind) => format!("virtual device ({kind:?}): never offered"),
+            Some(kind) if !endpoints::is_offered(endpoint, ours) => {
+                format!("virtual device ({kind:?}): FxSound's, never offered")
+            }
+            Some(kind) => format!("virtual device ({kind:?}), no lane's: offered as a device"),
             None => format!(
                 "offered as an {}",
                 match endpoint.direction {

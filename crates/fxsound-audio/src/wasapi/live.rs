@@ -61,7 +61,7 @@ fn the_machine_s_endpoints_are_read_and_the_virtual_device_is_found_among_them()
             endpoint.enumerator
         );
     }
-    let plan = endpoints::plan(&all, true, None);
+    let plan = endpoints::plan(&all, true, None, |_| false);
     // Where FxSound's driver is installed — the original FxSound's machine — it is the output
     // lane's device, whatever else is there.
     if all.iter().any(|endpoint| {
@@ -81,7 +81,7 @@ fn a_loopback_capture_on_the_virtual_device_opens_reads_and_closes() {
     let Some((_apartment, enumerator, all)) = system() else {
         return;
     };
-    let Some(device) = endpoints::plan(&all, true, None).output else {
+    let Some(device) = endpoints::plan(&all, true, None, |_| false).output else {
         eprintln!("no virtual device here: nothing to capture");
         return;
     };
@@ -117,14 +117,20 @@ fn a_loopback_capture_on_the_virtual_device_opens_reads_and_closes() {
     );
 }
 
+/// A real playback device to render silence to: one of no virtual device, a cable no lane uses
+/// included among those left out.
+fn real_output(all: &[Endpoint]) -> Option<&Endpoint> {
+    all.iter().find(|endpoint| {
+        endpoint.direction == DeviceDirection::Output && endpoint.virtual_kind().is_none()
+    })
+}
+
 #[test]
 fn digital_silence_renders_on_a_real_device_for_a_moment() {
     let Some((_apartment, enumerator, all)) = system() else {
         return;
     };
-    let Some(output) = all.iter().find(|endpoint| {
-        endpoint.direction == DeviceDirection::Output && endpoints::is_offered(endpoint)
-    }) else {
+    let Some(output) = real_output(&all) else {
         eprintln!("no real output here: nothing to render to");
         return;
     };
@@ -167,13 +173,11 @@ fn a_lane_s_stream_runs_from_the_virtual_device_to_a_real_one_in_silence_and_sto
     let Some((_apartment, _enumerator, all)) = system() else {
         return;
     };
-    let Some(device) = endpoints::plan(&all, true, None).output else {
+    let Some(device) = endpoints::plan(&all, true, None, |_| false).output else {
         eprintln!("no virtual device here: nothing to capture");
         return;
     };
-    let Some(output) = all.iter().find(|endpoint| {
-        endpoint.direction == DeviceDirection::Output && endpoints::is_offered(endpoint)
-    }) else {
+    let Some(output) = real_output(&all) else {
         eprintln!("no real output here: nothing to render to");
         return;
     };
@@ -326,7 +330,7 @@ fn end_to_end_on_this_machine() {
         .into_iter()
         .map(|direction| enumerator.defaults(direction))
         .collect();
-    let plan = endpoints::plan(&all, true, None);
+    let plan = endpoints::plan(&all, true, None, |_| false);
     let handle = crate::AudioEngine::start().expect("the engine starts");
     let mut seen = Vec::new();
     let until = Instant::now() + Duration::from_secs(5);

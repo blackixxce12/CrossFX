@@ -37,10 +37,17 @@
 //! "Internal AUX", "MIDI") are the driver sample's own, not a loop of its speakers. So the input
 //! lane needs a cable of its own, distinct from the output lane's ([`plan`]).
 //!
-//! Every endpoint of a virtual device is FxSound's in the sense `crate::is_fxsound_node` gives a
-//! node of the Linux engine: never a device to pick. Offered as an output, the virtual device would
-//! have the output lane play into what it captures; a cable's recording side offered as a
-//! microphone, the input lane record what it plays ([`is_offered`]).
+//! What is FxSound's, in the sense `crate::is_fxsound_node` gives a node of the Linux engine —
+//! never a device to pick — is every endpoint of FxSound's driver, and both sides of a cable a lane
+//! stands on ([`fxsound_endpoints`], [`is_offered`]). Offered as an output, the device the output
+//! lane captures would have it play into what it captures; a cable's recording side offered as a
+//! microphone, the input lane record what it plays. A cable no lane stands on is a device like any
+//! other, as every endpoint but its driver's own is to the original (`docs/spec/12-audio-io.md` §5,
+//! pass 2): a user who records the desktop through "CABLE Output", or plays into "CABLE Input" for
+//! a streaming program, has the output lane play into it as the original would, and has their
+//! default given back there. Nor does a lane take a cable the user has in use — a default of theirs
+//! on either side, or the device the output lane plays to — while another will do ([`plan`]): the
+//! microphone mixed into what they route through it would be theirs to hear.
 
 use fxsound_core::{AudioDevice, DeviceDirection};
 
@@ -246,10 +253,51 @@ impl Endpoint {
     }
 }
 
-/// Whether an endpoint is offered to the user as a device to pick: every one that is not part of
-/// a virtual device (module docs).
-pub(crate) fn is_offered(endpoint: &Endpoint) -> bool {
-    endpoint.virtual_kind().is_none()
+/// Whether an endpoint is offered to the user as a device to pick: every one that is not among
+/// `ours`, FxSound's own endpoints ([`fxsound_endpoints`]; module docs).
+pub(crate) fn is_offered(endpoint: &Endpoint, ours: &[String]) -> bool {
+    !ours.contains(&endpoint.id)
+}
+
+/// FxSound's own endpoints among `endpoints`, never a device to pick: every endpoint of FxSound's
+/// driver, and both sides of each of `lanes` — the virtual devices the lanes stand on (module
+/// docs).
+pub(crate) fn fxsound_endpoints(endpoints: &[Endpoint], lanes: &[&VirtualDevice]) -> Vec<String> {
+    let mut ours: Vec<String> = endpoints
+        .iter()
+        .filter(|endpoint| endpoint.virtual_kind() == Some(VirtualKind::FxSound))
+        .map(|endpoint| endpoint.id.clone())
+        .collect();
+    for device in lanes {
+        ours.extend(device_of(&device.render, endpoints));
+        ours.extend(device.capture.iter().cloned());
+    }
+    ours.sort();
+    ours.dedup();
+    ours
+}
+
+/// The endpoints of the virtual device `id` is a side of: a cable's playback side and its
+/// recording side ([`capture_twin`]), whichever of the two `id` is — or `id` alone, for an endpoint
+/// that is neither, or is not listed.
+pub(crate) fn device_of(id: &str, endpoints: &[Endpoint]) -> Vec<String> {
+    let Some(endpoint) = endpoints.iter().find(|endpoint| endpoint.id == id) else {
+        return vec![id.to_owned()];
+    };
+    let mut sides = vec![id.to_owned()];
+    match endpoint.direction {
+        DeviceDirection::Output => {
+            sides.extend(capture_twin(endpoint, endpoints).map(|twin| twin.id.clone()));
+        }
+        DeviceDirection::Input => sides.extend(
+            endpoints
+                .iter()
+                .filter(|render| render.direction == DeviceDirection::Output)
+                .filter(|render| capture_twin(render, endpoints).is_some_and(|twin| twin.id == id))
+                .map(|render| render.id.clone()),
+        ),
+    }
+    sides
 }
 
 /// The recording side of the cable whose playback side is `render`: the recording endpoint of the
@@ -336,10 +384,16 @@ impl VirtualPlan {
 /// freed, is no reason to move the recording default — and every application recording from it —
 /// to another. The output lane keeps no such claim: FxSound's own driver, installed while the
 /// lane runs on a cable, is the device the original would stand on, and the lane moves there.
+///
+/// Nor does the input lane take a cable the user has in use (`in_use`, for either side's endpoint:
+/// a default of theirs, the device the output lane plays to): it would mix the microphone into
+/// what they send through it, and make its recording side the default of whatever records it. It
+/// reports that it has no cable instead, as with none installed.
 pub(crate) fn plan(
     endpoints: &[Endpoint],
     output_enabled: bool,
     input_on: Option<&str>,
+    in_use: impl Fn(&str) -> bool,
 ) -> VirtualPlan {
     let mut renders: Vec<(VirtualKind, &Endpoint)> = endpoints
         .iter()
@@ -363,7 +417,7 @@ pub(crate) fn plan(
         .filter(|_| output_enabled)
         .map(|device| device.render.clone());
     let free = |&&(kind, endpoint): &&(VirtualKind, &Endpoint)| {
-        kind.is_cable() && taken.as_deref() != Some(endpoint.id.as_str())
+        kind.is_cable() && taken.as_deref() != Some(endpoint.id.as_str()) && !in_use(&endpoint.id)
     };
     let kept = renders
         .iter()
@@ -373,12 +427,14 @@ pub(crate) fn plan(
         .into_iter()
         .chain(renders.iter().filter(free))
         .find_map(|&(kind, endpoint)| {
-            capture_twin(endpoint, endpoints).map(|twin| VirtualDevice {
-                kind,
-                render: endpoint.id.clone(),
-                name: endpoint.label().to_owned(),
-                capture: Some(twin.id.clone()),
-            })
+            capture_twin(endpoint, endpoints)
+                .filter(|twin| !in_use(&twin.id))
+                .map(|twin| VirtualDevice {
+                    kind,
+                    render: endpoint.id.clone(),
+                    name: endpoint.label().to_owned(),
+                    capture: Some(twin.id.clone()),
+                })
         });
     VirtualPlan { output, input }
 }
@@ -439,6 +495,15 @@ pub(crate) mod tests {
 
     pub(crate) const OUT: DeviceDirection = DeviceDirection::Output;
     pub(crate) const IN: DeviceDirection = DeviceDirection::Input;
+
+    /// Whether `endpoint` is offered while no lane stands on anything: only FxSound's driver is
+    /// FxSound's then.
+    fn offered_alone(endpoint: &Endpoint) -> bool {
+        is_offered(
+            endpoint,
+            &fxsound_endpoints(std::slice::from_ref(endpoint), &[]),
+        )
+    }
 
     pub(crate) fn speakers() -> Endpoint {
         endpoint(
@@ -552,10 +617,10 @@ pub(crate) mod tests {
             "FxSound Audio Enhancer",
         );
         assert_eq!(aux.virtual_kind(), Some(VirtualKind::FxSound));
-        assert!(!is_offered(&aux));
-        assert!(!is_offered(&fxsound()));
-        assert!(is_offered(&speakers()));
-        assert!(is_offered(&microphone()));
+        assert!(!offered_alone(&aux));
+        assert!(!offered_alone(&fxsound()));
+        assert!(offered_alone(&speakers()));
+        assert!(offered_alone(&microphone()));
     }
 
     #[test]
@@ -605,7 +670,7 @@ pub(crate) mod tests {
         ] {
             let other = virtual_endpoint("x", OUT, friendly, "", adapter);
             assert_eq!(other.virtual_kind(), None, "{friendly}");
-            assert!(is_offered(&other));
+            assert!(offered_alone(&other));
         }
     }
 
@@ -626,7 +691,12 @@ pub(crate) mod tests {
                 adapter,
             );
             assert_eq!(numbered.virtual_kind(), Some(kind), "{adapter}");
-            assert!(!is_offered(&numbered), "{adapter}");
+            // A device for the speakers' lane, and then FxSound's.
+            let device = plan(std::slice::from_ref(&numbered), true, None, |_| false)
+                .output
+                .unwrap_or_else(|| panic!("{adapter}: a device for the speakers"));
+            let ours = fxsound_endpoints(std::slice::from_ref(&numbered), &[&device]);
+            assert!(!is_offered(&numbered, &ours), "{adapter}");
         }
         // An adapter that says nothing: the name in brackets, number and all.
         let unnamed = virtual_endpoint(
@@ -663,7 +733,7 @@ pub(crate) mod tests {
         assert_eq!(capture_twin(&c_in, &all).map(|e| &e.id), Some(&c_out.id));
         assert_eq!(capture_twin(&c2_in, &all).map(|e| &e.id), Some(&c2_out.id));
         // One for each lane.
-        let plan = plan(&all, true, None);
+        let plan = plan(&all, true, None, |_| false);
         let output = plan.output.expect("a cable for the speakers");
         let input = plan.input.expect("another for the microphone");
         assert_ne!(output.render, input.render);
@@ -713,10 +783,10 @@ pub(crate) mod tests {
             };
             assert!(spoof.on_hardware_bus(), "{bus}");
             assert_eq!(spoof.virtual_kind(), None, "{bus} {friendly}");
-            assert!(is_offered(&spoof), "{bus} {friendly}");
+            assert!(offered_alone(&spoof), "{bus} {friendly}");
             // Nothing for a lane to stand on.
             assert_eq!(
-                plan(&[speakers(), spoof.clone()], true, None),
+                plan(&[speakers(), spoof.clone()], true, None, |_| false),
                 VirtualPlan::default(),
                 "{bus} {friendly}"
             );
@@ -742,7 +812,7 @@ pub(crate) mod tests {
             cable_in.clone(),
             cable_out.clone(),
         ];
-        let plan = plan(&all, true, None);
+        let plan = plan(&all, true, None, |_| false);
         let output = plan.output.expect("FxSound's driver");
         assert_eq!(output.kind, VirtualKind::FxSound);
         assert_eq!(output.render, fxsound().id);
@@ -758,14 +828,14 @@ pub(crate) mod tests {
     fn one_cable_serves_the_output_lane_and_leaves_the_microphone_without_one() {
         let [cable_in, cable_out] = cable();
         let all = [speakers(), microphone(), cable_in.clone(), cable_out];
-        let plan_on = plan(&all, true, None);
+        let plan_on = plan(&all, true, None, |_| false);
         assert_eq!(
             plan_on.output.as_ref().map(|d| d.render.as_str()),
             Some(cable_in.id.as_str())
         );
         assert_eq!(plan_on.input, None, "the only cable is the speakers'");
         // With the speakers' lane off, the microphone may have it.
-        let plan_off = plan(&all, false, None);
+        let plan_off = plan(&all, false, None, |_| false);
         assert_eq!(
             plan_off.input.as_ref().map(|d| d.render.as_str()),
             Some(cable_in.id.as_str())
@@ -779,7 +849,7 @@ pub(crate) mod tests {
             a_in.clone(),
             a_out,
         ];
-        let plan = plan(&more, true, None);
+        let plan = plan(&more, true, None, |_| false);
         assert_eq!(plan.output.map(|d| d.kind), Some(VirtualKind::VbCable));
         assert_eq!(plan.input.map(|d| d.render), Some(a_in.id));
     }
@@ -790,7 +860,7 @@ pub(crate) mod tests {
         let [a_in, a_out] = cable_a();
         let all = [speakers(), c_in.clone(), c_out, a_in.clone(), a_out];
         // The speakers take VB-Cable, the microphone Cable A.
-        let on = plan(&all, true, None);
+        let on = plan(&all, true, None, |_| false);
         assert_eq!(
             on.output.as_ref().map(|d| d.render.as_str()),
             Some(c_in.id.as_str())
@@ -801,30 +871,135 @@ pub(crate) mod tests {
         );
         // The speakers' lane is switched off and VB-Cable is free, and sorts first: the
         // microphone stays where it is.
-        let off = plan(&all, false, Some(&a_in.id));
+        let off = plan(&all, false, Some(&a_in.id), |_| false);
         assert_eq!(off.input.map(|d| d.render), Some(a_in.id.clone()));
         // Nothing kept, it would have taken VB-Cable.
-        let fresh = plan(&all, false, None);
+        let fresh = plan(&all, false, None, |_| false);
         assert_eq!(fresh.input.map(|d| d.render), Some(c_in.id.clone()));
         // A cable the speakers' lane takes back is not kept for the microphone.
-        let taken = plan(&all, true, Some(&c_in.id));
+        let taken = plan(&all, true, Some(&c_in.id), |_| false);
         assert_eq!(taken.input.map(|d| d.render), Some(a_in.id.clone()));
         // Nor is one that has gone, or that is no cable at all.
-        let gone = plan(&all[..3], false, Some(&a_in.id));
+        let gone = plan(&all[..3], false, Some(&a_in.id), |_| false);
         assert_eq!(gone.input.map(|d| d.render), Some(c_in.id.clone()));
         let fx = [fxsound(), speakers()];
-        assert_eq!(plan(&fx, false, Some(&fxsound().id)).input, None);
+        assert_eq!(plan(&fx, false, Some(&fxsound().id), |_| false).input, None);
+    }
+
+    #[test]
+    fn a_cable_no_lane_stands_on_is_a_device_like_any_other_and_one_a_lane_stands_on_is_fxsound_s()
+    {
+        let [c_in, c_out] = cable();
+        let all = [
+            speakers(),
+            fxsound(),
+            microphone(),
+            c_in.clone(),
+            c_out.clone(),
+        ];
+        // The speakers' lane on FxSound's driver, the microphone's on nothing: the cable is a
+        // device the user may pick, as the original would have it.
+        let plan = plan(&all, true, None, |_| false);
+        let output = plan.output.clone().expect("FxSound's driver");
+        let ours = fxsound_endpoints(&all, &[&output]);
+        assert_eq!(ours, [fxsound().id]);
+        for endpoint in [&c_in, &c_out, &speakers(), &microphone()] {
+            assert!(is_offered(endpoint, &ours), "{}", endpoint.label());
+        }
+        assert!(!is_offered(&fxsound(), &ours));
+        // The microphone's lane on it: both of its sides are FxSound's.
+        let input = plan.input.expect("the cable");
+        let ours = fxsound_endpoints(&all, &[&output, &input]);
+        assert!(!is_offered(&c_in, &ours) && !is_offered(&c_out, &ours));
+        assert!(is_offered(&speakers(), &ours));
+        // The speakers' lane's cable, its recording side included, which nothing of FxSound's
+        // records: offered as a microphone, it would hand the speakers' sound to a recorder.
+        let only = [speakers(), microphone(), c_in.clone(), c_out.clone()];
+        let output = plan_of(&only).output.expect("the cable");
+        assert_eq!(output.capture, None);
+        let ours = fxsound_endpoints(&only, &[&output]);
+        assert!(!is_offered(&c_in, &ours) && !is_offered(&c_out, &ours));
+        // Either side of a cable names the whole cable.
+        assert_eq!(
+            device_of(&c_out.id, &all),
+            [c_out.id.clone(), c_in.id.clone()]
+        );
+        assert_eq!(
+            device_of(&c_in.id, &all),
+            [c_in.id.clone(), c_out.id.clone()]
+        );
+        assert_eq!(device_of(&speakers().id, &all), [speakers().id]);
+        assert_eq!(device_of("gone", &all), ["gone"]);
+    }
+
+    /// The plan with the speakers' lane on, nothing kept and nothing in the user's use.
+    fn plan_of(endpoints: &[Endpoint]) -> VirtualPlan {
+        plan(endpoints, true, None, |_| false)
+    }
+
+    #[test]
+    fn the_microphone_never_takes_a_cable_the_user_has_in_use() {
+        let [c_in, c_out] = cable();
+        let [a_in, a_out] = cable_a();
+        let all = [
+            speakers(),
+            fxsound(),
+            microphone(),
+            c_in.clone(),
+            c_out.clone(),
+            a_in.clone(),
+            a_out,
+        ];
+        assert_eq!(
+            plan_of(&all).input.map(|d| d.render),
+            Some(c_in.id.clone()),
+            "VB-Cable first, when nobody uses it"
+        );
+        // "CABLE Input" the user's playback default, or what the speakers' lane plays to; "CABLE
+        // Output" their recording default: Cable A is the microphone's.
+        for used in [&c_in.id, &c_out.id] {
+            let plan = plan(&all, true, None, |id| id == used.as_str());
+            assert_eq!(
+                plan.input.map(|d| d.render),
+                Some(a_in.id.clone()),
+                "{used}"
+            );
+        }
+        // With no other cable the microphone has none, rather than the user's — not even the one it
+        // stood on, once the user puts it to use.
+        let one = [
+            speakers(),
+            fxsound(),
+            microphone(),
+            c_in.clone(),
+            c_out.clone(),
+        ];
+        assert_eq!(plan(&one, true, None, |id| id == c_in.id).input, None);
+        assert_eq!(
+            plan(&one, true, Some(&c_in.id), |id| id == c_out.id).input,
+            None
+        );
+        // The speakers' lane is held to nothing of the sort: FxSound's driver first, and with none,
+        // the cable — a role it finds there the user's is theirs, and stays (`super::defaults`).
+        assert_eq!(
+            plan(&one, true, None, |_| true).output.map(|d| d.kind),
+            Some(VirtualKind::FxSound)
+        );
+        assert_eq!(
+            plan(&one[2..], true, None, |_| true).output.map(|d| d.kind),
+            Some(VirtualKind::VbCable)
+        );
     }
 
     #[test]
     fn no_virtual_device_is_no_plan_and_a_cable_without_its_recording_side_is_no_microphone_cable()
     {
         assert_eq!(
-            plan(&[speakers(), microphone()], true, None),
+            plan(&[speakers(), microphone()], true, None, |_| false),
             VirtualPlan::default()
         );
         let [cable_in, _] = cable();
-        let plan = plan(&[fxsound(), cable_in], true, None);
+        let plan = plan(&[fxsound(), cable_in], true, None, |_| false);
         assert!(plan.output.is_some());
         assert_eq!(plan.input, None, "CABLE Output is disabled");
     }
@@ -859,9 +1034,12 @@ pub(crate) mod tests {
         let [c_in, c_out] = cable();
         let forward = [a_in.clone(), a_out.clone(), c_in.clone(), c_out.clone()];
         let backward = [c_out, c_in, a_out, a_in];
-        assert_eq!(plan(&forward, true, None), plan(&backward, true, None));
         assert_eq!(
-            plan(&forward, true, None).output.map(|d| d.kind),
+            plan(&forward, true, None, |_| false),
+            plan(&backward, true, None, |_| false)
+        );
+        assert_eq!(
+            plan(&forward, true, None, |_| false).output.map(|d| d.kind),
             Some(VirtualKind::VbCable),
             "VB-Cable before Cable A"
         );
