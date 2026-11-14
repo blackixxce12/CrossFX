@@ -51,9 +51,9 @@
 #define NotificationIcon "notification.png"
 
 ; Every file this version ships in the folders CurStepChanged below cleans up after an upgrade, as
-; "|presets\Factsoft\General.fac|...|": read from the staged tree as the script is compiled, the
-; tree [Files] packs, so that the list and the package cannot disagree. The four folders here and
-; there are the same four.
+; "|COPYING.rnnoise|...|presets\Factsoft\1.fac|...|": read from the staged tree as the script is
+; compiled, the tree [Files] packs, so that the list and the package cannot disagree. The four
+; folders here and there are the same four.
 #define Shipped "|"
 #define ShippedIn ""
 #define FindHandle
