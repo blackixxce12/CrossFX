@@ -17,11 +17,21 @@
 //!
 //! # Who may connect
 //!
-//! The pipe's security descriptor grants access to this user's SID alone, and remote clients are
-//! refused (`PIPE_REJECT_REMOTE_CLIENTS`). The name itself protects nothing — pipe names are one
-//! namespace for the whole machine — so a client checks the owner of the pipe it reached against
-//! its own SID before it writes a byte, and connects at identification level, so that a pipe
-//! another account created first cannot act as the caller either.
+//! The pipe's security descriptor grants access to this user's SID alone, at medium integrity and
+//! above, and remote clients are refused (`PIPE_REJECT_REMOTE_CLIENTS`). The name itself protects
+//! nothing — pipe names are one namespace for the whole machine — so a client checks the pipe it
+//! reached before it writes a byte, and connects at identification level, so that a pipe someone
+//! else created first cannot act as the caller either. It checks two things: the owner, against
+//! its own SID, which keeps out a pipe another account made; and the integrity label, which must
+//! be medium or above, as FxSound's own is ([`super::user::integrity_of`]). An owner is only a name
+//! its creator gave, and a process of this same user at low integrity — a browser's renderer, a
+//! document viewer's sandbox — may give the user's: without the label it would be handed every
+//! command line forwarded to it, with the directory it was typed in, and answer `--status` with
+//! whatever it liked. It cannot label a pipe above its own level.
+//!
+//! What no check can do is take the name back: whoever made the pipe first holds it until its last
+//! handle goes, as whoever takes the lock first does on Linux. A second FxSound then finds no
+//! FxSound to talk to and says so, rather than starting beside it.
 //!
 //! # Timeouts
 //!
@@ -282,13 +292,14 @@ impl PipeStream {
         HANDLE(self.handle.as_raw_handle())
     }
 
-    /// Connect to the pipe at `path` and check that it is this user's.
+    /// Connect to the pipe at `path` and check that it is this user's FxSound's: owned by this
+    /// user, and made at medium integrity or above (see the module docs).
     ///
     /// # Errors
     ///
     /// `NotFound` when `path` is not a pipe's name or no pipe of that name exists — FxSound is
-    /// not running; `PermissionDenied` when the pipe is another account's; any other failure to
-    /// open it.
+    /// not running; `PermissionDenied` when the pipe is another account's, or was made at low
+    /// integrity; any other failure to open it.
     pub fn connect(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref();
         if !is_pipe_path(path) {
@@ -330,6 +341,19 @@ impl PipeStream {
                 io::ErrorKind::PermissionDenied,
                 format!(
                     "{} belongs to another account ({owner}); FxSound does not talk to it",
+                    path.display()
+                ),
+            ));
+        }
+        // An object with no label of its own was made at medium integrity or above.
+        let level = user::integrity_of(stream.raw())?.unwrap_or(user::MEDIUM_INTEGRITY);
+        if level < user::MEDIUM_INTEGRITY {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "{} was made by a program running at low integrity (level {level:#x}), not \
+                     by FxSound; FxSound does not talk to it, and cannot start while it holds \
+                     the name",
                     path.display()
                 ),
             ));
@@ -831,6 +855,56 @@ mod tests {
             clients.push((client, server));
         }
         assert_eq!(clients.len(), 5);
+    }
+
+    #[test]
+    fn fxsounds_pipe_is_labelled_medium_and_is_taken_for_fxsounds() {
+        let path = unique("medium");
+        let _listener = PipeListener::bind(&path).expect("bind");
+        let client = PipeStream::connect(&path).expect("FxSound's own pipe");
+        assert_eq!(
+            user::integrity_of(client.raw()).expect("the label"),
+            Some(user::MEDIUM_INTEGRITY),
+            "the label the server names, whatever level the server runs at"
+        );
+    }
+
+    #[test]
+    fn a_pipe_made_at_low_integrity_is_refused_though_it_names_the_user_as_its_owner() {
+        // What a sandboxed process of this user can make first: the user's name as the owner, and
+        // its own level, low, as the label — which is all it can give a pipe.
+        let sid = own_sid().expect("a SID");
+        let low = SecurityDescriptor::parse(&format!("O:{sid}D:P(A;;GA;;;{sid})S:(ML;;NW;;;LW)"))
+            .expect("a valid SDDL");
+        let path = unique("low");
+        let _squatter = create_instance(&wide(&path), &low, true).expect("the squatter's pipe");
+        let e = PipeStream::connect(&path).expect_err("not FxSound's");
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+        assert!(e.to_string().contains("low integrity"), "{e}");
+
+        // Nothing of a command line reaches one: the forwarding fails before a byte is written.
+        let path = unique("low-forward");
+        let squatter = create_instance(&wide(&path), &low, true).expect("the squatter's pipe");
+        let argv = ["fxsound".to_owned(), "--status".to_owned()];
+        let e = crate::ipc::forward_to(&path, &argv, Path::new(r"C:\secret"), BUSY_WAIT)
+            .expect_err("refused");
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+        let mut waiting = 0_u32;
+        // SAFETY: the server end made above, and an out-pointer to a local.
+        let peeked = unsafe {
+            PeekNamedPipe(
+                HANDLE(squatter.as_raw_handle()),
+                None,
+                0,
+                None,
+                Some(&raw mut waiting),
+                None,
+            )
+        };
+        assert!(
+            peeked.is_err() || waiting == 0,
+            "{waiting} bytes reached the squatter"
+        );
     }
 
     #[test]

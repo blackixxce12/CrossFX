@@ -1,11 +1,14 @@
 //! Who this process runs as, for the control pipe's name and its access control.
 //!
 //! A named pipe lives in one namespace for the whole machine, so its name alone protects nothing:
-//! any session's process can create `\\.\pipe\fxsound-…` first, and connect to it. Two things
+//! any session's process can create `\\.\pipe\fxsound-…` first, and connect to it. Three things
 //! keep the control pipe this user's own ([`super::pipe`]): its security descriptor grants access
-//! to the user's SID and to nobody else, and a client checks that the pipe it reached is owned by
-//! that SID before it hands over a command line, so that a pipe another account put there first
-//! learns nothing.
+//! to the user's SID and to nobody else, at medium integrity and above; a client checks that the
+//! pipe it reached is owned by that SID before it hands over a command line, so that a pipe
+//! another account put there first learns nothing; and the client checks the pipe's integrity
+//! label too ([`integrity_of`]), since an owner is only a name its creator gave: a process of this
+//! very user at low integrity — a sandboxed renderer or viewer — may name the user as the owner of
+//! a pipe it makes, but cannot label the pipe above its own level.
 
 use std::io;
 use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
@@ -16,13 +19,21 @@ use windows::Win32::Security::Authorization::{
     SDDL_REVISION_1, SE_KERNEL_OBJECT,
 };
 use windows::Win32::Security::{
-    GetTokenInformation, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY,
-    TOKEN_USER, TokenUser,
+    ACE_HEADER, ACL, GetAce, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation,
+    LABEL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    SYSTEM_MANDATORY_LABEL_ACE, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::core::{PCWSTR, PWSTR};
 
 use super::{io_error, wide, win32_error};
+
+/// The medium integrity level, `SECURITY_MANDATORY_MEDIUM_RID`: a user's own programs run at it,
+/// and an object with no label of its own is read as carrying it.
+pub(crate) const MEDIUM_INTEGRITY: u32 = 0x2000;
+
+/// `SYSTEM_MANDATORY_LABEL_ACE_TYPE`: the ACE in a SACL that carries an object's integrity label.
+const MANDATORY_LABEL_ACE: u8 = 0x11;
 
 /// The SID of the account this process runs as, in its string form (`S-1-5-21-…`).
 ///
@@ -101,6 +112,73 @@ pub(crate) fn owner_of(handle: HANDLE) -> io::Result<String> {
     sid
 }
 
+/// The integrity level of the kernel object `handle` refers to: the RID of the mandatory label in
+/// its security descriptor (`0x1000` low, [`MEDIUM_INTEGRITY`], `0x3000` high), or `None` for an
+/// object that carries no label. Windows labels whatever a process below medium integrity makes
+/// with that process's level, and a process may label what it makes at its own level or lower,
+/// never higher: so an object labelled medium or above, or not at all, was made at medium or
+/// above. For the client's end of a named pipe, the label is the one the pipe was made with.
+pub(crate) fn integrity_of(handle: HANDLE) -> io::Result<Option<u32>> {
+    let mut sacl: *mut ACL = std::ptr::null_mut();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: out-pointers to locals; `sacl` points into `descriptor`, which is ours to free.
+    // Reading the label needs no more than the `READ_CONTROL` every handle opened for reading has.
+    let status = unsafe {
+        GetSecurityInfo(
+            handle,
+            SE_KERNEL_OBJECT,
+            LABEL_SECURITY_INFORMATION,
+            None,
+            None,
+            None,
+            Some(&raw mut sacl),
+            Some(&raw mut descriptor),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(win32_error(status));
+    }
+    // SAFETY: `sacl` is null or the SACL inside `descriptor`, which is still alive.
+    let level = unsafe { mandatory_level(sacl) };
+    // SAFETY: allocated by `GetSecurityInfo`, freed once, after the last use of `sacl`.
+    unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+    Ok(level)
+}
+
+/// The RID of the mandatory label in `sacl`, if it has one.
+///
+/// # Safety
+///
+/// `sacl` is null or points at a valid ACL that outlives the call.
+unsafe fn mandatory_level(sacl: *const ACL) -> Option<u32> {
+    // SAFETY: as the caller promises.
+    let acl = unsafe { sacl.as_ref() }?;
+    for index in 0..u32::from(acl.AceCount) {
+        let mut ace: *mut std::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: an index below the ACL's own count, and an out-pointer to a local; the ACE
+        // returned points into the ACL.
+        if unsafe { GetAce(sacl, index, &raw mut ace) }.is_err() || ace.is_null() {
+            continue;
+        }
+        // SAFETY: every ACE starts with its header.
+        if unsafe { (*ace.cast::<ACE_HEADER>()).AceType } != MANDATORY_LABEL_ACE {
+            continue;
+        }
+        let label = ace.cast::<SYSTEM_MANDATORY_LABEL_ACE>();
+        // SAFETY: a label ACE's SID starts at its `SidStart` and is part of the ACE; the
+        // subauthorities read are within the count the SID gives.
+        unsafe {
+            let sid = PSID((&raw mut (*label).SidStart).cast());
+            let count = *GetSidSubAuthorityCount(sid);
+            return Some(match count {
+                0 => 0,
+                count => *GetSidSubAuthority(sid, u32::from(count) - 1),
+            });
+        }
+    }
+    None
+}
+
 /// A self-relative security descriptor, freed when dropped.
 pub(crate) struct SecurityDescriptor(PSECURITY_DESCRIPTOR);
 
@@ -119,8 +197,11 @@ impl std::fmt::Debug for SecurityDescriptor {
 impl SecurityDescriptor {
     /// Owned by `sid` and open to `sid` alone: `GENERIC_ALL` for that one account, a protected
     /// DACL so that nothing is inherited, and so no access at all for any other account, for
-    /// anonymous callers or for an AppContainer. A process of the same user at low integrity is
-    /// kept out as well, by the medium mandatory label (`S:(ML;;NW;;;ME)`).
+    /// anonymous callers or for an AppContainer. A process of the same user at low integrity cannot
+    /// reach the pipe either, by the medium mandatory label (`S:(ML;;NW;;;ME)`): that is the
+    /// server's half. The label is also what a client knows FxSound's pipe by
+    /// ([`integrity_of`]), since a low-integrity process could make a pipe of the same name and
+    /// owner, but not one labelled medium.
     ///
     /// The owner and the label are named rather than left to the token's defaults. An elevated
     /// administrator's default owner is the Administrators group, and a client compares the owner
@@ -129,7 +210,12 @@ impl SecurityDescriptor {
     /// on the pipe whichever of the two runs elevated — a start from an elevated terminal, a
     /// keybind from the desktop.
     pub(crate) fn only(sid: &str) -> io::Result<Self> {
-        let sddl = wide(format!("O:{sid}D:P(A;;GA;;;{sid})S:(ML;;NW;;;ME)"));
+        Self::parse(&format!("O:{sid}D:P(A;;GA;;;{sid})S:(ML;;NW;;;ME)"))
+    }
+
+    /// The descriptor `sddl` describes.
+    pub(crate) fn parse(sddl: &str) -> io::Result<Self> {
+        let sddl = wide(sddl);
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
         // SAFETY: `sddl` is NUL-terminated and outlives the call; the descriptor is ours to free.
         unsafe {

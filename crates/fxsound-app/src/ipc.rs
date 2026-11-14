@@ -32,7 +32,9 @@
 //! everything below the transport — the frames, the deadlines, the connection limit, the
 //! `--watch` streams — is this module's one implementation on both systems. Only this user may
 //! connect: the pipe's access control names the user's SID alone, and a client checks the pipe's
-//! owner before it sends anything.
+//! owner and its integrity label before it sends anything — or lets the other end take the
+//! foreground — so that neither another account nor a sandboxed process of the same user that
+//! made the name first is taken for FxSound.
 //!
 //! # Why argv and not a command line
 //!
