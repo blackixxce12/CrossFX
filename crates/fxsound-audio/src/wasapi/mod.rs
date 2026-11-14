@@ -1767,12 +1767,17 @@ impl<S: System> Engine<S> {
             );
             return;
         };
+        // Another device is other endpoints: a name is not an identity. "FxSound Speakers" renamed
+        // in the Sound control panel is the same endpoint under another friendly name, and the
+        // claim on it — the roles the user yielded with it — stands.
         if self
             .lanes
             .get(direction)
             .virtual_device
             .as_ref()
-            .is_some_and(|device| *device != virtual_device)
+            .is_some_and(|device| {
+                device.render != virtual_device.render || device.capture != virtual_device.capture
+            })
         {
             // Another virtual device: what the lane holds on the old one goes back first.
             log::info!(
@@ -1781,6 +1786,15 @@ impl<S: System> Engine<S> {
                 virtual_device.name
             );
             self.stop_lane(direction, Stop::HandBack);
+        } else if let Some(device) = self.lanes.get(direction).virtual_device.as_ref()
+            && device.name != virtual_device.name
+        {
+            log::info!(
+                "{} lane: the virtual device {} is called {} now",
+                direction.key(),
+                device.name,
+                virtual_device.name
+            );
         }
         self.lanes.get_mut(direction).virtual_device = Some(virtual_device.clone());
 

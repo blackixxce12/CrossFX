@@ -882,6 +882,85 @@ fn headset_microphone() -> Endpoint {
 }
 
 #[test]
+fn a_virtual_device_renamed_in_the_sound_settings_is_still_the_device_the_lanes_stand_on() {
+    // A ranking decides the speakers' device, so the user's own pick of a default is theirs: the
+    // claim on FxSound's driver yields it, and must stand.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            headphones(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out,
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions {
+            output_priority: DevicePriority {
+                names: vec![speakers().id],
+                new_devices_first: false,
+            },
+            ..StartOptions::default()
+        },
+    );
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    h.fake()
+        .defaults
+        .output
+        .set(Role::Multimedia, Some(headphones().id));
+    h.event(Event::DefaultChanged {
+        direction: OUT,
+        role: Role::Multimedia,
+        id: Some(headphones().id),
+    });
+    h.forget();
+    // "FxSound Speakers" renamed "Music", and "CABLE Input" "Voice": the same endpoints.
+    for endpoint in &mut h.fake().endpoints {
+        if endpoint.id == fxsound().id {
+            endpoint.friendly_name = "Music (FxSound Audio Enhancer)".to_owned();
+            endpoint.description = "Music".to_owned();
+        } else if endpoint.id == cable_in.id {
+            endpoint.friendly_name = "Voice (VB-Audio Virtual Cable)".to_owned();
+            endpoint.description = "Voice".to_owned();
+        }
+    }
+    // Nothing reads the rename until the endpoints are read again for something else.
+    h.event(Event::Devices);
+    h.tick(SUPERVISOR_PERIOD);
+    assert_eq!(
+        h.did(),
+        [],
+        "neither lane handed its default back, stopped or claimed again"
+    );
+    assert!(
+        !h.messages()
+            .iter()
+            .any(|message| matches!(message, AudioToUi::RememberedDefault { .. }))
+    );
+    assert_eq!(
+        h.defaults(OUT).get(Role::Multimedia),
+        Some(headphones().id.as_str()),
+        "the role the user took stays theirs"
+    );
+    assert_eq!(
+        h.engine
+            .lanes
+            .output
+            .virtual_device
+            .as_ref()
+            .map(|device| device.name.as_str()),
+        Some("Music (FxSound Audio Enhancer)"),
+        "the new name is the one the log uses"
+    );
+}
+
+#[test]
 fn calls_the_user_moves_while_fxsound_holds_them_stay_where_they_were_put() {
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
