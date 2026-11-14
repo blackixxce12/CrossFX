@@ -933,6 +933,7 @@ fn the_process_list_is_read_rarely_while_the_original_s_start_would_show_by_itse
 
     // While it runs, it is looked at on the short beat — its process watched, at no cost — and
     // its quitting is seen there.
+    h.tick(ORIGINAL_EVERY);
     h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
     h.event(Event::Session(fxsound().id));
     assert!(h.engine.original.is_some());
@@ -942,6 +943,26 @@ fn the_process_list_is_read_rarely_while_the_original_s_start_would_show_by_itse
     h.fake().original = None;
     h.tick(ORIGINAL_EVERY);
     assert!(h.engine.original.is_none());
+}
+
+#[test]
+fn sessions_opened_on_the_driver_one_after_another_have_the_process_list_read_once_a_beat() {
+    let mut h = harness();
+    h.start();
+    let scans = h.fake().scans;
+    // A program that opens a session of its own for every sound it plays: fifty in a second.
+    for _ in 0..50 {
+        h.now += Duration::from_millis(20);
+        h.event(Event::Session(fxsound().id));
+    }
+    assert_eq!(h.fake().scans, scans + 1, "read at the first, not at each");
+    // The original starting among them is still found on the beat after that first look.
+    h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
+    h.event(Event::Session(fxsound().id));
+    assert!(h.engine.original.is_none());
+    h.tick(ORIGINAL_EVERY);
+    assert!(h.engine.original.is_some());
+    assert_eq!(h.fake().scans, scans + 2);
 }
 
 #[test]

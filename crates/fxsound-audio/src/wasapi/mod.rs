@@ -448,8 +448,8 @@ pub(crate) trait System {
         direction: DeviceDirection,
     ) -> Option<Box<dyn VolumeWatch>>;
     /// Watch the audio sessions of exactly the endpoints `ids` — each session another process
-    /// opens on one an [`Event::Session`] — dropping the watches of any others; the IDs watched,
-    /// which leaves out an endpoint that refused.
+    /// opens on one an [`Event::Session`] — every watch made anew, the ones of other endpoints
+    /// dropped; the IDs watched, which leaves out an endpoint that refused.
     fn watch_sessions(&mut self, ids: &[String]) -> Vec<String>;
 }
 
@@ -691,13 +691,13 @@ impl System for Windows {
         }
     }
 
+    /// Made anew, each one: the engine asks after every read of the endpoints, and a watch made
+    /// before the audio service restarted — which the endpoints' own enumerator may live through
+    /// — tells of nothing.
     fn watch_sessions(&mut self, ids: &[String]) -> Vec<String> {
         // Dropped here, on the control thread: never from inside a callback.
-        self.sessions.retain(|id, _| ids.contains(id));
+        self.sessions.clear();
         for id in ids {
-            if self.sessions.contains_key(id) {
-                continue;
-            }
             let watched = self
                 .enumerator
                 .device(id)
@@ -878,6 +878,9 @@ pub(crate) struct Engine<S: System> {
     /// The original FxSound, while it runs.
     original: Option<String>,
     next_original_check: Instant,
+    /// When a session opened on FxSound's driver last had the original looked for at once
+    /// ([`Event::Session`]).
+    session_look: Option<Instant>,
     /// An endpoint of FxSound's driver was listed at the last read: the one thing the original
     /// cannot run without, and so the condition for looking for it at all.
     driver_seen: bool,
@@ -952,6 +955,7 @@ impl<S: System> Engine<S> {
             lane_events,
             original: None,
             next_original_check: Instant::now(),
+            session_look: None,
             driver_seen: false,
             sessions_watched: Vec::new(),
             asleep_since: None,
@@ -1652,8 +1656,20 @@ impl<S: System> Engine<S> {
                 if self.original.is_none() && self.is_driver(&endpoint) {
                     // Another process opened a session on FxSound's driver: an application
                     // playing into it, or the original FxSound's capture of it, which is how its
-                    // start shows. Looked for now.
-                    self.check_original(now);
+                    // start shows. Looked for now — but not again within `ORIGINAL_EVERY`, however
+                    // many sessions are opened: a program that opens one for every sound it plays
+                    // would otherwise have the process list, milliseconds of CPU, read for each.
+                    // One opened sooner is looked for on that beat.
+                    match self.session_look {
+                        Some(last) if now < last + ORIGINAL_EVERY => {
+                            self.next_original_check =
+                                self.next_original_check.min(last + ORIGINAL_EVERY);
+                        }
+                        _ => {
+                            self.session_look = Some(now);
+                            self.check_original(now);
+                        }
+                    }
                 }
             }
             Event::StreamEnded {
@@ -1973,7 +1989,9 @@ impl<S: System> Engine<S> {
     }
 
     /// Watch the sessions of the playback endpoints of FxSound's driver: the original FxSound
-    /// opens its capture of them as it starts, and that is how its start is seen at once.
+    /// opens its capture of them as it starts, and that is how its start is seen at once. Made
+    /// anew after every read of the endpoints: the audio service may have restarted under the
+    /// watches of before.
     fn watch_sessions(&mut self) {
         let ids: Vec<String> = self
             .endpoints
