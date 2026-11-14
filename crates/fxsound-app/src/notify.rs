@@ -52,20 +52,20 @@
 //! `_onNameVanished`, for any source whose application it knows — ours, through `desktop-entry`).
 //! `notify_rust::Notification::show()` opens a D-Bus connection per notification and closes it
 //! with the handle, which for a message with no link was at once, so GNOME removed the notice
-//! about 7 ms after showing it. [`DesktopSink`] sends every notification over one connection
-//! that stays open while FxSound runs, so a notice stays in the message list until it is
-//! dismissed or FxSound quits.
+//! about 7 ms after showing it. `DesktopSink` sends every notification over one connection that
+//! stays open while FxSound runs, so a notice stays in the message list until it is dismissed or
+//! FxSound quits.
 //!
 //! # Threading
 //!
 //! Connecting and sending are blocking D-Bus round trips, so they must never happen on the egui
 //! thread. [`Notifier`] owns a worker thread and the GUI only ever hands it a [`Message`].
 //!
-//! zbus 6 has no blocking API. [`DesktopSink`] runs its connection on a current-thread tokio
-//! runtime of its own and blocks the worker on each round trip with `Runtime::block_on`; the
-//! thread that follows a clicked notification's link drives the same runtime while it waits, so a
-//! click is taken in between two messages too. The runtime is none of the D-Bus service's
-//! ([`crate::dbus`]), the suspend watcher's ([`crate::sleep`]) or ksni's ([`crate::tray`]).
+//! zbus 6 has no blocking API. `DesktopSink` runs its connection on a current-thread tokio runtime
+//! of its own and blocks the worker on each round trip with `Runtime::block_on`; the thread that
+//! follows a clicked notification's link drives the same runtime while it waits, so a click is
+//! taken in between two messages too. The runtime is none of the D-Bus service's (`crate::dbus`),
+//! the suspend watcher's ([`crate::sleep`]) or ksni's ([`crate::tray`]).
 //!
 //! Every one of those waits is bounded. Neither zbus nor dbus-daemon times a call out unless told
 //! to, and a daemon that takes `Notify` and does not answer — stopped, or hung — kept the worker
@@ -377,8 +377,9 @@ pub fn build(message: &Message, replaces: Option<u32>) -> Notification {
     notification.finalize()
 }
 
-/// Where a built message goes. The real one is [`DesktopSink`]; tests substitute their own so that
-/// nothing is sent to a live daemon.
+/// Where a built message goes: on Linux `DesktopSink`, to the notification daemon on the session
+/// bus, and on Windows a toast (`crate::win::toast`). Tests substitute their own, so that nothing
+/// reaches the desktop.
 pub trait Sink: Send + 'static {
     /// Deliver `message`, replacing the notification with id `replaces` if the server still has
     /// it. Returns the id to replace next time, or `None` if delivery failed.
@@ -736,10 +737,11 @@ async fn next_signal(stream: &mut zbus::MessageStream) -> Option<zbus::Result<zb
 }
 
 /// How long dropping the [`Notifier`] waits for the worker to deliver what is still queued. Past
-/// it the worker is left to end on its own, which its own bounds see to ([`CONNECT_TIMEOUT`],
-/// [`NOTIFY_TIMEOUT`]) unless the instance's exit comes first and closes its connection. Waiting
-/// for it with no bound kept a quitting FxSound for as long as the daemon did not answer, and with
-/// it the instance lock, which turns every new `fxsound` away as "shutting down" meanwhile.
+/// it the worker is left to end on its own, which its own bounds see to (on Linux
+/// `CONNECT_TIMEOUT` and `NOTIFY_TIMEOUT`) unless the instance's exit comes first and closes its
+/// connection. Waiting for it with no bound kept a quitting FxSound for as long as the daemon did
+/// not answer, and with it the instance lock, which turns every new `fxsound` away as "shutting
+/// down" meanwhile.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// The GUI thread's end of the notification path.

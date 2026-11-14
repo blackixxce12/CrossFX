@@ -23,7 +23,7 @@
 //! reached before it writes a byte, and connects at identification level, so that a pipe someone
 //! else created first cannot act as the caller either. It checks two things: the owner, against
 //! its own SID, which keeps out a pipe another account made; and the integrity label, which must
-//! be medium or above, as FxSound's own is ([`super::user::integrity_of`]). An owner is only a name
+//! be medium or above, as FxSound's own is (`user::integrity_of`). An owner is only a name
 //! its creator gave, and a process of this same user at low integrity — a browser's renderer, a
 //! document viewer's sandbox — may give the user's: without the label it would be handed every
 //! command line forwarded to it, with the directory it was typed in, and answer `--status` with

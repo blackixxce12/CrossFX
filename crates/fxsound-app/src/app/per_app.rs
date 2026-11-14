@@ -632,7 +632,7 @@ impl App {
     /// named `Firefox` — is then reached through its streams, as a running FxSound reaches it,
     /// rather than given a rule that guesses at its identifiers ([`unseen_key`]).
     ///
-    /// The wait ends with the engine's first report of the streams, or [`STREAMS_PATIENCE`] after
+    /// The wait ends with the engine's first report of the streams, or `STREAMS_PATIENCE` after
     /// this call, since nothing is reported while nothing plays, or on the way out; what was held
     /// is chosen then, and the log says what became of it. Nothing is held without an engine,
     /// which reports nothing.

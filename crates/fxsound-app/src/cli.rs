@@ -34,7 +34,7 @@
 //!    the language — does it silently, and a line of nothing else that starts FxSound starts it in
 //!    the tray ([`Cli::only_sets_things`]); `--show`, `--view` and a line with no options at all
 //!    raise the window, `--toggle-window` toggles it and `--hide` hides it
-//!    ([`Cli::window_command`]). At a start `--view` sets the layout and the window follows the
+//!    (`Cli::window_command`). At a start `--view` sets the layout and the window follows the
 //!    remembered tray state, unless `--show` is given too ([`Cli::cold_start_commands`]). At «Как
 //!    в Windows» = Interface and above a line with an option the Windows build has raises the
 //!    window again, as there ([`Cli::raises_like_windows`]); the keybind options and D-Bus never
@@ -1080,7 +1080,7 @@ impl Cli {
 
     /// `true` for a line that sets something and says nothing about the window: no `--show`,
     /// `--view`, `--hide`, `--toggle-window` or `--run_minimized`, no question, and not a bare
-    /// `fxsound` ([`Cli::window_command`] is `None` for it). A running instance leaves its window
+    /// `fxsound` (`Cli::window_command` is `None` for it). A running instance leaves its window
     /// alone for such a line (0.4.0 audit R11), and a cold start from one starts in the tray
     /// rather than putting a window over the game whose keybinding ran it (review FA).
     #[must_use]

@@ -80,6 +80,15 @@ jobs:
       - name: Lints
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # The application's documentation, rustdoc's warnings denied. Neither clippy nor the tests
+      # read the links, and one to a private item, or to an item only Windows has, is broken in the
+      # pages `cargo doc` makes (crates/fxsound-app/src/lib.rs). The other crates join once their
+      # links are clean.
+      - name: Documentation
+        run: cargo doc -p fxsound-app --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
       # The runner has an XDG_RUNTIME_DIR but no session bus and no session PipeWire in it, and
       # nothing in the suite may reach for any of them: a test that needs the user's session is a
       # test that would take a developer's default device away mid-run. The graph-churn tests in
@@ -250,6 +259,13 @@ jobs:
 
       - name: Lints
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      # As in the check job, for the pages of the Windows build, which has items of its own and
+      # lacks Linux's: a link to one of those is broken here.
+      - name: Documentation
+        run: cargo doc -p fxsound-app --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
 
       - name: Tests
         run: cargo test -p fxsound-core -p fxsound-dsp -p fxsound-rnnoise -p fxsound-preset

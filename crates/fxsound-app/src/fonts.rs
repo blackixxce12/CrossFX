@@ -120,7 +120,7 @@ pub fn act(action: &FontAction, settings: &mut Settings, state: &mut SettingsSta
 }
 
 /// Bring the pane up to date: what was found, and what the last action came to. Nothing here
-/// waits for a disk; the threads that read one have left what they found in [`PANE`].
+/// waits for a disk; the threads that read one have left what they found in `PANE`.
 pub fn refresh(state: &mut SettingsState) {
     {
         let pane = pane();

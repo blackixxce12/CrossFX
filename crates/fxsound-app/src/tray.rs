@@ -57,16 +57,17 @@
 //! A package installs the three icons under `hicolor/scalable/status/`, and a panel looks them up
 //! by [`TrayIcon::name`]. A binary run from a build directory, or a panel that reads only
 //! `IconPixmap`, gets nothing that way, so the same SVGs are compiled in and rasterised once at
-//! start-up ([`TrayPixmaps::rasterised`]); the item offers both, and the host uses what it can.
+//! start-up (`TrayPixmaps::rasterised`); the item offers both, and the host uses what it can.
 //!
 //! # Threading
 //!
 //! `ksni` runs the item on its own D-Bus task and every menu callback fires there, so a callback
 //! must never block — `showContextMenu`'s `settings_dialog.runModalLoop()` (`:261-265`) has no
 //! equivalent and must not grow one. Callbacks here only *send* a [`TrayCommand`], through a
-//! [`WakingSender`] that wakes the GUI thread for it (0.4.0 design §12); the tray holds a mirror
-//! of the model and the application pushes changes back through [`TrayHandle::update`], which is
-//! exactly where the C++ calls `setStatus` (`FxController.cpp:785`, `:1016`, `:2075`, `:2773`).
+//! [`crate::wake::WakingSender`] that wakes the GUI thread for it (0.4.0 design §12); the tray
+//! holds a mirror of the model and the application pushes changes back through
+//! [`TrayHandle::update`], which is exactly where the C++ calls `setStatus`
+//! (`FxController.cpp:785`, `:1016`, `:2075`, `:2773`).
 //!
 //! # On Windows
 //!
@@ -104,7 +105,9 @@ pub const ICON_ON: &str = "com.fxsound.FxSound-on";
 /// Tray icon for "on and audio is flowing" — the Windows `IDI_LOGO_BLUE`/`IDI_LOGO_RED`, `#23b6eb`.
 pub const ICON_PROCESSING: &str = "com.fxsound.FxSound-processing";
 
-/// The three icons as the packages install them, compiled in for [`TrayPixmaps::rasterised`].
+/// The three icons as the packages install them, compiled in to be drawn where no icon theme has
+/// them: the Linux tray's pixmaps (`TrayPixmaps::rasterised`), the Windows notification area and
+/// its toasts.
 const SVG_OFF: &[u8] = include_bytes!("../../../assets/icons/status/com.fxsound.FxSound-off.svg");
 const SVG_ON: &[u8] = include_bytes!("../../../assets/icons/status/com.fxsound.FxSound-on.svg");
 const SVG_PROCESSING: &[u8] =
@@ -139,7 +142,7 @@ pub enum TrayIcon {
 }
 
 impl TrayIcon {
-    /// Every icon, in the order of [`TrayPixmaps`]' fields.
+    /// Every icon, in the order of the fields of the Linux tray's pixmaps (`TrayPixmaps`).
     pub const ALL: [Self; 3] = [Self::Off, Self::On, Self::Processing];
 
     /// The state machine of `FxSystemTrayView::setStatus` (`:90-111`), with the theme split
@@ -236,13 +239,15 @@ pub fn rasterise(svg: &[u8], size: u32) -> Option<Icon> {
     })
 }
 
-/// [`rasterise`]'s drawing, as straight-alpha RGBA: what the Windows notification area takes.
+/// `svg` drawn into a `size` × `size` square, centred and scaled to fit without distortion — the
+/// drawing of the Linux tray's pixmaps (`rasterise`) — as straight-alpha RGBA: what the Windows
+/// notification area takes. `None` when the SVG cannot be read.
 #[must_use]
 pub fn rasterise_rgba(svg: &[u8], size: u32) -> Option<Vec<u8>> {
     Some(render(svg, size)?.take_demultiplied())
 }
 
-/// [`rasterise`]'s drawing as a PNG file's bytes: the icon a Windows toast is shown with.
+/// [`rasterise_rgba`]'s drawing as a PNG file's bytes: the icon a Windows toast is shown with.
 #[cfg(windows)]
 #[must_use]
 pub fn rasterise_png(svg: &[u8], size: u32) -> Option<Vec<u8>> {

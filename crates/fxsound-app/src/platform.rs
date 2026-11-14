@@ -1,5 +1,6 @@
 //! What FxSound asks of the desktop that each system answers in its own way: a link opened in the
-//! browser, a folder shown in the file manager, a start at log-in.
+//! browser, a folder shown in the file manager, a start at log-in, the desktop's language, the
+//! terminal FxSound was started from.
 //!
 //! One function for each, the same on both systems, so that the window, the notifications and the
 //! settings pane never ask which system they run on, and never spawn an opener of their own: on
