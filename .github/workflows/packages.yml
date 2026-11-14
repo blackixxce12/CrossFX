@@ -59,6 +59,15 @@ env:
   # user, who owns the workspace, can write to it. rustup-init puts its proxies under $CARGO_HOME/bin
   # when the variable is set, which is why that directory is what goes on PATH below.
   CARGO_HOME: ${{ github.workspace }}/.cargo-home
+  # 'true' for a tag's run: a release, which release.yml starts with the tag as `ref` (v1.0.0), or
+  # a tag pushed or picked in the Run workflow dialog (refs/tags/v1.0.0) — the test the
+  # concurrency block above makes. Such a run restores no cache (the two actions/cache steps): an
+  # entry a tag's run can see was saved by some other run in the default branch's scope, found by
+  # its key's prefix or even under the exact key, which whoever saves first owns, and that run
+  # may have built a ref nobody reviewed (a dispatch with `ref`). Cargo trusts the registry
+  # sources and the build output it finds there without checking them again, so what a release
+  # publishes would be built partly from it. Slower, and only for a tag.
+  TAG_BUILD: ${{ startsWith(inputs.ref || github.ref, 'refs/tags/') || startsWith(inputs.ref || github.ref, 'v') }}
 
 jobs:
   package:
@@ -176,8 +185,9 @@ jobs:
           ref: ${{ inputs.ref }}
 
       # After the dependencies (the cache needs zstd and tar in the container) and before the
-      # Arch chown (the restore creates root-owned files).
+      # Arch chown (the restore creates root-owned files). Not for a tag (TAG_BUILD above).
       - uses: actions/cache@v6.1.0
+        if: env.TAG_BUILD != 'true'
         with:
           path: ${{ matrix.cache }}
           key: packages-${{ matrix.leg }}-${{ hashFiles('Cargo.lock') }}-1.100.0
@@ -488,7 +498,9 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      # Not for a tag (TAG_BUILD above).
       - uses: actions/cache@v6.1.0
+        if: env.TAG_BUILD != 'true'
         with:
           path: |
             .cargo-home/registry
