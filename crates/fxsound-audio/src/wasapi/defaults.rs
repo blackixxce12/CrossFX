@@ -80,6 +80,11 @@ impl Defaults {
         self.0[role.index()] = id;
     }
 
+    /// Make `role`'s default `id`, and say what it was.
+    pub(crate) fn replace(&mut self, role: Role, id: Option<String>) -> Option<String> {
+        std::mem::replace(&mut self.0[role.index()], id)
+    }
+
     /// The default the device list marks and the settings remember: `eMultimedia`'s, the role the
     /// original read the default from (`sndDevices_GetAll.cpp:126-133`), then `eConsole`'s.
     pub(crate) fn main(&self) -> Option<&str> {
@@ -127,6 +132,14 @@ impl Claim {
     /// Whether the user has taken `role` from the claim.
     pub(crate) const fn has_yielded(&self, role: Role) -> bool {
         self.yielded[role.index()]
+    }
+
+    /// The user has picked, for `role`, a device the lane follows: the role is the claim's again,
+    /// to be taken back with the move, whatever the user did with it before. A yield is the
+    /// user's word on where a role goes while the lane does not follow it; a pick the lane follows
+    /// is a later word.
+    pub(crate) const fn take_back(&mut self, role: Role) {
+        self.yielded[role.index()] = false;
     }
 }
 

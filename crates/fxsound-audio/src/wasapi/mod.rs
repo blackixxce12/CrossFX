@@ -71,7 +71,12 @@
 //! engine does (`docs/spec/12-audio-io.md` §21, 4a). A role moved that the lane does not follow —
 //! calls sent to a headset, or any pick while a ranking decides the lane's device — is left with
 //! the user until the claim ends. FxSound's own writes are told apart from the user's by their
-//! echoes ([`defaults::Echoes`]), and the original FxSound's, while it runs, are its own.
+//! echoes ([`defaults::Echoes`]), and the original FxSound's, while it runs, are its own. Every
+//! other change is decided against the endpoints as read after it ([`Engine::decide_default`]): a
+//! device plugged in and made the default arrives in one burst of notifications, and decided
+//! against the list from before it, the user's pick of it would read as a pick of nothing the lane
+//! can follow. A change off an endpoint that has gone — unplugged, disabled — is Windows' own
+//! fallback and no pick: the device the user saved stays theirs.
 //!
 //! # The original FxSound
 //!
@@ -170,6 +175,24 @@ const WAKE_MUTE: Duration = Duration::from_secs(2);
 
 /// How long a sleep the app never ended is believed: the Linux engine's `SLEEP_LIMIT`.
 const SLEEP_LIMIT: Duration = Duration::from_secs(60);
+
+/// How long a default that moved to an endpoint the engine cannot list yet waits to be decided on
+/// ([`Engine::decide_default`]): a device that has just arrived may not have its property store
+/// readable for a moment, and the endpoints are read again every [`SUPERVISOR_PERIOD`] meanwhile.
+const PICK_WAIT: Duration = Duration::from_secs(2);
+
+/// A change of a default heard from Windows and not decided on yet: the desktop's pick, Windows'
+/// own fallback, or a role moved that the lane does not follow ([`Engine::default_changed`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingDefault {
+    /// Where the role went; `None` for no default at all.
+    id: Option<String>,
+    /// Where it was before, as Windows last reported it — not as the engine last read it, which a
+    /// read made between the endpoint going and the report arriving would already show moved.
+    before: Option<String>,
+    /// When it was heard.
+    since: Instant,
+}
 
 /// The GUI's end of the control channel.
 ///
@@ -327,7 +350,7 @@ fn run(config: Config) {
             },
             recv(events) -> event => {
                 if let Ok(event) = event {
-                    engine.event(event);
+                    engine.event(event, Instant::now());
                 }
             },
             default(timeout) => {},
@@ -337,7 +360,7 @@ fn run(config: Config) {
         }
         // A burst of endpoint changes is one: everything waiting is taken before acting on it.
         while let Ok(event) = events.try_recv() {
-            engine.event(event);
+            engine.event(event, Instant::now());
         }
         let now = Instant::now();
         engine.settle(now);
@@ -766,6 +789,12 @@ pub(crate) struct Engine<S: System> {
     /// A runtime handle per endpoint ID, for [`AudioDevice::id`]: stable for the run.
     ids: HashMap<String, u32>,
     defaults: PerDirection<Defaults>,
+    /// The defaults as Windows last reported them (`IMMNotificationClient::OnDefaultDeviceChanged`),
+    /// from the first read on: what a role was before a change, for telling a pick from a
+    /// fallback ([`PendingDefault::before`]). `None` until the first read.
+    reported: Option<PerDirection<Defaults>>,
+    /// Changes of a default not decided on yet, each role's last ([`Self::decide_defaults`]).
+    pending: PerDirection<Vec<(Role, PendingDefault)>>,
     echoes: PerDirection<Echoes>,
     lanes: PerDirection<Lane>,
     memory: PerDirection<SelectionMemory>,
@@ -830,6 +859,8 @@ impl<S: System> Engine<S> {
             endpoints: Vec::new(),
             ids: HashMap::new(),
             defaults: PerDirection::default(),
+            reported: None,
+            pending: PerDirection::default(),
             echoes: PerDirection::default(),
             lanes: PerDirection {
                 output: Lane::new(options.output_enabled, options.want_default, output),
@@ -933,11 +964,11 @@ impl<S: System> Engine<S> {
 
     // ---- reading the system ------------------------------------------------------------------
 
-    /// Read the endpoints and the defaults again, and tell the GUI what changed. A read that fails
-    /// — the audio service gone — is tried again with the backoff ([`Self::tick`]), whether or not
-    /// anything else asks for it: with no stream running nothing else would, and the engine would
-    /// sit on the list from before the service went.
-    fn refresh_endpoints(&mut self, now: Instant) {
+    /// Read the endpoints and the defaults again, and tell the GUI what changed; whether they
+    /// could be read. A read that fails — the audio service gone — is tried again with the backoff
+    /// ([`Self::tick`]), whether or not anything else asks for it: with no stream running nothing
+    /// else would, and the engine would sit on the list from before the service went.
+    fn refresh_endpoints(&mut self, now: Instant) -> bool {
         match self.system.endpoints() {
             Ok(endpoints) => {
                 self.endpoints = endpoints;
@@ -948,18 +979,24 @@ impl<S: System> Engine<S> {
                 let attempts = self.endpoint_retry.map_or(0, |(attempts, _)| attempts);
                 self.endpoint_retry = Some((attempts.saturating_add(1), now + backoff(attempts)));
                 self.report_connection_error(error);
-                return;
+                return false;
             }
         }
         for direction in DeviceDirection::ALL {
             let defaults = self.system.defaults(direction);
             *self.defaults.get_mut(direction) = defaults;
         }
+        // Windows' reports take over from the first read: what each role was before a change is
+        // what the last report said, never a read made after the change (`PendingDefault`).
+        if self.reported.is_none() {
+            self.reported = Some(self.defaults.clone());
+        }
         for endpoint in &self.endpoints {
             let next = u32::try_from(self.ids.len()).unwrap_or(u32::MAX);
             self.ids.entry(endpoint.id.clone()).or_insert(next);
         }
         self.list_dirty = true;
+        true
     }
 
     /// The device list as the GUI wants it: every output by name, then every input by name —
@@ -1433,14 +1470,14 @@ impl<S: System> Engine<S> {
 
     // ---- events ------------------------------------------------------------------------------
 
-    pub(crate) fn event(&mut self, event: Event) {
+    pub(crate) fn event(&mut self, event: Event, now: Instant) {
         match event {
             Event::Devices => self.devices_dirty = true,
             Event::DefaultChanged {
                 direction,
                 role,
                 id,
-            } => self.default_changed(direction, role, id),
+            } => self.default_changed(direction, role, id, now),
             Event::Volume(direction) => self.follow_volume(direction),
             Event::StreamEnded {
                 direction,
@@ -1453,7 +1490,7 @@ impl<S: System> Engine<S> {
                     .as_ref()
                     .is_some_and(|stream| stream.plan().generation == generation);
                 if ended {
-                    self.stream_ended(direction, Instant::now());
+                    self.stream_ended(direction, now);
                 } else {
                     // An older stream's: perhaps a thread left behind, ending at last.
                     self.collect_left_behind(direction);
@@ -1462,9 +1499,28 @@ impl<S: System> Engine<S> {
         }
     }
 
-    /// A default changed: FxSound's own write coming back, the original FxSound's, or the user
-    /// picking a device (module docs, "The default devices").
-    fn default_changed(&mut self, direction: DeviceDirection, role: Role, id: Option<String>) {
+    /// A default changed: FxSound's own write coming back, the original FxSound's, Windows' own
+    /// fallback, or the user picking a device (module docs, "The default devices").
+    ///
+    /// Only FxSound's echoes and the original's moves are told apart here. Everything else is
+    /// decided once the endpoints have been read again ([`Self::decide_defaults`]): the
+    /// notifications arrive in bursts, a device plugged in is a dozen state changes and then its
+    /// default, and the list the engine last read may not have the device the default went to —
+    /// the user's pick of it would be taken for a pick of something the lane cannot follow, and
+    /// the role left with the user for as long as the claim stood. Nor can a fallback be told from
+    /// a pick but by whether the endpoint the role was on is still there.
+    fn default_changed(
+        &mut self,
+        direction: DeviceDirection,
+        role: Role,
+        id: Option<String>,
+        now: Instant,
+    ) {
+        let before = self
+            .reported
+            .get_or_insert_with(|| self.defaults.clone())
+            .get_mut(direction)
+            .replace(role, id.clone());
         self.defaults.get_mut(direction).set(role, id.clone());
         self.list_dirty = true;
         if self.echoes.get_mut(direction).heard(role, id.as_deref()) {
@@ -1475,15 +1531,96 @@ impl<S: System> Engine<S> {
         if direction == DeviceDirection::Output && self.original.is_some() {
             return;
         }
-        let followed = role.is_pick() && self.follow_desktop_pick(direction, id.as_deref());
-        let lane = self.lanes.get_mut(direction);
-        let Some(claim) = lane.claim.as_mut() else {
-            return;
+        let pending = self.pending.get_mut(direction);
+        // A role moved twice before the decision was moved from where it was before the first.
+        let before = match pending.iter().position(|(pending, _)| *pending == role) {
+            Some(at) => pending.remove(at).1.before,
+            None => before,
         };
-        if id.as_deref() == Some(claim.endpoint.as_str()) {
-            return;
+        pending.push((
+            role,
+            PendingDefault {
+                id,
+                before,
+                since: now,
+            },
+        ));
+        self.devices_dirty = true;
+    }
+
+    /// Decide on every change of a default heard since the endpoints were read last — called right
+    /// after a read ([`Self::settle`]). One to an endpoint the list does not have yet waits for it
+    /// ([`PICK_WAIT`]).
+    fn decide_defaults(&mut self, now: Instant) {
+        for direction in DeviceDirection::ALL {
+            let heard = std::mem::take(self.pending.get_mut(direction));
+            for (role, change) in heard {
+                if let Some(waiting) = self.decide_default(direction, role, change, now) {
+                    self.pending.get_mut(direction).push((role, waiting));
+                }
+            }
+        }
+    }
+
+    /// Decide on one change of a default against the endpoints as just read: the change back when
+    /// it is to wait for its endpoint to be listed.
+    ///
+    /// * The role has moved on since, or has no default: nothing to decide — a later report says
+    ///   where it went.
+    /// * The endpoint the role was on is gone: Windows' fallback (the device unplugged, disabled,
+    ///   its driver reinstalled), not a pick. The saved device stays as it is, as for any device
+    ///   the lane loses ([`AudioToUi::DesktopPick`] is never sent for it), and the lane's rules run
+    ///   on the new default as on any change of the devices. A fallback onto a virtual device that
+    ///   nothing plays — the power off, the default left behind on FxSound's driver — has the
+    ///   default given back at once ([`Self::repair_defaults`]): nothing would be heard.
+    /// * Otherwise it is the desktop's pick: a playback role the lane follows moves the lane and is
+    ///   taken back ([`Self::follow_desktop_pick`]); any other role moved off the lane's endpoint is
+    ///   the user's for as long as the claim stands ([`Claim::yield_role`]).
+    fn decide_default(
+        &mut self,
+        direction: DeviceDirection,
+        role: Role,
+        change: PendingDefault,
+        now: Instant,
+    ) -> Option<PendingDefault> {
+        if self.defaults.get(direction).get(role) != change.id.as_deref() {
+            return None;
+        }
+        let id = change.id.clone()?;
+        let listed = |id: &str| self.endpoints.iter().any(|endpoint| endpoint.id == id);
+        if !listed(&id) {
+            if now.saturating_duration_since(change.since) < PICK_WAIT {
+                return Some(change);
+            }
+            log::info!(
+                "{} lane: the {role:?} default went to {id}, which never became readable; left \
+                 alone",
+                direction.key()
+            );
+            return None;
+        }
+        if !change.before.as_deref().is_some_and(listed) {
+            log::info!(
+                "{} lane: Windows moved the {role:?} default to {id}, the device it was on having \
+                 gone; no pick of the user's",
+                direction.key()
+            );
+            let current = self.defaults.get(direction).clone();
+            if self.lanes.get(direction).claim.is_none()
+                && self.left_behind(direction, &current).is_some()
+            {
+                self.repair_due = Some(now);
+            }
+            return None;
+        }
+        let followed = role.is_pick() && self.follow_desktop_pick(direction, Some(&id));
+        let lane = self.lanes.get_mut(direction);
+        let claim = lane.claim.as_mut()?;
+        if id == claim.endpoint {
+            return None;
         }
         if followed {
+            claim.take_back(role);
             lane.reclaim = true;
         } else {
             // Calls sent to a headset, or a device picked while a ranking decides the lane's: the
@@ -1494,6 +1631,7 @@ impl<S: System> Engine<S> {
             );
             claim.yield_role(role);
         }
+        None
     }
 
     /// The desktop picked `picked` as the default device of `direction`: whether the lane takes it
@@ -1621,7 +1759,10 @@ impl<S: System> Engine<S> {
     pub(crate) fn settle(&mut self, now: Instant) {
         if self.devices_dirty {
             self.devices_dirty = false;
-            self.refresh_endpoints(now);
+            if self.refresh_endpoints(now) {
+                // Against the endpoints as they are now, never as they were before a burst.
+                self.decide_defaults(now);
+            }
             self.mark_enabled_lanes();
         }
         if self.list_dirty {
@@ -1646,6 +1787,12 @@ impl<S: System> Engine<S> {
             self.check_original(now);
         }
         if self.endpoint_retry.is_some_and(|(_, due)| now >= due) {
+            self.devices_dirty = true;
+        }
+        // A default that went to an endpoint not listed yet: read again until it is, or its wait
+        // is up (`decide_default`).
+        if self.endpoint_retry.is_none() && self.pending.iter().any(|(_, heard)| !heard.is_empty())
+        {
             self.devices_dirty = true;
         }
         if let Some(since) = self.asleep_since
@@ -2151,6 +2298,11 @@ impl<S: System> Engine<S> {
                 self.defaults
                     .get_mut(direction)
                     .set(role, Some(id.to_owned()));
+                // What Windows is about to report, known now: a change heard before its echo is
+                // a change from here.
+                if let Some(reported) = self.reported.as_mut() {
+                    reported.get_mut(direction).set(role, Some(id.to_owned()));
+                }
                 self.list_dirty = true;
             }
             Err(error) => {

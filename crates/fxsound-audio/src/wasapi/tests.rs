@@ -314,7 +314,16 @@ impl Harness {
     }
 
     fn event(&mut self, event: Event) {
-        self.engine.event(event);
+        self.engine.event(event, self.now);
+        self.engine.settle(self.now);
+    }
+
+    /// Several notifications taken in one drain of the channel, as the control thread takes a burst
+    /// of them, and only then the settle.
+    fn burst(&mut self, events: impl IntoIterator<Item = Event>) {
+        for event in events {
+            self.engine.event(event, self.now);
+        }
         self.engine.settle(self.now);
     }
 
@@ -976,6 +985,213 @@ fn headset_microphone() -> Endpoint {
             "3- fifine Microphone",
         )
     }
+}
+
+/// A USB headset's headphones, plugged in during a test.
+fn usb_headset() -> Endpoint {
+    Endpoint {
+        enumerator: "USB".to_owned(),
+        form_factor: Some(3),
+        ..endpoint(
+            "{0.0.0.00000000}.{usb-headset}",
+            OUT,
+            "Наушники (USB Headset)",
+            "Наушники",
+            "USB Headset",
+        )
+    }
+}
+
+/// Windows making `id` the default for the playback roles the output lane holds.
+fn playback_default_changed(id: &str) -> impl Iterator<Item = Event> + '_ {
+    Role::claimed_by(OUT)
+        .iter()
+        .map(move |&role| Event::DefaultChanged {
+            direction: OUT,
+            role,
+            id: Some(id.to_owned()),
+        })
+}
+
+/// What the engine did and said when `usb_headset()` was plugged in and Windows made it the
+/// default: the notifications in one burst, or the device's apart from its default's.
+fn plug_in_the_headset(one_burst: bool) -> (Vec<Did>, Vec<AudioToUi>, Defaults) {
+    let mut h = harness();
+    h.start();
+    h.forget();
+    h.fake().endpoints.push(usb_headset());
+    for &role in Role::claimed_by(OUT) {
+        h.fake().defaults.output.set(role, Some(usb_headset().id));
+    }
+    let headset = usb_headset().id;
+    if one_burst {
+        h.burst(std::iter::once(Event::Devices).chain(playback_default_changed(&headset)));
+    } else {
+        h.event(Event::Devices);
+        h.burst(playback_default_changed(&headset));
+    }
+    h.tick(SUPERVISOR_PERIOD);
+    (h.did(), h.messages(), h.defaults(OUT))
+}
+
+#[test]
+fn a_device_plugged_in_and_made_the_default_in_one_burst_is_followed_as_when_the_two_come_apart() {
+    let (apart, _, apart_defaults) = plug_in_the_headset(false);
+    let (burst, messages, defaults) = plug_in_the_headset(true);
+    assert_eq!(burst, apart, "the same physical event, the same outcome");
+    assert_eq!(defaults, apart_defaults);
+    assert!(
+        burst.contains(&Did::Started(OUT, fxsound().id, usb_headset().id)),
+        "{burst:?}"
+    );
+    assert!(messages.contains(&AudioToUi::DesktopPick {
+        direction: OUT,
+        node_name: usb_headset().id,
+    }));
+    assert_eq!(
+        defaults,
+        playback_on(&fxsound().id, &speakers().id),
+        "the playback roles are FxSound's again: the headset is heard through it"
+    );
+}
+
+#[test]
+fn a_default_on_an_endpoint_not_readable_yet_waits_for_it_and_is_never_left_with_the_user() {
+    let mut h = harness();
+    h.start();
+    h.forget();
+    // Windows makes the headset the default before its property store can be read: the list
+    // the engine reads does not have it yet.
+    for &role in Role::claimed_by(OUT) {
+        h.fake().defaults.output.set(role, Some(usb_headset().id));
+    }
+    let headset = usb_headset().id;
+    h.burst(playback_default_changed(&headset));
+    assert_eq!(h.did(), [], "neither followed nor taken back");
+    let claim = h
+        .engine
+        .lanes
+        .output
+        .claim
+        .as_ref()
+        .expect("the claim stands");
+    assert!(!claim.has_yielded(Role::Console) && !claim.has_yielded(Role::Multimedia));
+    // A moment later it can be read: the next read finds it, and the pick is followed.
+    h.fake().endpoints.push(usb_headset());
+    h.tick(SUPERVISOR_PERIOD);
+    assert!(h.messages().contains(&AudioToUi::DesktopPick {
+        direction: OUT,
+        node_name: usb_headset().id,
+    }));
+    assert_eq!(h.defaults(OUT), playback_on(&fxsound().id, &speakers().id));
+
+    // One that never becomes readable is let go of once its wait is up: never yielded, and the
+    // endpoints are no longer read on every tick for it.
+    let mut h = harness();
+    h.start();
+    let ghost = "{0.0.0.00000000}.{never-readable}";
+    for &role in Role::claimed_by(OUT) {
+        h.fake().defaults.output.set(role, Some(ghost.to_owned()));
+    }
+    h.burst(playback_default_changed(ghost));
+    for _ in 0..=(PICK_WAIT.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert!(h.engine.pending.output.is_empty());
+    let claim = h
+        .engine
+        .lanes
+        .output
+        .claim
+        .as_ref()
+        .expect("the claim stands");
+    assert!(!claim.has_yielded(Role::Console) && !claim.has_yielded(Role::Multimedia));
+}
+
+#[test]
+fn windows_moving_a_default_off_a_device_that_went_is_no_pick_and_the_saved_device_stays() {
+    let mut h = harness_with(
+        vec![speakers(), headphones(), fxsound(), microphone()],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    // The user listens on the headphones, picked in FxSound.
+    h.send(UiToAudio::SelectDevice {
+        node_name: headphones().id,
+        direction: OUT,
+    });
+    h.forget();
+    // "FxSound Speakers" is disabled, and Windows moves the playback roles to the speakers.
+    h.fake()
+        .endpoints
+        .retain(|endpoint| endpoint.id != fxsound().id);
+    for &role in Role::claimed_by(OUT) {
+        h.fake().defaults.output.set(role, Some(speakers().id));
+    }
+    let to = speakers().id;
+    h.burst(std::iter::once(Event::Devices).chain(playback_default_changed(&to)));
+    assert!(
+        !h.messages()
+            .iter()
+            .any(|message| matches!(message, AudioToUi::DesktopPick { .. })),
+        "Windows' fallback is not the user's pick"
+    );
+    assert_eq!(h.engine.memory.output.user_selected, headphones().id);
+    // It comes back: the lane plays where the user picked, not where Windows fell back to.
+    h.fake().endpoints.push(fxsound());
+    h.forget();
+    h.event(Event::Devices);
+    assert_eq!(
+        h.did().first(),
+        Some(&Did::Started(OUT, fxsound().id, headphones().id)),
+        "{:?}",
+        h.did()
+    );
+}
+
+#[test]
+fn a_fallback_onto_fxsound_s_driver_with_the_power_off_is_given_back_rather_than_left_silent() {
+    // The power is off: the lane plays nothing, the default is on the headphones.
+    let mut h = harness_with(
+        vec![speakers(), headphones(), fxsound(), microphone()],
+        all_roles(&headphones().id),
+        all_roles(&microphone().id),
+        &StartOptions {
+            want_default: false,
+            ..StartOptions::default()
+        },
+    );
+    h.start();
+    h.forget();
+    // They are unplugged, and Windows falls back to the endpoint last made the default before
+    // them: FxSound's driver, which nothing captures now.
+    h.fake()
+        .endpoints
+        .retain(|endpoint| endpoint.id != headphones().id);
+    h.fake().defaults.output = all_roles(&fxsound().id);
+    let to = fxsound().id;
+    h.burst(
+        std::iter::once(Event::Devices).chain(Role::ALL.into_iter().map(|role| {
+            Event::DefaultChanged {
+                direction: OUT,
+                role,
+                id: Some(to.clone()),
+            }
+        })),
+    );
+    h.tick(SUPERVISOR_PERIOD);
+    assert_eq!(
+        h.defaults(OUT),
+        all_roles(&speakers().id),
+        "given back to a device that plays"
+    );
+    assert!(
+        !h.messages()
+            .iter()
+            .any(|message| matches!(message, AudioToUi::DesktopPick { .. }))
+    );
 }
 
 #[test]
