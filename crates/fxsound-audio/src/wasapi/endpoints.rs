@@ -18,7 +18,17 @@
 //! Windows may put `"2- "` in front of a second device of the same name, and so does
 //! [`Endpoint::virtual_kind`]. A cable is recognised by its adapter's name
 //! (`PKEY_DeviceInterface_FriendlyName`), which the cable's driver sets and Windows never
-//! translates, unlike the endpoints' own names ("Динамики", "Lautsprecher").
+//! translates, unlike the endpoints' own names ("Динамики", "Lautsprecher") — with the number
+//! Windows puts in front of a second instance taken off first, so that "2- VB-Audio Virtual
+//! Cable", a VB-Cable installed again beside the first, is a cable as much as the first is.
+//!
+//! A name proves nothing on a bus where the device names itself: a USB device's product string and
+//! a Bluetooth device's advertised name are whatever its maker — or whoever built it — wrote there.
+//! A gadget calling itself "FxSound Audio Enhancer" or "VB-Audio Virtual Cable" would otherwise be
+//! made the default for every application, captured, and hidden from the device list, its sound
+//! played on to the speakers so that nothing sounds wrong. No virtual device sits on such a bus —
+//! a driver with no hardware is enumerated by the system (`ROOT`, or a software device) — so an
+//! endpoint on one is never virtual, whatever it calls itself ([`Endpoint::on_hardware_bus`]).
 //!
 //! The output lane needs one playback endpoint: applications play into it, and the lane captures
 //! it with WASAPI loopback. The input lane needs a cable: it plays the processed microphone into
@@ -88,9 +98,28 @@ impl VirtualKind {
 /// The substrings that name FxSound's driver, in either of its names.
 const FXSOUND_DRIVERS: [&str; 2] = ["fxsound audio enhancer", "dfx audio enhancer"];
 
+/// The buses a physical device is on (`PKEY_Device_EnumeratorName`): USB, the HD Audio bus, PCI,
+/// Intel's audio DSP bus, ACPI and FireWire — and Bluetooth's, which [`Endpoint::is_bluetooth`]
+/// knows. No virtual device is enumerated on any of them (module docs, "The virtual devices").
+const HARDWARE_BUSES: [&str; 6] = ["USB", "HDAUDIO", "PCI", "INTELAUDIO", "ACPI", "1394"];
+
+/// `name` with the number Windows puts in front of a second device of the same name taken off:
+/// "2- vb-audio virtual cable" is "vb-audio virtual cable". A name that only starts with a digit
+/// is left as it is.
+fn without_instance_number(name: &str) -> &str {
+    let rest = name.trim_start_matches(|c: char| c.is_ascii_digit());
+    if rest.len() == name.len() {
+        return name;
+    }
+    rest.strip_prefix("- ").unwrap_or(name)
+}
+
 impl Endpoint {
     /// Which virtual device this endpoint is part of, if any (module docs, "The virtual devices").
     pub(crate) fn virtual_kind(&self) -> Option<VirtualKind> {
+        if self.on_hardware_bus() {
+            return None;
+        }
         let friendly = self.friendly_name.to_lowercase();
         let adapter = self.interface_name.to_lowercase();
         if FXSOUND_DRIVERS
@@ -109,7 +138,9 @@ impl Endpoint {
         } else {
             adapter
         };
-        let adapter = adapter.trim();
+        // Only here, where the name is matched: the adapter's name as Windows gives it, number
+        // and all, is what tells one instance's twin from another's (`capture_twin`).
+        let adapter = without_instance_number(adapter.trim());
         if adapter.starts_with("vb-audio virtual cable") {
             Some(VirtualKind::VbCable)
         } else if adapter.starts_with("vb-audio cable ")
@@ -128,6 +159,15 @@ impl Endpoint {
     pub(crate) fn is_bluetooth(&self) -> bool {
         let enumerator = self.enumerator.to_ascii_uppercase();
         enumerator.starts_with("BTH") || enumerator == "BLUETOOTHLEDEVICE"
+    }
+
+    /// Whether the endpoint is on a bus physical devices are on ([`HARDWARE_BUSES`], Bluetooth's),
+    /// where the names it carries may be the device's own say-so: never a virtual device's (module
+    /// docs, "The virtual devices"). An endpoint whose store names no bus is not taken to be on
+    /// one: a virtual device's may say nothing.
+    pub(crate) fn on_hardware_bus(&self) -> bool {
+        let bus = self.enumerator.trim().to_ascii_uppercase();
+        self.is_bluetooth() || HARDWARE_BUSES.contains(&bus.as_str())
     }
 
     /// How the GUI should picture the endpoint: the eleven `EndpointFormFactor`s are exactly the
@@ -382,6 +422,21 @@ pub(crate) mod tests {
         }
     }
 
+    /// An endpoint of a driver with no hardware, which the system enumerates (`ROOT`), as
+    /// FxSound's driver and the virtual cables are.
+    pub(crate) fn virtual_endpoint(
+        id: &str,
+        direction: DeviceDirection,
+        friendly: &str,
+        description: &str,
+        adapter: &str,
+    ) -> Endpoint {
+        Endpoint {
+            enumerator: "ROOT".to_owned(),
+            ..endpoint(id, direction, friendly, description, adapter)
+        }
+    }
+
     pub(crate) const OUT: DeviceDirection = DeviceDirection::Output;
     pub(crate) const IN: DeviceDirection = DeviceDirection::Input;
 
@@ -396,16 +451,13 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn fxsound() -> Endpoint {
-        Endpoint {
-            enumerator: "ROOT".to_owned(),
-            ..endpoint(
-                "{0.0.0.00000000}.{73ca9fe5}",
-                OUT,
-                "FxSound Speakers (FxSound Audio Enhancer)",
-                "FxSound Speakers",
-                "FxSound Audio Enhancer",
-            )
-        }
+        virtual_endpoint(
+            "{0.0.0.00000000}.{73ca9fe5}",
+            OUT,
+            "FxSound Speakers (FxSound Audio Enhancer)",
+            "FxSound Speakers",
+            "FxSound Audio Enhancer",
+        )
     }
 
     pub(crate) fn microphone() -> Endpoint {
@@ -420,14 +472,14 @@ pub(crate) mod tests {
 
     pub(crate) fn cable() -> [Endpoint; 2] {
         [
-            endpoint(
+            virtual_endpoint(
                 "{0.0.0.00000000}.{cable-in}",
                 OUT,
                 "CABLE Input (VB-Audio Virtual Cable)",
                 "CABLE Input",
                 "VB-Audio Virtual Cable",
             ),
-            endpoint(
+            virtual_endpoint(
                 "{0.0.1.00000000}.{cable-out}",
                 IN,
                 "CABLE Output (VB-Audio Virtual Cable)",
@@ -437,16 +489,36 @@ pub(crate) mod tests {
         ]
     }
 
+    /// A second VB-Cable, installed beside the first: Windows numbers its adapter.
+    pub(crate) fn cable_2() -> [Endpoint; 2] {
+        [
+            virtual_endpoint(
+                "{0.0.0.00000000}.{cable2-in}",
+                OUT,
+                "CABLE Input (2- VB-Audio Virtual Cable)",
+                "CABLE Input",
+                "2- VB-Audio Virtual Cable",
+            ),
+            virtual_endpoint(
+                "{0.0.1.00000000}.{cable2-out}",
+                IN,
+                "CABLE Output (2- VB-Audio Virtual Cable)",
+                "CABLE Output",
+                "2- VB-Audio Virtual Cable",
+            ),
+        ]
+    }
+
     pub(crate) fn cable_a() -> [Endpoint; 2] {
         [
-            endpoint(
+            virtual_endpoint(
                 "{0.0.0.00000000}.{cable-a-in}",
                 OUT,
                 "CABLE-A Input (VB-Audio Cable A)",
                 "CABLE-A Input",
                 "VB-Audio Cable A",
             ),
-            endpoint(
+            virtual_endpoint(
                 "{0.0.1.00000000}.{cable-a-out}",
                 IN,
                 "CABLE-A Output (VB-Audio Cable A)",
@@ -472,7 +544,7 @@ pub(crate) mod tests {
         };
         assert_eq!(legacy.virtual_kind(), Some(VirtualKind::FxSound));
         // Its recording endpoints are the driver's too, and so never a microphone to pick.
-        let aux = endpoint(
+        let aux = virtual_endpoint(
             "{0.0.1.00000000}.{dc173c80}",
             IN,
             "Внутренний разъем  AUX (FxSound Audio Enhancer)",
@@ -493,7 +565,7 @@ pub(crate) mod tests {
         assert_eq!(output.virtual_kind(), Some(VirtualKind::VbCable));
         let [a, _] = cable_a();
         assert_eq!(a.virtual_kind(), Some(VirtualKind::VbAudioCable));
-        let hifi = endpoint(
+        let hifi = virtual_endpoint(
             "hifi",
             OUT,
             "Hi-Fi Cable Input (VB-Audio Hi-Fi Cable)",
@@ -501,7 +573,7 @@ pub(crate) mod tests {
             "VB-Audio Hi-Fi Cable",
         );
         assert_eq!(hifi.virtual_kind(), Some(VirtualKind::VbAudioCable));
-        let line = endpoint(
+        let line = virtual_endpoint(
             "line1",
             OUT,
             "Line 1 (Virtual Audio Cable)",
@@ -528,10 +600,135 @@ pub(crate) mod tests {
                 "Steam Streaming Speakers",
             ),
             ("Динамики (Realtek(R) Audio)", "Realtek(R) Audio"),
+            // A device numbered by Windows is still only what its name says.
+            ("Динамики (2- Realtek(R) Audio)", "2- Realtek(R) Audio"),
         ] {
-            let other = endpoint("x", OUT, friendly, "", adapter);
+            let other = virtual_endpoint("x", OUT, friendly, "", adapter);
             assert_eq!(other.virtual_kind(), None, "{friendly}");
             assert!(is_offered(&other));
+        }
+    }
+
+    #[test]
+    fn a_cable_windows_numbered_as_a_second_instance_is_a_cable_too() {
+        for (adapter, kind) in [
+            ("2- VB-Audio Virtual Cable", VirtualKind::VbCable),
+            ("3- VB-Audio Cable A", VirtualKind::VbAudioCable),
+            ("2- VB-Audio Hi-Fi Cable", VirtualKind::VbAudioCable),
+            ("2- Virtual Audio Cable", VirtualKind::VirtualAudioCable),
+            ("12- Virtual Audio Cable", VirtualKind::VirtualAudioCable),
+        ] {
+            let numbered = virtual_endpoint(
+                "numbered",
+                OUT,
+                &format!("Line 1 ({adapter})"),
+                "Line 1",
+                adapter,
+            );
+            assert_eq!(numbered.virtual_kind(), Some(kind), "{adapter}");
+            assert!(!is_offered(&numbered), "{adapter}");
+        }
+        // An adapter that says nothing: the name in brackets, number and all.
+        let unnamed = virtual_endpoint(
+            "unnamed",
+            OUT,
+            "CABLE Input (2- VB-Audio Virtual Cable)",
+            "CABLE Input",
+            "",
+        );
+        assert_eq!(unnamed.virtual_kind(), Some(VirtualKind::VbCable));
+        // A number with no dash after it is part of the name, not Windows' count.
+        let other = virtual_endpoint("x", OUT, "x", "", "2 VB-Audio Virtual Cable");
+        assert_eq!(other.virtual_kind(), None);
+        assert_eq!(without_instance_number("2- name"), "name");
+        assert_eq!(without_instance_number("name"), "name");
+        assert_eq!(without_instance_number("2-name"), "2-name");
+    }
+
+    #[test]
+    fn two_vb_cables_side_by_side_are_two_cables_each_with_its_own_recording_side() {
+        let [c_in, c_out] = cable();
+        let [c2_in, c2_out] = cable_2();
+        let all = [
+            speakers(),
+            microphone(),
+            c_in.clone(),
+            c_out.clone(),
+            c2_in.clone(),
+            c2_out.clone(),
+        ];
+        for endpoint in &all[2..] {
+            assert_eq!(endpoint.virtual_kind(), Some(VirtualKind::VbCable));
+        }
+        assert_eq!(capture_twin(&c_in, &all).map(|e| &e.id), Some(&c_out.id));
+        assert_eq!(capture_twin(&c2_in, &all).map(|e| &e.id), Some(&c2_out.id));
+        // One for each lane.
+        let plan = plan(&all, true, None);
+        let output = plan.output.expect("a cable for the speakers");
+        let input = plan.input.expect("another for the microphone");
+        assert_ne!(output.render, input.render);
+        let twin = |render: &str| {
+            all.iter()
+                .find(|endpoint| endpoint.id == render)
+                .and_then(|endpoint| capture_twin(endpoint, &all))
+                .map(|endpoint| endpoint.id.clone())
+        };
+        assert_eq!(input.capture, twin(&input.render));
+    }
+
+    #[test]
+    fn a_device_on_a_hardware_bus_is_never_virtual_whatever_it_calls_itself() {
+        // A USB gadget whose product string is FxSound's driver's name, or a cable's; a Bluetooth
+        // device advertising one.
+        for (bus, friendly, adapter) in [
+            (
+                "USB",
+                "Speakers (FxSound Audio Enhancer)",
+                "FxSound Audio Enhancer",
+            ),
+            (
+                "USB",
+                "Speakers (VB-Audio Virtual Cable)",
+                "VB-Audio Virtual Cable",
+            ),
+            (
+                "BTHENUM",
+                "Headphones (VB-Audio Virtual Cable)",
+                "VB-Audio Virtual Cable",
+            ),
+            (
+                "BTHHFENUM",
+                "Headset (Virtual Audio Cable)",
+                "Virtual Audio Cable",
+            ),
+            (
+                "HDAUDIO",
+                "Speakers (DFX Audio Enhancer)",
+                "DFX Audio Enhancer",
+            ),
+        ] {
+            let spoof = Endpoint {
+                enumerator: bus.to_owned(),
+                ..virtual_endpoint("spoof", OUT, friendly, "Speakers", adapter)
+            };
+            assert!(spoof.on_hardware_bus(), "{bus}");
+            assert_eq!(spoof.virtual_kind(), None, "{bus} {friendly}");
+            assert!(is_offered(&spoof), "{bus} {friendly}");
+            // Nothing for a lane to stand on.
+            assert_eq!(
+                plan(&[speakers(), spoof.clone()], true, None),
+                VirtualPlan::default(),
+                "{bus} {friendly}"
+            );
+        }
+        // The system's own enumerators, and a store that names none, decide nothing.
+        for bus in ["ROOT", "SWD", ""] {
+            let device = Endpoint {
+                enumerator: bus.to_owned(),
+                ..fxsound()
+            };
+            assert!(!device.on_hardware_bus(), "{bus:?}");
+            assert_eq!(device.virtual_kind(), Some(VirtualKind::FxSound), "{bus:?}");
         }
     }
 
@@ -635,7 +832,7 @@ pub(crate) mod tests {
     #[test]
     fn a_virtual_audio_cable_line_is_twinned_with_the_line_of_its_own_name() {
         let line = |n: u8, direction| {
-            endpoint(
+            virtual_endpoint(
                 &format!("line{n}-{direction:?}"),
                 direction,
                 &format!("Line {n} (Virtual Audio Cable)"),
