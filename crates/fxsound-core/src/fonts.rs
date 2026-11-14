@@ -144,6 +144,13 @@ pub fn read_font_file(path: &Path) -> std::io::Result<Vec<u8>> {
 /// file of that name ([`crate::atomic::write`]), the folder made if it is not there. Returns
 /// where it went.
 ///
+/// A name that is not a font file's ([`is_font_file`]) gets one's extension after it: the file
+/// picker lets a name be typed in, so a face can come without `.ttf` or `.otf`, and the folder is
+/// read back through [`font_files`], which takes no other. Which one, the bytes say: `.otf` for
+/// an OpenType face with CFF outlines (`OTTO`), `.ttf` for the TrueType ones (`0x00010000`,
+/// `true`). Added rather than put in place of what the name ends with, so that two faces named
+/// apart stay apart.
+///
 /// # Errors
 ///
 /// A `name` that is not a plain file name (`..`, a path), and whatever writing the file meets.
@@ -157,7 +164,15 @@ pub fn keep(dir: &Path, name: &OsStr, bytes: &[u8]) -> std::io::Result<PathBuf> 
                 format!("{} is not a file name", Path::new(name).display()),
             )
         })?;
-    let path = dir.join(plain);
+    let mut file_name = plain.to_owned();
+    if !is_font_file(Path::new(plain)) {
+        file_name.push(if bytes.starts_with(b"OTTO") {
+            ".otf"
+        } else {
+            ".ttf"
+        });
+    }
+    let path = dir.join(file_name);
     crate::atomic::write(&path, bytes)?;
     Ok(path)
 }
@@ -218,6 +233,46 @@ mod tests {
             assert!(keep(&dir, OsStr::new(name), b"x").is_err(), "{name}");
         }
         assert!(!root.path().join("fxsound").join("Gilroy.ttf").exists());
+    }
+
+    #[test]
+    fn a_face_picked_without_a_font_files_name_is_kept_under_one_and_read_back() {
+        // The picker takes a typed name as it is: a face saved without `.ttf` or `.otf`, or with
+        // another ending, was copied and then never read, as the folder is read through
+        // `font_files`, which takes nothing else.
+        let root = tempfile::tempdir().expect("a scratch folder");
+        let dir = root.path().join("fonts");
+        let truetype = [&[0, 1, 0, 0][..], b"glyf and the rest"].concat();
+        let cff = [&b"OTTO"[..], b"CFF and the rest"].concat();
+        let apple = [&b"true"[..], b"glyf and the rest"].concat();
+        let cases: [(&str, &[u8], &str); 5] = [
+            ("Gilroy-Regular", &truetype, "Gilroy-Regular.ttf"),
+            ("Gilroy-Bold", &cff, "Gilroy-Bold.otf"),
+            ("Gilroy-SemiBold.bin", &apple, "Gilroy-SemiBold.bin.ttf"),
+            // A dot in the name is not an extension to put the right one in place of.
+            ("Gilroy.Medium", &truetype, "Gilroy.Medium.ttf"),
+            // A font file's name stays as it is.
+            ("gilroy-light.OTF", &cff, "gilroy-light.OTF"),
+        ];
+        for (name, bytes, kept_as) in cases {
+            let kept = keep(&dir, OsStr::new(name), bytes).expect("kept");
+            assert_eq!(kept, dir.join(kept_as), "{name}");
+        }
+        let read: Vec<(String, Vec<u8>)> = font_files(&dir, "")
+            .into_iter()
+            .map(|file| {
+                let name = file.path.file_name().expect("a name");
+                (name.to_string_lossy().into_owned(), file.bytes)
+            })
+            .collect();
+        assert_eq!(read.len(), cases.len(), "{read:?}");
+        for (name, bytes, kept_as) in cases {
+            assert!(
+                read.iter()
+                    .any(|(file, read)| file == kept_as && read.as_slice() == bytes),
+                "{name} is not read back as {kept_as}"
+            );
+        }
     }
 
     #[test]
