@@ -137,8 +137,15 @@ english.InstalledFromMsi=FxSound Port is already installed from its .msi package
 russian.InstalledFromMsi=FxSound Port уже установлен из пакета .msi. Сначала удалите его из списка установленных приложений или установите и эту версию из пакета .msi.
 english.OnlyProgramFiles=FxSound Port can only be installed in %1. Every account on this computer runs it from its folder, and a folder elsewhere may be one that other accounts can change.
 russian.OnlyProgramFiles=FxSound Port можно установить только в папку %1. Все учётные записи этого компьютера запускают программу из её папки, а папку в другом месте могут изменять и другие учётные записи.
-english.CloseRunning=FxSound Port is running and will be closed so that it can be uninstalled. Like Exit in its menu, it first gives the default playback device back.%n%nClick OK to go on, or Cancel to leave it running and not uninstall it.
-russian.CloseRunning=Программа FxSound Port запущена. Для удаления она будет закрыта — так же, как по команде «Закрыть» в её меню: сначала она вернёт прежнее устройство воспроизведения по умолчанию.%n%nНажмите «OK», чтобы продолжить, или «Отмена», чтобы оставить её работать и не удалять.
+; The uninstaller's question before it removes anything (CloseRunningProgram): CloseRunning when
+; it is about to close FxSound Port in this session, InUseElsewhere when fxsound.exe is in use
+; where it cannot close it, either or both, then GoOn.
+english.CloseRunning=FxSound Port is running and will be closed so that it can be uninstalled. Like Exit in its menu, it first gives the default playback device back.
+russian.CloseRunning=Программа FxSound Port запущена. Для удаления она будет закрыта — так же, как по команде «Закрыть» в её меню: сначала она вернёт прежнее устройство воспроизведения по умолчанию.
+english.InUseElsewhere=FxSound Port's program file is in use where this uninstaller cannot close it, by FxSound Port in another user's session for example, and may stay until Windows restarts.
+russian.InUseElsewhere=Файл программы FxSound Port занят там, где программа удаления не может его освободить, — например, копией FxSound Port в сеансе другого пользователя — и может остаться до перезагрузки Windows.
+english.GoOn=Click OK to go on, or Cancel to keep FxSound Port installed.
+russian.GoOn=Нажмите «OK», чтобы продолжить, или «Отмена», чтобы не удалять FxSound Port.
 
 [Files]
 ; The staged tree as it is: the files and folders build-windows.ps1 put there are the package.
@@ -168,25 +175,6 @@ const
 function MsiEnumRelatedProducts(UpgradeCode: String; Reserved: Cardinal; Index: Cardinal;
   ProductCode: String): Cardinal;
   external 'MsiEnumRelatedProductsW@msi.dll stdcall delayload setuponly';
-
-// The Restart Manager, for the uninstaller (CloseRunningProgram). FileNames is the API's array of
-// string pointers, which is how Pascal Script passes a TArrayOfString; Applications, ServiceNames,
-// AffectedApps and StatusCallback are pointers passed as null.
-function RmStartSession(var SessionHandle: Cardinal; SessionFlags: Cardinal;
-  SessionKey: String): Cardinal;
-  external 'RmStartSession@rstrtmgr.dll stdcall delayload uninstallonly';
-function RmRegisterResources(SessionHandle: Cardinal; FileCount: Cardinal;
-  FileNames: TArrayOfString; ApplicationCount: Cardinal; Applications: Cardinal;
-  ServiceCount: Cardinal; ServiceNames: Cardinal): Cardinal;
-  external 'RmRegisterResources@rstrtmgr.dll stdcall delayload uninstallonly';
-function RmGetList(SessionHandle: Cardinal; var ProcInfoNeeded: Cardinal; var ProcInfo: Cardinal;
-  AffectedApps: Cardinal; var RebootReasons: Cardinal): Cardinal;
-  external 'RmGetList@rstrtmgr.dll stdcall delayload uninstallonly';
-function RmShutdown(SessionHandle: Cardinal; ActionFlags: Cardinal;
-  StatusCallback: Cardinal): Cardinal;
-  external 'RmShutdown@rstrtmgr.dll stdcall delayload uninstallonly';
-function RmEndSession(SessionHandle: Cardinal): Cardinal;
-  external 'RmEndSession@rstrtmgr.dll stdcall delayload uninstallonly';
 
 function InitializeSetup(): Boolean;
 var
@@ -279,20 +267,185 @@ begin
   end;
 end;
 
+// Closing a running FxSound Port before the uninstaller removes anything: CloseRunningProgram and
+// what it uses, down to CurUninstallStepChanged.
+//
 // A running FxSound Port has fxsound.exe loaded, which cannot be deleted, and it would go on
-// playing with its presets deleted from under it: it is closed before anything is removed. With
-// the Restart Manager, as Setup's CloseApplications closes it for an upgrade and Windows Installer
-// for the .msi: the program is asked to end as at log-off, which FxSound Port answers as Exit in
-// its menu does, giving the default playback device back first. The Restart Manager finds it by
-// the file, never by the name: FxSound LLC's FxSound.exe, which may be running too, is another
-// file. Not forced: a copy that does not end, as one in another user's session cannot be made to,
-// keeps its files, which then go when Windows restarts (uninsrestartdelete).
+// playing with its presets deleted from under it, so it is closed first. With the Restart Manager,
+// as Setup's CloseApplications closes it for an upgrade and Windows Installer for the .msi: the
+// program is asked to end as at log-off, which FxSound Port answers as Exit in its menu does,
+// giving the default playback device back first.
+//
+// Only this installation's fxsound.exe running in this session is closed. A first Restart Manager
+// session lists every process that has the file open; the ones that run it in this session are
+// registered again, by process, in a second one, and only that one is shut down. The first, shut
+// down, would also close whatever else has the file open, Explorer reading its icon say, which
+// nothing would start again; and with a copy in another user's session in its list, which cannot
+// be closed from here (a reboot reason), it would close nothing at all, this session's copy
+// included (ERROR_FAIL_NOACTION_REBOOT). FxSound LLC's FxSound.exe, which may be running too, is
+// another file and never listed. Not forced: whatever keeps fxsound.exe open is left with it, and
+// the file goes when Windows restarts (uninsrestartdelete), which the question says beforehand.
+const
+  // RM_REBOOT_REASON: nothing keeps the session's processes from being shut down.
+  RmRebootReasonNone = 0;
+  ProcessQueryLimitedInformation = $1000;
+  // The length of the two lists below. A file in use by more processes than that has none closed.
+  RmListLength = 16;
+
+type
+  // RM_UNIQUE_PROCESS: a process id and the process's start time, a FILETIME, which tells it from a
+  // later process given the same id.
+  TRmUniqueProcess = record
+    ProcessId: Cardinal;
+    StartTimeLow: Cardinal;
+    StartTimeHigh: Cardinal;
+  end;
+  // RM_PROCESS_INFO, 668 bytes: the two names have room for CCH_RM_MAX_APP_NAME and
+  // CCH_RM_MAX_SVC_NAME characters and a null. Every field is a whole number of four-byte words
+  // long, so the record has no padding for Pascal Script to lay out otherwise than the API.
+  TRmProcessInfo = record
+    Process: TRmUniqueProcess;
+    AppName: array[0..255] of Char;
+    ServiceShortName: array[0..63] of Char;
+    ApplicationType: Cardinal;
+    AppStatus: Cardinal;
+    TSSessionId: Cardinal;
+    Restartable: Cardinal;
+  end;
+  TRmProcessList = array[0..15] of TRmProcessInfo;
+  TRmUniqueProcessList = array[0..15] of TRmUniqueProcess;
+
+// The Restart Manager, and what tells which program a process runs and in which session. FileNames
+// is the API's array of string pointers, which is how Pascal Script passes a TArrayOfString; a
+// list passed by reference is the pointer to its first element, and a pointer passed as 0 is null.
+// RmRegisterResources is declared twice, for the file and for processes.
+function RmStartSession(var SessionHandle: Cardinal; SessionFlags: Cardinal;
+  SessionKey: String): Cardinal;
+  external 'RmStartSession@rstrtmgr.dll stdcall delayload uninstallonly';
+function RmRegisterFile(SessionHandle: Cardinal; FileCount: Cardinal;
+  FileNames: TArrayOfString; ApplicationCount: Cardinal; Applications: Cardinal;
+  ServiceCount: Cardinal; ServiceNames: Cardinal): Cardinal;
+  external 'RmRegisterResources@rstrtmgr.dll stdcall delayload uninstallonly';
+function RmRegisterProcesses(SessionHandle: Cardinal; FileCount: Cardinal; FileNames: Cardinal;
+  ApplicationCount: Cardinal; var Applications: TRmUniqueProcessList; ServiceCount: Cardinal;
+  ServiceNames: Cardinal): Cardinal;
+  external 'RmRegisterResources@rstrtmgr.dll stdcall delayload uninstallonly';
+function RmGetList(SessionHandle: Cardinal; var ProcInfoNeeded: Cardinal; var ProcInfo: Cardinal;
+  var AffectedApps: TRmProcessList; var RebootReasons: Cardinal): Cardinal;
+  external 'RmGetList@rstrtmgr.dll stdcall delayload uninstallonly';
+function RmShutdown(SessionHandle: Cardinal; ActionFlags: Cardinal;
+  StatusCallback: Cardinal): Cardinal;
+  external 'RmShutdown@rstrtmgr.dll stdcall delayload uninstallonly';
+function RmEndSession(SessionHandle: Cardinal): Cardinal;
+  external 'RmEndSession@rstrtmgr.dll stdcall delayload uninstallonly';
+function GetCurrentProcessId(): Cardinal;
+  external 'GetCurrentProcessId@kernel32.dll stdcall uninstallonly';
+function ProcessIdToSessionId(ProcessId: Cardinal; var SessionId: Cardinal): Cardinal;
+  external 'ProcessIdToSessionId@kernel32.dll stdcall uninstallonly';
+function OpenProcess(DesiredAccess: Cardinal; InheritHandle: Cardinal;
+  ProcessId: Cardinal): Cardinal;
+  external 'OpenProcess@kernel32.dll stdcall uninstallonly';
+function QueryFullProcessImageName(Process: Cardinal; Flags: Cardinal; ExeName: String;
+  var Size: Cardinal): Cardinal;
+  external 'QueryFullProcessImageNameW@kernel32.dll stdcall uninstallonly';
+function CloseHandle(Handle: Cardinal): Cardinal;
+  external 'CloseHandle@kernel32.dll stdcall uninstallonly';
+
+// Whether process ProcessId runs Exe. One this uninstaller may not ask is taken to run another
+// program. Paths are compared without regard to case, as NTFS compares them.
+function RunsProgram(ProcessId: Cardinal; const Exe: String): Boolean;
+var
+  Process, Size: Cardinal;
+  Image: String;
+begin
+  Result := False;
+  Process := OpenProcess(ProcessQueryLimitedInformation, 0, ProcessId);
+  if Process = 0 then
+    Exit;
+  try
+    // In characters, with the terminating null: the longest path Windows has.
+    Size := 32768;
+    Image := StringOfChar(' ', Size);
+    if QueryFullProcessImageName(Process, 0, Image, Size) <> 0 then
+      Result := AnsiLowercase(Copy(Image, 1, Size)) = AnsiLowercase(Exe);
+  finally
+    CloseHandle(Process);
+  end;
+end;
+
+// The name the Restart Manager gives a process, for the log.
+function RmAppName(const Info: TRmProcessInfo): String;
+var
+  I: Integer;
+begin
+  Result := '';
+  I := 0;
+  while (I <= 255) and (Info.AppName[I] <> #0) do
+  begin
+    Result := Result + Info.AppName[I];
+    I := I + 1;
+  end;
+end;
+
+// Of the first Count processes of InUse, the ones that run Exe in this session, into Copies; returns
+// how many there are. Every other one has the file open where it is not closed.
+function CopiesHere(const InUse: TRmProcessList; Count: Integer; const Exe: String;
+  var Copies: TRmUniqueProcessList): Integer;
+var
+  ThisSession: Cardinal;
+  I: Integer;
+  Which: String;
+begin
+  Result := 0;
+  // Should the uninstaller's own session not be known, one no process is in.
+  if ProcessIdToSessionId(GetCurrentProcessId(), ThisSession) = 0 then
+    ThisSession := $FFFFFFFF;
+  for I := 0 to Count - 1 do
+  begin
+    if (InUse[I].TSSessionId = ThisSession) and
+      RunsProgram(InUse[I].Process.ProcessId, Exe) then
+    begin
+      Copies[Result] := InUse[I].Process;
+      Result := Result + 1;
+      Which := 'FxSound Port in this session';
+    end
+    else
+      Which := 'not closed from here';
+    Log('fxsound.exe is in use by ' + RmAppName(InUse[I]) + ', process ' +
+      IntToStr(InUse[I].Process.ProcessId) + ' in session ' + IntToStr(InUse[I].TSSessionId) +
+      ': ' + Which);
+  end;
+end;
+
+// The question, unless the uninstaller is silent; Cancel stops the uninstall. Closing: FxSound
+// Port is about to be closed in this session. Elsewhere: fxsound.exe is in use where it is not.
+procedure ConfirmClosing(Closing, Elsewhere: Boolean);
+var
+  Question: String;
+begin
+  if UninstallSilent then
+    Exit;
+  Question := '';
+  if Closing then
+    Question := CustomMessage('CloseRunning') + #13#10#13#10;
+  if Elsewhere then
+    Question := Question + CustomMessage('InUseElsewhere') + #13#10#13#10;
+  if MsgBox(Question + CustomMessage('GoOn'), mbConfirmation, MB_OKCANCEL) <> IDOK then
+    Abort;
+end;
+
 procedure CloseRunningProgram;
 var
   Session, Needed, Count, Reasons, Status: Cardinal;
+  Listed, Own: Integer;
+  Exe: String;
   Files: TArrayOfString;
+  InUse: TRmProcessList;
+  Copies: TRmUniqueProcessList;
+  Closing, Elsewhere: Boolean;
 begin
-  // The session key and its terminating null: 33 characters.
+  Exe := ExpandConstant('{app}\{#AppExeName}');
+  // What has the file open. The session key and its terminating null: 33 characters.
   if RmStartSession(Session, 0, StringOfChar(' ', 33)) <> ErrorSuccess then
   begin
     Log('The Restart Manager did not start; a running FxSound Port is not closed');
@@ -300,26 +453,78 @@ begin
   end;
   try
     SetArrayLength(Files, 1);
-    Files[0] := ExpandConstant('{app}\{#AppExeName}');
+    Files[0] := Exe;
     Needed := 0;
-    Count := 0;
+    Count := RmListLength;
     Reasons := 0;
-    // Asked with no room for the list, which is then "more data" when anything uses the file.
-    if (RmRegisterResources(Session, 1, Files, 0, 0, 0, 0) <> ErrorSuccess) or
-      (RmGetList(Session, Needed, Count, 0, Reasons) <> ErrorMoreData) then
-      Exit;
-    if not UninstallSilent and
-      (MsgBox(CustomMessage('CloseRunning'), mbConfirmation, MB_OKCANCEL) <> IDOK) then
-      Abort;
-    Status := RmShutdown(Session, 0, 0);
+    Status := RmRegisterFile(Session, 1, Files, 0, 0, 0, 0);
     if Status = ErrorSuccess then
-      Log('FxSound Port was running and is closed')
-    else
-      Log(Format('FxSound Port did not close (Restart Manager error %d); ' +
-        'what it holds goes when Windows restarts', [Status]));
+      Status := RmGetList(Session, Needed, Count, InUse, Reasons);
   finally
     RmEndSession(Session);
   end;
+  Own := 0;
+  if Status = ErrorSuccess then
+  begin
+    Listed := Count;
+    if Listed = 0 then
+      Exit;
+    Log('fxsound.exe is in use; Restart Manager reboot reasons ' + IntToStr(Reasons));
+    Own := CopiesHere(InUse, Listed, Exe, Copies);
+    Elsewhere := Own < Listed;
+  end
+  else if Status = ErrorMoreData then
+  begin
+    Log('fxsound.exe is in use by ' + IntToStr(Needed) + ' processes; none is closed');
+    Elsewhere := True;
+  end
+  else
+  begin
+    Log('The Restart Manager did not list what has fxsound.exe open (error ' +
+      IntToStr(Status) + '); a running FxSound Port is not closed');
+    Exit;
+  end;
+
+  // This session's copies, in a session of their own, closed only when nothing stands in the way.
+  Closing := False;
+  if (Own > 0) and (RmStartSession(Session, 0, StringOfChar(' ', 33)) = ErrorSuccess) then
+  begin
+    try
+      Needed := 0;
+      Count := RmListLength;
+      Reasons := 0;
+      Status := RmRegisterProcesses(Session, 0, 0, Own, Copies, 0, 0);
+      if Status = ErrorSuccess then
+        Status := RmGetList(Session, Needed, Count, InUse, Reasons);
+      Closing := (Status = ErrorSuccess) and (Count > 0) and (Reasons = RmRebootReasonNone);
+      if Closing then
+      begin
+        ConfirmClosing(True, Elsewhere);
+        Status := RmShutdown(Session, 0, 0);
+        if Status = ErrorSuccess then
+          Log('FxSound Port was running in this session and is closed')
+        else
+          Log('FxSound Port did not close (Restart Manager error ' + IntToStr(Status) +
+            '); fxsound.exe goes when Windows restarts');
+      end
+      // Unless it has ended meanwhile, it runs on where it is not closed after all.
+      else if (Status <> ErrorSuccess) or (Count > 0) then
+      begin
+        Log('FxSound Port is not closed in this session (Restart Manager error ' +
+          IntToStr(Status) + ', reboot reasons ' + IntToStr(Reasons) + ')');
+        Elsewhere := True;
+      end;
+    finally
+      RmEndSession(Session);
+    end;
+  end
+  else if Own > 0 then
+  begin
+    Log('The Restart Manager did not start; FxSound Port is not closed in this session');
+    Elsewhere := True;
+  end;
+  if not Closing and Elsewhere then
+    ConfirmClosing(False, True);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
