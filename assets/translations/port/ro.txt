@@ -147,7 +147,7 @@ countries: ro
 "The files are used only on this computer, and your licence has to allow it." = "Fișierele sunt folosite doar pe acest computer, iar licența dvs. trebuie să permită acest lucru."
 "Gilroy lacks letters of this language, so Manrope is used." = "Lui Gilroy îi lipsesc litere din această limbă, așa că se folosește Manrope."
 "“%s” uses Gilroy while it is on." = "Cât timp „%s” este activat, se folosește Gilroy."
-"Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold." = "Neadăugate: %s. FxSound folosește Gilroy Regular, Medium, SemiBold și Bold."
+"Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold." = "Imposibil de adăugat: %s. FxSound folosește Gilroy Regular, Medium, SemiBold și Bold."
 "The Gilroy files could not be copied." = "Fișierele Gilroy nu au putut fi copiate."
 "Could not open the file picker" = "Selectorul de fișiere nu a putut fi deschis"
 "Choose the Gilroy files you licensed" = "Alegeți fișierele Gilroy pentru care aveți licență"

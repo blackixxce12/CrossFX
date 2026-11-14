@@ -146,7 +146,7 @@ countries: se
 "The files are used only on this computer, and your licence has to allow it." = "Filerna används bara på den här datorn, och din licens måste tillåta det."
 "Gilroy lacks letters of this language, so Manrope is used." = "Gilroy saknar bokstäver i det här språket, så Manrope används."
 "“%s” uses Gilroy while it is on." = "Så länge ”%s” är på används Gilroy."
-"Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold." = "Inte tillagda: %s. FxSound använder Gilroy Regular, Medium, SemiBold och Bold."
+"Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold." = "Lades inte till: %s. FxSound använder Gilroy Regular, Medium, SemiBold och Bold."
 "The Gilroy files could not be copied." = "Gilroy-filerna kunde inte kopieras."
 "Could not open the file picker" = "Filväljaren kunde inte öppnas"
 "Choose the Gilroy files you licensed" = "Välj de Gilroy-filer du har licens för"

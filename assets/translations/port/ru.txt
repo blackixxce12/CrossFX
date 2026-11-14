@@ -146,7 +146,7 @@ countries: ru
 "The files are used only on this computer, and your licence has to allow it." = "Файлы используются только на этом компьютере, и ваша лицензия должна это разрешать."
 "Gilroy lacks letters of this language, so Manrope is used." = "В Gilroy не хватает букв этого языка, поэтому используется Manrope."
 "“%s” uses Gilroy while it is on." = "Пока включён режим «%s», используется Gilroy."
-"Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold." = "Не добавлены: %s. FxSound использует Gilroy Regular, Medium, SemiBold и Bold."
+"Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold." = "Не добавлено: %s. FxSound использует Gilroy Regular, Medium, SemiBold и Bold."
 "The Gilroy files could not be copied." = "Не удалось скопировать файлы Gilroy."
 "Could not open the file picker" = "Не удалось открыть окно выбора файлов"
 "Choose the Gilroy files you licensed" = "Выберите файлы Gilroy, на которые у вас есть лицензия"
