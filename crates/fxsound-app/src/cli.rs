@@ -551,7 +551,7 @@ pub struct Cli {
                          chains offline, whether the Windows audio service runs, whether a \
                          virtual playback device (the FxSound driver's, or VB-CABLE's) is there \
                          to stand in front of the speakers with, and whether the control pipe \
-                         can be had.\n\n\
+                         is in use or can be made.\n\n\
                          An addition of this port. It runs in this process before the control \
                          pipe is claimed, so it works beside a running FxSound; it never \
                          connects to one, opens no stream and changes no device. Every other \

@@ -155,6 +155,20 @@ pub fn exists(path: &Path) -> bool {
     free || io::Error::last_os_error().raw_os_error() != Some(2)
 }
 
+/// The first instance of `path`'s pipe as a sandboxed process of this user can make it before
+/// FxSound does: the user's name as its owner, and its own level, low, as its label — which is all
+/// it can give a pipe. The tests' squatter, which holds the name until the handle goes.
+///
+/// # Errors
+///
+/// If the user's SID cannot be read, or the pipe cannot be created.
+#[cfg(test)]
+pub(crate) fn squat(path: &Path) -> io::Result<OwnedHandle> {
+    let sid = own_sid()?;
+    let low = SecurityDescriptor::parse(&format!("O:{sid}D:P(A;;GA;;;{sid})S:(ML;;NW;;;LW)"))?;
+    create_instance(&wide(path), &low, true)
+}
+
 /// Create an instance of the pipe `name`, open to this user only.
 fn create_instance(
     name: &[u16],
@@ -871,20 +885,16 @@ mod tests {
 
     #[test]
     fn a_pipe_made_at_low_integrity_is_refused_though_it_names_the_user_as_its_owner() {
-        // What a sandboxed process of this user can make first: the user's name as the owner, and
-        // its own level, low, as the label — which is all it can give a pipe.
-        let sid = own_sid().expect("a SID");
-        let low = SecurityDescriptor::parse(&format!("O:{sid}D:P(A;;GA;;;{sid})S:(ML;;NW;;;LW)"))
-            .expect("a valid SDDL");
+        // What a sandboxed process of this user can make first ([`squat`]).
         let path = unique("low");
-        let _squatter = create_instance(&wide(&path), &low, true).expect("the squatter's pipe");
+        let _squatter = squat(&path).expect("the squatter's pipe");
         let e = PipeStream::connect(&path).expect_err("not FxSound's");
         assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
         assert!(e.to_string().contains("low integrity"), "{e}");
 
         // Nothing of a command line reaches one: the forwarding fails before a byte is written.
         let path = unique("low-forward");
-        let squatter = create_instance(&wide(&path), &low, true).expect("the squatter's pipe");
+        let squatter = squat(&path).expect("the squatter's pipe");
         let argv = ["fxsound".to_owned(), "--status".to_owned()];
         let e = crate::ipc::forward_to(&path, &argv, Path::new(r"C:\secret"), BUSY_WAIT)
             .expect_err("refused");
