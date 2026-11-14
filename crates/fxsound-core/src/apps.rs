@@ -393,7 +393,10 @@ impl AppRules {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Self::default(),
-            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory => {
+            // Not only EISDIR: Windows refuses to open any directory as a file with "access
+            // denied", and Unix one this user may not read with EACCES. Both are PermissionDenied,
+            // so whether it is a directory is asked of the path itself, on every system.
+            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory || path.is_dir() => {
                 log::warn!("{}: {err}; no per-application presets", path.display());
                 return Self::default();
             }
@@ -1118,6 +1121,36 @@ output_preset = \"Volume Boost\"
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_this_user_may_not_read_in_the_files_place_is_left_where_it_is() {
+        // Opening a directory this user may not read fails with EACCES, not EISDIR: 0.5.0 took
+        // that for an unreadable file and moved the directory aside as `apps.toml.bad`. It is a
+        // directory all the same, and is left where it is, as a readable one is.
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("apps.toml");
+        let aside = AppRules::bad_path(&path);
+        std::fs::create_dir(&path).expect("create");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        if std::fs::read_dir(&path).is_ok() {
+            // Root reads a mode-000 directory anyway, which is the readable case again.
+            eprintln!("note: {} is readable to this user", path.display());
+        }
+
+        let loaded = AppRules::load_from(&path);
+        let left = path.is_dir();
+        let moved = aside.exists();
+        // Searchable again wherever it is, or the scratch directory cannot be removed.
+        for place in [&path, &aside] {
+            let _ = std::fs::set_permissions(place, std::fs::Permissions::from_mode(0o700));
+        }
+        assert_eq!(loaded, AppRules::default());
+        assert!(left, "the directory is still in the file's place");
+        assert!(!moved, "and was not moved aside");
+    }
+
     #[test]
     fn a_file_that_is_not_utf8_is_moved_aside_rather_than_silently_lost() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1145,13 +1178,11 @@ output_preset = \"Volume Boost\"
 
     #[test]
     fn a_file_this_user_may_not_read_is_moved_aside_rather_than_replaced() {
-        use std::os::unix::fs::PermissionsExt as _;
-
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("apps.toml");
         let text = "[[app]]\nname = \"Discord\"\ninput_preset = \"Headset\"\n";
         std::fs::write(&path, text).expect("write");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        assert!(crate::atomic::tests::forbid_reading(&path), "chmod");
         if std::fs::read(&path).is_ok() {
             // Root reads a mode-000 file anyway, so there is no unreadable file to test with.
             return;
@@ -1167,7 +1198,7 @@ output_preset = \"Volume Boost\"
         let mut rules = AppRules::default();
         rules.seen(&key("firefox", "Firefox", ""), 2);
         rules.save_to(&path).expect("save");
-        std::fs::set_permissions(&aside, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        assert!(crate::atomic::tests::allow_reading(&aside), "chmod");
         assert_eq!(
             std::fs::read_to_string(&aside).expect("readable once allowed"),
             text,

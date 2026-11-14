@@ -178,11 +178,15 @@ fn sources() -> Vec<(String, String)> {
         .map(|path| {
             let text = std::fs::read_to_string(&path)
                 .unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+            // Spelt with `/` on every system, as the list names files: Windows would join the
+            // components with `\`.
             let relative = path
                 .strip_prefix(&root)
                 .expect("under the root")
-                .to_string_lossy()
-                .into_owned();
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
             (relative, text)
         })
         .collect()

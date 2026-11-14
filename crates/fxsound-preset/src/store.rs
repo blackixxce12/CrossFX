@@ -178,29 +178,13 @@ pub type PresetStore = Store<Preset>;
 impl Store<Preset> {
     /// Build a store from the standard locations.
     ///
-    /// Factory presets are looked for next to the executable and in the usual install prefixes, so
-    /// the binary works both from `cargo run` and from a package; of the prefixes, the one the
-    /// binary is installed under comes first ([`crate::install_data_dirs`]).
+    /// Factory presets are looked for in the checkout the binary runs from, when it runs from one
+    /// ([`crate::source_tree_of`]), and in the usual install prefixes, so the binary works both
+    /// from `cargo run` and from a package; of the prefixes, the one the binary is installed under
+    /// comes first ([`crate::install_data_dirs`]).
     #[must_use]
     pub fn with_default_dirs() -> Self {
-        let mut factory_dirs = Vec::new();
-
-        // Running from the source tree.
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(target_dir) = exe
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-        {
-            factory_dirs.push(target_dir.join("assets/presets/Factsoft"));
-            factory_dirs.push(target_dir.join("assets/presets/BonusPresets"));
-        }
-        // Installed, the binary's own prefix first.
-        for data in crate::install_data_dirs() {
-            factory_dirs.push(data.join("presets/Factsoft"));
-            factory_dirs.push(data.join("presets/BonusPresets"));
-        }
-
+        let factory_dirs = crate::shipped_preset_dirs(&["Factsoft", "BonusPresets"]);
         Self::with_dirs(factory_dirs, Settings::user_preset_dir()).with_home_trash()
     }
 }
@@ -345,7 +329,8 @@ impl<F: PresetFile> Store<F> {
     /// the unsaved edits it left of a preset whose name has a character a file name cannot keep
     /// are found there until the next autosave or save moves them to the name's own file
     /// ([`Store::autosave`], [`Store::clear_autosave`]). Without that they were orphaned: the
-    /// preset loaded as last saved, without its `*`, and the edits never came back.
+    /// preset loaded as last saved, without its `*`, and the edits never came back. Only on Unix,
+    /// where 0.3.0 ran (`legacy_autosave_path` says why).
     #[must_use]
     pub fn autosave_path(&self, name: &str) -> PathBuf {
         let path = self.sanitised_autosave_path(name);
@@ -365,12 +350,23 @@ impl<F: PresetFile> Store<F> {
     }
 
     /// `AutoSave/` and the name as written, where 0.3.0 kept a preset's autosave: `None` when that
-    /// is the sanitised path itself, or no file name at all (a `/` in the name).
+    /// is the sanitised path itself, when the name is no file name at all, and on any system but
+    /// Unix.
     ///
-    /// It is never another preset's autosave: a sanitised stem holds none of the characters, the
-    /// surrounding spaces or the length that make the name differ from it.
+    /// The name is the one inside the preset's file, and a file put in the directory by hand can
+    /// carry any. Joined as written, a name that is a path reached out of `AutoSave/`, and the
+    /// file it found there was read as the preset's unsaved edits: listed with a `*`, removed for
+    /// good by its next autosave or undo, sent to the trash by its delete, moved by its rename —
+    /// the user's own preset beside `AutoSave/`, or anything else of theirs on the drive. On Unix,
+    /// where 0.3.0 ran, `/` is the one separator, so a name without it (or a NUL) is one file name
+    /// inside `AutoSave/`. Windows reads `\`, `..\`, a drive's `C:` and a leading `\` as path
+    /// syntax as well, and 0.3.0 never ran there: there is no 0.3.0 autosave to find, so none is
+    /// looked for.
+    ///
+    /// Inside `AutoSave/` it is never another preset's autosave: a sanitised stem holds none of
+    /// the characters, the surrounding spaces or the length that make the name differ from it.
     fn legacy_autosave_path(&self, name: &str) -> Option<PathBuf> {
-        if name.is_empty() || name.contains(['/', '\0']) {
+        if !cfg!(unix) || name.is_empty() || name.contains(['/', '\0']) {
             return None;
         }
         let legacy = self.autosave_dir.join(format!("{name}.{}", F::EXTENSION));
@@ -409,9 +405,12 @@ impl<F: PresetFile> Store<F> {
     ///
     /// Returns the path it was written to. Saving under a name already in the list is the
     /// overwrite: the user's copy replaces a factory one, or their own earlier one with a `.bak`
-    /// kept. Saving under a name that would take *another* listed preset's file — `Mu:sic`
-    /// beside `Music` — is refused, because that overwrite is one the list could never show
-    /// (`file_name` below says why one file can have two names).
+    /// kept. Saving under a name that would take *another* listed preset's file is refused,
+    /// because that overwrite is one the list could never show: `Mu:sic` beside `Music`
+    /// (`file_name` below says why one file can have two names), `ROCK` beside `Rock` on Windows,
+    /// whose NTFS folds case, and any name whose file is already there and listed under the name
+    /// inside it — a hand-copied `Rock.fac` that calls itself "Rock Concert", which a save of
+    /// "Rock" replaced, leaving it in a `.bak` the list does not show.
     ///
     /// A user preset is overwritten in the file it is listed from, whatever that file is called.
     /// 0.3.0 filed a preset saved from the window under its name as written — `Rock:Live.fac` —
@@ -427,10 +426,14 @@ impl<F: PresetFile> Store<F> {
             Some(entry) if entry.source == PresetSource::User => entry.path.clone(),
             _ => {
                 let file = Self::file_name(name)?;
-                if let Some(other) = self.holder_of(&file, name) {
+                let path = self.user_dir.join(&file);
+                if let Some(other) = self
+                    .holder_of(&file, name)
+                    .or_else(|| self.listed_from(&path, name))
+                {
                     return Err(F::shared_file(name, &other.name, &file));
                 }
-                self.user_dir.join(file)
+                path
             }
         };
         let mut to_save = preset.clone();
@@ -507,11 +510,13 @@ impl<F: PresetFile> Store<F> {
     /// still leaves a preset the list shows under its new name.
     ///
     /// A name that would take another listed preset's file is refused, as [`Store::save_as`]
-    /// refuses it; the preset's own file is not another's, so a change of case alone is allowed.
-    /// An unlisted file already under the new name is set aside as `<file>.1.bak` or the next free
-    /// number ([`trash::set_aside`]), never over a `.bak` already there. An autosave already under
-    /// the new name, when the preset brings none of its own, goes to the trash the way a deleted
-    /// preset's does: it holds another preset's edits, never this one's.
+    /// refuses it — a file already under the new name that another preset is listed from
+    /// included, which would otherwise be set aside and leave the list; the preset's own file is
+    /// not another's, so a change of case alone is allowed. An unlisted file already under the
+    /// new name is set aside as `<file>.1.bak` or the next free number ([`trash::set_aside`]),
+    /// never over a `.bak` already there. An autosave already under the new name, when the preset
+    /// brings none of its own, goes to the trash the way a deleted preset's does: it holds another
+    /// preset's edits, never this one's.
     ///
     /// # Errors
     /// `old` is not a user preset, `new` leaves nothing to file it under or is another preset's
@@ -527,15 +532,17 @@ impl<F: PresetFile> Store<F> {
         }
         let from = entry.path.clone();
         let file = Self::file_name(new)?;
-        // Another preset of exactly the new name, or one whose file the new name would take.
+        let to = self.user_dir.join(&file);
+        // Another preset of exactly the new name, one whose file the new name would take, or one
+        // listed from the file already under it.
         if let Some(other) = self
             .find(new)
             .filter(|other| other.name != old)
             .or_else(|| self.holder_of(&file, new).filter(|other| other.name != old))
+            .or_else(|| self.listed_from(&to, old))
         {
             return Err(F::shared_file(new, &other.name, &file));
         }
-        let to = self.user_dir.join(&file);
 
         let mut preset = F::load(&from)?;
         preset.set_name(new);
@@ -670,8 +677,9 @@ impl<F: PresetFile> Store<F> {
     /// to create either state, through `holder_of`. The state can still arrive from files put in
     /// the directory by hand, which `rescan` lists as the two names they are; the shared autosave
     /// slot is then the one thing the list cannot tell apart. Stems are compared the way the
-    /// filesystem compares them, exactly; the case-insensitive rule between *names* is the
-    /// controller's, as the sanitiser's own note says.
+    /// filesystem compares them: exactly on Unix, and on Windows whatever their case, since NTFS
+    /// folds it and `ROCK.fac` is `Rock.fac` there (`same_file_name`). The case-insensitive rule
+    /// between *names* is the controller's, as the sanitiser's own note says.
     ///
     /// Public so a caller that has to know where a preset will land — the export window, asking
     /// about a file already there before it writes — asks the store rather than keeping a copy of
@@ -687,15 +695,59 @@ impl<F: PresetFile> Store<F> {
         Ok(format!("{stem}.{}", F::EXTENSION))
     }
 
-    /// The listed preset, if any, other than `name` itself whose file is `file`.
+    /// The listed preset, if any, other than `name` itself whose file is `file`: the file its
+    /// name maps to, compared as the filesystem compares file names (`same_file_name`). On
+    /// Windows a name that differs from a listed one only in case is that preset's file, autosave
+    /// and export, whether or not the file has been written yet.
     ///
     /// An entry whose own name sanitises to nothing has no file to hold, so it can never be the
     /// holder; the `Ok` filter is that, not an error swallowed.
     fn holder_of(&self, file: &str, name: &str) -> Option<&PresetEntry> {
         self.entries.iter().find(|entry| {
-            entry.name != name && Self::file_name(&entry.name).is_ok_and(|held| held == file)
+            entry.name != name
+                && Self::file_name(&entry.name).is_ok_and(|held| same_file_name(&held, file))
         })
     }
+
+    /// The listed preset, if any, other than `name` itself that is listed from the file at
+    /// `path`: a file already there under the name a save or a rename is about to write, which
+    /// would replace it or set it aside, and the list would lose a preset it showed.
+    ///
+    /// `holder_of` goes by the file each listed *name* maps to, and that is not always the file it
+    /// is listed from: a file put in the directory by hand is listed by the name inside it,
+    /// whatever the file is called — `Rock.fac` holding "Rock Concert". The filesystem is asked
+    /// rather than the names compared (`same_file`), so its own folding of case decides what is
+    /// one file.
+    fn listed_from(&self, path: &Path, name: &str) -> Option<&PresetEntry> {
+        if !path.exists() {
+            return None;
+        }
+        self.entries
+            .iter()
+            .find(|entry| entry.name != name && same_file(&entry.path, path))
+    }
+}
+
+/// Whether two file names in one directory name one file: exactly, on Unix.
+#[cfg(unix)]
+fn same_file_name(a: &str, b: &str) -> bool {
+    a == b
+}
+
+/// Whether two file names in one directory name one file: on Windows whatever their case, as NTFS
+/// compares them — character by character through the volume's upcase table, which holds each
+/// character's own uppercase — so `ROCK.fac` is `Rock.fac`. A character whose uppercase is more
+/// than one character, as `ß`'s is `SS`, the table leaves as it is, and so does this.
+#[cfg(not(unix))]
+fn same_file_name(a: &str, b: &str) -> bool {
+    fn upcase(c: char) -> char {
+        let mut upper = c.to_uppercase();
+        match (upper.next(), upper.next()) {
+            (Some(one), None) => one,
+            _ => c,
+        }
+    }
+    a.chars().map(upcase).eq(b.chars().map(upcase))
 }
 
 /// Remove `path` when it is there, saying in the log when that fails.
@@ -1342,6 +1394,96 @@ mod tests {
         assert_eq!(crate::load(&path).expect("reload").main_midi[0], 99);
     }
 
+    #[test]
+    fn a_save_or_rename_onto_the_file_another_preset_is_listed_from_is_refused() {
+        // A hand-copied `Rock.fac` that calls itself "Rock Concert" is listed under that name,
+        // while `Rock.fac` is the file the name "Rock" maps to. Saving "Rock" replaced it and
+        // renaming a preset to "Rock" set it aside: either way "Rock Concert" left the list, kept
+        // only in a `.bak` the list does not show.
+        let tmp = tempdir("listed-from");
+        let user = tmp.join("user");
+        preset_at(&user.join("Rock.fac"), "Rock Concert", 11);
+        let mut store = PresetStore::with_dirs(Vec::new(), user.clone());
+        store.rescan();
+        let mut mine = Preset {
+            name: "Mine".into(),
+            ..Preset::default()
+        };
+        mine.main_midi[0] = 22;
+        store.save_as(&mine, "Mine").expect("save Mine");
+
+        let err = store.save_as(&mine, "Rock").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, file, .. }
+                if existing == "Rock Concert" && file == "Rock.fac"),
+            "{err}"
+        );
+        let err = store.rename("Mine", "Rock").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Rock Concert"),
+            "{err}"
+        );
+
+        let kept = crate::load(&user.join("Rock.fac")).expect("Rock Concert's file");
+        assert_eq!(
+            (kept.name.as_str(), kept.main_midi[0]),
+            ("Rock Concert", 11)
+        );
+        let mut names: Vec<_> = store.entries().iter().map(|e| e.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["Mine", "Rock Concert"]);
+        assert!(
+            !user.join("Rock.fac.bak").exists(),
+            "nothing was overwritten"
+        );
+        assert!(
+            !user.join("Rock.fac.1.bak").exists(),
+            "nothing was set aside"
+        );
+        assert_eq!(store.load("Mine").expect("Mine").0.main_midi[0], 22);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_name_that_differs_from_a_listed_one_only_in_case_is_its_file() {
+        // NTFS folds case: `JAZZ.fac` is `Jazz.fac`. A user preset "JAZZ" beside the factory Jazz,
+        // put there by hand or brought over from Linux, is replaced by the user's own copy of the
+        // factory Jazz, which `save_as` writes to `Jazz.fac`.
+        let tmp = tempdir("case-folds");
+        let mut store = store_in(&tmp);
+        preset_at(&tmp.join("JAZZ.fac"), "JAZZ", 11);
+        store.rescan();
+        let (jazz, _) = store.load("Jazz").expect("the factory Jazz");
+        let err = store.save_as(&jazz, "Jazz").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "JAZZ"),
+            "{err}"
+        );
+        let kept = crate::load(&tmp.join("JAZZ.fac")).expect("JAZZ's file");
+        assert_eq!((kept.name.as_str(), kept.main_midi[0]), ("JAZZ", 11));
+
+        // A new name that differs from the factory Music only in case has no file to take yet, but
+        // it would share Music's autosave and export: `MUSIC.fac` is `Music.fac` there too.
+        let err = store.save_as(&jazz, "MUSIC").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Music"),
+            "{err}"
+        );
+        assert!(store.find("MUSIC").is_none());
+
+        // A rename onto another preset's name in another case is refused; onto its own, allowed.
+        let err = store.rename("JAZZ", "music").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Music"),
+            "{err}"
+        );
+        store.rename("JAZZ", "Jazz Two").expect("a name of its own");
+        store
+            .rename("Jazz Two", "JAZZ TWO")
+            .expect("its own name in another case");
+        assert!(store.find("JAZZ TWO").is_some());
+    }
+
     /// A preset called `name` whose first main value is `main0`, written to `path` as it is.
     fn preset_at(path: &Path, name: &str, main0: u8) -> Preset {
         let mut preset = Preset {
@@ -1355,6 +1497,7 @@ mod tests {
 
     /// The user directory as 0.3.0 left a preset saved from its window: the file under the name
     /// as written, `Rock:Live.fac`, and its unsaved edits under the same name in `AutoSave/`.
+    #[cfg(unix)]
     fn as_0_3_0_left_it(tag: &str) -> (ScratchDir, PresetStore) {
         let tmp = tempdir(tag);
         let user = tmp.join("user");
@@ -1365,6 +1508,8 @@ mod tests {
         (tmp, store)
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn the_unsaved_edits_0_3_0_kept_under_a_name_as_written_are_found() {
         let (_tmp, store) = as_0_3_0_left_it("legacy-autosave-found");
@@ -1377,6 +1522,8 @@ mod tests {
         assert_eq!(loaded.main_midi[0], 77);
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn a_user_preset_is_saved_over_the_file_it_is_listed_from_whatever_that_is_called() {
         // 0.3.0 filed "Rock:Live" as `Rock:Live.fac`. The save went to `RockLive.fac`, the list
@@ -1425,6 +1572,101 @@ mod tests {
         assert_eq!(store.load("Evening Jazz").expect("load").0.main_midi[0], 6);
     }
 
+    /// `path` as a name a hand-copied file could carry that a path join reads as rooted: on
+    /// Windows without its drive, `\Users\…`, which `join` puts on the joined directory's own
+    /// drive; elsewhere as it is, `/tmp/…`.
+    fn rooted_name(path: &Path) -> String {
+        let mut components = path.components();
+        if let Some(std::path::Component::Prefix(_)) = components.clone().next() {
+            components.next();
+        }
+        components
+            .as_path()
+            .to_str()
+            .expect("a scratch path in UTF-8")
+            .to_owned()
+    }
+
+    #[test]
+    fn a_name_that_is_a_path_never_reaches_a_file_but_its_own() {
+        // A preset is listed by the name its file carries, and a hand-copied file can carry any:
+        // on Windows `..\`, `x\..\` and a leading `\` are path syntax. Joined onto `AutoSave/` as
+        // the name of an autosave 0.3.0 left, such a name reached out of it — to the user's own
+        // preset beside it, to another preset's unsaved edits, anywhere on the drive — and the
+        // file found there was the preset's unsaved edits: listed with a `*`, removed for good by
+        // the next autosave or undo, sent to the trash by a delete, moved away by a rename.
+        //
+        // Up out of `AutoSave/`, to the user's own Rock beside it.
+        a_path_name_reaches_nothing("parent", |_| r"..\Rock".to_owned());
+        // Into `AutoSave/` and back out of a directory that is not there, to Rock's own edits.
+        a_path_name_reaches_nothing("through", |_| r"x\..\Rock".to_owned());
+        // From the top of the drive, to anywhere on it.
+        a_path_name_reaches_nothing("rooted", |outside| rooted_name(&outside.join("Rock")));
+        // The same with the separator Unix has too, refused there from the start.
+        a_path_name_reaches_nothing("parent-slash", |_| "../Rock".to_owned());
+        a_path_name_reaches_nothing("through-slash", |_| "x/../Rock".to_owned());
+    }
+
+    /// A user directory holding the preset Rock and its unsaved edits, a file of the same name
+    /// outside it, and a hand-copied preset whose name, `name(outside)`, is a path to one of the
+    /// three; then everything the store does to that preset, after each of which the three are
+    /// as they were.
+    fn a_path_name_reaches_nothing(tag: &str, name: impl Fn(&Path) -> String) {
+        let tmp = tempdir(&format!("path-name-{tag}"));
+        let user = tmp.join("user");
+        let outside = tmp.join("outside");
+        let name = name(&outside);
+        preset_at(&user.join("Rock.fac"), "Rock", 11);
+        preset_at(&user.join("AutoSave/Rock.fac"), "Rock", 55);
+        preset_at(&outside.join("Rock.fac"), "Rock", 33);
+        preset_at(&user.join("from a forum.fac"), &name, 99);
+        let mut store =
+            PresetStore::with_dirs(Vec::new(), user.clone()).with_trash(tmp.join("Trash"));
+        store.rescan();
+        let untouched = |after: &str| {
+            for (file, main0) in [
+                (user.join("Rock.fac"), 11),
+                (user.join("AutoSave/Rock.fac"), 55),
+                (outside.join("Rock.fac"), 33),
+            ] {
+                assert_eq!(
+                    crate::load(&file).ok().map(|preset| preset.main_midi[0]),
+                    Some(main0),
+                    "{name:?}, after {after}: {}",
+                    file.display()
+                );
+            }
+        };
+
+        assert!(
+            !store.find(&name).expect("listed").modified,
+            "{name:?}: no unsaved edits of its own"
+        );
+        let (mut preset, from_autosave) = store.load(&name).expect("load");
+        assert!(!from_autosave, "{name:?}");
+        assert_eq!(preset.main_midi[0], 99, "{name:?}: its own values");
+        untouched("the listing");
+
+        preset.main_midi[0] = 98;
+        store.autosave(&preset).expect("autosave");
+        untouched("an autosave");
+        store.rescan();
+        let (edited, from_autosave) = store.load(&name).expect("load the edits");
+        assert!(from_autosave, "{name:?}");
+        assert_eq!(edited.main_midi[0], 98, "{name:?}: its own edits");
+
+        store.clear_autosave(&name);
+        untouched("an undo");
+        store.rename(&name, "Renamed").expect("rename away");
+        untouched("a rename away");
+        store.rename("Renamed", &name).expect("rename back");
+        untouched("a rename onto the name");
+        store.delete(&name).expect("delete").expect("it was listed");
+        untouched("a delete");
+    }
+
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn the_next_autosave_moves_0_3_0_edits_to_the_names_own_file() {
         let (tmp, store) = as_0_3_0_left_it("legacy-autosave-moves");
@@ -1447,6 +1689,8 @@ mod tests {
         assert_eq!(loaded.main_midi[0], 55);
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn undoing_or_deleting_a_preset_takes_its_0_3_0_edits_with_it() {
         let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-clear");
@@ -1471,6 +1715,8 @@ mod tests {
         );
     }
 
+    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    #[cfg(unix)]
     #[test]
     fn a_rename_brings_the_0_3_0_edits_along_and_never_takes_over_another_names() {
         let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-rename");
@@ -1919,6 +2165,9 @@ mod tests {
         );
     }
 
+    // Unix only: Windows cannot name the source `Mu:sic?.fac` to begin with; the sanitiser's own
+    // tests cover the name on every system.
+    #[cfg(unix)]
     #[test]
     fn an_imported_file_is_saved_under_a_name_windows_can_file_and_carries_it_inside() {
         // 0.4.0 audit #15: `a:b.fac` became `ab.fac` with `a:b` inside it.

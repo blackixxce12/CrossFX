@@ -510,6 +510,7 @@ mod tests {
         ))
     }
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::symlink_metadata(path)
@@ -519,6 +520,51 @@ mod tests {
             & 0o7777
     }
 
+    /// The Windows twin of the volume-trash tests below: Windows has no per-volume trash a store
+    /// could lay out, so a store's trash on another drive sets the file aside, and nothing is made
+    /// at the top of the preset's drive.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_on_another_drive_than_the_stores_trash_is_set_aside_beside_itself() {
+        let dir = scratch("volume");
+        let (topdir, preset) = on_another_volume(&dir);
+        let went =
+            discard_to(&preset, elsewhere(), move_to_volume_trash).expect("kept as a backup");
+        assert_eq!(
+            went,
+            Discarded::Backup(topdir.join("Music presets/Rock.fac.1.bak"))
+        );
+        assert!(!preset.exists(), "gone from its own name");
+        assert_eq!(
+            std::fs::read(topdir.join("Music presets/Rock.fac.1.bak")).unwrap(),
+            b"CLASS1"
+        );
+        assert_eq!(
+            std::fs::read_dir(&topdir).unwrap().count(),
+            1,
+            "no trash made beside the presets"
+        );
+    }
+
+    /// Windows compares volumes by drive letter or share, whatever their case, so a trash spelt
+    /// `c:\...` is on the drive of a preset under `C:\...`.
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_letter_names_one_volume_whatever_its_case() {
+        let dir = scratch("same-drive");
+        let file = dir.join("Rock.fac");
+        std::fs::write(&file, b"CLASS1").unwrap();
+        let canonical = std::fs::canonicalize(&*dir).unwrap();
+        let lower = PathBuf::from(canonical.to_string_lossy().to_lowercase());
+        let upper = PathBuf::from(canonical.to_string_lossy().to_uppercase());
+        assert!(same_device(&file, &lower).unwrap());
+        assert!(same_device(&file, &upper).unwrap());
+        assert!(same_device(&file, &dir).unwrap());
+    }
+
+    // Unix only: per-volume `.Trash-$uid` trashes are FreeDesktop's; Windows sets the file aside
+    // (the twin above).
+    #[cfg(unix)]
     #[test]
     fn a_file_on_another_filesystem_goes_to_that_volumes_trash_with_its_path_from_the_top() {
         let dir = scratch("volume");
@@ -546,6 +592,8 @@ mod tests {
         );
     }
 
+    // Unix only: the sticky bit and uids are Unix's.
+    #[cfg(unix)]
     #[test]
     fn a_shared_trash_with_the_sticky_bit_takes_the_file_under_the_users_number() {
         use std::os::unix::fs::PermissionsExt as _;
@@ -560,6 +608,8 @@ mod tests {
         assert!(!topdir.join(format!(".Trash-{uid}")).exists());
     }
 
+    // Unix only: the sticky bit, uids and a shared trash behind a symbolic link are Unix's.
+    #[cfg(unix)]
     #[test]
     fn a_shared_trash_without_the_sticky_bit_or_behind_a_link_is_passed_over() {
         use std::os::unix::fs::PermissionsExt as _;
@@ -589,6 +639,8 @@ mod tests {
         assert_eq!(std::fs::read_dir(&real).unwrap().count(), 0);
     }
 
+    // Unix only: per-volume trashes owned by a uid are Unix's.
+    #[cfg(unix)]
     #[test]
     fn a_volume_trash_that_is_a_link_or_someone_elses_is_refused_and_the_file_set_aside() {
         let uid = own_uid().expect("our uid");
@@ -633,6 +685,9 @@ mod tests {
         assert!(matches!(went, Discarded::Backup(_)), "{went:?}");
     }
 
+    // Unix only: device numbers and mount points are Unix's; Windows compares drive prefixes
+    // (`a_drive_letter_names_one_volume_whatever_its_case`).
+    #[cfg(unix)]
     #[test]
     fn the_mount_point_is_the_highest_directory_still_on_the_same_device() {
         use std::os::unix::fs::MetadataExt as _;

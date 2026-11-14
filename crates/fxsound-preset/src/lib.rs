@@ -61,10 +61,12 @@ pub enum PresetError {
     #[error("no preset named {0:?}")]
     Unknown(String),
     /// A name whose file is already another listed preset's. The two names differ only in
-    /// characters a filename cannot hold — `Mu:sic` and `Music` are both `Music.fac` — so writing
-    /// the second would replace the first's file, or share its autosave when the first is a
-    /// factory preset kept under a numbered name, and the list would show one name where two had
-    /// been saved. [`crate::Store::save_as`] refuses it instead.
+    /// characters a filename cannot hold — `Mu:sic` and `Music` are both `Music.fac` — or, on
+    /// Windows, whose NTFS folds case, only in case; or the file is there already and listed
+    /// under the name inside it, as a hand-copied `Rock.fac` that calls itself "Rock Concert" is.
+    /// Writing the second would replace the first's file, or share its autosave when the first is
+    /// a factory preset kept under a numbered name, and the list would show one name where two
+    /// had been saved. [`crate::Store::save_as`] and [`crate::Store::rename`] refuse it instead.
     #[error("{name:?} and {existing:?} would share the file {file}")]
     SharedFile {
         name: String,
@@ -224,6 +226,55 @@ fn install_data_dirs_for(exe: Option<&std::path::Path>) -> Vec<std::path::PathBu
     prefixes
         .into_iter()
         .map(|prefix| prefix.join("share/fxsound"))
+        .collect()
+}
+
+/// The checkout a binary at `exe` runs from, if it runs from one: `<root>/target/<profile>/fxsound`
+/// with `Cargo.toml` a file in `<root>` and `assets/presets` a directory. Its presets are then the
+/// ones a developer gets, before any an installed package left: both stores search it first
+/// (`PresetStore::with_default_dirs`, [`input::InputPreset::default_dirs`]).
+///
+/// Three directories above the binary is not by itself a checkout. Above the Windows installer's
+/// `C:\Program Files\FxSound Port\fxsound.exe` it is `C:\`, where every signed-in user may make
+/// a folder, so an `assets\presets` made there stood in for the installed presets of every user
+/// of the machine. A file is another matter: by the rights Windows gives `C:\`, only an
+/// administrator may make one there, as on Unix only root may in `/` or `/usr`. So `Cargo.toml`
+/// has to be a file, not just there under that name. It is the rule `fxsound --self-test` tells a
+/// development build from an installed one by, so the two agree on which this is.
+#[must_use]
+pub fn source_tree_of(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let root = exe.parent()?.parent()?.parent()?;
+    (root.join("Cargo.toml").is_file() && root.join("assets").join("presets").is_dir())
+        .then(|| root.to_path_buf())
+}
+
+/// Every directory the shipped presets of each of `kinds` — `Factsoft`, `BonusPresets`, `Input` —
+/// are looked for in, in search order: the checkout's when the binary runs from one
+/// ([`source_tree_of`]), so that a developer running out of `target/release` gets the presets in
+/// the working tree rather than the ones an installed package left behind; then each install
+/// prefix's, the binary's own first ([`install_data_dirs`]).
+///
+/// The one list both stores search, the `.fac` one ([`Store`]) and the voice one
+/// ([`input::InputPreset::default_dirs`]), so the rule for what counts as a checkout lives in
+/// one place.
+pub(crate) fn shipped_preset_dirs(kinds: &[&str]) -> Vec<std::path::PathBuf> {
+    shipped_preset_dirs_for(std::env::current_exe().ok().as_deref(), kinds)
+}
+
+/// [`shipped_preset_dirs`] for a binary at `exe`.
+fn shipped_preset_dirs_for(
+    exe: Option<&std::path::Path>,
+    kinds: &[&str],
+) -> Vec<std::path::PathBuf> {
+    let checkout = exe.and_then(source_tree_of).map(|root| root.join("assets"));
+    checkout
+        .into_iter()
+        .chain(install_data_dirs_for(exe))
+        .flat_map(|data| {
+            kinds
+                .iter()
+                .map(move |kind| data.join("presets").join(kind))
+        })
         .collect()
 }
 
@@ -1081,6 +1132,8 @@ Band 10
         install_data_dirs_for(Some(std::path::Path::new(exe)))
     }
 
+    // Not on Windows, which installs FxSound in one folder (the twin below).
+    #[cfg(not(windows))]
     #[test]
     fn a_binary_under_usr_local_takes_its_own_presets_before_a_packages_under_usr() {
         // The tarball's binary beside a distribution package: the package's presets may be an
@@ -1091,6 +1144,8 @@ Band 10
         );
     }
 
+    // Not on Windows, which installs FxSound in one folder (the twin below).
+    #[cfg(not(windows))]
     #[test]
     fn a_binary_under_usr_takes_its_own_presets_before_those_under_usr_local() {
         assert_eq!(
@@ -1099,6 +1154,8 @@ Band 10
         );
     }
 
+    // Not on Windows, which installs FxSound in one folder (the twin below).
+    #[cfg(not(windows))]
     #[test]
     fn a_binary_under_neither_prefix_searches_usr_then_usr_local() {
         for exe in [
@@ -1117,5 +1174,123 @@ Band 10
             ["/usr/share/fxsound", "/usr/local/share/fxsound"].map(std::path::PathBuf::from),
             "no executable path to go by"
         );
+    }
+
+    /// Windows: the factory presets are where the installer put `fxsound.exe`, wherever that is,
+    /// and nowhere else; with no executable path to go by, nowhere.
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_binary_takes_the_presets_installed_beside_it() {
+        assert_eq!(
+            data_dirs_for(r"C:\Program Files\FxSound\fxsound.exe"),
+            [std::path::PathBuf::from(r"C:\Program Files\FxSound")]
+        );
+        assert_eq!(
+            data_dirs_for(r"D:\Portable\FxSound\fxsound.exe"),
+            [std::path::PathBuf::from(r"D:\Portable\FxSound")]
+        );
+        assert_eq!(
+            install_data_dirs_for(None),
+            Vec::<std::path::PathBuf>::new()
+        );
+    }
+
+    #[test]
+    fn a_checkout_is_a_cargo_toml_file_and_the_presets_three_directories_above_the_binary() {
+        let this_one = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        assert!(source_tree_of(&this_one.join("target/release/fxsound")).is_some());
+
+        let tmp = fxsound_core::test_support::ScratchDir::new("preset-source-tree");
+        let root = tmp.join("root");
+        let exe = root.join("target").join("release").join("fxsound");
+        std::fs::create_dir_all(root.join("assets").join("presets").join("Factsoft"))
+            .expect("mkdir");
+        assert_eq!(
+            source_tree_of(&exe),
+            None,
+            "presets alone: any signed-in user may make the folders in C:\\"
+        );
+        std::fs::create_dir(root.join("Cargo.toml")).expect("mkdir");
+        assert_eq!(
+            source_tree_of(&exe),
+            None,
+            "nor is a folder named Cargo.toml, which anyone may make there too"
+        );
+        std::fs::remove_dir(root.join("Cargo.toml")).expect("rmdir");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\n").expect("write");
+        assert_eq!(source_tree_of(&exe), Some(root.clone()));
+        std::fs::remove_dir_all(root.join("assets")).expect("rm");
+        assert_eq!(source_tree_of(&exe), None, "a manifest without presets");
+        assert_eq!(
+            source_tree_of(std::path::Path::new("fxsound")),
+            None,
+            "nothing three directories up to look at"
+        );
+    }
+
+    #[test]
+    fn the_shipped_presets_are_looked_for_in_a_checkout_only_when_the_binary_runs_from_one() {
+        // Three directories above `C:\Program Files\FxSound Port\fxsound.exe` is `C:\`, where any
+        // signed-in user may make `assets\presets\Factsoft`: searched before the installed
+        // presets, a folder made there stood in for them for every user of the machine.
+        let tmp = fxsound_core::test_support::ScratchDir::new("preset-shipped-dirs");
+        let root = tmp.join("root");
+        let exe = root
+            .join("Program Files")
+            .join("FxSound Port")
+            .join("fxsound.exe");
+        let presets = root.join("assets").join("presets");
+        for kind in ["Factsoft", "BonusPresets", "Input"] {
+            std::fs::create_dir_all(presets.join(kind)).expect("mkdir");
+        }
+        let installed = install_data_dirs_for(Some(&exe)).len();
+
+        let fac = shipped_preset_dirs_for(Some(&exe), &["Factsoft", "BonusPresets"]);
+        let voice = shipped_preset_dirs_for(Some(&exe), &["Input"]);
+        assert_eq!(fac.len(), 2 * installed, "{fac:?}");
+        assert_eq!(voice.len(), installed, "{voice:?}");
+        assert!(
+            fac.iter()
+                .chain(&voice)
+                .all(|dir| !dir.starts_with(&presets)),
+            "{fac:?} {voice:?}"
+        );
+
+        // A checkout's presets come first, then the same installed ones.
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\n").expect("write");
+        let fac_in_checkout = shipped_preset_dirs_for(Some(&exe), &["Factsoft", "BonusPresets"]);
+        assert_eq!(
+            fac_in_checkout[..2],
+            [presets.join("Factsoft"), presets.join("BonusPresets")]
+        );
+        assert_eq!(fac_in_checkout[2..], fac);
+        let voice_in_checkout = shipped_preset_dirs_for(Some(&exe), &["Input"]);
+        assert_eq!(voice_in_checkout[..1], [presets.join("Input")]);
+        assert_eq!(voice_in_checkout[1..], voice);
+    }
+
+    #[test]
+    fn both_stores_search_a_checkout_only_when_there_is_one() {
+        // A test binary lives inside `target` (`<profile>/deps/…`, or deeper where Cargo keeps its
+        // build directory apart), so three directories above it is somewhere in `target`, which
+        // is no checkout: neither store may look in `assets/presets` there.
+        let exe = std::env::current_exe().expect("the test binary");
+        let above = exe
+            .parent()
+            .and_then(std::path::Path::parent)
+            .and_then(std::path::Path::parent)
+            .expect("three directories above the test binary");
+        assert_eq!(source_tree_of(&exe), None);
+        let assets = above.join("assets");
+        let fac = PresetStore::with_default_dirs().factory_dirs().to_vec();
+        let voice = input::InputPreset::default_dirs();
+        assert!(
+            fac.iter()
+                .chain(&voice)
+                .all(|dir| !dir.starts_with(&assets)),
+            "{fac:?} {voice:?}"
+        );
+        assert_eq!(fac, shipped_preset_dirs(&["Factsoft", "BonusPresets"]));
+        assert_eq!(voice, shipped_preset_dirs(&["Input"]));
     }
 }

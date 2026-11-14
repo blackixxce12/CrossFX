@@ -415,7 +415,10 @@ impl Settings {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 return Self::sanitised_default();
             }
-            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory => {
+            // Not only EISDIR: Windows refuses to open any directory as a file with "access
+            // denied", and Unix one this user may not read with EACCES. Both are PermissionDenied,
+            // so whether it is a directory is asked of the path itself, on every system.
+            Err(err) if err.kind() == std::io::ErrorKind::IsADirectory || path.is_dir() => {
                 log::warn!("{}: {err}; using defaults", path.display());
                 return Self::sanitised_default();
             }
@@ -1369,13 +1372,11 @@ input_preset = \"Headset\"
 
     #[test]
     fn a_settings_file_this_user_may_not_read_is_moved_aside_rather_than_replaced() {
-        use std::os::unix::fs::PermissionsExt as _;
-
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("settings.toml");
         let text = "output_preset = \"Jazz\"\n";
         std::fs::write(&path, text).expect("write");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        assert!(crate::atomic::tests::forbid_reading(&path), "chmod");
         if std::fs::read(&path).is_ok() {
             // Root reads a mode-000 file anyway, so there is no unreadable file to test with.
             return;
@@ -1389,7 +1390,7 @@ input_preset = \"Headset\"
         );
 
         loaded_defaults().save_to(&path).expect("save");
-        std::fs::set_permissions(&aside, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        assert!(crate::atomic::tests::allow_reading(&aside), "chmod");
         assert_eq!(
             std::fs::read_to_string(&aside).expect("readable once allowed"),
             text,
@@ -1413,6 +1414,36 @@ input_preset = \"Headset\"
             std::fs::read_to_string(path.join("notes")).expect("still there"),
             "mine"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_this_user_may_not_read_in_the_settings_files_place_is_left_where_it_is() {
+        // Opening a directory this user may not read fails with EACCES, not EISDIR: 0.5.0 took
+        // that for an unreadable file and moved the directory aside as `settings.toml.bad`. It is
+        // a directory all the same, and is left where it is, as a readable one is.
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.toml");
+        let aside = Settings::bad_path(&path);
+        std::fs::create_dir(&path).expect("create");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        if std::fs::read_dir(&path).is_ok() {
+            // Root reads a mode-000 directory anyway, which is the readable case again.
+            eprintln!("note: {} is readable to this user", path.display());
+        }
+
+        let loaded = Settings::load_from(&path);
+        let left = path.is_dir();
+        let moved = aside.exists();
+        // Searchable again wherever it is, or the scratch directory cannot be removed.
+        for place in [&path, &aside] {
+            let _ = std::fs::set_permissions(place, std::fs::Permissions::from_mode(0o700));
+        }
+        assert_eq!(loaded, loaded_defaults());
+        assert!(left, "the directory is still in the file's place");
+        assert!(!moved, "and was not moved aside");
     }
 
     #[test]
@@ -1457,7 +1488,9 @@ input_preset = \"Headset\"
         let mut original = loaded_defaults();
         original.output_preset = "Rock".into();
         original.save_to(&real).expect("save the dotfiles copy");
-        std::os::unix::fs::symlink(&real, &link).expect("link");
+        let Some(()) = crate::atomic::tests::symlink(&real, &link) else {
+            return;
+        };
 
         let mut settings = Settings::load_from(&link);
         assert_eq!(settings.output_preset, "Rock");

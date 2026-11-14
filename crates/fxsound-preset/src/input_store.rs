@@ -444,6 +444,79 @@ mod tests {
         assert_eq!(InputPreset::load(&path).expect("reload").makeup_db, 2.0);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_second_calibration_never_replaces_the_first_renamed_in_another_case() {
+        // The calibration wizard saves "Calibrated — <microphone>" and finds an earlier one by its
+        // exact name. Renamed to differ only in case, the earlier preset is not that name, but on
+        // NTFS it is that file: the second calibration replaced it, and it left the list, kept
+        // only in a `.bak` the next save of the file writes over.
+        let tmp = tempdir("calibrated-case");
+        let mut store = InputPresetStore::with_dirs(Vec::new(), tmp.join("user"));
+        let mut first = named("Calibrated — USB Mic");
+        first.makeup_db = 1.0;
+        store
+            .save_as(&first, "Calibrated — USB Mic")
+            .expect("the first calibration");
+        store
+            .rename("Calibrated — USB Mic", "calibrated — usb mic")
+            .expect("a rename that changes only case");
+
+        let mut second = named("Calibrated — USB Mic");
+        second.makeup_db = 2.0;
+        let err = store.save_as(&second, "Calibrated — USB Mic").unwrap_err();
+        assert!(
+            matches!(&err, Error::SharedFile { existing, .. } if existing == "calibrated — usb mic"),
+            "{err}"
+        );
+        let (kept, _) = store
+            .load("calibrated — usb mic")
+            .expect("the renamed preset is still listed");
+        assert_eq!(kept.makeup_db, 1.0, "and still holds its own values");
+        assert!(store.find("Calibrated — USB Mic").is_none());
+        assert!(
+            !tmp.join("user/Calibrated — USB Mic.toml.bak").exists(),
+            "nothing was overwritten"
+        );
+    }
+
+    #[test]
+    fn a_voice_presets_name_that_is_a_path_never_reaches_another_presets_files() {
+        // The `.fac` store's rule on this side: `Input\AutoSave\..\Mine.toml` is the user's own
+        // Mine, and `Input\AutoSave\x\..\Mine.toml` its unsaved edits.
+        for name in [r"..\Mine", r"x\..\Mine", "../Mine", "x/../Mine"] {
+            let tmp = tempdir("path-name");
+            let mut store = InputPresetStore::with_dirs(Vec::new(), tmp.join("user"));
+            let mut mine = named("Mine");
+            mine.makeup_db = 1.0;
+            store.save_as(&mine, "Mine").expect("save Mine");
+            mine.makeup_db = 2.0;
+            store.autosave(&mine).expect("Mine's unsaved edits");
+            named(name)
+                .save(&tmp.join("user/from a forum.toml"))
+                .expect("a hand-copied preset");
+            store.rescan();
+
+            assert!(!store.find(name).expect("listed").modified, "{name:?}");
+            let (preset, from_autosave) = store.load(name).expect("load");
+            assert!(!from_autosave, "{name:?}");
+            store.autosave(&preset).expect("autosave");
+            store.clear_autosave(name);
+            store.delete(name).expect("delete").expect("it was listed");
+
+            assert_eq!(
+                InputPreset::load(&tmp.join("user/Mine.toml"))
+                    .expect("Mine is still there")
+                    .makeup_db,
+                1.0,
+                "{name:?}"
+            );
+            let (mine, from_autosave) = store.load("Mine").expect("load Mine");
+            assert!(from_autosave, "{name:?}: Mine keeps its unsaved edits");
+            assert_eq!(mine.makeup_db, 2.0, "{name:?}");
+        }
+    }
+
     #[test]
     fn a_user_file_that_will_not_parse_does_not_hide_the_rest() {
         // The 0.3.0 loader gave up on the whole directory at the first bad file. With a directory

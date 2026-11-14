@@ -97,8 +97,14 @@
 //! | `FXSOUND_BITEXACT_EXCEPT` | none | presets (`dir/stem`, comma-separated) whose differences are reported and do not fail |
 
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::{OsStr, OsString};
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+// The two sides talk over a Unix socket; Windows' std has none, so there they talk over a TCP
+// connection on the loopback interface instead, which carries the same bytes.
+#[cfg(windows)]
+use std::net::{TcpListener as Listener, TcpStream as Stream};
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener as Listener, UnixStream as Stream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -473,7 +479,7 @@ fn get_request(input: &mut impl Read) -> Option<(Request, Option<Vec<f32>>)> {
 
 /// Serve the working tree: render each request it sends and send the render back, one thread per
 /// connection, until it hangs up.
-fn serve(socket: &Path) {
+fn serve(socket: &OsStr) {
     let workers: usize = std::env::var(WORKERS_VAR)
         .ok()
         .and_then(|n| n.parse().ok())
@@ -481,8 +487,8 @@ fn serve(socket: &Path) {
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
-                let stream = UnixStream::connect(socket)
-                    .unwrap_or_else(|err| panic!("{}: {err}", socket.display()));
+                let stream =
+                    connect(socket).unwrap_or_else(|err| panic!("{}: {err}", socket.display()));
                 let mut input = BufReader::new(stream.try_clone().expect("a second handle"));
                 let mut output = BufWriter::new(stream);
                 let mut materials: HashMap<u32, Vec<f32>> = HashMap::new();
@@ -668,20 +674,62 @@ fn compare(
     }
 }
 
+#[cfg(unix)]
 fn socket_path() -> PathBuf {
     // A socket's path has to fit 108 bytes, which a checkout's target directory need not.
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
     dir.join(format!("fxsound-bitexact-{}.sock", std::process::id()))
 }
 
-/// The bound socket's file, removed when this goes out of scope: after every worker connected,
-/// or when anything on the way there panics, so that no run leaves a socket behind.
-struct SocketFile(PathBuf);
+/// Where the reference build connects, as [`SERVE_VAR`] tells it: the bound socket's path on
+/// Unix, whose file is removed when this goes out of scope — after every worker connected, or
+/// when anything on the way there panics, so that no run leaves a socket behind; on Windows the
+/// listener's loopback address and port, which leave nothing behind.
+struct SocketFile(OsString);
 
 impl Drop for SocketFile {
     fn drop(&mut self) {
+        #[cfg(unix)]
         let _ = std::fs::remove_file(&self.0);
     }
+}
+
+/// Listen where the reference build can connect.
+#[cfg(unix)]
+fn listen() -> (Listener, SocketFile) {
+    let socket = socket_path();
+    let _ = std::fs::remove_file(&socket);
+    let listener =
+        Listener::bind(&socket).unwrap_or_else(|err| panic!("{}: {err}", socket.display()));
+    (listener, SocketFile(socket.into_os_string()))
+}
+
+/// Listen where the reference build can connect: a port the system picks on the loopback
+/// interface, which nothing off this machine reaches.
+#[cfg(windows)]
+fn listen() -> (Listener, SocketFile) {
+    let listener = Listener::bind(("127.0.0.1", 0)).expect("a loopback port");
+    let address = listener.local_addr().expect("the bound address");
+    (listener, SocketFile(address.to_string().into()))
+}
+
+/// Connect to the working tree at `socket`, as [`SocketFile`] names it.
+#[cfg(unix)]
+fn connect(socket: &OsStr) -> std::io::Result<Stream> {
+    Stream::connect(socket)
+}
+
+/// Connect to the working tree at `socket`, as [`SocketFile`] names it. Nagle's algorithm is off:
+/// each request and each render is one flush, which it would hold back waiting for an
+/// acknowledgement.
+#[cfg(windows)]
+fn connect(socket: &OsStr) -> std::io::Result<Stream> {
+    let address = socket
+        .to_str()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "not an address"))?;
+    let stream = Stream::connect(address)?;
+    stream.set_nodelay(true)?;
+    Ok(stream)
 }
 
 /// How long the reference build has to connect all its workers.
@@ -691,11 +739,11 @@ const CONNECT_DEADLINE: Duration = Duration::from_mins(5);
 /// without the test, one that panics at startup — or that does not connect within
 /// [`CONNECT_DEADLINE`] fails the test instead of hanging it.
 fn connections(
-    listener: &UnixListener,
+    listener: &Listener,
     child: &mut Child,
     reference: &Path,
     workers: usize,
-) -> Vec<UnixStream> {
+) -> Vec<Stream> {
     listener
         .set_nonblocking(true)
         .expect("a listener that does not block");
@@ -707,6 +755,10 @@ fn connections(
                 stream
                     .set_nonblocking(false)
                     .expect("a connection that blocks");
+                #[cfg(windows)]
+                stream
+                    .set_nodelay(true)
+                    .expect("a connection without delay");
                 streams.push(stream);
             }
             Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
@@ -806,11 +858,7 @@ fn run_against(reference: &Path) {
     let workers = std::thread::available_parallelism()
         .map_or(1, std::num::NonZero::get)
         .min(cases.len());
-    let socket = socket_path();
-    let _ = std::fs::remove_file(&socket);
-    let listener =
-        UnixListener::bind(&socket).unwrap_or_else(|err| panic!("{}: {err}", socket.display()));
-    let socket_file = SocketFile(socket);
+    let (listener, socket_file) = listen();
     let mut child = Command::new(reference)
         .args([TEST_NAME, "--exact", "--ignored", "--test-threads", "1"])
         .env(SERVE_VAR, &socket_file.0)
@@ -1021,7 +1069,7 @@ fn excepted() -> Vec<String> {
 #[ignore = "takes a reference build: scripts/windows-parity-bitexact.sh"]
 fn every_shipped_preset_renders_as_the_reference_build_renders_it() {
     if let Some(socket) = std::env::var_os(SERVE_VAR) {
-        serve(Path::new(&socket));
+        serve(&socket);
         return;
     }
     let reference = std::env::var_os(REFERENCE_VAR).unwrap_or_else(|| {
