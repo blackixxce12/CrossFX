@@ -178,29 +178,13 @@ pub type PresetStore = Store<Preset>;
 impl Store<Preset> {
     /// Build a store from the standard locations.
     ///
-    /// Factory presets are looked for next to the executable and in the usual install prefixes, so
-    /// the binary works both from `cargo run` and from a package; of the prefixes, the one the
-    /// binary is installed under comes first ([`crate::install_data_dirs`]).
+    /// Factory presets are looked for in the checkout the binary runs from, when it runs from one
+    /// ([`crate::source_tree_of`]), and in the usual install prefixes, so the binary works both
+    /// from `cargo run` and from a package; of the prefixes, the one the binary is installed under
+    /// comes first ([`crate::install_data_dirs`]).
     #[must_use]
     pub fn with_default_dirs() -> Self {
-        let mut factory_dirs = Vec::new();
-
-        // Running from the source tree.
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(target_dir) = exe
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-        {
-            factory_dirs.push(target_dir.join("assets/presets/Factsoft"));
-            factory_dirs.push(target_dir.join("assets/presets/BonusPresets"));
-        }
-        // Installed, the binary's own prefix first.
-        for data in crate::install_data_dirs() {
-            factory_dirs.push(data.join("presets/Factsoft"));
-            factory_dirs.push(data.join("presets/BonusPresets"));
-        }
-
+        let factory_dirs = crate::shipped_preset_dirs(&["Factsoft", "BonusPresets"]);
         Self::with_dirs(factory_dirs, Settings::user_preset_dir()).with_home_trash()
     }
 }

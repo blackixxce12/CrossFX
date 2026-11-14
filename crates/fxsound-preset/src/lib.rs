@@ -227,6 +227,82 @@ fn install_data_dirs_for(exe: Option<&std::path::Path>) -> Vec<std::path::PathBu
         .collect()
 }
 
+/// The checkout a binary at `exe` runs from, if it runs from one: `<root>/target/debug/fxsound` or
+/// `<root>/target/release/fxsound`, where `cargo build` and `cargo run` put it, with `Cargo.toml` a
+/// file in `<root>` and `assets/presets` a directory. Its presets are then the ones a developer
+/// gets, before any an installed package left: both stores search it first
+/// (`PresetStore::with_default_dirs`, [`input::InputPreset::default_dirs`]), and it is the rule
+/// `fxsound --self-test` tells a development build from an installed one by, so the two agree.
+///
+/// The directory names decide; the files only confirm that the checkout is there. A depth would
+/// not do: three directories above the Windows installers'
+/// `C:\Program Files\FxSound Port\fxsound.exe` is `C:\`, where every signed-in account may make a
+/// folder, and an `assets\presets` made there stood in for the installed presets of every account
+/// on the machine — a planted "General" or "Clean Voice", the default presets, played in their
+/// place, administrators' included. Nor would a `Cargo.toml` three directories up: only an
+/// administrator may make a file in `C:\`, but the root of a second drive formatted by Windows
+/// usually lets any account make one, and a copy from the .zip may be unpacked three levels below
+/// any folder. No installation has cargo's `target/<profile>` layout. (A cross build's
+/// `target/<triple>/<profile>/fxsound` is not recognised, and never was: three directories above
+/// it is `target`.)
+#[must_use]
+pub fn source_tree_of(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let profile = exe.parent()?;
+    let target = profile.parent()?;
+    let root = target.parent()?;
+    (is_named(profile, &["debug", "release"])
+        && is_named(target, &["target"])
+        && root.join("Cargo.toml").is_file()
+        && root.join("assets").join("presets").is_dir())
+    .then(|| root.to_path_buf())
+}
+
+/// Whether the last component of `dir` is one of `names`: exactly, except on Windows, whose file
+/// names are matched without regard to case, so that `Target\Release` is cargo's `target\release`.
+fn is_named(dir: &std::path::Path, names: &[&str]) -> bool {
+    dir.file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|name| {
+            names.iter().any(|want| {
+                if cfg!(windows) {
+                    name.eq_ignore_ascii_case(want)
+                } else {
+                    name == *want
+                }
+            })
+        })
+}
+
+/// Every directory the shipped presets of each of `kinds` — `Factsoft`, `BonusPresets`, `Input` —
+/// are looked for in, in search order: the checkout's when the binary runs from one
+/// ([`source_tree_of`]), so that a developer running out of `target/release` gets the presets in
+/// the working tree rather than the ones an installed package left behind; then each install
+/// prefix's, the binary's own first ([`install_data_dirs`]).
+///
+/// The one list both stores search, the `.fac` one ([`Store`]) and the voice one
+/// ([`input::InputPreset::default_dirs`]), so the rule for what counts as a checkout lives in
+/// one place.
+pub(crate) fn shipped_preset_dirs(kinds: &[&str]) -> Vec<std::path::PathBuf> {
+    shipped_preset_dirs_for(std::env::current_exe().ok().as_deref(), kinds)
+}
+
+/// [`shipped_preset_dirs`] for a binary at `exe`.
+fn shipped_preset_dirs_for(
+    exe: Option<&std::path::Path>,
+    kinds: &[&str],
+) -> Vec<std::path::PathBuf> {
+    let checkout = exe.and_then(source_tree_of).map(|root| root.join("assets"));
+    checkout
+        .into_iter()
+        .chain(install_data_dirs_for(exe))
+        .flat_map(|data| {
+            kinds
+                .iter()
+                .map(move |kind| data.join("presets").join(kind))
+        })
+        .collect()
+}
+
 /// Parse a `.fac` file.
 ///
 /// `bytes` rather than `&str` because the name line is raw UTF-8 written by a narrow `fprintf`
