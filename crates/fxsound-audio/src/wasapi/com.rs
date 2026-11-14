@@ -238,10 +238,12 @@ impl Drop for WaitEvent {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         // SAFETY: the handle `CreateEventW` returned, closed once. An audio client it was handed
-        // to (`SetEventHandle`) is released before this on every path: by the order of the fields
-        // of the stream that owns both once it is built, and on the open functions' early returns
-        // by the order of their locals — the event is made before the client, and locals drop in
-        // the reverse of the order they were made in.
+        // to (`SetEventHandle`) took a handle of its own to the event, which goes only when the
+        // client is released — checked live: the process holds one handle more after the call,
+        // and still holds it once this one is closed — so closing this one, before or after the
+        // client is released, takes nothing from a client that signals the event. The streams
+        // release their client first all the same, by the order of their fields and of the open
+        // functions' locals: tidiness, not what makes this sound.
         let _ = unsafe { CloseHandle(self.0) };
     }
 }
@@ -270,7 +272,8 @@ pub(crate) fn wait_any(events: &[&WaitEvent], timeout: Duration) -> Woken {
     for (slot, event) in handles.iter_mut().zip(events) {
         *slot = event.0;
     }
-    // SAFETY: every handle is an event this thread owns and keeps alive for the wait.
+    // SAFETY: every handle is an event's, alive for the wait: the caller holds each `WaitEvent`
+    // borrowed for it, and a `WaitEvent` closes its handle only when it is dropped.
     let woken = unsafe { WaitForMultipleObjects(&handles[..count], false, millis) };
     if woken == WAIT_TIMEOUT {
         Woken::TimedOut
@@ -870,7 +873,8 @@ impl CaptureStream {
         };
         // Event-driven first; a fresh client without the event when that is refused. The event is
         // made before the client, so that on every early return below the client — a local made
-        // after it — is released first (`WaitEvent`'s `Drop`).
+        // after it — is released first: tidiness, since the client holds a handle of its own to
+        // the event (`WaitEvent`'s `Drop`).
         let event = WaitEvent::new()?;
         let evented = device.client()?;
         // SAFETY: a fresh client; `pointer` points at a format that outlives the call (`mix` or
@@ -886,11 +890,11 @@ impl CaptureStream {
             )
         }
         .and_then(|()| {
-            // SAFETY: the client was initialised event-driven just now; the event outlives it on
-            // every path (declared before it here, after it in `Self`).
+            // SAFETY: the client was initialised event-driven just now, and takes a handle of its
+            // own to the event, live: closing `event`'s is no matter to it (`WaitEvent`'s `Drop`).
             unsafe { evented.SetEventHandle(event.0) }
         });
-        // `event` bound before `client`, so dropped after it on the early returns below.
+        // `event` bound before `client`, so dropped after it on the early returns below: tidiness.
         let (event, client) = match started {
             Ok(()) => (Some(event), evented),
             Err(error) => {
@@ -1027,7 +1031,8 @@ impl RenderStream {
     #[allow(unsafe_code)]
     pub(crate) fn open(device: &Device, format: &StreamFormat) -> windows_core::Result<Self> {
         // The event first, the client after it: on every early return below the client, the
-        // later local, is released before the event it was handed (`WaitEvent`'s `Drop`).
+        // later local, is released before the event it was handed — tidiness, since the client
+        // holds a handle of its own to the event (`WaitEvent`'s `Drop`).
         let event = WaitEvent::new()?;
         let client = device.client()?;
         let wave = format.to_wave_format();
@@ -1045,8 +1050,8 @@ impl RenderStream {
                 None,
             )
         }?;
-        // SAFETY: the client was initialised event-driven; the event outlives it on every path
-        // (declared before it here, after it in `Self`).
+        // SAFETY: the client was initialised event-driven, and takes a handle of its own to the
+        // event: closing `event`'s is no matter to it (`WaitEvent`'s `Drop`).
         unsafe { client.SetEventHandle(event.0) }?;
         // SAFETY: the client is initialised.
         let buffer = unsafe { client.GetBufferSize() }? as usize;
