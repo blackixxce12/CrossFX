@@ -261,28 +261,10 @@ mod tests {
 
     /// Every character of `text` the pane would draw as an empty box, each with its block.
     fn missing_glyphs(text: &str) -> Vec<String> {
-        // egui's `has_glyph` asks whether a character resolves to a face other than the one its
-        // replacement box `◻` comes from, which is exact only where that face holds nothing else.
-        // The body's chain ends in egui's own faces, whose NotoEmoji holds the box; the headings'
-        // chains stop at the Noto fallbacks, where the box falls back to Gilroy's own `?` and
-        // every letter would read as missing. So a heading face is probed through a copy of its
-        // chain with NotoEmoji put after it, and the body through a plain copy of its own: either
-        // way a character is found only in a face the pane draws with.
-        let probe =
-            |family: &egui::FontFamily| egui::FontFamily::Name(format!("probe {family:?}").into());
-        let mut definitions = theme::font_definitions();
-        for level in 1..=3 {
-            let family = heading_font(level).family;
-            let mut chain = definitions.families[&family].clone();
-            chain.push("NotoEmoji-Regular".to_owned());
-            definitions.families.insert(probe(&family), chain);
-        }
-        let family = body_font().family;
-        let chain = definitions.families[&family].clone();
-        definitions.families.insert(probe(&family), chain);
-
+        // egui's `has_glyph` follows a character down the family's chain to the face it lands on
+        // and asks that face for it, so a character is found only in a face the pane draws with.
         let ctx = egui::Context::default();
-        ctx.set_fonts(definitions);
+        ctx.set_fonts(theme::font_definitions());
         ctx.run_ui(egui::RawInput::default(), |_| {})
             .drop_without_applying_deltas();
         let mut missing = Vec::new();
@@ -293,7 +275,6 @@ mod tests {
                 Line::Text(text) => (body_font(), text),
                 Line::Blank => continue,
             };
-            let font = egui::FontId::new(font.size, probe(&font.family));
             ctx.fonts_mut(|fonts| {
                 for c in text.chars() {
                     if !c.is_whitespace() && !fonts.has_glyph(&font, c) {

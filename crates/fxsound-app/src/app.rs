@@ -686,6 +686,7 @@ impl App {
     #[must_use]
     pub fn new(engine: Option<EngineHandle>, waker: &crate::wake::Waker) -> Self {
         let settings = Settings::load();
+        crate::fonts::install(&settings, waker);
         let mut presets = PresetStore::with_default_dirs();
         presets.rescan();
         let mut voice_presets = InputPresetStore::with_default_dirs();
@@ -4042,7 +4043,7 @@ impl App {
                 false
             }
             PresetsAction::RevealExportFolder => {
-                if let Err(err) = reveal_folder(&self.export_dir) {
+                if let Err(err) = crate::platform::open_folder(&self.export_dir) {
                     log::warn!("could not open {}: {err}", self.export_dir.display());
                     self.raise_notice(tr_args(
                         "Presets exported to %s",
@@ -4586,29 +4587,6 @@ fn default_export_dir() -> PathBuf {
         .join("FxSound")
         .join("Presets")
         .join("Export")
-}
-
-/// `File::revealToUser()` (`FxPresetExportDialog.cpp:196`): open the export folder in whatever
-/// the desktop uses for folders.
-///
-/// The portal route (`org.freedesktop.portal.OpenURI.OpenDirectory`) needs a D-Bus crate this
-/// crate does not depend on, so this is the fallback `docs/spec/06-dialogs.md` §9.3 names:
-/// `xdg-open <dir>`, which dispatches to the user's own file manager rather than a hardcoded one.
-/// The child is reaped on a helper thread so it never lingers as a zombie.
-fn reveal_folder(dir: &Path) -> std::io::Result<()> {
-    use std::process::{Command, Stdio};
-    let mut child = Command::new("xdg-open")
-        .arg(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    std::thread::Builder::new()
-        .name("fxsound-reveal".into())
-        .spawn(move || {
-            let _ = child.wait();
-        })
-        .map(|_| ())
 }
 
 impl App {
@@ -5204,9 +5182,14 @@ impl App {
             }
 
             A::OpenUrl(url) => {
-                if let Err(err) = open_url(url) {
+                if let Err(err) = crate::platform::open_url(url) {
                     log::warn!("could not open {url}: {err}");
                     self.raise_notice(tr("Could not open the link"));
+                }
+            }
+            A::Font(action) => {
+                if crate::fonts::act(action, &mut self.settings, state) {
+                    self.persist_settings();
                 }
             }
 
@@ -5361,6 +5344,7 @@ impl App {
             state.apps = apps;
         }
         state.can_reset_presets = self.can_reset_presets();
+        crate::fonts::refresh(state);
         // A restart of WirePlumber asked for from the pane, over.
         if let Some(hook) = self.wireplumber.restart_settled() {
             state.wireplumber_hook = hook;
@@ -5685,14 +5669,6 @@ pub fn autostart_enabled() -> bool {
         .ok()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .is_some_and(|text| !text.lines().any(|line| line.trim() == "Hidden=true"))
-}
-
-/// Hand a URL to the desktop. Never fatal — a missing `xdg-open` is not worth a crash.
-fn open_url(url: &str) -> std::io::Result<()> {
-    std::process::Command::new("xdg-open")
-        .arg(url)
-        .spawn()
-        .map(|_| ())
 }
 
 /// Create or remove `~/.config/autostart/fxsound.desktop`.

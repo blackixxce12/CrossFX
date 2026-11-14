@@ -138,6 +138,9 @@ pub fn window_origin(ui: &Ui) -> Pos2 {
 }
 
 /// Draw whichever window [`UiState::view`] selects.
+///
+/// Each window brings its face up to date itself ([`pro::show`], [`lite::show`]), as the
+/// application draws them without this.
 pub fn show(
     ui: &mut Ui,
     state: &UiState,
@@ -693,6 +696,43 @@ mod tests {
             is_default: false,
             direction,
             form_factor: "speaker".into(),
+        }
+    }
+
+    #[test]
+    fn the_pro_and_lite_windows_bring_their_face_up_to_date_themselves() {
+        // The application draws `pro::show` and `lite::show` itself (`Shell::ui` in
+        // fxsound-app's `main.rs`), never `show`: a window that left the face to `show` stayed
+        // in the one it opened in — a Gilroy the search at start found later, a language changed
+        // from the command line — until the Settings window was opened. A frame drawn with the
+        // original look's palette has to move the face's record to it, as a change of the user's
+        // choice or of the Gilroy found moves it.
+        for view in [ViewMode::Pro, ViewMode::Lite] {
+            let ctx = egui::Context::default();
+            crate::typeface::install(&ctx, false);
+            let state = UiState {
+                view,
+                ..UiState::default()
+            };
+            let mut scratch = ViewScratch::new();
+            let mut assets = AssetCache::new();
+            let palette = Palette::new(fxsound_core::ThemeMode::Dark).windows(true);
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, window_size(view))),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ui| {
+                let _ = match view {
+                    ViewMode::Pro => pro::show(ui, &state, &mut scratch, palette, &mut assets),
+                    ViewMode::Lite => lite::show(ui, &state, &mut scratch, palette, &mut assets),
+                };
+            })
+            .drop_without_applying_deltas();
+            assert_eq!(
+                crate::typeface::tests::installed_for_original_look(&ctx),
+                Some(true),
+                "{view:?}"
+            );
         }
     }
 

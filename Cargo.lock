@@ -1267,6 +1267,7 @@ dependencies = [
  "fxsound-dsp",
  "log",
  "resvg",
+ "skrifa 0.44.0",
  "tiny-skia",
  "usvg",
 ]

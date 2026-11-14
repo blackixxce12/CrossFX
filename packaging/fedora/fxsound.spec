@@ -95,11 +95,10 @@ Summary:        System-wide audio enhancement: EQ, ambience, surround, bass and 
 # # Zlib
 # # Zlib OR Apache-2.0 OR MIT
 #
-# Two things the window embeds are not crates. The Noto fallback faces from assets/fonts are
-# OFL-1.1, which the tag names already for egui's own default fonts. The Gilroy interface faces
-# are Radomir Tinkov's commercial typeface, "All rights reserved" with no licence named, and no
-# SPDX expression can state that; README.md and debian/copyright say so, and a package for
-# Fedora proper would have to replace them with free faces (docs/spec/13-assets.md §7 names some).
+# Two things the window embeds are not crates, and both are OFL-1.1, which the tag names already
+# for egui's own default fonts: the Noto fallback faces and the Manrope interface faces from
+# assets/fonts. Gilroy, the face of FxSound for Windows, is not in the tree: it is a commercial
+# typeface, which the window uses only when the user adds files they licensed themselves.
 #
 # %%build re-runs %%{cargo_license_summary} on every build and prints it to the build log: if it
 # stops matching this comment, the dependency tree moved and this tag has to be updated.
@@ -305,14 +304,16 @@ install -Dpm0644 packaging/fxsound.1 %{buildroot}%{_mandir}/man1/fxsound.1
 install -Dpm0644 packaging/com.fxsound.FxSound.metainfo.xml \
     %{buildroot}%{_metainfodir}/com.fxsound.FxSound.metainfo.xml
 
-# Two parts of the binary are not AGPL, and each licence makes shipping its text a condition of
+# Three parts of the binary are not AGPL, and each licence makes shipping its text a condition of
 # shipping the binary: the RNNoise code and model compiled in from crates/fxsound-rnnoise
-# (BSD-3-Clause), and the Noto fallback faces embedded in the window (SIL OFL 1.1).
-# LICENSE.dependencies only names licences, so both texts are shipped as %%license files, under
-# the names every other package gives them: %%license on the source paths would install them as
-# a bare COPYING and OFL.txt beside our own LICENSE.
+# (BSD-3-Clause), and the Noto fallback faces and the Manrope interface faces embedded in the
+# window (both SIL OFL 1.1, each with its own notice). LICENSE.dependencies only names licences,
+# so the texts are shipped as %%license files, under the names every other package gives them:
+# %%license on the source paths would install them as a bare COPYING and OFL.txt beside our own
+# LICENSE.
 cp -p crates/fxsound-rnnoise/COPYING COPYING.rnnoise
 cp -p assets/fonts/OFL.txt OFL.noto
+cp -p assets/fonts/OFL-Manrope.txt OFL.manrope
 
 
 %check
@@ -342,6 +343,7 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/com.fxsound.FxSound.m
 %license LICENSE
 %license COPYING.rnnoise
 %license OFL.noto
+%license OFL.manrope
 %license LICENSE.dependencies
 %license cargo-vendor.txt
 %doc README.md

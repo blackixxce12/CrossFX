@@ -64,11 +64,13 @@ use egui::{
 // Fonts (`docs/spec/06-dialogs.md` §0.4, `FxTheme.cpp:466-479`)
 // ---------------------------------------------------------------------------------------------
 
-/// `FxTheme::getNormalFont()` — Gilroy Semibold, 17 px. The dialogs' default.
+/// `FxTheme::getNormalFont()` — Gilroy Semibold, 17 px, in the original; here the semibold weight
+/// of the interface's face ([`crate::typeface`]). The dialogs' default.
 pub const NORMAL_FONT: f32 = 17.0;
-/// `FxTheme::getSmallFont()` — Gilroy Regular, 14 px. Hotkey rows and the version string.
+/// `FxTheme::getSmallFont()` — Gilroy Regular, 14 px, in the original. Hotkey rows and the version
+/// string.
 pub const SMALL_FONT: f32 = 14.0;
-/// `FxTheme::getTitleFont()` — Gilroy Bold, 17 px. Every pane title.
+/// `FxTheme::getTitleFont()` — Gilroy Bold, 17 px, in the original. Every pane title.
 pub const TITLE_FONT: f32 = 17.0;
 
 /// `getNormalFont()`.
@@ -513,7 +515,8 @@ pub fn contrasting(colour: Color32, amount: f32) -> Color32 {
     )
 }
 
-/// `FxTheme::getTextButtonFont`: Gilroy Semibold at `min(17, button height)` (`FxTheme.cpp:461-464`).
+/// `FxTheme::getTextButtonFont`: the semibold weight at `min(17, button height)`
+/// (`FxTheme.cpp:461-464`).
 #[must_use]
 pub fn text_button_font(button_height: f32) -> FontId {
     theme::semibold(NORMAL_FONT.min(button_height))
@@ -680,12 +683,26 @@ pub fn link(
     align: Align2,
     id_salt: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
+    link_in(ui, rect, text, normal_font(), palette, align, id_salt)
+}
+
+/// [`link`] in `font`: the port's own links that share a row with a heading are set in the small
+/// font, which leaves the heading its room.
+pub fn link_in(
+    ui: &mut Ui,
+    rect: Rect,
+    text: &str,
+    font: FontId,
+    palette: Palette,
+    align: Align2,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
     let id = Id::unique("fx_dialog_link").with(id_salt);
     let colour = palette.color(FxColor::DefaultText);
     let mut job = LayoutJob::single_section(
         text.to_owned(),
         egui::TextFormat {
-            font_id: normal_font(),
+            font_id: font,
             color: colour,
             underline: Stroke::new(1.0, colour),
             ..Default::default()
@@ -1011,7 +1028,7 @@ mod tests {
     }
 
     #[test]
-    fn the_three_dialog_fonts_are_the_three_gilroy_faces() {
+    fn the_three_dialog_fonts_are_the_three_weights_of_the_face() {
         assert_eq!(normal_font().family, theme::semibold(1.0).family);
         assert_eq!(small_font().family, theme::regular(1.0).family);
         assert_eq!(title_font().family, theme::bold(1.0).family);

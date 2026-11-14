@@ -54,6 +54,152 @@ pub enum ThemeMode {
     Light,
 }
 
+/// The face the interface is set in: Settings ▸ General ▸ "Interface font".
+///
+/// Manrope is FxSound's own, embedded in the binary under the SIL Open Font License. Gilroy is the
+/// face of the original FxSound: Radomir Tinkov's commercial typeface, which FxSound neither ships
+/// nor downloads. It is used only when the files the user licensed are found — added from the
+/// pane, or installed on the system (`fxsound_ui::typeface`) — and only then: chosen and not
+/// found, the interface stays in Manrope.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum InterfaceFont {
+    /// Manrope, the default.
+    #[default]
+    Manrope,
+    /// Gilroy, the original FxSound look, when the user has it.
+    Gilroy,
+}
+
+impl InterfaceFont {
+    /// Both faces, in the order the option steps through them.
+    pub const ALL: [Self; 2] = [Self::Manrope, Self::Gilroy];
+
+    /// The spelling in `settings.toml`.
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Manrope => "manrope",
+            Self::Gilroy => "gilroy",
+        }
+    }
+
+    /// The face's own name, as the option shows it. A name, so never translated.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Manrope => "Manrope",
+            Self::Gilroy => "Gilroy",
+        }
+    }
+
+    /// A face by its key, in any case and with the blanks around it ignored.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim();
+        Self::ALL
+            .into_iter()
+            .find(|font| text.eq_ignore_ascii_case(font.key()))
+    }
+
+    /// The face a `settings.toml` value stands for. Never an error, for the reason
+    /// [`WindowsParity::from_toml`] is not one: a value this version cannot read is Manrope, with a
+    /// warning in the log, and costs this one key rather than the file.
+    #[must_use]
+    pub fn from_toml(value: &toml::Value) -> Self {
+        match value {
+            toml::Value::String(text) => Self::parse(text).unwrap_or_else(|| {
+                log::warn!(
+                    "settings.toml: interface_font = {text:?} is not manrope or gilroy; using \
+                     manrope"
+                );
+                Self::Manrope
+            }),
+            other => {
+                log::warn!(
+                    "settings.toml: interface_font = {other} is not manrope or gilroy; using manrope"
+                );
+                Self::Manrope
+            }
+        }
+    }
+}
+
+impl Serialize for InterfaceFont {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.key())
+    }
+}
+
+/// Never fails: see [`InterfaceFont::from_toml`].
+impl<'de> Deserialize<'de> for InterfaceFont {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = toml::Value::deserialize(deserializer)?;
+        Ok(Self::from_toml(&value))
+    }
+}
+
+#[cfg(test)]
+mod interface_font_tests {
+    use super::*;
+
+    #[test]
+    fn a_file_written_before_the_key_existed_reads_as_manrope() {
+        let settings: Settings =
+            toml::from_str("theme_mode = \"light\"\nlanguage = \"ru\"\n").expect("parses");
+        assert_eq!(settings.interface_font, InterfaceFont::Manrope);
+        assert_eq!(settings.theme_mode, ThemeMode::Light);
+        assert_eq!(Settings::default().interface_font, InterfaceFont::Manrope);
+    }
+
+    #[test]
+    fn the_key_reads_in_any_case_and_a_value_it_cannot_read_costs_only_itself() {
+        let read = |text: &str| -> Settings { toml::from_str(text).expect("never fails") };
+        assert_eq!(
+            read("interface_font = \"gilroy\"").interface_font,
+            InterfaceFont::Gilroy
+        );
+        assert_eq!(
+            read("interface_font = \" Gilroy \"").interface_font,
+            InterfaceFont::Gilroy
+        );
+        for value in [
+            "\"inter\"",
+            "1",
+            "true",
+            "[\"gilroy\"]",
+            "{ face = \"gilroy\" }",
+        ] {
+            let settings = read(&format!("language = \"de\"\ninterface_font = {value}\n"));
+            assert_eq!(settings.interface_font, InterfaceFont::Manrope, "{value}");
+            assert_eq!(settings.language, "de", "{value} cost the rest of the file");
+        }
+    }
+
+    #[test]
+    fn the_choice_is_written_under_its_key_and_read_back() {
+        let settings = Settings {
+            interface_font: InterfaceFont::Gilroy,
+            ..Settings::default()
+        };
+        let text = toml::to_string_pretty(&settings).expect("serialises");
+        assert!(text.contains("interface_font = \"gilroy\""), "{text}");
+        let back: Settings = toml::from_str(&text).expect("parses");
+        assert_eq!(back.interface_font, InterfaceFont::Gilroy);
+        // Every face's key is its own, and its name is the face's, capitalised.
+        for font in InterfaceFont::ALL {
+            assert_eq!(InterfaceFont::parse(font.key()), Some(font));
+            assert!(font.name().eq_ignore_ascii_case(font.key()));
+        }
+    }
+
+    #[test]
+    fn the_added_fonts_are_kept_beside_the_presets_in_fxsounds_data_folder() {
+        let fonts = Settings::user_font_dir();
+        assert!(fonts.ends_with(std::path::Path::new("fxsound").join("fonts")));
+        assert_eq!(fonts.parent(), Settings::user_preset_dir().parent());
+    }
+}
+
 /// One remembered device and the preset the user last used with it.
 ///
 /// Every field defaults, for the same reason the file as a whole does: an entry written by an
@@ -259,6 +405,10 @@ pub struct Settings {
     pub hide_notifications: bool,
     /// How many presets the user may save, from 10 to 1000 ([`USER_PRESET_LIMITS`]).
     pub max_user_presets: u32,
+    /// The face the interface is set in, Manrope unless the user chose Gilroy. A file written
+    /// before 1.0 has no such key and reads as Manrope; what is drawn is Manrope too while Gilroy
+    /// is chosen and not found ([`InterfaceFont`]).
+    pub interface_font: InterfaceFont,
 
     // ---- like FxSound for Windows ----------------------------------------------------------
     /// «Как в Windows» / "Like FxSound for Windows" (`docs/0.5.0-windows-parity.md`). Written only
@@ -350,6 +500,7 @@ impl Default for Settings {
             hide_help_tooltips: false,
             hide_notifications: false,
             max_user_presets: 120,
+            interface_font: InterfaceFont::Manrope,
 
             windows_parity: WindowsParity::Off,
             export_unshifted: false,
@@ -380,6 +531,17 @@ impl Settings {
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join("fxsound")
             .join("presets")
+    }
+
+    /// `~/.local/share/fxsound/fonts` (`$XDG_DATA_HOME/fxsound/fonts`; `%APPDATA%\fxsound\fonts`
+    /// on Windows) — where the Gilroy files the user added in Settings are kept, beside the
+    /// presets, and read from at every start ([`InterfaceFont`]).
+    #[must_use]
+    pub fn user_font_dir() -> std::path::PathBuf {
+        dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("fxsound")
+            .join("fonts")
     }
 
     /// Load the settings file, falling back to defaults for anything missing or unreadable.

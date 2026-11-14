@@ -10,6 +10,7 @@ pub mod dialogs;
 pub mod layout;
 pub mod state;
 pub mod theme;
+pub mod typeface;
 pub mod views;
 pub mod widgets;
 

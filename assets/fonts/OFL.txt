@@ -16,8 +16,8 @@ This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
 https://openfontlicense.org
 
-It covers the Noto faces only. The Gilroy faces beside them are not under it:
-see the Licence section of README.md.
+This notice covers the Noto faces only. The Manrope faces beside them are under
+the same licence with a notice of their own: see OFL-Manrope.txt.
 
 -----------------------------------------------------------
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
