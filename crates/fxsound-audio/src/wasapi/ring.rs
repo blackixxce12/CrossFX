@@ -182,16 +182,27 @@ impl FrameRing {
         self.read = self.write;
     }
 
-    /// Prime: with at least `target` frames waiting, drop the oldest of them until exactly `target`
-    /// are left, and say so. The fill a ring is primed at is the fill it keeps for as long as the
-    /// two clocks agree, so it is set here, before anything is played, rather than left at
-    /// whatever the last packet happened to bring — up to a packet more, which the drift control
-    /// would then take back a frame at a time.
-    pub(crate) fn prime(&mut self, target: usize) -> bool {
+    /// Prime: with at least `target` frames waiting, drop the oldest of them until no more than
+    /// `slack` frames beyond `target` are left, and say so.
+    ///
+    /// The fill a ring is primed at is the fill it keeps for as long as the two clocks agree, so
+    /// a ring primed again after it ran dry (`slack` 0) is set to its target here, before anything
+    /// is played, rather than left at whatever the last packet happened to bring — up to a packet
+    /// more, which the drift control would then take back a frame at a time. Nothing is fading
+    /// there: the sound stopped short, and starts again where it is.
+    ///
+    /// The start of a sound is another matter. The chain fades it in from silence, from the first
+    /// frame of its first packet on, and the oldest frames are that fade's beginning: dropped, the
+    /// device's first sample after the silence would come from part-way up it — a step of about
+    /// −18 dB at 48 kHz with 10 ms periods, on every stream start and every sound after an idle
+    /// second. So it keeps what it has up to the drift band (`slack` = [`Targets::band`]), which
+    /// the fill may sit in anyway: a packet's worth over the target, at most, with the thread
+    /// woken on time, and nothing the drift control has to take back.
+    pub(crate) fn prime(&mut self, target: usize, slack: usize) -> bool {
         let Some(excess) = self.len().checked_sub(target) else {
             return false;
         };
-        self.read = self.read.wrapping_add(excess);
+        self.read = self.read.wrapping_add(excess.saturating_sub(slack));
         true
     }
 
@@ -458,6 +469,51 @@ mod tests {
     }
 
     #[test]
+    fn the_start_of_a_sound_is_primed_whole_and_a_ring_that_ran_dry_is_set_to_its_target() {
+        // FxSound Speakers to the Realtek speakers on this machine: 48 kHz, 10 ms packets and
+        // periods. Primed at 1744 frames; four packets bring 1920.
+        let targets = Targets::new(512, 480, 480);
+        let prime = targets.prime();
+        assert_eq!(prime, 1744);
+        // A sound the chain fades in over 30 ms, from its first frame on.
+        let fade: Vec<f32> = (0..4 * 480).map(|i| (i as f32 / 1440.0).min(1.0)).collect();
+        assert!(
+            !FrameRing::new(1, 4096).prime(prime, targets.band),
+            "nothing to play yet"
+        );
+        let mut start = FrameRing::new(1, 4096);
+        start.push(&fade);
+        assert!(start.prime(prime, targets.band));
+        assert_eq!(start.len(), fade.len(), "the start of the fade is kept");
+        let (first, short) = pop(&mut start, targets.padding, Correction::None);
+        assert_eq!(short, 0);
+        assert_eq!(
+            first[0], 0.0,
+            "the device's first sample is the fade's first"
+        );
+        // What the start of a sound keeps is inside the band: nothing for the drift control.
+        let mut drift = DriftControl::new(&targets);
+        drift.observe(start.len());
+        assert_eq!(start.len(), targets.ring + 176);
+        assert_eq!(drift.correction(), Correction::None);
+
+        // A ring primed again after it ran dry is set to its target: nothing fades there.
+        let mut dry = FrameRing::new(1, 4096);
+        dry.push(&fade);
+        assert!(dry.prime(prime, 0));
+        assert_eq!(dry.len(), prime);
+        let (first, _) = pop(&mut dry, 1, Correction::None);
+        assert_eq!(first[0], fade[176]);
+
+        // A start that finds far more than the band — a thread woken late — keeps the band's
+        // worth beyond the target, and no more.
+        let mut late = FrameRing::new(1, 4096);
+        late.push(&(0..3000).map(|i| i as f32).collect::<Vec<_>>());
+        assert!(late.prime(prime, targets.band));
+        assert_eq!(late.len(), prime + targets.band);
+    }
+
+    #[test]
     fn the_targets_hold_two_blocks_with_a_band_inside_them() {
         let targets = Targets::new(512, 480, 480);
         assert_eq!(targets.ring, 1024);
@@ -535,6 +591,8 @@ mod tests {
         let mut last_packet = 0.0_f64;
         let mut padding = 0_usize;
         let mut primed = false;
+        // The first priming is the start of the sound, the rest a ring that ran dry.
+        let mut sounding = false;
         let mut out = vec![0_u8; 4 * 8192];
         let mut last: Option<f32> = None;
         let mut run = Run {
@@ -574,8 +632,12 @@ mod tests {
                 ring.push(&silence[..lacking]);
                 run.synthesized += lacking;
             }
-            if !primed && ring.prime(targets.prime()) {
+            // As the stream thread primes it: the start of a sound keeps what it has, up to the
+            // band; a ring that ran dry is set to its target.
+            let slack = if sounding { 0 } else { targets.band };
+            if !primed && ring.prime(targets.prime(), slack) {
                 primed = true;
+                sounding = true;
                 drift.reset();
             }
             if !primed {

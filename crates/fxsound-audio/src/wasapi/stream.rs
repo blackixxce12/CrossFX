@@ -577,6 +577,7 @@ fn stream(
         block_align: format.block_align(),
         rate: format.rate,
         primed: false,
+        fading_in: false,
         playing: false,
         idle: true,
         last_sound: started,
@@ -673,6 +674,9 @@ struct Pump {
     rate: u32,
     /// The ring has reached its target since it last ran dry.
     primed: bool,
+    /// The ring is being primed with the start of a sound, which the chain fades in from silence:
+    /// none of it is dropped to reach the target.
+    fading_in: bool,
     /// The render stream has been started.
     playing: bool,
     /// Nothing has been heard for [`IDLE_AFTER`] (module docs, "Idle").
@@ -780,8 +784,9 @@ impl Pump {
         if sound {
             if self.idle {
                 // The first sound after the lane stood still comes in from silence, as a new
-                // pair's does.
+                // pair's does — and the ring is primed with the start of that fade in it.
                 self.idle = false;
+                self.fading_in = true;
                 dsp.fade_in();
             }
             self.last_sound = now;
@@ -872,10 +877,15 @@ impl Pump {
             }
         }
         if !self.primed {
-            if !self.ring.prime(self.targets.prime()) {
+            // The start of a sound keeps what the ring holds, up to the drift band, so that the
+            // device starts at the first frame of the chain's fade in rather than part-way up it;
+            // a ring primed again after it ran dry is set to its target (`FrameRing::prime`).
+            let slack = if self.fading_in { self.targets.band } else { 0 };
+            if !self.ring.prime(self.targets.prime(), slack) {
                 return Ok(());
             }
             self.primed = true;
+            self.fading_in = false;
             self.drift.reset();
         }
         if want > 0 {
