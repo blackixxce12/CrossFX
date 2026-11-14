@@ -73,16 +73,42 @@
 //! column was turned to — is kept for the next window ([`Panes`]), so hiding and showing it again
 //! looks the way hiding a window does.
 //!
-//! The window renders without vsync. eframe's glow backend otherwise lets Mesa's
+//! On Linux the window renders without vsync. eframe's glow backend otherwise lets Mesa's
 //! `eglSwapBuffers` wait for a frame callback, which a Wayland compositor never sends for a
 //! surface it is not showing — so a window parked on another Hyprland workspace stopped
 //! answering `xdg_wm_base` pings and the compositor called the app unresponsive. Without vsync
-//! the loop is paced by [`FRAME_INTERVAL`] instead, and only while something moves.
+//! the loop is paced by [`FRAME_INTERVAL`] instead, and only while something moves. Windows keeps
+//! eframe's vsync: a swap there waits for the desktop compositor's next frame and never for a
+//! window it is not showing, and without it every pointer event over the window was a frame of
+//! its own, and the frame after it too — some nine hundred a second for five hundred pointer
+//! moves a second, near a core and a half between the GUI thread and the driver's, where the
+//! display shows 144.
+//!
+//! ## On Windows
+//!
+//! The same shell, over `fxsound_app::win`'s stand-ins: the control pipe for the socket, the
+//! notification area for the StatusNotifierItem, no D-Bus service, and the power notification for
+//! logind. A release build is a GUI program, so that no console window opens with it; it takes
+//! the console of the terminal it was started from, if any, so that `fxsound --status` still
+//! prints there, and the running FxSound gives it back before its engine starts
+//! (`fxsound_app::platform::release_terminal`), borrowing it again only for the moment it takes
+//! to print the report of the options it was started with. The tray-only state pumps the GUI
+//! thread's window messages while it waits ([`wait_for_any`]): eframe's event loop keeps a hidden
+//! window on this thread between two windows, and a thread that does not answer its windows'
+//! messages holds up the end of the session. Ctrl+C and the console closing (a console of
+//! FxSound's own, the debug build's), log-off, shutdown and a `taskkill` without `/F` are the
+//! tray's Exit, as the signals are on Linux (`fxsound_app::win::session`). The window carries
+//! FxSound's icon, which Windows takes from the window rather than from the app id
+//! ([`native_options`]).
 
 #![forbid(unsafe_code)]
+// No console window of its own in a release build; `main` attaches to its parent's instead.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use clap::Parser as _;
 use eframe::egui;
+#[cfg(target_os = "linux")]
+use fxsound_app::dbus::{self, DbusHandle};
 use fxsound_app::{
     App, WindowVisibility,
     app::{
@@ -91,7 +117,6 @@ use fxsound_app::{
     },
     cli::{Cli, Command},
     commands::{self, WindowRequest},
-    dbus::{self, DbusHandle},
     events::{self, AppEvent, EventSink, TraySink},
     ipc::{self, Instance},
     selftest,
@@ -119,6 +144,21 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+/// What ends FxSound from outside, as the tray's Exit: the signal thread's handle on Linux, the
+/// console and session watcher on Windows. Closed last on the way out ([`Runtime::shutdown`]).
+#[cfg(target_os = "linux")]
+type Signals = signal_hook::iterator::Handle;
+#[cfg(windows)]
+type Signals = fxsound_app::win::session::Termination;
+
+/// What the single instance's channel is called where a failure to have it is said: the socket in
+/// `$XDG_RUNTIME_DIR`, or Windows' named pipe.
+const CONTROL_CHANNEL: &str = if cfg!(windows) {
+    "control pipe"
+} else {
+    "control socket"
+};
+
 /// How long the pump goes without looking when nothing wakes it (0.4.0 design §12).
 ///
 /// Everything that hands the GUI thread work wakes it (see the module docs), so this is only for
@@ -135,11 +175,15 @@ const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
 /// every frame would re-lay the fonts out on every frame.
 const ZOOM_TOLERANCE: f32 = 0.01;
 
-/// The repaint cadence while the visualizer is live. Without vsync (see the module docs) this
-/// is what keeps the loop at roughly 60 Hz instead of spinning.
+/// The repaint cadence while the visualizer is live. Without vsync, on Linux (see the module
+/// docs), this is what keeps the loop at roughly 60 Hz instead of spinning.
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 fn main() -> eframe::Result<()> {
+    // Before anything reads it: Windows says the desktop's language where Linux's session does.
+    fxsound_app::platform::adopt_desktop_language();
+    // Before anything prints: a GUI build started from a terminal prints there.
+    fxsound_app::platform::attach_parent_console();
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or(fxsound_app::DEFAULT_LOG_FILTER),
     )
@@ -189,7 +233,7 @@ fn main() -> eframe::Result<()> {
             }
         }
         Err(err) => {
-            eprintln!("could not claim the control socket: {err}");
+            eprintln!("could not claim the {CONTROL_CHANNEL}: {err}");
             std::process::exit(1);
         }
     };
@@ -198,7 +242,7 @@ fn main() -> eframe::Result<()> {
     let server = match listener.serve_waking(waker.clone()) {
         Ok(server) => server,
         Err(err) => {
-            eprintln!("could not serve the control socket: {err}");
+            eprintln!("could not serve the {CONTROL_CHANNEL}: {err}");
             std::process::exit(1);
         }
     };
@@ -240,6 +284,11 @@ fn main() -> eframe::Result<()> {
     if !forgotten.stderr.is_empty() {
         eprintln!("{}", forgotten.stderr);
     }
+    // This process is the running FxSound, and what remains to be said waits for the engine: a
+    // release build on Windows gives back the terminal it borrowed before the engine starts, and
+    // runs on as a program of its own. Held, a Ctrl+C typed there or the terminal closing would
+    // end it halfway through taking over the default device.
+    fxsound_app::platform::release_terminal();
 
     // The UI language, decided before anything is drawn or named: the desktop's unless the
     // settings say otherwise (`fxsound_core::i18n`). The engine gets it too, for the node
@@ -269,14 +318,19 @@ fn main() -> eframe::Result<()> {
     // before FxSound is then reached by its own streams, as a running FxSound would reach it.
     app.hold_app_presets();
     let cold = commands::run(&mut app, &cli.cold_start_commands());
-    if !cold.stdout.is_empty() {
-        println!("{}", cold.stdout);
-    }
-    // A cold start reports and carries on: the device list has not arrived yet, so `--output` has
-    // been held rather than refused, and there is nothing here worth refusing to start over.
-    if !cold.stderr.is_empty() {
-        eprintln!("{}", cold.stderr);
-    }
+    // Said where the line was typed: on Windows the terminal given back above is borrowed again
+    // for as long as the printing takes (`fxsound_app::platform::on_the_terminal`).
+    fxsound_app::platform::on_the_terminal(|| {
+        if !cold.stdout.is_empty() {
+            println!("{}", cold.stdout);
+        }
+        // A cold start reports and carries on: the device list has not arrived yet, so
+        // `--output` has been held rather than refused, and there is nothing here worth refusing
+        // to start over.
+        if !cold.stderr.is_empty() {
+            eprintln!("{}", cold.stderr);
+        }
+    });
     // `--hide` and the saved "start minimised" preference start in the tray-only state; there is
     // no such thing as a hidden window here (see the module docs). An explicit `--show` overrides
     // the preference, as `--hide` overrides it the other way (`Cli::cold_start_commands`), and so
@@ -315,6 +369,7 @@ fn main() -> eframe::Result<()> {
     // server has confirmed the write. A second Ctrl+C while that is in flight still gets the user
     // out, with the conventional 130.
     let terminate = Arc::new(AtomicBool::new(false));
+    #[cfg(target_os = "linux")]
     if let Err(err) = signal_hook::flag::register_conditional_shutdown(
         signal_hook::consts::SIGINT,
         130,
@@ -322,6 +377,7 @@ fn main() -> eframe::Result<()> {
     ) {
         log::warn!("could not install the second-Ctrl+C handler: {err}");
     }
+    #[cfg(target_os = "linux")]
     for signal in [
         signal_hook::consts::SIGTERM,
         signal_hook::consts::SIGINT,
@@ -331,11 +387,21 @@ fn main() -> eframe::Result<()> {
             log::warn!("could not install the handler for signal {signal}: {err}");
         }
     }
+    #[cfg(target_os = "linux")]
     let signals = wake_on_signals(&waker);
+    // Windows: Ctrl+C and Ctrl+Break, the console closing, log-off and shutdown, each the same
+    // hand-back-then-stop, and a second Ctrl+C the same way out (`fxsound_app::win::session`).
+    #[cfg(windows)]
+    let signals = Some(fxsound_app::win::session::watch(
+        Arc::clone(&terminate),
+        &waker,
+    ));
 
     // Step 5: the D-Bus service (0.4.0 design §9), on a thread of its own so that a slow bus
     // never holds the window up. With no session bus, or with the name owned already, it says so
-    // in the log and the control socket carries on alone.
+    // in the log and the control socket carries on alone. Windows has none: the control pipe is
+    // its scripting surface.
+    #[cfg(target_os = "linux")]
     let dbus = DbusHandle::start(server.control(), dbus::Properties::of(&app));
 
     // Step 6: suspend and resume (U13). logind's `PrepareForSleep` reaches the pump over a
@@ -346,6 +412,7 @@ fn main() -> eframe::Result<()> {
 
     let mut runtime = Runtime {
         app,
+        #[cfg(target_os = "linux")]
         dbus: Some(dbus),
         sleep: Some(sleep),
         sleep_rx,
@@ -472,6 +539,7 @@ struct Runtime {
     app: App,
     /// The D-Bus service. Declared before `server`, and taken first in [`Runtime::shutdown`]: the
     /// bus connection goes before the control channel its calls travel on.
+    #[cfg(target_os = "linux")]
     dbus: Option<DbusHandle>,
     server: ipc::Server,
     /// The suspend watcher; dropped in [`Runtime::shutdown`], which stops it.
@@ -496,9 +564,9 @@ struct Runtime {
     /// What every producer wakes the GUI thread with; the window's context is attached to it
     /// while there is a window.
     waker: Waker,
-    /// The thread that wakes the pump for a termination signal ([`wake_on_signals`]); closed in
-    /// [`Runtime::shutdown`].
-    signals: Option<signal_hook::iterator::Handle>,
+    /// The thread that wakes the pump for a termination signal (`wake_on_signals`), or on Windows
+    /// the console and session watcher; closed in [`Runtime::shutdown`].
+    signals: Option<Signals>,
     /// What the last window showed that the next one shows again.
     panes: Panes,
     /// Forwarded lines held for PipeWire's first device list, each with the moment it stops
@@ -606,7 +674,9 @@ impl Runtime {
     fn publish_events(&mut self) {
         // On the stack: this runs on every tick, and an idle tick should cost nothing.
         let server: &dyn EventSink = &self.server;
+        #[cfg(target_os = "linux")]
         let both: [&dyn EventSink; 2];
+        #[cfg(target_os = "linux")]
         let sinks = match &self.dbus {
             Some(dbus) => {
                 both = [server, dbus];
@@ -614,6 +684,9 @@ impl Runtime {
             }
             None => std::slice::from_ref(&server),
         };
+        // No bus on Windows: the `--watch` streams are the one consumer.
+        #[cfg(windows)]
+        let sinks = std::slice::from_ref(&server);
         let tray = self.tray.as_ref().map(|tray| tray as &dyn TraySink);
         events::fan_out(&mut self.app, sinks, tray);
     }
@@ -622,6 +695,7 @@ impl Runtime {
     /// the window coming and going, and the quit.
     fn announce(&self, event: &AppEvent) {
         self.server.publish(event);
+        #[cfg(target_os = "linux")]
         if let Some(dbus) = &self.dbus {
             dbus.publish(event);
         }
@@ -736,9 +810,14 @@ impl Runtime {
             log::error!("the window could not be run: {err}");
             return false;
         }
+        #[cfg(target_os = "linux")]
         log::error!(
             "the window could not be run: {err}; FxSound keeps running in the system tray (is \
              WAYLAND_DISPLAY or DISPLAY set in its environment?)"
+        );
+        #[cfg(windows)]
+        log::error!(
+            "the window could not be run: {err}; FxSound keeps running in the notification area"
         );
         self.app.cancel_calibration();
         self.announce(&AppEvent::Window { visible: false });
@@ -831,7 +910,10 @@ impl Runtime {
         .into_iter()
         .flatten()
         .collect();
+        #[cfg(target_os = "linux")]
         wait_for_any(&watched, Instant::now() + timeout);
+        #[cfg(windows)]
+        wait_for_any(&watched, &self.waker, Instant::now() + timeout);
     }
 
     /// The only way out: stash unsaved edits, restore the system default device and stop the
@@ -849,6 +931,7 @@ impl Runtime {
         self.server.refuse_pending();
         // Answered "shutting down" as they go, like the lines `refuse_pending` just refused.
         self.waiting_for_devices.clear();
+        #[cfg(target_os = "linux")]
         if let Some(dbus) = self.dbus.take() {
             dbus.shutdown();
         }
@@ -868,6 +951,7 @@ impl Runtime {
 /// at its next keepalive. Registered after the flag's handlers, so the flag is up before the
 /// wake-up arrives. `None`, with a log line, when the thread cannot be had; the flag is still read
 /// then, only later.
+#[cfg(target_os = "linux")]
 fn wake_on_signals(waker: &Waker) -> Option<signal_hook::iterator::Handle> {
     use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
     let mut signals = match signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]) {
@@ -897,13 +981,15 @@ fn wake_on_signals(waker: &Waker) -> Option<signal_hook::iterator::Handle> {
 
 /// A channel the headless pump waits on, whatever it carries.
 trait Watched {
-    /// Wait on it in `select`; the operation's index.
+    /// Wait on it in `select`; the operation's index. Windows waits on the waker's event instead.
+    #[cfg(target_os = "linux")]
     fn watch<'a>(&'a self, select: &mut crossbeam_channel::Select<'a>) -> usize;
     /// Whether a message is waiting in it.
     fn holds_message(&self) -> bool;
 }
 
 impl<T> Watched for crossbeam_channel::Receiver<T> {
+    #[cfg(target_os = "linux")]
     fn watch<'a>(&'a self, select: &mut crossbeam_channel::Select<'a>) -> usize {
         select.recv(self)
     }
@@ -920,6 +1006,7 @@ impl<T> Watched for crossbeam_channel::Receiver<T> {
 /// register, a suspend watcher with no system bus — and is dropped from this wait rather than
 /// spun on; a spurious readiness drops one for this wait only, which a producer's
 /// wake-up still covers ([`Waker::pending`] is among the channels and never closes).
+#[cfg(target_os = "linux")]
 fn wait_for_any(channels: &[&dyn Watched], deadline: Instant) -> bool {
     let mut select = crossbeam_channel::Select::new();
     for channel in channels {
@@ -940,28 +1027,68 @@ fn wait_for_any(channels: &[&dyn Watched], deadline: Instant) -> bool {
     }
 }
 
+/// Windows' [`wait_for_any`]: until one of `channels` holds a message, or until `deadline`,
+/// dispatching this thread's window messages meanwhile (see the module docs). Returns whether one
+/// does.
+///
+/// Every producer wakes `waker` after it sends, so the wait is on the waker's event and the
+/// message queue at once ([`Waker::wait_pumping_messages`]); the channels are looked at before
+/// each wait and after each wake-up. A channel whose senders are all gone holds no message and
+/// sets no event, so it is waited past rather than spun on, as above.
+#[cfg(windows)]
+fn wait_for_any(channels: &[&dyn Watched], waker: &Waker, deadline: Instant) -> bool {
+    loop {
+        if channels.iter().any(|channel| channel.holds_message()) {
+            return true;
+        }
+        if !waker.wait_pumping_messages(deadline) {
+            return channels.iter().any(|channel| channel.holds_message());
+        }
+    }
+}
+
 /// The window eframe is asked for, sized for the current view.
 fn native_options(view: ViewMode) -> eframe::NativeOptions {
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("FxSound")
+        // Must match packaging/fxsound.desktop's filename stem, or the compositor cannot
+        // associate the window with its icon and rules.
+        .with_app_id("com.fxsound.FxSound")
+        .with_inner_size(fxsound_ui::window_size(view))
+        .with_min_inner_size(layout::lite::WINDOW_SIZE)
+        .with_resizable(false)
+        // FxSound draws its own title bar, so no server-side decorations.
+        .with_decorations(false)
+        // Needed for the 21 px rounded corners not to be filled in black.
+        .with_transparent(true);
+    #[cfg(windows)]
+    let viewport = with_windows_icon(viewport);
     eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("FxSound")
-            // Must match packaging/fxsound.desktop's filename stem, or the compositor cannot
-            // associate the window with its icon and rules.
-            .with_app_id("com.fxsound.FxSound")
-            .with_inner_size(fxsound_ui::window_size(view))
-            .with_min_inner_size(layout::lite::WINDOW_SIZE)
-            .with_resizable(false)
-            // FxSound draws its own title bar, so no server-side decorations.
-            .with_decorations(false)
-            // Needed for the 21 px rounded corners not to be filled in black.
-            .with_transparent(true),
-        // See the module docs: vsync blocks the main thread on a workspace the compositor is
-        // not showing. The loop is paced by `request_repaint_after` instead.
+        viewport,
+        // See the module docs: on Linux vsync blocks the main thread on a workspace the
+        // compositor is not showing, and the loop is paced by `request_repaint_after` instead;
+        // on Windows it is what keeps the frames the pointer asks for to the display's.
         glow_options: eframe::egui_glow::GlowConfiguration {
-            vsync: false,
+            vsync: !cfg!(target_os = "linux"),
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+/// FxSound's icon on the window, for its taskbar button and Alt+Tab. A desktop on Linux finds the
+/// icon through the app id above; Windows takes it from the window itself, and eframe puts egui's
+/// own logo there when it is given none. The same picture the Linux packages install as the
+/// application icon, at 256 px, which eframe scales to the sizes Windows asks for.
+#[cfg(windows)]
+fn with_windows_icon(viewport: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    const ICON_PNG: &[u8] = include_bytes!("../../../assets/images/fxsound_large.png");
+    match eframe::icon_data::from_png_bytes(ICON_PNG) {
+        Ok(icon) => viewport.with_icon(Arc::new(icon)),
+        Err(err) => {
+            log::warn!("the window keeps eframe's icon: FxSound's could not be read ({err})");
+            viewport
+        }
     }
 }
 
@@ -1076,6 +1203,7 @@ const fn show_action(minimised: bool, wayland: bool) -> ShowAction {
 
 /// Whether winit runs on Wayland here: its own rule (`platform_impl/linux/mod.rs:736-766`), a
 /// non-empty `WAYLAND_DISPLAY` or `WAYLAND_SOCKET`, since FxSound forces no backend.
+#[cfg(target_os = "linux")]
 fn wayland_session(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
     ["WAYLAND_DISPLAY", "WAYLAND_SOCKET"]
         .into_iter()
@@ -1188,7 +1316,11 @@ impl<'a> Shell<'a> {
             return;
         }
         if request.show {
+            #[cfg(target_os = "linux")]
             let wayland = wayland_session(|name| std::env::var_os(name));
+            // A Win32 window is taken out of the minimised state at its own program's word.
+            #[cfg(windows)]
+            let wayland = false;
             match show_action(self.minimised, wayland) {
                 ShowAction::Focus => ctx.send_viewport_cmd(egui::ViewportCommand::Focus),
                 ShowAction::Restore => {
@@ -2675,16 +2807,19 @@ mod runtime_tests {
     use std::path::Path;
     use std::time::Instant;
 
-    /// A runtime with no engine, no tray and no bus, serving the socket in `dir`.
+    /// A runtime with no engine, no tray and no bus, serving the socket in `dir` and woken by it
+    /// as `main` wires the two: through the one waker.
     fn runtime(dir: &Path) -> Runtime {
         let Instance::Primary(listener) = Instance::acquire_in(dir).expect("acquire") else {
             panic!("expected to be primary");
         };
         let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
+        let waker = Waker::new();
         Runtime {
             app: App::headless_for_tests(),
+            #[cfg(target_os = "linux")]
             dbus: None,
-            server: listener.serve().expect("serve"),
+            server: listener.serve_waking(waker.clone()).expect("serve"),
             sleep: None,
             sleep_rx: crossbeam_channel::never(),
             tray: None,
@@ -2693,7 +2828,7 @@ mod runtime_tests {
             settings_requested: false,
             terminate: Arc::new(AtomicBool::new(false)),
             terminating: false,
-            waker: Waker::new(),
+            waker,
             signals: None,
             panes: Panes::default(),
             waiting_for_devices: Vec::new(),
@@ -3168,6 +3303,8 @@ mod runtime_tests {
         let mut runtime = runtime(dir.path());
         let (tray_tx, tray_rx) = crossbeam_channel::unbounded();
         runtime.tray_rx = tray_rx;
+        // The tray's sender wakes the pump, as `main` builds it.
+        let tray_tx = WakingSender::new(tray_tx, runtime.waker.clone());
         let clicked = Instant::now();
         let tray = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(50));
@@ -3235,11 +3372,13 @@ mod runtime_tests {
     }
 
     /// Set, to a marker file's path, in the child copy of this binary that raises the signal.
+    #[cfg(target_os = "linux")]
     const SIGNAL_CHILD: &str = "FXSOUND_TEST_SIGNAL_CHILD";
 
     /// The signal is raised in a child copy of this test binary, never in this one: signal-hook
     /// keeps SIGTERM, SIGINT and SIGHUP once it has taken them (unregistering does not put the
     /// default action back), and a test process that shrugs off Ctrl+C is not one to leave behind.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_termination_signal_wakes_the_pump() {
         if let Some(marker) = std::env::var_os(SIGNAL_CHILD) {
@@ -3428,6 +3567,7 @@ mod calibration_tests {
         let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
         Runtime {
             app,
+            #[cfg(target_os = "linux")]
             dbus: None,
             server: listener.serve().expect("serve"),
             sleep: None,
@@ -3647,6 +3787,7 @@ mod minimise_tests {
         assert_eq!(show_action(true, true), ShowAction::Reopen);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_session_is_wayland_as_winit_reads_it() {
         let vars = |set: &'static [(&'static str, &'static str)]| {
@@ -3928,6 +4069,7 @@ mod confirmation_tests {
         let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
         Runtime {
             app,
+            #[cfg(target_os = "linux")]
             dbus: None,
             server: listener.serve().expect("serve"),
             sleep: None,
@@ -4195,6 +4337,7 @@ mod forget_device_tests {
         let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
         let runtime = Runtime {
             app,
+            #[cfg(target_os = "linux")]
             dbus: None,
             server: listener.serve().expect("serve"),
             sleep: None,
@@ -4856,5 +4999,39 @@ mod theme_tests {
             .set_windows_parity(WindowsParity::Off, false)
             .expect("offered");
         assert_eq!(frame_edge(&mut shell, &ctx).color, light.divider());
+    }
+}
+
+#[cfg(test)]
+mod vsync_tests {
+    use super::*;
+
+    #[test]
+    fn only_linux_renders_without_vsync() {
+        // Linux: the frame callback a hidden Wayland surface never gets. Windows: the pointer's
+        // events, which without vsync were each presented at once, hundreds a second.
+        let options = native_options(ViewMode::Lite);
+        assert_eq!(
+            options.glow_options.vsync,
+            !cfg!(target_os = "linux"),
+            "vsync stays off where it hangs and on where it paces"
+        );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_icon_tests {
+    use super::*;
+
+    #[test]
+    fn the_window_carries_fxsounds_own_icon_rather_than_eframes() {
+        let options = native_options(ViewMode::Pro);
+        let icon = options.viewport.icon.expect("an icon of FxSound's own");
+        assert_eq!((icon.width, icon.height), (256, 256));
+        assert_eq!(icon.rgba.len(), 256 * 256 * 4);
+        assert!(
+            icon.rgba.chunks(4).any(|pixel| pixel[3] == 255),
+            "something opaque is drawn"
+        );
     }
 }

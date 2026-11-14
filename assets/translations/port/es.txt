@@ -156,3 +156,5 @@ countries: ar co es mx
 "Window and controls as in the original. Same sound." = "Ventana y controles como en el original. Mismo sonido."
 "Plus the original's sound: presets sound the same." = "Más el sonido del original: los preajustes suenan igual."
 "Only what the original has; the rest is hidden." = "Solo lo que tiene el original; el resto se oculta."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "No hay ningún dispositivo de reproducción virtual: instale el controlador de FxSound o VB-CABLE"
+"The Windows audio service is not available" = "El servicio de audio de Windows no está disponible"

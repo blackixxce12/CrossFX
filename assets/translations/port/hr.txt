@@ -159,3 +159,5 @@ countries: HR
 "Window and controls as in the original. Same sound." = "Prozor i kontrole kao u izvorniku. Isti zvuk."
 "Plus the original's sound: presets sound the same." = "Plus zvuk izvornika: preseti zvuče isto."
 "Only what the original has; the rest is hidden." = "Samo ono što ima izvornik; ostalo je skriveno."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Nema virtualnog uređaja za reprodukciju: instalirajte upravljački program FxSound ili VB-CABLE"
+"The Windows audio service is not available" = "Usluga zvuka sustava Windows nije dostupna"

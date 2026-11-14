@@ -156,3 +156,5 @@ countries: th
 "Window and controls as in the original. Same sound." = "หน้าต่างและปุ่มควบคุมเหมือนต้นฉบับ เสียงเหมือนเดิม"
 "Plus the original's sound: presets sound the same." = "รวมเสียงของต้นฉบับ: พรีเซตให้เสียงเหมือนกัน"
 "Only what the original has; the rest is hidden." = "เฉพาะสิ่งที่ต้นฉบับมี ที่เหลือจะถูกซ่อน"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "ไม่มีอุปกรณ์เล่นเสียงเสมือน: ติดตั้งไดรเวอร์ FxSound หรือ VB-CABLE"
+"The Windows audio service is not available" = "บริการเสียงของ Windows ไม่พร้อมใช้งาน"

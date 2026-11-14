@@ -158,3 +158,5 @@ countries: EG sa
 "Window and controls as in the original. Same sound." = "النافذة وعناصر التحكم كما في الأصل. الصوت نفسه."
 "Plus the original's sound: presets sound the same." = "وصوت الأصل أيضًا: القوالب تبدو كما هناك."
 "Only what the original has; the rest is hidden." = "ما في الأصل فقط؛ والباقي مخفي."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "لا يوجد جهاز تشغيل افتراضي: ثبّت برنامج تشغيل FxSound أو VB-CABLE"
+"The Windows audio service is not available" = "خدمة الصوت في Windows غير متاحة"

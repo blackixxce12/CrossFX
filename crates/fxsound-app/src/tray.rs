@@ -67,15 +67,30 @@
 //! [`WakingSender`] that wakes the GUI thread for it (0.4.0 design §12); the tray holds a mirror
 //! of the model and the application pushes changes back through [`TrayHandle::update`], which is
 //! exactly where the C++ calls `setStatus` (`FxController.cpp:785`, `:1016`, `:2075`, `:2773`).
+//!
+//! # On Windows
+//!
+//! The model above — [`TrayState`], [`TrayCommand`], the icons, the labels — is the same, and the
+//! item is the notification area's (`crate::win::tray`): `TrayHandle` and `spawn` there have the
+//! API of the ones here, and everything that is StatusNotifierItem or `ksni` is Linux's alone.
 
+#[cfg(target_os = "linux")]
 use crate::wake::WakingSender;
 use fxsound_core::i18n::{tr, tr_args};
 use fxsound_core::{DeviceDirection, ThemeMode, WindowsLook, WindowsParity};
+#[cfg(target_os = "linux")]
 use ksni::blocking::{Handle, TrayMethods as _};
+#[cfg(target_os = "linux")]
 use ksni::menu::{RadioGroup, RadioItem, StandardItem, SubMenu};
+#[cfg(target_os = "linux")]
 use ksni::{Category, Icon, MenuItem, Status, ToolTip, Tray};
+#[cfg(target_os = "linux")]
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(windows)]
+pub use crate::win::tray::{TrayHandle, spawn};
 
 /// The D-Bus / desktop identity of the application (`docs/spec/07-startup-tray.md` §1.5). It has
 /// to match the `.desktop` file's basename and the Wayland `app_id` for shells to associate the
@@ -164,6 +179,7 @@ impl TrayIcon {
 /// `ksni::Icon` is **ARGB32 in network byte order**, not RGBA
 /// (`docs/api/linux-desktop-crates.md` §2.4), with straight alpha, and several sizes may be
 /// supplied at once. Empty, the panel resolves [`TrayIcon::name`] alone.
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Default)]
 pub struct TrayPixmaps {
     pub off: Vec<Icon>,
@@ -171,6 +187,7 @@ pub struct TrayPixmaps {
     pub processing: Vec<Icon>,
 }
 
+#[cfg(target_os = "linux")]
 impl TrayPixmaps {
     /// The three compiled-in icons at every one of [`PIXMAP_SIZES`] — once, at start-up, since the
     /// icon changes with every song that starts or stops and rasterising is not free.
@@ -201,21 +218,11 @@ impl TrayPixmaps {
 
 /// `svg` drawn into a `size` × `size` square, centred and scaled to fit without distortion, as
 /// straight-alpha ARGB32 in network byte order. `None` when the SVG cannot be read.
+#[cfg(target_os = "linux")]
 #[must_use]
 pub fn rasterise(svg: &[u8], size: u32) -> Option<Icon> {
-    let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).ok()?;
-    let (width, height) = (tree.size().width(), tree.size().height());
-    if width <= 0.0 || height <= 0.0 {
-        return None;
-    }
-    let mut pixmap = tiny_skia::Pixmap::new(size, size)?;
-    let side = size as f32;
-    let scale = side / width.max(height);
-    let transform = tiny_skia::Transform::from_scale(scale, scale)
-        .post_translate((side - width * scale) / 2.0, (side - height * scale) / 2.0);
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
     // tiny-skia keeps premultiplied RGBA and hands back straight RGBA; the item wants A, R, G, B.
-    let rgba = pixmap.take_demultiplied();
+    let rgba = render(svg, size)?.take_demultiplied();
     let data = rgba
         .as_chunks::<4>()
         .0
@@ -227,6 +234,35 @@ pub fn rasterise(svg: &[u8], size: u32) -> Option<Icon> {
         height: i32::try_from(size).ok()?,
         data,
     })
+}
+
+/// [`rasterise`]'s drawing, as straight-alpha RGBA: what the Windows notification area takes.
+#[must_use]
+pub fn rasterise_rgba(svg: &[u8], size: u32) -> Option<Vec<u8>> {
+    Some(render(svg, size)?.take_demultiplied())
+}
+
+/// [`rasterise`]'s drawing as a PNG file's bytes: the icon a Windows toast is shown with.
+#[cfg(windows)]
+#[must_use]
+pub fn rasterise_png(svg: &[u8], size: u32) -> Option<Vec<u8>> {
+    render(svg, size)?.encode_png().ok()
+}
+
+/// `svg` drawn into a `size` × `size` square, centred and scaled to fit without distortion.
+fn render(svg: &[u8], size: u32) -> Option<tiny_skia::Pixmap> {
+    let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).ok()?;
+    let (width, height) = (tree.size().width(), tree.size().height());
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+    let mut pixmap = tiny_skia::Pixmap::new(size, size)?;
+    let side = size as f32;
+    let scale = side / width.max(height);
+    let transform = tiny_skia::Transform::from_scale(scale, scale)
+        .post_translate((side - width * scale) / 2.0, (side - height * scale) / 2.0);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+    Some(pixmap)
 }
 
 /// One row of a preset submenu.
@@ -426,6 +462,7 @@ pub enum TrayCommand {
 ///
 /// Public because [`TrayHandle`] names it, and because the menu is worth testing without a D-Bus
 /// session: build one and call [`Tray::menu`].
+#[cfg(target_os = "linux")]
 pub struct FxTray {
     state: TrayState,
     /// Rasterised once and kept here, not in the mirror the application replaces on each redraw.
@@ -447,6 +484,7 @@ pub struct FxTray {
     watcher: Arc<AtomicBool>,
 }
 
+#[cfg(target_os = "linux")]
 impl FxTray {
     /// An item drawing `state`, sending what is clicked on `tx`, with no pixmaps: a panel then
     /// resolves the icon by name alone. [`FxTray::with_pixmaps`] adds them.
@@ -615,16 +653,7 @@ impl FxTray {
     /// device at «Как в Windows» = Interface and above, in its middle past [`MENU_LABEL_MAX`]
     /// otherwise (0.4.0 audit #31).
     fn device_label(&self, direction: DeviceDirection, name: &str) -> String {
-        if direction == DeviceDirection::Output
-            && self
-                .state
-                .windows_parity
-                .windows_look(WindowsLook::TrayNames)
-        {
-            truncate_label_as_windows(name)
-        } else {
-            truncate_label(name)
-        }
+        device_row_label(&self.state, direction, name)
     }
 
     /// One lane's radio group — `Off`, then its direction's devices — or `None` when the direction
@@ -723,6 +752,7 @@ impl FxTray {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Tray for FxTray {
     /// A left click activates rather than popping the menu, matching `NIN_SELECT`
     /// (`FxSystemTrayView.cpp:446-455`).
@@ -856,11 +886,13 @@ impl Tray for FxTray {
 ///
 /// [`Handle::update`] here is the *blocking* one (`ksni-0.3.6/src/blocking.rs:205`), so the egui
 /// thread can call it directly without an async runtime of its own.
+#[cfg(target_os = "linux")]
 pub struct TrayHandle {
     handle: Handle<FxTray>,
     watcher: Arc<AtomicBool>,
 }
 
+#[cfg(target_os = "linux")]
 impl TrayHandle {
     /// Whether the icon is actually on screen.
     ///
@@ -907,6 +939,7 @@ impl TrayHandle {
 /// The tray is redrawn from the controller's events (`crate::events::fan_out`): the whole mirror
 /// at once, and only when something it draws changed — every update is a D-Bus round trip and a
 /// set of property signals.
+#[cfg(target_os = "linux")]
 impl crate::events::TraySink for TrayHandle {
     fn redraw(&self, state: TrayState) {
         self.update(|mirror| *mirror = state);
@@ -931,6 +964,7 @@ impl crate::events::TraySink for TrayHandle {
 /// # Errors
 ///
 /// If the session bus is unreachable or the item cannot be registered.
+#[cfg(target_os = "linux")]
 pub fn spawn(
     state: TrayState,
     tx: impl Into<WakingSender<TrayCommand>>,
@@ -943,8 +977,25 @@ pub fn spawn(
     Ok(TrayHandle { handle, watcher })
 }
 
+/// A device's row in `state`'s tray: cut after [`WINDOWS_LABEL_MAX`] characters as on Windows for
+/// a playback device at «Как в Windows» = Interface and above, in its middle past
+/// [`MENU_LABEL_MAX`] otherwise (0.4.0 audit #31). The one rule for both systems' trays.
+pub(crate) fn device_row_label(
+    state: &TrayState,
+    direction: DeviceDirection,
+    name: &str,
+) -> String {
+    if direction == DeviceDirection::Output
+        && state.windows_parity.windows_look(WindowsLook::TrayNames)
+    {
+        truncate_label_as_windows(name)
+    } else {
+        truncate_label(name)
+    }
+}
+
 /// A lane's preset submenu, by its direction.
-fn preset_menu_label(direction: DeviceDirection) -> String {
+pub(crate) fn preset_menu_label(direction: DeviceDirection) -> String {
     match direction {
         DeviceDirection::Output => tr("Output Presets"),
         DeviceDirection::Input => tr("Input Presets"),
@@ -953,7 +1004,7 @@ fn preset_menu_label(direction: DeviceDirection) -> String {
 
 /// A lane's device submenu, by its direction: the original's playback item, and its twin for the
 /// microphones.
-fn device_menu_label(direction: DeviceDirection) -> String {
+pub(crate) fn device_menu_label(direction: DeviceDirection) -> String {
     match direction {
         DeviceDirection::Output => tr("Playback Device Select"),
         DeviceDirection::Input => tr("Recording Device Select"),
@@ -961,7 +1012,7 @@ fn device_menu_label(direction: DeviceDirection) -> String {
 }
 
 /// `"<name> *"` for a preset with unsaved changes (`FxSystemTrayView.cpp:231`).
-fn preset_label(preset: &TrayPreset) -> String {
+pub(crate) fn preset_label(preset: &TrayPreset) -> String {
     if preset.modified {
         format!("{} *", preset.name)
     } else {
@@ -1000,7 +1051,8 @@ fn truncate_label_as_windows(text: &str) -> String {
     format!("{head}{ELLIPSIS}")
 }
 
-#[cfg(test)]
+// The StatusNotifierItem's: `crate::win::tray` has the Windows tray's own.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use crossbeam_channel::{Receiver, unbounded};

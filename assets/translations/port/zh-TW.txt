@@ -157,3 +157,5 @@ countries: Taiwan
 "Window and controls as in the original. Same sound." = "視窗和控制項與原版相同。聲音不變。"
 "Plus the original's sound: presets sound the same." = "再加上原版的聲音：預設聽起來一樣。"
 "Only what the original has; the rest is hidden." = "只保留原版有的功能，其餘隱藏。"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "沒有虛擬播放裝置：請安裝 FxSound 驅動程式或 VB-CABLE"
+"The Windows audio service is not available" = "Windows 音訊服務無法使用"

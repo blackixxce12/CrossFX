@@ -157,3 +157,5 @@ countries: id
 "Window and controls as in the original. Same sound." = "Jendela dan kontrol seperti aslinya. Suara sama."
 "Plus the original's sound: presets sound the same." = "Plus suara aslinya: preset terdengar sama."
 "Only what the original has; the rest is hidden." = "Hanya yang ada di aslinya; sisanya disembunyikan."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Tidak ada perangkat pemutaran virtual: pasang driver FxSound atau VB-CABLE"
+"The Windows audio service is not available" = "Layanan audio Windows tidak tersedia"

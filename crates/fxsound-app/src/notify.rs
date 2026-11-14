@@ -75,20 +75,34 @@
 //! down". Connecting gives up after `CONNECT_TIMEOUT` and `Notify` after `NOTIFY_TIMEOUT`, each at
 //! the cost of the notice it was for, and dropping the [`Notifier`] waits `SHUTDOWN_GRACE` at most
 //! for what is still queued.
+//!
+//! # On Windows
+//!
+//! The messages, their weights and the one slot are the same; what delivers them is a toast
+//! (`crate::win::toast`), and everything D-Bus here is Linux's alone.
 
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::future::Future;
+#[cfg(target_os = "linux")]
 use std::num::NonZeroUsize;
+#[cfg(target_os = "linux")]
 use std::pin::Pin;
+#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
+#[cfg(target_os = "linux")]
 use notify_rust::{Hint, Notification, Timeout, Urgency};
+#[cfg(target_os = "linux")]
 use tokio::runtime::Runtime;
+#[cfg(target_os = "linux")]
 use zbus::export::futures_core::Stream;
 
+#[cfg(target_os = "linux")]
 use crate::tray::APP_ID;
 use fxsound_core::i18n::{tr, tr_args};
 
@@ -130,6 +144,7 @@ pub enum Weight {
     Alert,
 }
 
+#[cfg(target_os = "linux")]
 impl Weight {
     /// The urgency hint it is sent with.
     #[must_use]
@@ -336,6 +351,7 @@ impl Message {
 /// `suppress-sound` is `NIIF_NOSOUND` (`FxSystemTrayView.cpp:411`), and `desktop-entry` is what
 /// lets a shell attribute the notification to our window. The urgency is the message's
 /// [`Weight`].
+#[cfg(target_os = "linux")]
 #[must_use]
 pub fn build(message: &Message, replaces: Option<u32>) -> Notification {
     let mut notification = Notification::new();
@@ -369,13 +385,16 @@ pub trait Sink: Send + 'static {
     fn deliver(&mut self, message: &Message, replaces: Option<u32>) -> Option<u32>;
 }
 
+#[cfg(target_os = "linux")]
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
+#[cfg(target_os = "linux")]
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
 /// How long connecting may take — the handshake, `Hello`, and the subscription to the daemon's
 /// signals — before the notice it was for is given up: what the D-Bus service and the suspend
 /// watcher allow too ([`crate::dbus`], [`crate::sleep`]). zbus bounds none of it, and a bus that
 /// accepts and then says nothing would hold the worker for as long as it does.
+#[cfg(target_os = "linux")]
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long the daemon has to answer `Notify` before the notice is given up: D-Bus's customary
@@ -383,6 +402,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// long as any other client gives it. Neither zbus nor dbus-daemon times a call out unless told
 /// to, and a daemon that takes the call and does not answer — stopped, or hung — would hold the
 /// worker, and every notice queued behind it, for as long as it does not.
+#[cfg(target_os = "linux")]
 const NOTIFY_TIMEOUT: Duration = Duration::from_secs(25);
 
 /// Delivery over `org.freedesktop.Notifications`, on one connection kept open from the first
@@ -392,6 +412,7 @@ const NOTIFY_TIMEOUT: Duration = Duration::from_secs(25);
 /// the worker thread, never inside a tokio runtime, where waiting on another runtime panics. Each
 /// of `deliver`'s waits is bounded (see "Threading" in the module docs), and one that runs out
 /// costs the notice, as any other failure does.
+#[cfg(target_os = "linux")]
 pub struct DesktopSink {
     /// The bus to connect to: the session's when `None`.
     address: Option<String>,
@@ -414,6 +435,7 @@ pub struct DesktopSink {
 /// follows links drives the same runtime for as long as the connection lasts — tokio lets one
 /// thread wait on a current-thread runtime that another one drives — so the socket is read while
 /// no message is being sent as well.
+#[cfg(target_os = "linux")]
 struct Kept {
     /// Declared first, so that it goes before the runtime it runs on.
     connection: zbus::Connection,
@@ -421,8 +443,10 @@ struct Kept {
 }
 
 /// Follows a link a notification was clicked for.
+#[cfg(target_os = "linux")]
 type Opener = Arc<dyn Fn(&str) + Send + Sync>;
 
+#[cfg(target_os = "linux")]
 impl Default for DesktopSink {
     fn default() -> Self {
         Self {
@@ -436,6 +460,7 @@ impl Default for DesktopSink {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl std::fmt::Debug for DesktopSink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DesktopSink")
@@ -445,6 +470,7 @@ impl std::fmt::Debug for DesktopSink {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl DesktopSink {
     /// Delivery to the session bus's notification daemon.
     #[must_use]
@@ -549,6 +575,7 @@ impl DesktopSink {
 /// whose own timeout runs out (`connection::Builder::method_timeout`) — an I/O error of kind
 /// `TimedOut` — carrying an [`Unanswered`] that says what went unanswered. Only ever awaited
 /// inside a runtime, whose timer it is.
+#[cfg(target_os = "linux")]
 async fn within<T>(
     limit: Duration,
     what: &'static str,
@@ -562,6 +589,7 @@ async fn within<T>(
 /// A wait [`within`] gave up on: nobody answered in time, which says nothing against the
 /// connection it was waiting on — unlike a socket's own `ETIMEDOUT`, which [`unanswered`] tells
 /// apart from it.
+#[cfg(target_os = "linux")]
 #[derive(Debug)]
 struct Unanswered {
     what: &'static str,
@@ -569,19 +597,23 @@ struct Unanswered {
 }
 
 /// Whether `error` is a wait [`within`] gave up on.
+#[cfg(target_os = "linux")]
 fn unanswered(error: &zbus::Error) -> bool {
     matches!(error, zbus::Error::InputOutput(io)
         if io.get_ref().is_some_and(|inner| inner.is::<Unanswered>()))
 }
 
+#[cfg(target_os = "linux")]
 impl std::fmt::Display for Unanswered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: no answer in {:?}", self.what, self.limit)
     }
 }
 
+#[cfg(target_os = "linux")]
 impl std::error::Error for Unanswered {}
 
+#[cfg(target_os = "linux")]
 impl Sink for DesktopSink {
     fn deliver(&mut self, message: &Message, replaces: Option<u32>) -> Option<u32> {
         let notification = build(message, replaces);
@@ -617,6 +649,7 @@ impl Sink for DesktopSink {
 
 /// The notifications go with the connection, on GNOME, when FxSound quits: they would otherwise
 /// offer to open an application that is not running.
+#[cfg(target_os = "linux")]
 impl Drop for DesktopSink {
     fn drop(&mut self) {
         self.disconnect();
@@ -626,6 +659,7 @@ impl Drop for DesktopSink {
 /// Listen on `connection` for a click on the notification in `link`, and follow its link. The
 /// thread ends when the connection does; until then it is the one driving `runtime`, the
 /// connection's. Subscribing is part of connecting, and has as long: `subscribe_within`.
+#[cfg(target_os = "linux")]
 fn follow_links(
     runtime: &Arc<Runtime>,
     connection: &zbus::Connection,
@@ -696,6 +730,7 @@ fn follow_links(
 }
 
 /// The next message on `stream`; `None` once the connection has gone.
+#[cfg(target_os = "linux")]
 async fn next_signal(stream: &mut zbus::MessageStream) -> Option<zbus::Result<zbus::Message>> {
     std::future::poll_fn(|cx| Pin::new(&mut *stream).poll_next(cx)).await
 }
@@ -725,10 +760,14 @@ pub struct Notifier {
 }
 
 impl Notifier {
-    /// A notifier that talks to the session's notification daemon.
+    /// A notifier that talks to the session's notification daemon — on Windows, that shows toasts.
     #[must_use]
     pub fn new(hide_notifications: bool) -> Self {
-        Self::with_sink(hide_notifications, DesktopSink::session())
+        #[cfg(target_os = "linux")]
+        let sink = DesktopSink::session();
+        #[cfg(windows)]
+        let sink = crate::win::toast::ToastSink::new();
+        Self::with_sink(hide_notifications, sink)
     }
 
     /// A notifier that delivers through `sink`.
@@ -822,13 +861,15 @@ fn deliver_loop(rx: &Receiver<Message>, mut sink: impl Sink) {
 /// equivalent here would make any URL that reaches this function a command-injection path. The
 /// scheme is checked for the same reason — every caller in the catalogue passes a constant, but
 /// [`Message::with_link`] is public.
+#[cfg(target_os = "linux")]
 fn open_url(url: &str) {
     if let Err(e) = crate::platform::open_url(url) {
         log::warn!("could not open a notification link: {e}");
     }
 }
 
-#[cfg(test)]
+// The D-Bus delivery's: `crate::win::toast` has the toasts' own.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use std::time::Instant;

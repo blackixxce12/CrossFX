@@ -26,6 +26,23 @@
 //! It runs before the single-instance lock, so it works beside a running FxSound and in a bare
 //! container, and it takes no lock, opens no socket of its own, shows no window and writes
 //! nothing. The exit status is 1 when any check that ran failed.
+//!
+//! # On Windows
+//!
+//! The first five checks are the same, with the presets in the `presets` folder beside
+//! `fxsound.exe`, where the installer puts them. Then, in place of the Linux installation's files,
+//! its runtime directory, PipeWire and the session bus:
+//!
+//! 6. `windows_audio`: the Windows audio service (`Audiosrv`) is running — `skip` on a Windows
+//!    without one;
+//! 7. `virtual_device`: a virtual playback device is there for FxSound to stand in front of the
+//!    speakers with, the FxSound driver's or VB-CABLE's — `skip` without the audio service;
+//! 8. `control_pipe`: the control pipe can be had — FxSound answers on it, or a pipe of the same
+//!    security can be created — without connecting to a running FxSound, which would be a caller
+//!    for it to answer.
+//!
+//! Nothing there opens a stream or changes a device; the probe pipe has a name of its own and goes
+//! at once.
 
 use fxsound_core::Settings;
 use fxsound_core::messages::{DspParams, InputDspParams};
@@ -33,6 +50,7 @@ use fxsound_preset::PresetStore;
 use fxsound_preset::input::InputPreset;
 use serde::Serialize;
 use std::io;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::FileTypeExt as _;
 use std::path::{Path, PathBuf};
 
@@ -171,7 +189,8 @@ impl Report {
 /// Where the running binary is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Layout {
-    /// `<prefix>/bin/fxsound`: `/usr`, `/usr/local`, or wherever a tarball was unpacked.
+    /// `<prefix>/bin/fxsound`: `/usr`, `/usr/local`, or wherever a tarball was unpacked. On
+    /// Windows, `<prefix>\fxsound.exe`: the folder the installer put it in.
     Installed { prefix: PathBuf },
     /// `<root>/target/<profile>/fxsound`, in a checkout: the presets come from `<root>/assets`
     /// and nothing installed is expected to exist.
@@ -184,7 +203,8 @@ impl Layout {
     /// The source tree is recognised exactly as the preset stores recognise it — three levels up
     /// from the binary, a checkout with `assets/presets` in it — so the two can never disagree
     /// about whether this is a development build. Anything else is an install, and its prefix is
-    /// the directory two above the binary, which is what every package and `install.sh` produce.
+    /// the directory two above the binary, which is what every package and `install.sh` produce —
+    /// on Windows the binary's own, as `fxsound_preset::install_data_dirs` has it.
     #[must_use]
     pub fn of_exe(exe: &Path) -> Self {
         let above = exe.parent().and_then(Path::parent);
@@ -196,6 +216,8 @@ impl Layout {
                 root: root.to_path_buf(),
             };
         }
+        #[cfg(windows)]
+        let above = exe.parent();
         Self::Installed {
             prefix: above.map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
         }
@@ -215,11 +237,21 @@ pub struct Environment {
     pub voice_preset_dirs: Vec<PathBuf>,
     pub settings_path: PathBuf,
     /// Where the lock and the control socket go (`ipc::runtime_dir`).
+    #[cfg(target_os = "linux")]
     pub runtime_dir: PathBuf,
     /// `$XDG_RUNTIME_DIR`, where PipeWire's socket is.
+    #[cfg(target_os = "linux")]
     pub xdg_runtime_dir: Option<PathBuf>,
     /// `$DBUS_SESSION_BUS_ADDRESS`.
+    #[cfg(target_os = "linux")]
     pub dbus_address: Option<String>,
+    /// The control pipe's name (`crate::win::pipe`); `None` when the user's SID cannot be read.
+    #[cfg(windows)]
+    pub control_pipe: Option<PathBuf>,
+    /// Whether to ask this machine's audio service and endpoints — never in a test, whose report
+    /// must not depend on the host's devices.
+    #[cfg(windows)]
+    pub probe_audio: bool,
 }
 
 impl Environment {
@@ -232,34 +264,65 @@ impl Environment {
             factory_preset_dirs: PresetStore::with_default_dirs().factory_dirs().to_vec(),
             voice_preset_dirs: InputPreset::default_dirs(),
             settings_path: Settings::config_path(),
+            #[cfg(target_os = "linux")]
             runtime_dir: crate::ipc::runtime_dir(),
+            #[cfg(target_os = "linux")]
             xdg_runtime_dir: std::env::var_os("XDG_RUNTIME_DIR")
                 .filter(|dir| !dir.is_empty())
                 .map(PathBuf::from),
+            #[cfg(target_os = "linux")]
             dbus_address: std::env::var("DBUS_SESSION_BUS_ADDRESS")
                 .ok()
                 .filter(|address| !address.is_empty()),
+            #[cfg(windows)]
+            control_pipe: crate::win::pipe::default_path().ok(),
+            #[cfg(windows)]
+            probe_audio: true,
             exe,
         }
     }
 
     /// An installation under `prefix`, with its presets where a package puts them, its settings
-    /// and runtime directory inside it too, and neither PipeWire nor a session bus.
+    /// and runtime directory inside it too, and neither PipeWire nor a session bus — on Windows,
+    /// its presets beside `fxsound.exe`, a control pipe of its own, and no audio probed.
     #[must_use]
     pub fn for_prefix(prefix: &Path) -> Self {
-        let presets = prefix.join("share/fxsound/presets");
+        let presets = installed_presets(prefix);
         Self {
+            #[cfg(target_os = "linux")]
             exe: prefix.join("bin/fxsound"),
+            #[cfg(windows)]
+            exe: prefix.join("fxsound.exe"),
             layout: Layout::Installed {
                 prefix: prefix.to_path_buf(),
             },
             factory_preset_dirs: vec![presets.join("Factsoft"), presets.join("BonusPresets")],
             voice_preset_dirs: vec![presets.join("Input")],
             settings_path: prefix.join("config/fxsound/settings.toml"),
+            #[cfg(target_os = "linux")]
             runtime_dir: prefix.join("run/fxsound"),
+            #[cfg(target_os = "linux")]
             xdg_runtime_dir: None,
+            #[cfg(target_os = "linux")]
             dbus_address: None,
+            #[cfg(windows)]
+            control_pipe: crate::win::pipe::path_in(prefix).ok(),
+            #[cfg(windows)]
+            probe_audio: false,
         }
+    }
+}
+
+/// Where an installation under `prefix` keeps its shipped presets: `<prefix>/share/fxsound/presets`,
+/// or on Windows `<prefix>\presets`, beside the binary.
+fn installed_presets(prefix: &Path) -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        prefix.join("share/fxsound/presets")
+    }
+    #[cfg(windows)]
+    {
+        prefix.join("presets")
     }
 }
 
@@ -275,11 +338,102 @@ pub fn run(env: &Environment) -> Report {
         check_output_chain(),
         check_input_chain(),
     ];
-    checks.extend(check_installed_files(env));
-    checks.push(check_runtime_dir(&env.runtime_dir));
-    checks.push(check_pipewire(env.xdg_runtime_dir.as_deref()));
-    checks.push(check_dbus(env.dbus_address.as_deref()));
+    #[cfg(target_os = "linux")]
+    {
+        checks.extend(check_installed_files(env));
+        checks.push(check_runtime_dir(&env.runtime_dir));
+        checks.push(check_pipewire(env.xdg_runtime_dir.as_deref()));
+        checks.push(check_dbus(env.dbus_address.as_deref()));
+    }
+    #[cfg(windows)]
+    {
+        let service = env.probe_audio.then(crate::win::audio::service);
+        checks.push(check_windows_audio(service.as_ref()));
+        let devices = matches!(service, Some(crate::win::audio::Service::Running))
+            .then(crate::win::audio::playback_devices);
+        checks.push(check_virtual_device(env.probe_audio, devices));
+        checks.push(check_control_pipe(env.control_pipe.as_deref()));
+    }
     Report::new(checks)
+}
+
+/// The Windows audio service, as the service manager reports it; `None` when it was not asked.
+#[cfg(windows)]
+fn check_windows_audio(service: Option<&crate::win::audio::Service>) -> Check {
+    use crate::win::audio::Service;
+    const NAME: &str = "windows_audio";
+    match service {
+        None => Check::skip(NAME, "not probed"),
+        Some(Service::Running) => Check::ok(NAME, "Audiosrv is running"),
+        Some(Service::NotRunning(state)) => Check::fail(
+            NAME,
+            format!("Audiosrv is {state}; FxSound has no sound to process without it"),
+        ),
+        Some(Service::Missing) => Check::skip(NAME, "this Windows has no audio service"),
+        Some(Service::Unknown(why)) => Check::fail(NAME, format!("Audiosrv: {why}")),
+    }
+}
+
+/// A virtual playback device, from the active endpoints' names; `None` when they were not listed
+/// — not probed, or the service is not running.
+#[cfg(windows)]
+fn check_virtual_device(probed: bool, devices: Option<Result<Vec<String>, String>>) -> Check {
+    const NAME: &str = "virtual_device";
+    match devices {
+        None if probed => Check::skip(NAME, "without the audio service there is nothing to list"),
+        None => Check::skip(NAME, "not probed"),
+        Some(Err(why)) => Check::fail(
+            NAME,
+            format!("the playback devices cannot be listed: {why}"),
+        ),
+        Some(Ok(devices)) => match devices
+            .iter()
+            .find(|name| crate::win::audio::is_virtual(name))
+        {
+            Some(device) => Check::ok(NAME, device.clone()),
+            None => Check::fail(
+                NAME,
+                format!(
+                    "no virtual playback device among {}: install the FxSound driver or VB-CABLE",
+                    if devices.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        devices.join(", ")
+                    }
+                ),
+            ),
+        },
+    }
+}
+
+/// The control pipe: there with an instance behind it, or creatable — a probe instance of the
+/// same access control, under a name of its own, made and let go at once. No connection is made
+/// to a running FxSound.
+#[cfg(windows)]
+fn check_control_pipe(pipe: Option<&Path>) -> Check {
+    use crate::win::pipe;
+    const NAME: &str = "control_pipe";
+    let Some(pipe) = pipe else {
+        return Check::fail(
+            NAME,
+            "the user's SID cannot be read, so the pipe has no name",
+        );
+    };
+    if pipe::exists(pipe) {
+        return Check::ok(NAME, format!("{} (FxSound is running)", pipe.display()));
+    }
+    let probe = PathBuf::from(format!(
+        "{}-self-test-{}",
+        pipe.display(),
+        std::process::id()
+    ));
+    match pipe::PipeListener::bind(&probe) {
+        Ok(listener) => {
+            drop(listener);
+            Check::ok(NAME, format!("{} (free)", pipe.display()))
+        }
+        Err(err) => Check::fail(NAME, format!("{} cannot be created: {err}", pipe.display())),
+    }
 }
 
 fn check_layout(env: &Environment) -> Check {
@@ -563,15 +717,21 @@ fn check_input_chain() -> Check {
 }
 
 /// Where a package puts the install-only files, relative to the prefix.
+#[cfg(target_os = "linux")]
 const DESKTOP_FILE: &str = "share/applications/com.fxsound.FxSound.desktop";
+#[cfg(target_os = "linux")]
 const METAINFO: &str = "share/metainfo/com.fxsound.FxSound.metainfo.xml";
+#[cfg(target_os = "linux")]
 const SYSTEMD_UNIT: &str = "lib/systemd/user/fxsound.service";
+#[cfg(target_os = "linux")]
 const DBUS_SERVICE: &str = "share/dbus-1/services/org.fxsound.FxSound.service";
+#[cfg(target_os = "linux")]
 const MAN_DIR: &str = "share/man/man1";
 
 /// The icons the tray asks the theme for by name, as a package installs them: the names are the
 /// tray's own, so a renamed state is a missing icon here rather than a blank tray on a user's
 /// panel.
+#[cfg(target_os = "linux")]
 fn status_icons() -> Vec<String> {
     [
         crate::tray::ICON_OFF,
@@ -585,6 +745,7 @@ fn status_icons() -> Vec<String> {
 
 /// The application icon at the two sizes every package installs, under both of its names: the
 /// `fxsound` that `Icon=` names, and the application id every notification is sent with.
+#[cfg(target_os = "linux")]
 fn app_icons() -> Vec<String> {
     ["fxsound", crate::tray::APP_ID]
         .iter()
@@ -598,6 +759,7 @@ fn app_icons() -> Vec<String> {
 
 /// The install-only files: under an install prefix, each one present (and, where it is text, what
 /// it claims to be); from the source tree, `skip`.
+#[cfg(target_os = "linux")]
 fn check_installed_files(env: &Environment) -> Vec<Check> {
     let prefix = match &env.layout {
         Layout::Installed { prefix } => prefix,
@@ -632,6 +794,7 @@ fn check_installed_files(env: &Environment) -> Vec<Check> {
 }
 
 /// Every file in `relative` exists under `prefix` and is not empty.
+#[cfg(target_os = "linux")]
 fn check_present(name: &'static str, prefix: &Path, relative: &[String]) -> Check {
     let missing: Vec<String> = relative
         .iter()
@@ -657,6 +820,7 @@ fn check_present(name: &'static str, prefix: &Path, relative: &[String]) -> Chec
 }
 
 /// A text file that exists and contains `marker`.
+#[cfg(target_os = "linux")]
 fn check_text_file(name: &'static str, path: &Path, marker: &str) -> Check {
     match std::fs::read_to_string(path) {
         Ok(text) if text.contains(marker) => Check::ok(name, path.display().to_string()),
@@ -670,6 +834,7 @@ fn check_text_file(name: &'static str, path: &Path, marker: &str) -> Check {
 
 /// The systemd user unit, and that it starts *this* binary: the unit ships naming
 /// `/usr/bin/fxsound`, and an install anywhere else has to have rewritten it.
+#[cfg(target_os = "linux")]
 fn check_unit(path: &Path, binary: &Path) -> Check {
     const NAME: &str = "systemd_unit";
     let text = match std::fs::read_to_string(path) {
@@ -701,6 +866,7 @@ fn check_unit(path: &Path, binary: &Path) -> Check {
 /// that name, handing the start to the user unit as the bus does where it is systemd's, and
 /// starting *this* binary by its own `Exec=` where it is not — the file ships naming
 /// `/usr/bin/fxsound`, as the unit does.
+#[cfg(target_os = "linux")]
 fn check_dbus_service(path: &Path, binary: &Path) -> Check {
     const NAME: &str = "dbus_service";
     let text = match std::fs::read_to_string(path) {
@@ -757,6 +923,7 @@ fn check_dbus_service(path: &Path, binary: &Path) -> Check {
 /// Ubuntu (dpkg `path-exclude`), Arch (pacman `NoExtract`) and Fedora (dnf `tsflags=nodocs`) drop
 /// every manual page a package ships. The detail says so, because from inside such an image a
 /// correct package and a package without its page look the same.
+#[cfg(target_os = "linux")]
 fn check_man_page(dir: &Path) -> Check {
     const NAME: &str = "man_page";
     let found = std::fs::read_dir(dir).ok().and_then(|entries| {
@@ -785,11 +952,13 @@ fn check_man_page(dir: &Path) -> Check {
 
 /// The size of `sockaddr_un::sun_path` on Linux, the terminating NUL included: a socket path of
 /// this many bytes or more cannot be bound or connected to.
+#[cfg(target_os = "linux")]
 const SUN_PATH_LEN: usize = 108;
 
 /// The directory the lock and the control socket go in: there already and a directory, or
 /// creatable because its parent is, and shallow enough for the socket's path to fit in a Unix
 /// socket address. Nothing is created here.
+#[cfg(target_os = "linux")]
 fn check_runtime_dir(dir: &Path) -> Check {
     const NAME: &str = "runtime_dir";
     // A deep `XDG_RUNTIME_DIR` — a CI scratch directory, a test harness's — gives a directory that
@@ -846,6 +1015,7 @@ fn check_runtime_dir(dir: &Path) -> Check {
 
 /// Whether something is listening on a Unix socket, by connecting and hanging up at once. Enough
 /// to tell a live server from a socket file a crashed one left behind; nothing is said on it.
+#[cfg(target_os = "linux")]
 fn socket_answers(path: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_socket() => {}
@@ -859,6 +1029,7 @@ fn socket_answers(path: &Path) -> Result<(), String> {
 
 /// PipeWire: preflight only. A socket that accepts a connection is all this asks. No protocol is
 /// spoken and no node or stream is created; the connection is closed as soon as it is accepted.
+#[cfg(target_os = "linux")]
 fn check_pipewire(xdg_runtime_dir: Option<&Path>) -> Check {
     const NAME: &str = "pipewire";
     let Some(dir) = xdg_runtime_dir else {
@@ -877,6 +1048,7 @@ fn check_pipewire(xdg_runtime_dir: Option<&Path>) -> Check {
 /// The session bus the tray, the notifications and the D-Bus interface use. A `unix:path=`
 /// address is probed like PipeWire's socket; any other transport is reported as set and left
 /// alone.
+#[cfg(target_os = "linux")]
 fn check_dbus(address: Option<&str>) -> Check {
     const NAME: &str = "dbus";
     let Some(address) = address else {
@@ -937,7 +1109,7 @@ pub(crate) mod tests {
     pub(crate) fn installed() -> (tempfile::TempDir, Environment) {
         let tmp = tempfile::tempdir().expect("a temporary directory");
         let prefix = tmp.path();
-        let presets = prefix.join("share/fxsound/presets");
+        let presets = installed_presets(prefix);
         for (dir, ext) in [
             ("Factsoft", "fac"),
             ("BonusPresets", "fac"),
@@ -945,6 +1117,15 @@ pub(crate) mod tests {
         ] {
             assert!(copy_dir(&assets().join(dir), &presets.join(dir), ext) > 0);
         }
+        #[cfg(target_os = "linux")]
+        install_the_desktop_files(prefix);
+        let env = Environment::for_prefix(prefix);
+        (tmp, env)
+    }
+
+    /// What a Linux package installs beside the presets.
+    #[cfg(target_os = "linux")]
+    fn install_the_desktop_files(prefix: &Path) {
         write(
             &prefix.join(DESKTOP_FILE),
             "[Desktop Entry]\nExec=fxsound\n",
@@ -973,8 +1154,6 @@ pub(crate) mod tests {
             "<?xml?>\n<component type=\"desktop\">",
         );
         fs::create_dir_all(prefix.join("run")).expect("create");
-        let env = Environment::for_prefix(prefix);
-        (tmp, env)
     }
 
     fn check<'a>(report: &'a Report, name: &str) -> &'a Check {
@@ -996,7 +1175,11 @@ pub(crate) mod tests {
         assert!(report.ok(), "{}", report.to_text());
         assert_eq!(report.exit_code(), 0);
         for (name, status) in statuses(&report) {
-            let expected = if matches!(name, "pipewire" | "dbus") {
+            // Neither PipeWire and the bus nor, on Windows, the host's audio is probed here.
+            let expected = if matches!(
+                name,
+                "pipewire" | "dbus" | "windows_audio" | "virtual_device"
+            ) {
                 Status::Skip
             } else {
                 Status::Ok
@@ -1005,6 +1188,7 @@ pub(crate) mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_checks_come_in_a_fixed_order_with_stable_names() {
         let (_tmp, env) = installed();
@@ -1031,6 +1215,89 @@ pub(crate) mod tests {
                 "dbus",
             ]
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_the_checks_come_in_a_fixed_order_with_stable_names() {
+        let (_tmp, env) = installed();
+        let names: Vec<&str> = run(&env).checks.iter().map(|c| c.name).collect();
+        assert_eq!(
+            names,
+            [
+                "version",
+                "install_prefix",
+                "factory_presets",
+                "voice_presets",
+                "settings",
+                "output_chain",
+                "input_chain",
+                "windows_audio",
+                "virtual_device",
+                "control_pipe",
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_audio_checks_say_what_is_missing_and_how_to_get_it() {
+        use crate::win::audio::Service;
+        assert_eq!(
+            check_windows_audio(Some(&Service::Running)).status,
+            Status::Ok
+        );
+        assert_eq!(
+            check_windows_audio(Some(&Service::NotRunning("stopped"))).status,
+            Status::Fail
+        );
+        assert_eq!(
+            check_windows_audio(Some(&Service::Missing)).status,
+            Status::Skip
+        );
+        assert_eq!(check_windows_audio(None).status, Status::Skip);
+
+        let speakers = || Some(Ok(vec!["Speakers (Realtek(R) Audio)".to_owned()]));
+        let missing = check_virtual_device(true, speakers());
+        assert_eq!(missing.status, Status::Fail);
+        assert!(missing.detail.contains("VB-CABLE"), "{}", missing.detail);
+        assert!(missing.detail.contains("Realtek"), "{}", missing.detail);
+        let found = check_virtual_device(
+            true,
+            Some(Ok(vec![
+                "Speakers (Realtek(R) Audio)".to_owned(),
+                "CABLE Input (VB-Audio Virtual Cable)".to_owned(),
+            ])),
+        );
+        assert_eq!(found.status, Status::Ok);
+        assert_eq!(found.detail, "CABLE Input (VB-Audio Virtual Cable)");
+        assert_eq!(check_virtual_device(true, None).status, Status::Skip);
+        assert_eq!(
+            check_virtual_device(true, Some(Err("no COM".to_owned()))).status,
+            Status::Fail
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_control_pipe_is_free_until_an_instance_holds_it_and_is_never_connected_to() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let pipe = crate::win::pipe::path_in(tmp.path()).expect("a name");
+        let free = check_control_pipe(Some(&pipe));
+        assert_eq!(free.status, Status::Ok, "{}", free.detail);
+        assert!(free.detail.ends_with("(free)"), "{}", free.detail);
+
+        let crate::ipc::Instance::Primary(listener) =
+            crate::ipc::Instance::acquire_in(tmp.path()).expect("acquire")
+        else {
+            panic!("the pipe was free");
+        };
+        let server = listener.serve().expect("serve");
+        let running = check_control_pipe(Some(&pipe));
+        assert_eq!(running.status, Status::Ok, "{}", running.detail);
+        assert!(running.detail.contains("running"), "{}", running.detail);
+        assert!(server.try_recv().is_none(), "nothing reached the instance");
+        assert_eq!(check_control_pipe(None).status, Status::Fail);
     }
 
     #[test]
@@ -1093,6 +1360,7 @@ pub(crate) mod tests {
         assert_eq!(check.detail, "first second third");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_missing_man_page_fails_that_check_alone() {
         let (tmp, env) = installed();
@@ -1109,6 +1377,7 @@ pub(crate) mod tests {
         assert_eq!(failed, ["man_page"], "{}", report.to_text());
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn an_uncompressed_man_page_counts_as_well() {
         let (tmp, _env) = installed();
@@ -1120,6 +1389,7 @@ pub(crate) mod tests {
         assert_eq!(check_man_page(&dir).status, Status::Fail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn every_compressed_man_page_counts() {
         let (tmp, _env) = installed();
@@ -1140,6 +1410,7 @@ pub(crate) mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_missing_man_page_says_what_was_looked_for() {
         let (tmp, _env) = installed();
@@ -1158,6 +1429,7 @@ pub(crate) mod tests {
         assert_eq!(check_man_page(&dir).status, Status::Fail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_missing_status_icon_is_named() {
         let (tmp, env) = installed();
@@ -1173,6 +1445,7 @@ pub(crate) mod tests {
         assert_eq!(check(&report, "app_icons").status, Status::Ok);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn an_application_icon_missing_under_the_application_id_is_named() {
         let (tmp, env) = installed();
@@ -1191,6 +1464,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn an_empty_icon_file_is_as_good_as_a_missing_one() {
         let (tmp, env) = installed();
@@ -1198,6 +1472,7 @@ pub(crate) mod tests {
         assert_eq!(check(&run(&env), "app_icons").status, Status::Fail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_desktop_file_or_metainfo_that_is_not_one_fails() {
         let (tmp, env) = installed();
@@ -1214,6 +1489,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_unit_that_starts_another_binary_fails() {
         // The tarball's install.sh rewrites the unit for its prefix; one that still names
@@ -1239,6 +1515,7 @@ pub(crate) mod tests {
         assert_eq!(check(&run(&env), "systemd_unit").status, Status::Fail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_missing_dbus_activation_file_fails_that_check_alone() {
         let (tmp, env) = installed();
@@ -1260,6 +1537,7 @@ pub(crate) mod tests {
         assert_eq!(failed, ["dbus_service"]);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_dbus_activation_file_for_another_name_binary_or_unit_fails() {
         // The shipped file names /usr/bin/fxsound; the tarball's install.sh rewrites it for its
@@ -1304,6 +1582,7 @@ pub(crate) mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_shipped_dbus_activation_file_passes_where_it_is_installed_as_it_ships() {
         // packaging/org.fxsound.FxSound.service itself, under /usr as every package puts it.
@@ -1326,6 +1605,7 @@ pub(crate) mod tests {
     /// The shell script the shipped unit's `ExecStop=` runs, with FxSound's path in it as it
     /// ships: the line is `-/bin/sh -c '<script>'`, the `-` letting a stop with no FxSound to
     /// reach succeed.
+    #[cfg(target_os = "linux")]
     fn shipped_stop_script() -> &'static str {
         let unit = include_str!("../../../packaging/fxsound.service");
         let stops: Vec<&str> = unit
@@ -1342,6 +1622,7 @@ pub(crate) mod tests {
 
     /// Run the stop script as systemd would, with `$MAINPID` set to `main_pid` or unset, and with
     /// FxSound replaced by an `echo` of its command line: what it prints is what it would run.
+    #[cfg(target_os = "linux")]
     fn run_stop_script(main_pid: Option<&str>) -> String {
         let script = shipped_stop_script().replace("/usr/bin/fxsound", "echo /usr/bin/fxsound");
         let mut shell = std::process::Command::new("/bin/sh");
@@ -1354,6 +1635,7 @@ pub(crate) mod tests {
         String::from_utf8(output.stdout).unwrap()
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_units_stop_leaves_alone_an_instance_its_start_found_running() {
         // `fxsound --activated` exits 0 when FxSound runs already; systemd still runs ExecStop
@@ -1361,11 +1643,13 @@ pub(crate) mod tests {
         assert_eq!(run_stop_script(None), "");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_units_stop_quits_the_instance_it_started_while_that_runs() {
         assert_eq!(run_stop_script(Some("4242")), "/usr/bin/fxsound --quit\n");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn no_line_of_the_shipped_unit_quits_fxsound_outside_the_guarded_stop() {
         let unit = include_str!("../../../packaging/fxsound.service");
@@ -1384,7 +1668,7 @@ pub(crate) mod tests {
     #[test]
     fn a_preset_that_does_not_parse_fails_the_presets_and_is_named() {
         let (tmp, env) = installed();
-        let factsoft = tmp.path().join("share/fxsound/presets/Factsoft");
+        let factsoft = installed_presets(tmp.path()).join("Factsoft");
         write(&factsoft.join("Broken.fac"), "this is not a preset\n");
         let report = run(&env);
         let presets = check(&report, "factory_presets");
@@ -1396,7 +1680,7 @@ pub(crate) mod tests {
     #[test]
     fn the_factory_presets_are_counted_across_every_directory() {
         let (tmp, env) = installed();
-        let presets = tmp.path().join("share/fxsound/presets");
+        let presets = installed_presets(tmp.path());
         let expected = files_with_extension(&presets.join("Factsoft"), "fac")
             .unwrap()
             .len()
@@ -1438,7 +1722,7 @@ pub(crate) mod tests {
     fn a_voice_preset_that_does_not_parse_fails_the_voice_presets() {
         let (tmp, env) = installed();
         write(
-            &tmp.path().join("share/fxsound/presets/Input/Broken.toml"),
+            &installed_presets(tmp.path()).join("Input/Broken.toml"),
             "name = [\n",
         );
         let voice = check(&run(&env), "voice_presets").clone();
@@ -1552,6 +1836,7 @@ pub(crate) mod tests {
             before,
             "the self-test changed the prefix"
         );
+        #[cfg(target_os = "linux")]
         assert!(
             !env.runtime_dir.exists(),
             "the runtime directory was created"
@@ -1596,6 +1881,7 @@ pub(crate) mod tests {
         assert_eq!(peak_dbfs(peak), "silence");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_binary_under_bin_is_installed_under_the_directory_above() {
         assert_eq!(
@@ -1627,10 +1913,19 @@ pub(crate) mod tests {
         );
         // Without the checkout around it, the same shape is just an odd prefix.
         let bare = tempfile::tempdir().unwrap();
+        #[cfg(target_os = "linux")]
         assert_eq!(
             Layout::of_exe(&bare.path().join("target/release/fxsound")),
             Layout::Installed {
                 prefix: bare.path().join("target")
+            }
+        );
+        // On Windows, the folder the binary is in.
+        #[cfg(windows)]
+        assert_eq!(
+            Layout::of_exe(&bare.path().join("target/release/fxsound.exe")),
+            Layout::Installed {
+                prefix: bare.path().join("target/release")
             }
         );
     }
@@ -1644,6 +1939,7 @@ pub(crate) mod tests {
         ));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn from_the_source_tree_the_install_only_files_are_skipped() {
         let (_tmp, mut env) = installed();
@@ -1670,6 +1966,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_runtime_directory_is_fine_existing_or_creatable_and_not_otherwise() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1699,6 +1996,7 @@ pub(crate) mod tests {
         assert_eq!(check_runtime_dir(&link).status, Status::Fail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_runtime_directory_too_deep_for_the_socket_fails_exactly_where_binding_it_would() {
         // Seen for real: with `XDG_RUNTIME_DIR` deep in a scratch directory the self-test said
@@ -1745,6 +2043,7 @@ pub(crate) mod tests {
         assert!(check.detail.contains("socket"), "{}", check.detail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn pipewire_is_skipped_without_a_runtime_directory_or_a_socket() {
         assert_eq!(check_pipewire(None).status, Status::Skip);
@@ -1754,6 +2053,7 @@ pub(crate) mod tests {
         assert!(skipped.detail.contains("pipewire-0"), "{}", skipped.detail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn pipewire_is_ok_when_something_answers_on_its_socket() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1763,6 +2063,7 @@ pub(crate) mod tests {
         assert_eq!(check.status, Status::Ok, "{}", check.detail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_pipewire_socket_nobody_answers_on_fails() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1779,6 +2080,7 @@ pub(crate) mod tests {
         assert!(check.detail.contains("not a socket"), "{}", check.detail);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn dbus_is_skipped_unset_probed_by_path_and_believed_otherwise() {
         assert_eq!(check_dbus(None).status, Status::Skip);
@@ -1813,7 +2115,10 @@ pub(crate) mod tests {
         );
         assert_eq!(env.voice_preset_dirs, InputPreset::default_dirs());
         assert_eq!(env.settings_path, Settings::config_path());
+        #[cfg(target_os = "linux")]
         assert_eq!(env.runtime_dir, crate::ipc::runtime_dir());
+        #[cfg(windows)]
+        assert_eq!(env.control_pipe, crate::win::pipe::default_path().ok());
         assert_eq!(env.layout, Layout::of_exe(&env.exe));
     }
 }

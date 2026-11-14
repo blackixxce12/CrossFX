@@ -509,13 +509,24 @@ impl Default for Settings {
     }
 }
 
+/// The folder of FxSound's own under the system's configuration and data directories: `fxsound`,
+/// and on Windows `FxSound Port`. `%APPDATA%\FxSound` is FxSound LLC's FxSound's, with its
+/// settings and its user presets in it, and Windows does not tell `fxsound` from `FxSound`: the
+/// port keeps out of the original's files there, as its installers keep out of its name.
+pub const APP_DIR_NAME: &str = if cfg!(windows) {
+    "FxSound Port"
+} else {
+    "fxsound"
+};
+
 impl Settings {
-    /// `~/.config/fxsound` (or `$XDG_CONFIG_HOME/fxsound`).
+    /// `~/.config/fxsound` (or `$XDG_CONFIG_HOME/fxsound`); on Windows `%APPDATA%\FxSound Port`
+    /// ([`APP_DIR_NAME`]).
     #[must_use]
     pub fn config_dir() -> std::path::PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("fxsound")
+            .join(APP_DIR_NAME)
     }
 
     /// `~/.config/fxsound/settings.toml`.
@@ -524,12 +535,13 @@ impl Settings {
         Self::config_dir().join("settings.toml")
     }
 
-    /// `~/.local/share/fxsound/presets` — where imported and user-saved presets land.
+    /// `~/.local/share/fxsound/presets` — where imported and user-saved presets land; on Windows
+    /// `%APPDATA%\FxSound Port\presets`, never the original's `%APPDATA%\FxSound\Presets`.
     #[must_use]
     pub fn user_preset_dir() -> std::path::PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("fxsound")
+            .join(APP_DIR_NAME)
             .join("presets")
     }
 

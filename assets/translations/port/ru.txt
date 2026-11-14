@@ -157,3 +157,5 @@ countries: ru
 "Window and controls as in the original. Same sound." = "Окно и кнопки как в оригинале. Звук прежний."
 "Plus the original's sound: presets sound the same." = "Плюс звук оригинала: шаблоны звучат как там."
 "Only what the original has; the rest is hidden." = "Только функции оригинала, остальное скрыто."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Нет виртуального устройства воспроизведения: установите драйвер FxSound или VB-CABLE"
+"The Windows audio service is not available" = "Служба Windows Audio недоступна"

@@ -147,6 +147,18 @@ pub const MAX_EFFECT_PAIRS: usize = Effect::COUNT;
             .multiple(false)
     )
 )]
+// The Windows facts where the Linux text names the socket, the bus or systemd: a later
+// `long_about` is the one clap keeps. The Linux text above stays as `packaging/fxsound.1`
+// documents it.
+#[cfg_attr(
+    windows,
+    command(
+        long_about = "Run with no options to start FxSound, or to raise the window of an \
+                      instance that is already running. Any option given while an instance is \
+                      running is forwarded to it over its control pipe, \
+                      \\\\.\\pipe\\fxsound-<user SID>, which only the same user can open."
+    )
+)]
 pub struct Cli {
     /// Turn audio processing on or off. Any non-zero integer means on.
     ///
@@ -211,6 +223,18 @@ pub struct Cli {
     /// switched FxSound into its input mode; a microphone named here is still selected, for the
     /// input lane, with a note on stderr that `--input` is the option for it now.
     #[arg(long = "output", value_name = "DEVICE|off")]
+    #[cfg_attr(
+        windows,
+        arg(
+            long_help = "Select the playback device the output lane renders to, by its exact \
+                         name, or `off` to detach the lane.\n\n\
+                         `--output=<device>` — `docs/COMMAND_LINE_OPTIONS.md:24`, \
+                         `FxController.cpp:254-257`, `:451-462`: the device's name as Windows \
+                         lists it, as the original takes it. `off` is a port addition (0.4.0 \
+                         design §1.4). A microphone named here is still selected, for the input \
+                         lane, with a note on stderr that `--input` is the option for it."
+        )
+    )]
     pub output: Option<String>,
 
     /// Select the microphone the input lane reads from, by its exact name, or `off` to detach the
@@ -219,6 +243,15 @@ pub struct Cli {
     /// Linux addition (0.4.0 design §1.4): the input lane runs beside the output lane, so it has
     /// an option of its own. Matched like `--output`: `node.name` first, then the description.
     #[arg(long = "input", value_name = "DEVICE|off")]
+    #[cfg_attr(
+        windows,
+        arg(
+            long_help = "Select the microphone the input lane reads from, by its exact name, or \
+                         `off` to detach the lane.\n\n\
+                         A port addition (0.4.0 design §1.4): the input lane runs beside the \
+                         output lane, so it has an option of its own. Matched like `--output`."
+        )
+    )]
     pub input: Option<String>,
 
     /// Forget a device that is not connected: drop it from its lane's device priority list, and
@@ -234,6 +267,19 @@ pub struct Cli {
         value_name = "DEVICE",
         value_parser = parse_device_name,
         conflicts_with = "report"
+    )]
+    #[cfg_attr(
+        windows,
+        arg(
+            long_help = "Forget a device that is not connected: drop it from its lane's device \
+                         priority list, and the preset remembered for it, as the ✕ beside its \
+                         row in Settings does.\n\n\
+                         A port addition (0.4.0 audit #34). By name, playback devices and \
+                         microphones alike; a device that is connected is refused, since \
+                         FxSound would learn it again at once. Not with `--status`, `--watch`, \
+                         `--self-test` or `--list-apps`: a report runs alone, and the device \
+                         would not be forgotten."
+        )
     )]
     pub forget_device: Option<String>,
 
@@ -372,6 +418,21 @@ pub struct Cli {
         value_name = "APP=PRESET",
         value_parser = parse_app_rule
     )]
+    // No Flatpak on Windows: an application is its program or its name.
+    #[cfg_attr(
+        windows,
+        arg(
+            long_help = "Give an application a playback preset of its own, `APP=PRESET`, or \
+                         `APP=default` to have it follow the output lane's preset again. May be \
+                         given more than once.\n\n\
+                         A port addition (per-application presets, `docs/0.4.0-apps.md`). `APP` \
+                         is a remembered application's program or name, in any case \
+                         (`--list-apps` shows them); one FxSound has not seen gets a rule for \
+                         the name or program `APP` looks like (`crate::app::unseen_key`). \
+                         `PRESET` is an output preset's exact name; `default` and `follow` are \
+                         the lane's."
+        )
+    )]
     pub app_preset: Vec<AppRuleArg>,
 
     /// The same for what an application records: a voice preset of its own, or `default`.
@@ -430,6 +491,18 @@ pub struct Cli {
     /// only refreshed when somebody asks for it is stale by definition, and a status bar is
     /// better served by running this command than by reading a file nothing keeps current.
     #[arg(long = "status")]
+    #[cfg_attr(
+        windows,
+        arg(
+            long_help = "Print the running instance's state and exit. Every other option is \
+                         ignored.\n\n\
+                         One `key: value` line per item, which is what scripts grep; pass \
+                         `--json` alongside for a single JSON object instead.\n\n\
+                         The answer comes back over the control pipe and is printed on this \
+                         process's own output, where FxSound for Windows printed it to the \
+                         running instance's console. No status file is written."
+        )
+    )]
     pub status: bool,
 
     /// Print the `--status`, `--watch`, `--self-test` or `--list-apps` report as JSON rather
@@ -468,6 +541,23 @@ pub struct Cli {
     /// lock is taken, so it works beside a running FxSound and in a bare container, and it
     /// never forwards anything. Every other option on the line is ignored.
     #[arg(long = "self-test", alias = "self_test")]
+    #[cfg_attr(
+        windows,
+        arg(
+            help = "Check the installation and exit: presets, settings, both processing chains \
+                    offline, the Windows audio service, a virtual playback device and the \
+                    control pipe",
+            long_help = "Check the installation and exit: presets, settings, both processing \
+                         chains offline, whether the Windows audio service runs, whether a \
+                         virtual playback device (the FxSound driver's, or VB-CABLE's) is there \
+                         to stand in front of the speakers with, and whether the control pipe \
+                         can be had.\n\n\
+                         An addition of this port. It runs in this process before the control \
+                         pipe is claimed, so it works beside a running FxSound; it never \
+                         connects to one, opens no stream and changes no device. Every other \
+                         option on the line is ignored."
+        )
+    )]
     pub self_test: bool,
 
     /// Start without showing the window, or hide the window of a running instance.
@@ -480,6 +570,15 @@ pub struct Cli {
         alias = "run-minimized",
         visible_alias = "hide"
     )]
+    #[cfg_attr(
+        windows,
+        arg(
+            long_help = "Start without showing the window, or hide the window of a running \
+                         instance.\n\n\
+                         `--run_minimized` is FxSound for Windows' own spelling; `--hide` is \
+                         what \"Run at startup\" starts FxSound with."
+        )
+    )]
     pub run_minimized: bool,
 
     /// How the D-Bus activation file and the systemd user unit start FxSound: as `--hide`, except
@@ -490,6 +589,8 @@ pub struct Cli {
     /// bar's poll landing in between used to start `fxsound --hide`, which found the lock taken,
     /// forwarded `--hide` and hid the window that had just been opened.
     #[arg(long = "activated")]
+    // Windows has no bus to start FxSound for a call; the option is still read, and not shown.
+    #[cfg_attr(windows, arg(hide = true))]
     pub activated: bool,
 
     /// Show and raise the window of the running instance, or start with it showing.
@@ -503,27 +604,69 @@ pub struct Cli {
     /// Toggle audio processing. Compositor stand-in for `CMD_ON_OFF`, Ctrl+Shift+Q
     /// (`FxController.cpp:2820-2866`, defaults at `Settings.cpp:34`).
     #[arg(long = "toggle-power", alias = "toggle_power")]
+    // Windows has no compositor to bind keys in: the original's hotkey, as a command for whatever
+    // tool binds one (a shortcut's Shortcut key, PowerToys, AutoHotkey).
+    #[cfg_attr(
+        windows,
+        arg(
+            help = "Toggle audio processing: the original's Ctrl+Shift+Q (`CMD_ON_OFF`, \
+                    `FxController.cpp:2820-2866`, defaults at `Settings.cpp:34`) as a command, \
+                    for a key bound in any tool that runs one"
+        )
+    )]
     pub toggle_power: bool,
 
     /// Show the window if it is hidden, hide it if it is showing. Compositor stand-in for
     /// `CMD_OPEN_CLOSE`, Ctrl+Shift+E (`Settings.cpp:35`), and the same toggle a left click on the
     /// tray icon performs (`FxSystemTrayView.cpp:446-455`).
     #[arg(long = "toggle-window", alias = "toggle_window")]
+    #[cfg_attr(
+        windows,
+        arg(
+            help = "Show the window if it is hidden, hide it if it is showing: the original's \
+                    Ctrl+Shift+E (`CMD_OPEN_CLOSE`, `Settings.cpp:35`) as a command, and the \
+                    same toggle a left click on the tray icon performs \
+                    (`FxSystemTrayView.cpp:446-455`)"
+        )
+    )]
     pub toggle_window: bool,
 
     /// Select the next preset, wrapping. Compositor stand-in for `CMD_NEXT_PRESET`, Ctrl+Shift+A
     /// (`Settings.cpp:36`, behaviour at `FxController.cpp:1923-2014`).
     #[arg(long = "next-preset", alias = "next_preset")]
+    #[cfg_attr(
+        windows,
+        arg(
+            help = "Select the next preset, wrapping: the original's Ctrl+Shift+A \
+                    (`CMD_NEXT_PRESET`, `Settings.cpp:36`, behaviour at \
+                    `FxController.cpp:1923-2014`) as a command"
+        )
+    )]
     pub next_preset: bool,
 
     /// Select the previous preset, wrapping. Compositor stand-in for `CMD_PREVIOUS_PRESET`,
     /// Ctrl+Shift+Z (`Settings.cpp:37`).
     #[arg(long = "prev-preset", aliases = ["prev_preset", "previous-preset", "previous_preset"])]
+    #[cfg_attr(
+        windows,
+        arg(
+            help = "Select the previous preset, wrapping: the original's Ctrl+Shift+Z \
+                    (`CMD_PREVIOUS_PRESET`, `Settings.cpp:37`) as a command"
+        )
+    )]
     pub prev_preset: bool,
 
     /// Cycle the output lane to the next playback device, wrapping; never into the microphones.
     /// Compositor stand-in for `CMD_NEXT_OUTPUT`, Ctrl+Shift+W (`Settings.cpp:38`).
     #[arg(long = "next-output", alias = "next_output")]
+    #[cfg_attr(
+        windows,
+        arg(
+            help = "Cycle the output lane to the next playback device, wrapping; never into the \
+                    microphones. The original's Ctrl+Shift+W (`CMD_NEXT_OUTPUT`, \
+                    `Settings.cpp:38`) as a command"
+        )
+    )]
     pub next_output: bool,
 
     /// Cycle the input lane to the next microphone, wrapping. The input lane's `--next-output`.
@@ -536,6 +679,15 @@ pub struct Cli {
     /// the tray's Exit item (`FxSystemTrayView.cpp:285-287`); with no tray host available on some
     /// desktops that would leave the app unkillable by UI.
     #[arg(long = "quit")]
+    #[cfg_attr(
+        windows,
+        arg(
+            long_help = "Quit the running instance, autosaving a modified preset first.\n\n\
+                         A port addition (`docs/spec/07-startup-tray.md` §4.7): FxSound for \
+                         Windows quits from the tray's Exit item alone \
+                         (`FxSystemTrayView.cpp:285-287`)."
+        )
+    )]
     pub quit: bool,
 }
 
@@ -2951,6 +3103,37 @@ mod tests {
                 .commands()
                 .iter()
                 .all(|command| command.parity_class() != ParityClass::Sound)
+        );
+    }
+
+    /// The Windows build's help says the Windows facts — the control pipe, no socket, bus,
+    /// compositor or PipeWire node — which holds only if clap keeps each `cfg_attr` text over the
+    /// doc comment before it.
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_help_names_the_control_pipe_and_nothing_of_the_linux_session() {
+        use clap::CommandFactory as _;
+        let long = Cli::command().render_long_help().to_string();
+        let short = Cli::command().render_help().to_string();
+        assert!(long.contains(r"\\.\pipe\fxsound-<user SID>"), "{long}");
+        for help in [&long, &short] {
+            for linux in [
+                "XDG_RUNTIME_DIR",
+                "socket",
+                "D-Bus",
+                "systemd",
+                "ompositor",
+                "PipeWire",
+                "node.name",
+                "session bus",
+                "Flatpak",
+            ] {
+                assert!(!help.contains(linux), "{linux:?} in:\n{help}");
+            }
+        }
+        assert!(
+            !long.contains("--activated"),
+            "the bus's own option is not offered"
         );
     }
 }

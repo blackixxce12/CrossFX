@@ -157,3 +157,5 @@ countries: vn
 "Window and controls as in the original. Same sound." = "Cửa sổ và điều khiển như bản gốc. Âm thanh giữ nguyên."
 "Plus the original's sound: presets sound the same." = "Thêm âm thanh bản gốc: preset nghe giống hệt."
 "Only what the original has; the rest is hidden." = "Chỉ những gì bản gốc có; phần còn lại bị ẩn."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Không có thiết bị phát ảo: hãy cài trình điều khiển FxSound hoặc VB-CABLE"
+"The Windows audio service is not available" = "Dịch vụ âm thanh của Windows không khả dụng"

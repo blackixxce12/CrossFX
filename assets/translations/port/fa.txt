@@ -158,3 +158,5 @@ countries: ir
 "Window and controls as in the original. Same sound." = "پنجره و کنترل‌ها مانند نسخهٔ اصلی. صدا همان."
 "Plus the original's sound: presets sound the same." = "به‌علاوهٔ صدای نسخهٔ اصلی: پیش‌تنظیم‌ها همان صدا را دارند."
 "Only what the original has; the rest is hidden." = "فقط آنچه نسخهٔ اصلی دارد؛ بقیه پنهان است."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "هیچ دستگاه پخش مجازی وجود ندارد: درایور FxSound یا VB-CABLE را نصب کنید"
+"The Windows audio service is not available" = "سرویس صوتی Windows در دسترس نیست"

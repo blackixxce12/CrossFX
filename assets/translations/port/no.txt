@@ -161,3 +161,5 @@ countries: no
 "Window and controls as in the original. Same sound." = "Vindu og kontroller som i originalen. Samme lyd."
 "Plus the original's sound: presets sound the same." = "Pluss originalens lyd: forhåndsinnstillinger låter likt."
 "Only what the original has; the rest is hidden." = "Bare det originalen har; resten er skjult."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Ingen virtuell avspillingsenhet: installer FxSound-driveren eller VB-CABLE"
+"The Windows audio service is not available" = "Lydtjenesten i Windows er ikke tilgjengelig"

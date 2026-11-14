@@ -25,12 +25,6 @@ rfd = { workspace = true }
 env_logger = { workspace = true }
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }
-signal-hook = { workspace = true }
-# `blocking` is additive on top of the workspace's default (`tokio`) feature and gives us
-# `ksni::blocking::Handle::update`, which is synchronous — the egui thread must never await
-# (`docs/api/linux-desktop-crates.md` §2.9).
-ksni = { workspace = true, features = ["blocking"] }
-notify-rust = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # `--self-test` parses the settings file itself: `Settings::load` moves a file it cannot parse
@@ -38,6 +32,22 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
 log = { workspace = true }
+# The tray's status icons, rasterised once at start-up for hosts that do not look them up by name
+# in the icon theme (0.4.0 design §11), and for the Windows notification area, which has no icon
+# theme at all. The same three the UI crate draws its artwork with.
+resvg = { workspace = true }
+usvg = { workspace = true }
+tiny-skia = { workspace = true }
+
+# The session's own services: D-Bus for the tray, the notifications, the bus interface and
+# logind, and Unix signals. Windows has none of them (`src/win/`).
+[target.'cfg(target_os = "linux")'.dependencies]
+signal-hook = { workspace = true }
+# `blocking` is additive on top of the workspace's default (`tokio`) feature and gives us
+# `ksni::blocking::Handle::update`, which is synchronous — the egui thread must never await
+# (`docs/api/linux-desktop-crates.md` §2.9).
+ksni = { workspace = true, features = ["blocking"] }
+notify-rust = { workspace = true }
 # A runtime per job, never a shared one: ksni's tray service runs on a private current-thread
 # runtime of its own (`docs/api/linux-desktop-crates.md` §1), and the D-Bus service
 # (`src/dbus.rs`), the suspend watcher (`src/sleep.rs`) and the notifications' kept connection
@@ -51,15 +61,59 @@ tokio = { workspace = true, features = ["net", "sync", "time"] }
 # on; `service` is the object server the service is served by. notify-rust brings `proxy` and
 # `default-rt` along; the program relies on neither, and the tests name `proxy` themselves.
 zbus = { workspace = true, features = ["tokio", "service"] }
-# The tray's status icons, rasterised once at start-up for hosts that do not look them up by name
-# in the icon theme (0.4.0 design §11). The same three the UI crate draws its artwork with.
-resvg = { workspace = true }
-usvg = { workspace = true }
-tiny-skia = { workspace = true }
+
+# The Windows desktop (`src/win/`): each feature is one API family the port calls.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    # Handles, errors, `HWND`, `BOOL`: everything below needs them.
+    "Win32_Foundation",
+    # The control pipe (`win::pipe`): its file handles, overlapped I/O with a timeout, and a
+    # security descriptor that lets only this user connect.
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    # Events to wait on, the process token the user's SID is read from, thread ids.
+    "Win32_System_Threading",
+    # A console to print to from a terminal (`AttachConsole`), and Ctrl+C or the console closing
+    # as a quit (`SetConsoleCtrlHandler`).
+    "Win32_System_Console",
+    # Suspend and resume (`win::power`).
+    "Win32_System_Power",
+    # The hidden window that hears the session end, and the tray thread's message loop; the
+    # notification area's icon size at the screen's DPI.
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_HiDpi",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    # "Run at startup": `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+    "Win32_System_Registry",
+    # The user's display language, for the interface's "the system's language" (`win::language`).
+    "Win32_Globalization",
+    # Links and folders (`ShellExecuteW`), and COM for the shell and the audio endpoints.
+    "Win32_UI_Shell",
+    "Win32_System_Com",
+    # `--self-test`: the Windows audio service and its playback endpoints, read and left alone.
+    "Win32_System_Services",
+    "Win32_Media_Audio",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    # Notifications: a toast through the WinRT notification manager.
+    "Foundation",
+    "Data_Xml_Dom",
+    "UI_Notifications",
+] }
+# The notification-area icon and its menu (`win::tray`), on a thread with a message loop of its own.
+tray-icon = { workspace = true }
 
 [dev-dependencies]
 # The tests' scratch directories and guarded children (`fxsound_core::test_support`).
 fxsound-core = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
 # The tests call the service, and ask the bus who owns a name, through proxies.
 zbus = { workspace = true, features = ["proxy"] }

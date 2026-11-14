@@ -156,3 +156,5 @@ countries: fi
 "Window and controls as in the original. Same sound." = "Ikkuna ja säätimet kuin alkuperäisessä. Sama ääni."
 "Plus the original's sound: presets sound the same." = "Lisäksi alkuperäisen ääni: esiasetukset kuulostavat samalta."
 "Only what the original has; the rest is hidden." = "Vain mitä alkuperäisessä on; muu on piilotettu."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Virtuaalista toistolaitetta ei ole: asenna FxSound-ohjain tai VB-CABLE"
+"The Windows audio service is not available" = "Windowsin äänipalvelu ei ole käytettävissä"

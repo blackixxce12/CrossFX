@@ -158,3 +158,5 @@ countries: ro
 "Window and controls as in the original. Same sound." = "Fereastra și comenzile ca în original. Același sunet."
 "Plus the original's sound: presets sound the same." = "Plus sunetul originalului: presetările sună la fel."
 "Only what the original has; the rest is hidden." = "Doar ce are originalul; restul e ascuns."
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "Niciun dispozitiv de redare virtual: instalați driverul FxSound sau VB-CABLE"
+"The Windows audio service is not available" = "Serviciul audio Windows nu este disponibil"

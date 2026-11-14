@@ -156,3 +156,5 @@ countries: ja
 "Window and controls as in the original. Same sound." = "ウィンドウと操作をオリジナルに。音はそのまま。"
 "Plus the original's sound: presets sound the same." = "さらにオリジナルの音：プリセットが同じ音に。"
 "Only what the original has; the rest is hidden." = "オリジナルにある機能だけ。ほかは非表示。"
+"No virtual playback device: install the FxSound driver or VB-CABLE" = "仮想再生デバイスがありません: FxSound ドライバーまたは VB-CABLE をインストールしてください"
+"The Windows audio service is not available" = "Windows オーディオ サービスを使用できません"
