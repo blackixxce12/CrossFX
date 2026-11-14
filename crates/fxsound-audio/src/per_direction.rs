@@ -13,7 +13,7 @@
 use fxsound_core::DeviceDirection;
 
 /// One value per [`DeviceDirection`], outputs first.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct PerDirection<T> {
     pub(crate) output: T,
     pub(crate) input: T,

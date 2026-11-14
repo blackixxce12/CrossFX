@@ -410,7 +410,7 @@ pub const MAX_POSITIONS: usize = MAX_CHANNELS as usize;
 ///
 /// Fixed-size and `Copy` so a layout can be carried into the process callback's neighbourhood
 /// without an allocation. The ids are the ones in `spa/param/audio/raw.h:153-194`, reached through
-/// [`crate::spa_channels`], the values `libspa::sys` has, so that Windows builds them too.
+/// `crate::spa_channels`, the values `libspa::sys` has, so that Windows builds them too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChannelMap {
     ids: [u32; MAX_POSITIONS],
@@ -543,6 +543,23 @@ impl ChannelMap {
             ids,
             len: layout.len() as u8,
         }
+    }
+
+    /// A layout of exactly these `spa_audio_channel` ids, in this order — what the Windows backend
+    /// reads out of a `WAVEFORMATEXTENSIBLE` channel mask, which names every speaker by a bit of
+    /// its own rather than by a name [`Self::parse`] would know. `None` for no ids, or for more
+    /// than [`MAX_POSITIONS`].
+    #[must_use]
+    pub fn from_ids(ids: &[u32]) -> Option<Self> {
+        if ids.is_empty() || ids.len() > MAX_POSITIONS {
+            return None;
+        }
+        let mut positions = [0_u32; MAX_POSITIONS];
+        positions[..ids.len()].copy_from_slice(ids);
+        Some(Self {
+            ids: positions,
+            len: ids.len() as u8,
+        })
     }
 
     /// Index of the low-frequency-effects channel, if the layout has one.
