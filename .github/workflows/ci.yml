@@ -220,10 +220,12 @@ jobs:
   # the Windows halves of the app are code no Linux job builds — and the tests of the crates whose
   # tests are known to pass on Windows: the DSP, RNNoise, the presets and the settings.
   # fxsound-audio's, fxsound-ui's and fxsound-app's join them once they are known to pass on a
-  # runner. Both steps need the whole Windows port in the tree: fxsound-app building on Windows,
-  # the test targets of fxsound-core, -dsp, -preset and -audio made to build there, and the four
-  # crates' tests made to pass. While any of that is missing the job stops at Lints, on a compile
-  # error rather than a lint. packages.yml's windows job runs the packaged binary.
+  # runner. The job needs the whole Windows port in the tree. Lints builds every crate and test
+  # target, so it needs fxsound-app building on Windows and the test targets of fxsound-core, -dsp,
+  # -preset and -audio made to build there; while either is missing, the job stops at Lints, on a
+  # compile error rather than a lint. Tests needs the four crates' tests made to pass there as
+  # well; while they do not, the job stops at Tests. packages.yml's windows job runs the packaged
+  # binary.
   windows:
     name: Lint and test on Windows
     runs-on: windows-2025
