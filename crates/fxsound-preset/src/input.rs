@@ -419,27 +419,16 @@ impl InputPreset {
         Ok(presets)
     }
 
-    /// Every directory a shipped voice preset could be in, source tree first, then the install
-    /// prefixes with the binary's own first ([`crate::install_data_dirs`]).
+    /// Every directory a shipped voice preset could be in: the checkout's when the binary runs
+    /// from one ([`crate::source_tree_of`]), then the install prefixes with the binary's own first
+    /// ([`crate::install_data_dirs`]).
     ///
-    /// The same search order `PresetStore::with_default_dirs` uses, and for the same reason: a
-    /// developer running out of `target/release` must get the presets in the working tree, not the
-    /// ones an installed package left behind.
+    /// The same search order `PresetStore::with_default_dirs` uses, from the same list, and for
+    /// the same reason: a developer running out of `target/release` must get the presets in the
+    /// working tree, not the ones an installed package left behind.
     #[must_use]
     pub fn default_dirs() -> Vec<std::path::PathBuf> {
-        let mut dirs = Vec::new();
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(root) = exe
-                .parent()
-                .and_then(std::path::Path::parent)
-                .and_then(std::path::Path::parent)
-        {
-            dirs.push(root.join("assets/presets/Input"));
-        }
-        for data in crate::install_data_dirs() {
-            dirs.push(data.join("presets/Input"));
-        }
-        dirs
+        crate::shipped_preset_dirs(&["Input"])
     }
 
     /// Load the shipped voice presets from the first directory that has any.
