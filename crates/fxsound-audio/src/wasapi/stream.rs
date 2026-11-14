@@ -27,6 +27,13 @@
 //! the ring primes afresh, the chain fades in from silence, as a new pair's does on Linux, and the
 //! render stream is started once it has something to play.
 //!
+//! Idle, the thread itself rests too. With the render stream stopped, nothing playing into the
+//! virtual device and the capture side event-driven, no event comes, and a 10 ms poll would wake
+//! it 64 to 100 times a second for nothing. It waits instead for a packet, for a request of the
+//! control thread's — which wakes it through an event of its own ([`StreamShared`]) — or for
+//! [`IDLE_WAIT`], whichever comes first: the timeout is how an idle lane still notices that its
+//! streams died under it.
+//!
 //! A sound does not always end in silent packets. A loopback stream delivers no packets at all
 //! while nothing plays into the virtual device — the live check reads none in 200 ms of an idle
 //! "FxSound Speakers" (`super::live`) — so an application that stops its stream leaves the output
@@ -65,7 +72,9 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use fxsound_core::DeviceDirection;
 
 use super::Event;
-use super::com::{self, Apartment, CaptureStream, Packet, ProAudio, RenderStream, Source, Woken};
+use super::com::{
+    self, Apartment, CaptureStream, Packet, ProAudio, RenderStream, Source, WaitEvent, Woken,
+};
 use super::format::StreamFormat;
 use super::ring::{DriftControl, FrameRing, Targets, quantum_frames, quiet_after, silence_lacking};
 use crate::lane_dsp::{LaneDsp, MUTE_FADE_SECONDS};
@@ -87,8 +96,28 @@ const FADE_LIMIT: Duration = Duration::from_millis(400);
 const IDLE_AFTER: Duration = Duration::from_secs(1);
 
 /// The longest the thread waits for an event before it looks again: a stream that is not
-/// event-driven is read this often.
+/// event-driven is read this often, and so is one with a fade or a quiet source to keep up.
 const POLL: Duration = Duration::from_millis(10);
+
+/// The longest an idle lane waits (module docs, "Idle"): with the render stream stopped and an
+/// event-driven capture side, nothing is signalled until a packet arrives or the control thread
+/// asks for something — which sets [`StreamShared`]'s wake — so the wait could be endless. It is
+/// not: the timeout is also how an idle lane learns that its streams died, from the capture
+/// side's next read (`AUDCLNT_E_DEVICE_INVALIDATED`, the audio service gone), which the engine's
+/// recovery waits for. The supervisor's own beat (`super::SUPERVISOR_PERIOD`): five wakes a second
+/// instead of the hundred, or the 64 of the system timer, a 10 ms poll costs.
+const IDLE_WAIT: Duration = Duration::from_millis(200);
+
+/// How long the stream thread waits for its events: [`IDLE_WAIT`] while the lane is idle with its
+/// render stream stopped and everything that can wake it event-driven — the capture side's
+/// packets, the control thread's requests (`woken`) — and [`POLL`] otherwise.
+const fn wait_for(idle: bool, playing: bool, evented: bool, woken: bool) -> Duration {
+    if idle && !playing && evented && woken {
+        IDLE_WAIT
+    } else {
+        POLL
+    }
+}
 
 /// Which device a lane's stream runs on, and for which lane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -233,10 +262,14 @@ const FADE: u8 = 1;
 const NOW: u8 = 2;
 
 /// Everything the control thread and a stream's thread share: atomics, written by one side and
-/// read by the other once a block.
+/// read by the other once a block, and the event that wakes the stream thread for a request.
 #[derive(Debug)]
 pub(crate) struct StreamShared {
     request: AtomicU8,
+    /// Set with every request ([`Self::fade_out`], [`Self::end_now`]), so that a thread waiting
+    /// out an idle lane's long wait ([`IDLE_WAIT`]) hears it at once. `None` when the system had
+    /// no event to give, and the thread then never waits longer than [`POLL`].
+    wake: Option<WaitEvent>,
     /// For a fade: how long the stream plays on before it falls silent, in milliseconds.
     tail_ms: AtomicU32,
     /// The engine holds the lane silent while the system sleeps (`crate::lane_dsp`, "Mute").
@@ -261,6 +294,9 @@ impl StreamShared {
     pub(crate) fn new(system_mute: bool, gain: f32) -> Self {
         Self {
             request: AtomicU8::new(RUN),
+            wake: WaitEvent::new()
+                .map_err(|error| log::debug!("no wake event for the stream thread: {error}"))
+                .ok(),
             tail_ms: AtomicU32::new(0),
             system_mute: AtomicBool::new(system_mute),
             gain: AtomicU32::new(gain.to_bits()),
@@ -281,11 +317,20 @@ impl StreamShared {
         let _ = self
             .request
             .compare_exchange(RUN, FADE, Ordering::Release, Ordering::Relaxed);
+        self.wake();
     }
 
     /// Ask the stream to end at once.
     fn end_now(&self) {
         self.request.store(NOW, Ordering::Release);
+        self.wake();
+    }
+
+    /// Wake the stream thread out of its wait, after a request has been stored.
+    fn wake(&self) {
+        if let Some(wake) = self.wake.as_ref() {
+            wake.set();
+        }
     }
 
     pub(crate) fn set_system_mute(&self, muted: bool) {
@@ -734,9 +779,22 @@ impl Pump {
                 _ => {}
             }
 
-            let woken = match capture.event() {
-                Some(packets) => com::wait_any(&[render.event(), packets], POLL),
-                None => com::wait_any(&[render.event()], POLL),
+            // The render stream's event, the capture stream's when it has one, and the control
+            // thread's wake: an idle lane waits on them for long (`IDLE_WAIT`), any other for a
+            // poll's length at most.
+            let timeout = wait_for(
+                self.idle,
+                self.playing,
+                capture.event().is_some(),
+                shared.wake.is_some(),
+            );
+            let woken = match (capture.event(), shared.wake.as_ref()) {
+                (Some(packets), Some(wake)) => {
+                    com::wait_any(&[render.event(), packets, wake], timeout)
+                }
+                (Some(packets), None) => com::wait_any(&[render.event(), packets], timeout),
+                (None, Some(wake)) => com::wait_any(&[render.event(), wake], timeout),
+                (None, None) => com::wait_any(&[render.event()], timeout),
             };
             if woken == Woken::Failed {
                 return Outcome::Failed(AudioError::DeviceUnavailable);
@@ -933,6 +991,45 @@ mod tests {
         // Negative zero is silence too.
         let negative: Vec<u8> = [-0.0_f32; 4].iter().flat_map(|s| s.to_le_bytes()).collect();
         assert!(!holds_sound(&negative));
+    }
+
+    #[test]
+    fn an_idle_lane_waits_long_and_every_request_wakes_it() {
+        // Idle, the render stream stopped, the capture side and the requests event-driven.
+        assert_eq!(wait_for(true, false, true, true), IDLE_WAIT);
+        // Anything else keeps to the poll: a sound playing, a render stream still draining, a
+        // capture side read by polling, or no event for the requests.
+        assert_eq!(wait_for(false, false, true, true), POLL);
+        assert_eq!(wait_for(true, true, true, true), POLL);
+        assert_eq!(wait_for(true, false, false, true), POLL);
+        assert_eq!(wait_for(true, false, true, false), POLL);
+        assert!(IDLE_WAIT <= super::super::SUPERVISOR_PERIOD);
+
+        let shared = StreamShared::new(false, 1.0);
+        let wake = shared.wake.as_ref().expect("an event to wake the thread");
+        assert_eq!(com::wait_any(&[wake], Duration::ZERO), Woken::TimedOut);
+        shared.fade_out(Duration::from_millis(60));
+        assert_eq!(
+            com::wait_any(&[wake], Duration::ZERO),
+            Woken::Signalled,
+            "a fade wakes the thread"
+        );
+        assert_eq!(
+            com::wait_any(&[wake], Duration::ZERO),
+            Woken::TimedOut,
+            "once: the event resets itself"
+        );
+        shared.end_now();
+        assert_eq!(
+            com::wait_any(&[wake], Duration::ZERO),
+            Woken::Signalled,
+            "so does an end"
+        );
+        // A request made while the thread is not waiting is there for its next wait.
+        shared.end_now();
+        let started = Instant::now();
+        assert_eq!(com::wait_any(&[wake], IDLE_WAIT), Woken::Signalled);
+        assert!(started.elapsed() < IDLE_WAIT);
     }
 
     #[test]

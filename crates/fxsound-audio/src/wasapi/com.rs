@@ -77,7 +77,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 use windows::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, CreateEventW,
     GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW, WaitForMultipleObjects,
+    QueryFullProcessImageNameW, SetEvent, WaitForMultipleObjects,
 };
 use windows_core::{HRESULT, PCWSTR, PWSTR};
 
@@ -201,14 +201,34 @@ impl Drop for ProAudio {
     }
 }
 
-/// An auto-reset event: what WASAPI signals when a stream has a buffer ready.
+/// An auto-reset event: what WASAPI signals when a stream has a buffer ready, and what the control
+/// thread signals to wake a stream thread out of its wait ([`Self::set`]).
+#[derive(Debug)]
 pub(crate) struct WaitEvent(HANDLE);
+
+// SAFETY: an event handle is a kernel object's, valid in every thread of the process: waiting on
+// it and setting it are thread-safe calls, and the handle is closed once, by `Drop`, when the last
+// owner lets go of the value.
+#[allow(unsafe_code)]
+unsafe impl Send for WaitEvent {}
+// SAFETY: as above; `&WaitEvent` only waits on the event or sets it.
+#[allow(unsafe_code)]
+unsafe impl Sync for WaitEvent {}
 
 impl WaitEvent {
     #[allow(unsafe_code)]
     pub(crate) fn new() -> windows_core::Result<Self> {
         // SAFETY: default security, auto-reset, unsignalled, unnamed: no pointer is handed over.
         unsafe { CreateEventW(None, false, false, PCWSTR::null()) }.map(Self)
+    }
+
+    /// Signal the event: a thread waiting on it wakes, or the next one to wait returns at once.
+    #[allow(unsafe_code)]
+    pub(crate) fn set(&self) {
+        // SAFETY: the handle `CreateEventW` returned, alive until `Drop`.
+        if let Err(error) = unsafe { SetEvent(self.0) } {
+            log::debug!("setting an event: {error}");
+        }
     }
 }
 
