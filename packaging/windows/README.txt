@@ -18,11 +18,14 @@ What is in this folder
   OFL.manrope       SIL Open Font License 1.1, for the Manrope font built into fxsound.exe
   README.txt        this file
 
-The setup program and the .msi install FxSound Port into Program Files; it is removed from the
-list of installed apps in Windows Settings. The .zip needs no installation: unpack it anywhere
-and run fxsound.exe, keeping the presets folder beside it. Before deleting a copy from the .zip,
-turn off "Launch on system startup" in its settings, or Windows keeps trying to start it at every
-login.
+The setup program and the .msi install FxSound Port into Program Files, and only there, for
+every account on the computer; it is removed from the list of installed apps in Windows Settings.
+The .zip needs no installation: unpack it into a folder of your own, such as one in your user
+folder (%LOCALAPPDATA%\Programs), and run fxsound.exe, keeping the presets folder beside it. Not
+into a folder other accounts can change, as they can any new folder directly on C:\: whoever
+replaces fxsound.exe there decides what runs when you start it. Before deleting a copy from the
+.zip, turn off "Launch on system startup" in its settings, or Windows keeps trying to start it at
+every login.
 
 Source code, issues and releases: https://github.com/blackixxce12/fxsound-linux
 
@@ -49,10 +52,13 @@ FxSound Port — это программа для улучшения звука 
   OFL.manrope       SIL Open Font License 1.1 для встроенного в fxsound.exe шрифта Manrope
   README.txt        этот файл
 
-Программа установки и пакет .msi устанавливают FxSound Port в Program Files; удалить его можно
-из списка установленных приложений в параметрах Windows. Архив .zip устанавливать не нужно:
-распакуйте его в любую папку и запустите fxsound.exe, не отделяя от него папку presets. Прежде
-чем удалить копию из архива, выключите в её настройках параметр «Автоматически запускать при
-входе в систему», иначе Windows будет пытаться запускать её при каждом входе.
+Программа установки и пакет .msi устанавливают FxSound Port в Program Files, и только туда, для
+всех учётных записей компьютера; удалить его можно из списка установленных приложений в
+параметрах Windows. Архив .zip устанавливать не нужно: распакуйте его в свою папку, например в
+папку внутри вашего профиля (%LOCALAPPDATA%\Programs), и запустите fxsound.exe, не отделяя от
+него папку presets. Только не в папку, которую могут изменять другие учётные записи, как любую
+новую папку прямо на диске C:\: кто заменит там fxsound.exe, тот и решает, что запустится у вас.
+Прежде чем удалить копию из архива, выключите в её настройках параметр «Автоматически запускать
+при входе в систему», иначе Windows будет пытаться запускать её при каждом входе.
 
 Исходный код, сообщения об ошибках и выпуски: https://github.com/blackixxce12/fxsound-linux

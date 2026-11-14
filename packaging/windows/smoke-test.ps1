@@ -11,7 +11,9 @@
     Always, the .zip: unpacked into a temporary folder, it has to hold exactly the tree the
     installers install, and its fxsound.exe has to answer `--version` with the tree's version.
 
-    With -InstallOnThisMachine, then the .msi and then the setup program, each in turn:
+    With -InstallOnThisMachine, first both installers asked for a folder other than
+    Program Files\FxSound Port, which each has to refuse; then the .msi and then the setup
+    program, each in turn:
 
       * installed silently, per machine;
       * the installed tree checked as the .zip's is (the setup program adds its uninstaller), and
@@ -230,6 +232,20 @@ function Assert-Uninstalled([string]$what) {
 
 Assert (-not (Test-Path -LiteralPath $installDir)) "$installDir exists already; this test needs a machine without $product"
 $numeric = ($treeVersion -replace '[-+].*$', '')
+
+# Each installer puts FxSound Port into Program Files\FxSound Port and nowhere else: every account
+# runs it from there, and a folder elsewhere, as one straight on the system drive is, may be one
+# other accounts can change. A folder asked for on the command line is refused, by the .msi's
+# launch condition (exit 1603) and by the setup program's PrepareToInstall (exit 7).
+Write-Step 'A folder other than Program Files'
+$elsewhere = Join-Path $env:SystemDrive "\$product Elsewhere"
+Assert (-not (Test-Path -LiteralPath $elsewhere)) "$elsewhere exists already"
+Invoke-Installer 'msiexec.exe' "/i `"$msi`" INSTALLFOLDER=`"$elsewhere`" /qn /norestart /l*v `"$logs\msi-elsewhere.log`"" -Refused
+Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$elsewhere`" /LOG=`"$logs\setup-elsewhere.log`"" -Refused
+Assert (-not (Test-Path -LiteralPath $elsewhere)) "an installer made $elsewhere"
+Assert (-not (Test-Path -LiteralPath $installDir)) "an installer refused $elsewhere and installed into $installDir all the same"
+Assert (@(Get-UninstallEntries).Count -eq 0) "an installer refused $elsewhere and left an entry in Apps and Features"
+Write-Host "  both refuse $elsewhere"
 
 Write-Step "The .msi: $msi"
 Invoke-Installer 'msiexec.exe' "/i `"$msi`" /qn /norestart /l*v `"$logs\msi-install.log`""

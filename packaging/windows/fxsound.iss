@@ -70,6 +70,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 DefaultDirName={autopf}\{#AppName}
+; Program Files and nowhere else, so no page to choose another folder on, and PrepareToInstall
+; below refuses one given as /DIR=.
+DisableDirPage=yes
 ; The one shortcut goes straight into the Start menu's program list, not into a folder of its own.
 DisableProgramGroupPage=yes
 UninstallDisplayName={#AppName}
@@ -104,6 +107,8 @@ russian.FinishedLabelNoIcons=Программа [name] установлена н
 [CustomMessages]
 english.InstalledFromMsi=FxSound Port is already installed from its .msi package. Uninstall it from the list of installed apps first, or install this version from the .msi as well.
 russian.InstalledFromMsi=FxSound Port уже установлен из пакета .msi. Сначала удалите его из списка установленных приложений или установите и эту версию из пакета .msi.
+english.OnlyProgramFiles=FxSound Port can only be installed in %1. Every account on this computer runs it from its folder, and a folder elsewhere may be one that other accounts can change.
+russian.OnlyProgramFiles=FxSound Port можно установить только в папку %1. Все учётные записи этого компьютера запускают программу из её папки, а папку в другом месте могут изменять и другие учётные записи.
 
 [Files]
 ; The staged tree as it is: the files and folders build-windows.ps1 put there are the package.
@@ -141,6 +146,25 @@ begin
     SuppressibleMsgBox(CustomMessage('InstalledFromMsi'), mbCriticalError, MB_OK, IDOK);
     Result := False;
   end;
+end;
+
+// Program Files\FxSound Port and nowhere else. Every account on the computer runs FxSound Port
+// from its folder — from the Start menu, and at log-in once "Launch on system startup" is on —
+// and an administrator runs the uninstaller in it, elevated, so the folder has to be one only
+// administrators can change. Under Program Files it is; a folder elsewhere inherits whatever its
+// parent grants, and the root of a drive lets every account create folders and change what is in
+// them: C:\FxSound Port would let any account replace fxsound.exe or the uninstaller under the
+// others. It also keeps the Run values of the other accounts, which an uninstall cannot reach,
+// pointing into a folder no account but an administrator can make again. The page is not shown
+// (DisableDirPage) and a /DIR= is refused here, which in a silent install is exit code 7.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Only: String;
+begin
+  Result := '';
+  Only := ExpandConstant('{autopf}\{#AppName}');
+  if CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), Only) <> 0 then
+    Result := FmtMessage(CustomMessage('OnlyProgramFiles'), [Only]);
 end;
 
 // FxSound's "Launch on system startup" is an HKCU Run value the program writes, not the setup,
