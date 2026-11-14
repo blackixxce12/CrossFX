@@ -18,8 +18,13 @@
 //!   handler of its own each one ends it — held over the start, the terminal would end FxSound
 //!   in the middle of taking over the default device. What the start has to say once the engine
 //!   is up, the report of the options it was started with, is printed on the terminal borrowed
-//!   again for only as long as the printing takes ([`on_the_terminal`]), with Ctrl+C and
-//!   Ctrl+Break left to the next command meanwhile.
+//!   again for as long as the printing takes ([`on_the_terminal`]), and only when there is such a
+//!   report, since no handler covers that borrow whole: one leaves Ctrl+C and Ctrl+Break to the
+//!   next command while the report is printed, but it covers neither the moments of attaching and
+//!   of letting go — a Ctrl+C on its way then reaches FxSound with no handler to take it — nor the
+//!   terminal closing, which ends whatever is attached to it. A plain `fxsound`, `--show`,
+//!   `--hide` and a line of settings that all went through have nothing to report, and leave the
+//!   terminal alone.
 //! - **The console closing**, and log-off and shutdown for a process the system tells through its
 //!   console (`CTRL_CLOSE_EVENT`, `CTRL_LOGOFF_EVENT`, `CTRL_SHUTDOWN_EVENT`): the flag, and then
 //!   the handler waits — the process ends as soon as it returns — until the way out has handed
@@ -143,7 +148,8 @@ const NO_TERMINAL: u8 = 0;
 /// [`attach_parent_console`] took the parent's console, which [`release_borrowed_console`] gives
 /// back.
 const BORROWED: u8 = 1;
-/// The borrowed console was given back; [`on_the_terminal`] may borrow it again for a moment.
+/// The borrowed console was given back; [`on_the_terminal`] may borrow it again for a moment, to
+/// say something on it.
 const GIVEN_BACK: u8 = 2;
 
 /// The window of the console [`attach_parent_console`] took, as an address: the one console
@@ -179,15 +185,18 @@ pub fn release_borrowed_console() {
     }
 }
 
-/// Run `print` on the terminal [`release_borrowed_console`] gave back, borrowed again for as long
-/// as it takes (`crate::platform::on_the_terminal`): how the report of the options FxSound was
-/// started with reaches the terminal once the engine is up, the terminal having been given back
-/// before it started (see the module docs). Ctrl+C and Ctrl+Break are the next command's
-/// meanwhile, not FxSound's. With no console given back — none was borrowed, or the debug build's
-/// own — `print` just runs; and it runs as well when the terminal is gone, since what goes to a
-/// file still goes there.
-pub fn on_the_terminal(print: impl FnOnce()) {
-    if TERMINAL.load(Ordering::SeqCst) != GIVEN_BACK {
+/// Print `stdout` and `stderr`, each unless it is empty, on the terminal
+/// [`release_borrowed_console`] gave back, borrowed again for as long as the printing takes
+/// (`crate::platform::on_the_terminal`): how the report of the options FxSound was started with
+/// reaches the terminal once the engine is up, the terminal having been given back before it
+/// started (see the module docs). Ctrl+C and Ctrl+Break are the next command's while the report is
+/// printed, not FxSound's (`the_next_commands`); with no report the terminal is not borrowed at
+/// all (`borrows_again`). With no console given back — none was borrowed, or the debug build's
+/// own — the report is just printed; and it is printed as well when the terminal is gone, since
+/// what goes to a file still goes there.
+pub fn on_the_terminal(stdout: &str, stderr: &str) {
+    let print = || crate::platform::print_report(stdout, stderr);
+    if !borrows_again(TERMINAL.load(Ordering::SeqCst), stdout, stderr) {
         print();
         return;
     }
@@ -214,10 +223,24 @@ pub fn on_the_terminal(print: impl FnOnce()) {
     }
 }
 
+/// Whether [`on_the_terminal`] borrows the terminal again to print `stdout` and `stderr`: when
+/// it was given back ([`GIVEN_BACK`]), and only if there is something to print. Every borrow is a
+/// moment the terminal's Ctrl+C and its closing can end FxSound in ([`the_next_commands`]), so a
+/// start with nothing to report — a plain `fxsound`, `--show`, `--hide`, a line of settings that
+/// all went through — leaves the terminal to the next command.
+const fn borrows_again(terminal: u8, stdout: &str, stderr: &str) -> bool {
+    terminal == GIVEN_BACK && !(stdout.is_empty() && stderr.is_empty())
+}
+
 /// While [`on_the_terminal`] borrows the terminal again: Ctrl+C and Ctrl+Break are for whatever
-/// the shell runs next, and FxSound, which is not the shell's job, takes them as handled. The
-/// console closing goes on to the next handler; nothing keeps a process attached to a console
-/// that closes, and that moment is only as long as the printing.
+/// the shell runs next, and FxSound, which is not the shell's job, takes them as handled — from
+/// the moment this is installed to the moment it is taken away, and no longer. The console sends
+/// its events from the moment of the attach, before this can be installed, and one still on its
+/// way when the console is let go reaches the default handler once this is gone: at either edge a
+/// Ctrl+C ends FxSound as though there were no handler, and no order of the calls closes those
+/// edges, which is why nothing is borrowed with nothing to say ([`borrows_again`]). The console
+/// closing goes on to the next handler: nothing keeps a process attached to a console that
+/// closes, whatever its handler answers.
 unsafe extern "system" fn the_next_commands(event: u32) -> BOOL {
     matches!(event, CTRL_C_EVENT | CTRL_BREAK_EVENT).into()
 }
@@ -661,10 +684,28 @@ mod tests {
     fn with_no_terminal_given_back_the_report_goes_where_the_handles_go() {
         // The test process has a console of its own, as the debug build does: nothing is borrowed,
         // and nothing is attached or let go of.
-        assert_ne!(TERMINAL.load(Ordering::SeqCst), GIVEN_BACK);
-        let mut printed = false;
-        on_the_terminal(|| printed = true);
-        assert!(printed);
+        let terminal = TERMINAL.load(Ordering::SeqCst);
+        assert_ne!(terminal, GIVEN_BACK);
+        assert!(!borrows_again(terminal, "status power=true", "a note"));
+        on_the_terminal("", "");
+        assert_eq!(TERMINAL.load(Ordering::SeqCst), terminal);
+    }
+
+    #[test]
+    fn the_terminal_given_back_is_borrowed_again_only_to_say_something_on_it() {
+        // A plain `fxsound`, `--show`, `--hide`, settings that all went through: nothing to say,
+        // and the terminal stays the next command's. Its Ctrl+C at the moment of attaching or of
+        // letting go, and its closing while attached, would end FxSound; a start that borrows
+        // nothing gives them no moment to.
+        assert!(!borrows_again(GIVEN_BACK, "", ""));
+        // Something on either stream is said where the line was typed.
+        assert!(borrows_again(GIVEN_BACK, "", "no preset named \"Gamng\""));
+        assert!(borrows_again(GIVEN_BACK, "status power=true", ""));
+        // Nothing given back, nothing to borrow again: the console is FxSound's own, or still the
+        // borrowed one, and the report goes where the handles go.
+        for terminal in [NO_TERMINAL, BORROWED] {
+            assert!(!borrows_again(terminal, "status power=true", "a note"));
+        }
     }
 
     #[test]

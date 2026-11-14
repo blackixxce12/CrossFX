@@ -212,16 +212,30 @@ pub fn release_terminal() {
     crate::win::session::release_borrowed_console();
 }
 
-/// Run `print`, which prints what the start has to say once [`release_terminal`] has let go of
-/// the terminal — the report of the options FxSound was started with — where it was typed. On
-/// Windows the terminal is borrowed again for as long as `print` takes, and Ctrl+C typed there
-/// meanwhile stays the next command's (`win::session`); on Linux, whose FxSound always has the
-/// terminal it was started from, and for a console of FxSound's own, `print` just runs.
-pub fn on_the_terminal(print: impl FnOnce()) {
+/// Print what the start has to say once [`release_terminal`] has let go of the terminal — the
+/// report of the options FxSound was started with, `stdout` for the standard output and `stderr`
+/// for the standard error, each unless it is empty — where it was typed. On Windows the terminal
+/// is borrowed again for as long as the printing takes, and only when there is something to print:
+/// Ctrl+C typed there while the report is printed stays the next command's, but one at the moment
+/// the terminal is attached again or let go of, or the terminal closing meanwhile, ends FxSound
+/// (`win::session`). On Linux, whose FxSound always has the terminal it was started from, and for
+/// a console of FxSound's own, the report is just printed.
+pub fn on_the_terminal(stdout: &str, stderr: &str) {
     #[cfg(windows)]
-    crate::win::session::on_the_terminal(print);
+    crate::win::session::on_the_terminal(stdout, stderr);
     #[cfg(not(windows))]
-    print();
+    print_report(stdout, stderr);
+}
+
+/// `stdout` on the standard output and `stderr` on the standard error, a line each, and neither
+/// when it is empty: how FxSound prints a report of its own.
+pub(crate) fn print_report(stdout: &str, stderr: &str) {
+    if !stdout.is_empty() {
+        println!("{stdout}");
+    }
+    if !stderr.is_empty() {
+        eprintln!("{stderr}");
+    }
 }
 
 #[cfg(test)]
