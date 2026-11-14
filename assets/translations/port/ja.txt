@@ -138,7 +138,7 @@ countries: ja
 "Restart WirePlumber now? The sound of every application stops for a moment." = "今すぐ WirePlumber を再起動しますか？すべてのアプリの音が一瞬途切れます。"
 "Could not change WirePlumber's settings" = "WirePlumber の設定を変更できませんでした"
 "Interface font" = "インターフェイスのフォント"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy は Radomir Tinkov による商用書体のため、FxSound には含められません。ライセンスを購入し、ここでファイルを追加できます。"
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "オリジナルの FxSound で使われている Gilroy は、Radomir Tinkov による商用書体のため、FxSound には含められません。ライセンスを購入し、ここでファイルを追加できます。"
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "Gilroy の一部が見つかりません：Regular、SemiBold（または Medium）、Bold のファイルを追加してください。"
 "Buy Gilroy" = "Gilroy を購入"
 "Add Gilroy files…" = "Gilroy のファイルを追加…"

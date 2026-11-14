@@ -139,7 +139,7 @@ countries: id
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Mulai ulang WirePlumber sekarang? Suara semua aplikasi berhenti sejenak."
 "Could not change WirePlumber's settings" = "Pengaturan WirePlumber tidak dapat diubah"
 "Interface font" = "Fon antarmuka"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy adalah fon komersial karya Radomir Tinkov, jadi FxSound tidak dapat menyertakannya. Anda dapat membeli lisensi dan menambahkan berkasnya di sini."
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy, fon FxSound asli, adalah fon komersial karya Radomir Tinkov, jadi FxSound tidak dapat menyertakannya. Anda dapat membeli lisensi dan menambahkan berkasnya di sini."
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "Sebagian Gilroy tidak ada: tambahkan berkas Regular, SemiBold (atau Medium), dan Bold-nya."
 "Buy Gilroy" = "Beli Gilroy"
 "Add Gilroy files…" = "Tambahkan berkas Gilroy…"

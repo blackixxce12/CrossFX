@@ -2043,9 +2043,10 @@ pub mod general {
 
 /// The caption of the face option.
 pub const INTERFACE_FONT: &str = "Interface font";
-/// Under it, with Gilroy chosen and none found: what Gilroy is and what to do about it.
-pub const GILROY_EXPLAINED: &str = "Gilroy is Radomir Tinkov's commercial typeface, so FxSound \
-cannot include it. You can buy a licence and add its files here.";
+/// Under it, with Gilroy chosen and none found: what Gilroy is — the original FxSound's look, and
+/// a typeface sold by its designer — and what to do about it.
+pub const GILROY_EXPLAINED: &str = "Gilroy, the font of the original FxSound, is Radomir Tinkov's \
+commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here.";
 /// The same, with some of Gilroy found and not all three faces.
 pub const GILROY_INCOMPLETE: &str = "Some of Gilroy is missing: add its Regular, SemiBold (or \
 Medium) and Bold files.";

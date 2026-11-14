@@ -139,7 +139,7 @@ countries: ua
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Перезапустити WirePlumber зараз? Звук усіх застосунків ненадовго перерветься."
 "Could not change WirePlumber's settings" = "Не вдалося змінити налаштування WirePlumber"
 "Interface font" = "Шрифт інтерфейсу"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy — комерційний шрифт Радомира Тинкова, тому його немає в комплекті FxSound. Можна придбати ліцензію й додати файли шрифту тут."
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "В оригінальному FxSound використовується Gilroy — комерційний шрифт Радомира Тинкова, тому його немає в комплекті. Можна придбати ліцензію й додати файли шрифту тут."
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "Gilroy знайдено не повністю: додайте файли Regular, SemiBold (або Medium) і Bold."
 "Buy Gilroy" = "Придбати Gilroy"
 "Add Gilroy files…" = "Додати файли Gilroy…"

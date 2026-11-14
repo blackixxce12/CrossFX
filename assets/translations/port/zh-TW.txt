@@ -139,7 +139,7 @@ countries: Taiwan
 "Restart WirePlumber now? The sound of every application stops for a moment." = "現在重新啟動 WirePlumber？所有應用程式的聲音會短暫中斷。"
 "Could not change WirePlumber's settings" = "無法變更 WirePlumber 的設定"
 "Interface font" = "介面字型"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy 是 Radomir Tinkov 的商業字型，因此 FxSound 無法隨附。您可以購買授權，然後在此加入它的檔案。"
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "原版 FxSound 使用的 Gilroy 是 Radomir Tinkov 的商業字型，因此 FxSound 無法隨附。您可以購買授權，然後在此加入它的檔案。"
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "Gilroy 不完整：請加入 Regular、SemiBold（或 Medium）和 Bold 檔案。"
 "Buy Gilroy" = "購買 Gilroy"
 "Add Gilroy files…" = "加入 Gilroy 檔案…"

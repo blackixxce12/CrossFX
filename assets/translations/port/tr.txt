@@ -138,7 +138,7 @@ countries: tr
 "Restart WirePlumber now? The sound of every application stops for a moment." = "WirePlumber şimdi yeniden başlatılsın mı? Tüm uygulamaların sesi bir an kesilir."
 "Could not change WirePlumber's settings" = "WirePlumber'ın ayarları değiştirilemedi"
 "Interface font" = "Arayüz yazı tipi"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy, Radomir Tinkov'un ticari bir yazı tipidir; bu yüzden FxSound onu içeremez. Bir lisans satın alıp dosyalarını buradan ekleyebilirsiniz."
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Orijinal FxSound'un yazı tipi Gilroy, Radomir Tinkov'un ticari bir yazı tipidir; bu yüzden FxSound onu içeremez. Bir lisans satın alıp dosyalarını buradan ekleyebilirsiniz."
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "Gilroy'un bir kısmı eksik: Regular, SemiBold (veya Medium) ve Bold dosyalarını ekleyin."
 "Buy Gilroy" = "Gilroy satın al"
 "Add Gilroy files…" = "Gilroy dosyaları ekle…"

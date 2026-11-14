@@ -140,7 +140,7 @@ countries: ir
 "Restart WirePlumber now? The sound of every application stops for a moment." = "WirePlumber اکنون دوباره راه‌اندازی شود؟ صدای همهٔ برنامه‌ها لحظه‌ای قطع می‌شود."
 "Could not change WirePlumber's settings" = "تنظیمات WirePlumber تغییر نکرد"
 "Interface font" = "قلم رابط کاربری"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy قلمی تجاری از Radomir Tinkov است، بنابراین FxSound نمی‌تواند آن را همراه داشته باشد. می‌توانید مجوز آن را بخرید و فایل‌هایش را اینجا اضافه کنید."
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy، قلم FxSound اصلی، قلمی تجاری از Radomir Tinkov است، بنابراین FxSound نمی‌تواند آن را همراه داشته باشد. می‌توانید مجوز آن را بخرید و فایل‌هایش را اینجا اضافه کنید."
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "بخشی از Gilroy موجود نیست: فایل‌های Regular، SemiBold (یا Medium) و Bold آن را اضافه کنید."
 "Buy Gilroy" = "خرید Gilroy"
 "Add Gilroy files…" = "افزودن فایل‌های Gilroy…"

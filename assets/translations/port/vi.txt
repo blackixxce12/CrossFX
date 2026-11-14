@@ -139,7 +139,7 @@ countries: vn
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Khởi động lại WirePlumber ngay? Âm thanh của mọi ứng dụng sẽ ngắt trong giây lát."
 "Could not change WirePlumber's settings" = "Không thể thay đổi cài đặt của WirePlumber"
 "Interface font" = "Phông chữ giao diện"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy là phông chữ thương mại của Radomir Tinkov nên FxSound không thể kèm theo. Bạn có thể mua giấy phép và thêm các tệp của phông tại đây."
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy, phông chữ của FxSound gốc, là phông chữ thương mại của Radomir Tinkov nên FxSound không thể kèm theo. Bạn có thể mua giấy phép và thêm các tệp của phông tại đây."
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "Thiếu một phần Gilroy: hãy thêm các tệp Regular, SemiBold (hoặc Medium) và Bold."
 "Buy Gilroy" = "Mua Gilroy"
 "Add Gilroy files…" = "Thêm tệp Gilroy…"

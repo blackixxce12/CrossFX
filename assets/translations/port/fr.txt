@@ -141,7 +141,7 @@ countries: fr
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Redémarrer WirePlumber maintenant ? Le son de toutes les applications s'interrompt un instant."
 "Could not change WirePlumber's settings" = "Impossible de modifier les réglages de WirePlumber"
 "Interface font" = "Police de l'interface"
-"Gilroy is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy est une police commerciale de Radomir Tinkov : FxSound ne peut donc pas l'inclure. Vous pouvez acheter une licence et ajouter ses fichiers ici."
+"Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so FxSound cannot include it. You can buy a licence and add its files here." = "Gilroy, la police du FxSound d'origine, est une création commerciale de Radomir Tinkov : FxSound ne peut donc pas l'inclure. Vous pouvez acheter une licence et ajouter ses fichiers ici."
 "Some of Gilroy is missing: add its Regular, SemiBold (or Medium) and Bold files." = "Une partie de Gilroy manque : ajoutez ses fichiers Regular, SemiBold (ou Medium) et Bold."
 "Buy Gilroy" = "Acheter Gilroy"
 "Add Gilroy files…" = "Ajouter les fichiers Gilroy…"
