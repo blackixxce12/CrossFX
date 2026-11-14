@@ -73,11 +73,16 @@
 //! column was turned to — is kept for the next window ([`Panes`]), so hiding and showing it again
 //! looks the way hiding a window does.
 //!
-//! The window renders without vsync. eframe's glow backend otherwise lets Mesa's
+//! On Linux the window renders without vsync. eframe's glow backend otherwise lets Mesa's
 //! `eglSwapBuffers` wait for a frame callback, which a Wayland compositor never sends for a
 //! surface it is not showing — so a window parked on another Hyprland workspace stopped
 //! answering `xdg_wm_base` pings and the compositor called the app unresponsive. Without vsync
-//! the loop is paced by [`FRAME_INTERVAL`] instead, and only while something moves.
+//! the loop is paced by [`FRAME_INTERVAL`] instead, and only while something moves. Windows keeps
+//! eframe's vsync: a swap there waits for the desktop compositor's next frame and never for a
+//! window it is not showing, and without it every pointer event over the window was a frame of
+//! its own, and the frame after it too — some nine hundred a second for five hundred pointer
+//! moves a second, near a core and a half between the GUI thread and the driver's, where the
+//! display shows 144.
 //!
 //! ## On Windows
 //!
@@ -168,8 +173,8 @@ const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
 /// every frame would re-lay the fonts out on every frame.
 const ZOOM_TOLERANCE: f32 = 0.01;
 
-/// The repaint cadence while the visualizer is live. Without vsync (see the module docs) this
-/// is what keeps the loop at roughly 60 Hz instead of spinning.
+/// The repaint cadence while the visualizer is live. Without vsync, on Linux (see the module
+/// docs), this is what keeps the loop at roughly 60 Hz instead of spinning.
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 fn main() -> eframe::Result<()> {
@@ -1051,10 +1056,11 @@ fn native_options(view: ViewMode) -> eframe::NativeOptions {
     let viewport = with_windows_icon(viewport);
     eframe::NativeOptions {
         viewport,
-        // See the module docs: vsync blocks the main thread on a workspace the compositor is
-        // not showing. The loop is paced by `request_repaint_after` instead.
+        // See the module docs: on Linux vsync blocks the main thread on a workspace the
+        // compositor is not showing, and the loop is paced by `request_repaint_after` instead;
+        // on Windows it is what keeps the frames the pointer asks for to the display's.
         glow_options: eframe::egui_glow::GlowConfiguration {
-            vsync: false,
+            vsync: !cfg!(target_os = "linux"),
             ..Default::default()
         },
         ..Default::default()
@@ -4984,6 +4990,23 @@ mod theme_tests {
             .set_windows_parity(WindowsParity::Off, false)
             .expect("offered");
         assert_eq!(frame_edge(&mut shell, &ctx).color, light.divider());
+    }
+}
+
+#[cfg(test)]
+mod vsync_tests {
+    use super::*;
+
+    #[test]
+    fn only_linux_renders_without_vsync() {
+        // Linux: the frame callback a hidden Wayland surface never gets. Windows: the pointer's
+        // events, which without vsync were each presented at once, hundreds a second.
+        let options = native_options(ViewMode::Lite);
+        assert_eq!(
+            options.glow_options.vsync,
+            !cfg!(target_os = "linux"),
+            "vsync stays off where it hangs and on where it paces"
+        );
     }
 }
 
