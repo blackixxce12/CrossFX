@@ -200,22 +200,18 @@ pub enum Layout {
 impl Layout {
     /// Decide from the binary's own path.
     ///
-    /// The source tree is recognised exactly as the preset stores recognise it — three levels up
-    /// from the binary, a checkout with `assets/presets` in it — so the two can never disagree
+    /// The source tree is recognised by the preset stores' own rule, `source_tree_of`: the
+    /// binary in a checkout's `target/debug` or `target/release` — so the two can never disagree
     /// about whether this is a development build. Anything else is an install, and its prefix is
     /// the directory two above the binary, which is what every package and `install.sh` produce —
     /// on Windows the binary's own, as `fxsound_preset::install_data_dirs` has it.
     #[must_use]
     pub fn of_exe(exe: &Path) -> Self {
-        let above = exe.parent().and_then(Path::parent);
-        if let Some(root) = above.and_then(Path::parent)
-            && root.join("Cargo.toml").is_file()
-            && root.join("assets/presets").is_dir()
-        {
-            return Self::SourceTree {
-                root: root.to_path_buf(),
-            };
+        if let Some(root) = fxsound_preset::source_tree_of(exe) {
+            return Self::SourceTree { root };
         }
+        #[cfg(not(windows))]
+        let above = exe.parent().and_then(Path::parent);
         #[cfg(windows)]
         let above = exe.parent();
         Self::Installed {

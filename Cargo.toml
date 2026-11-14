@@ -102,6 +102,10 @@ windows = "0.62.2"
 windows-core = "0.62.2"
 # Windows only. The notification-area icon and its menu, in place of the StatusNotifierItem tray.
 tray-icon = { version = "0.26.1", default-features = false }
+# Windows only, a build-dependency of fxsound-app: compiles fxsound.exe's icon, version
+# information and manifest with the SDK's rc.exe (crates/fxsound-app/build.rs). Without its
+# default `toml` feature, which reads the strings from [package.metadata]: build.rs sets them.
+winresource = { version = "0.1.34", default-features = false }
 
 [profile.release]
 opt-level = 3

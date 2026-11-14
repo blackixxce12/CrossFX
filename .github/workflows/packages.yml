@@ -5,6 +5,11 @@ name: Packages
 # that installs is not one whose binary starts: the three failures are different and each leg
 # here fails on the first one it meets.
 #
+# Windows is a job of its own beside the matrix (`windows`, at the end): the legs above build in
+# a Linux container, which a Windows runner cannot run. It builds the setup program, the .msi and
+# the portable .zip with packaging/windows/build-windows.ps1, then installs, checks and uninstalls
+# each installer on the runner, which is thrown away afterwards.
+#
 # Reusable on purpose. ci.yml calls it on every push and pull request, so a packaging change is
 # checked where it lands rather than at the next release; release.yml calls it for the tag and
 # publishes what it uploads. The artefact names ("package-<leg>") are the contract between the
@@ -49,11 +54,20 @@ env:
   # now honours a RUSTUP_TOOLCHAIN that is already set, so the legs that build through rustup get
   # exactly this and no download; the distributions whose own cargo is used (Arch, and Fedora when
   # its rust is new enough) ignore the variable, which is harmless.
-  RUSTUP_TOOLCHAIN: '1.98.1'
+  RUSTUP_TOOLCHAIN: '1.100.0'
   # Inside the workspace so that one cache path serves every leg, and so that the Arch build
   # user, who owns the workspace, can write to it. rustup-init puts its proxies under $CARGO_HOME/bin
   # when the variable is set, which is why that directory is what goes on PATH below.
   CARGO_HOME: ${{ github.workspace }}/.cargo-home
+  # 'true' for a tag's run: a release, which release.yml starts with the tag as `ref` (v1.0.0), or
+  # a tag pushed or picked in the Run workflow dialog (refs/tags/v1.0.0) — the test the
+  # concurrency block above makes. Such a run restores no cache (the two actions/cache steps): an
+  # entry a tag's run can see was saved by some other run in the default branch's scope, found by
+  # its key's prefix or even under the exact key, which whoever saves first owns, and that run
+  # may have built a ref nobody reviewed (a dispatch with `ref`). Cargo trusts the registry
+  # sources and the build output it finds there without checking them again, so what a release
+  # publishes would be built partly from it. Slower, and only for a tag.
+  TAG_BUILD: ${{ startsWith(inputs.ref || github.ref, 'refs/tags/') || startsWith(inputs.ref || github.ref, 'v') }}
 
 jobs:
   package:
@@ -70,7 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # makepkg as an unprivileged user; Arch's rust is current stable (>= 1.98.1) and its
+          # makepkg as an unprivileged user; Arch's rust is current stable (>= 1.100.0) and its
           # cargo ignores rust-toolchain.toml, so no rustup here.
           - leg: arch
             family: arch
@@ -84,7 +98,7 @@ jobs:
               target
 
           # dpkg-buildpackage from packaging/debian; the two .debs are renamed with the codename
-          # so that they never clash in a release. Neither distribution ships a rustc >= 1.98.1,
+          # so that they never clash in a release. Neither distribution ships a rustc >= 1.100.0,
           # hence rustup and -d.
           - leg: debian-trixie
             family: deb
@@ -171,11 +185,12 @@ jobs:
           ref: ${{ inputs.ref }}
 
       # After the dependencies (the cache needs zstd and tar in the container) and before the
-      # Arch chown (the restore creates root-owned files).
+      # Arch chown (the restore creates root-owned files). Not for a tag (TAG_BUILD above).
       - uses: actions/cache@v6.1.0
+        if: env.TAG_BUILD != 'true'
         with:
           path: ${{ matrix.cache }}
-          key: packages-${{ matrix.leg }}-${{ hashFiles('Cargo.lock') }}-1.98.1
+          key: packages-${{ matrix.leg }}-${{ hashFiles('Cargo.lock') }}-1.100.0
           restore-keys: |
             packages-${{ matrix.leg }}-
 
@@ -187,11 +202,11 @@ jobs:
         id: fedora-rust
         run: |
           have=$(rustc --version | awk '{ print $2 }')
-          if [ "$(printf '%s\n' 1.98.1 "$have" | sort -V | head -1)" = 1.98.1 ]; then
-            echo "distro rustc $have satisfies rust-version 1.98.1; using it"
+          if [ "$(printf '%s\n' 1.100.0 "$have" | sort -V | head -1)" = 1.100.0 ]; then
+            echo "distro rustc $have satisfies rust-version 1.100.0; using it"
             echo "use_rustup=false" >> "$GITHUB_OUTPUT"
           else
-            echo "distro rustc $have is older than 1.98.1; installing the pinned toolchain"
+            echo "distro rustc $have is older than 1.100.0; installing the pinned toolchain"
             echo "use_rustup=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -199,7 +214,7 @@ jobs:
         if: matrix.family == 'deb' || matrix.family == 'tarball' || steps.fedora-rust.outputs.use_rustup == 'true'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain 1.98.1 --no-modify-path
+            | sh -s -- -y --profile minimal --default-toolchain 1.100.0 --no-modify-path
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
           "$CARGO_HOME/bin/rustc" --version
           "$CARGO_HOME/bin/cargo" --version
@@ -445,4 +460,106 @@ jobs:
           name: package-${{ matrix.leg }}
           path: dist/*
           if-no-files-found: error
+          retention-days: 14
+
+  # ------------------------------------------------------------------------------------ Windows
+  # The setup program (Inno Setup), the .msi (WiX) and the portable .zip, made by the script a
+  # developer runs on Windows, packaging/windows/build-windows.ps1. The binary is built by it, from
+  # this checkout, with the C runtime linked in; a binary whose --version is not Cargo.toml's
+  # version is refused. Then packaging/windows/smoke-test.ps1 unpacks the .zip and installs, checks
+  # and uninstalls the .msi and then the setup program — the runner is thrown away after the job,
+  # so this is the one place they are installed for real. The artefact keeps the
+  # "package-<leg>" name, which is what release.yml publishes.
+  windows:
+    name: windows
+    # Pinned for the same reason as the host above.
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      # WiX 5.0.2 and nothing later: WiX 6 and 7 build only once `wix eula accept` has accepted
+      # the Open Source Maintenance Fee licence, which this project has not. Inno Setup 6, the
+      # release packaging/windows/fxsound.iss was compiled with.
+      WIX_VERSION: '5.0.2'
+      INNO_SETUP_VERSION: '6.7.3'
+    # Windows PowerShell 5.1, which the scripts are written and tested against. The runner's
+    # wrapper stops on a failing cmdlet but not on a failing program, hence the exit-code checks.
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      # The image's git converts line ends on checkout (core.autocrlf true, Git for Windows'
+      # default). .gitattributes already exempts the files the packages carry, which
+      # build-windows.ps1 checks against the commit; this makes the rest of the tree the bytes the
+      # Linux legs build from as well.
+      - name: Check out without line-end conversion
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Not for a tag (TAG_BUILD above).
+      - uses: actions/cache@v6.1.0
+        if: env.TAG_BUILD != 'true'
+        with:
+          path: |
+            .cargo-home/registry
+            .cargo-home/git
+            target
+          key: packages-windows-${{ hashFiles('Cargo.lock') }}-1.100.0
+          restore-keys: |
+            packages-windows-
+
+      # The image's rustup, asked for exactly RUSTUP_TOOLCHAIN; packaging needs nothing but rustc
+      # and cargo.
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --version
+          cargo --version
+
+      # Chocolatey checks the installer it downloads against the checksum its package records.
+      # `upgrade` rather than `install`, so that an Inno Setup the image may already carry is moved
+      # to the pinned release instead of failing the step. wix.exe is a .NET global tool.
+      - name: Install Inno Setup and WiX
+        run: |
+          choco upgrade innosetup --version $env:INNO_SETUP_VERSION --allow-downgrade --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet tool install --global wix --version $env:WIX_VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wix = Join-Path $env:USERPROFILE '.dotnet\tools\wix.exe'
+          & $wix extension add -g "WixToolset.UI.wixext/$env:WIX_VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $wix --version
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value (Split-Path -Parent $wix)
+
+      - name: Build the setup program, the .msi and the .zip
+        run: packaging\windows\build-windows.ps1
+
+      - name: Install, check and uninstall them
+        run: packaging\windows\smoke-test.ps1 -InstallOnThisMachine
+
+      # The three packages only: release.yml writes one SHA256SUMS for everything it publishes,
+      # so the .sha256 files beside them stay here.
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: package-windows
+          path: |
+            dist/*.exe
+            dist/*.msi
+            dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      # The compilers' output and the installers' logs, when something went wrong.
+      - uses: actions/upload-artifact@v7.0.1
+        if: failure()
+        with:
+          name: windows-packaging-logs
+          path: |
+            target/windows-package/*.log
+            target/windows-package/*.err
+            target/windows-package/smoke-test/*.log
+          if-no-files-found: ignore
           retention-days: 14

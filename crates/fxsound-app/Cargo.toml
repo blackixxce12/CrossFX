@@ -109,6 +109,13 @@ windows = { workspace = true, features = [
 # The notification-area icon and its menu (`win::tray`), on a thread with a message loop of its own.
 tray-icon = { workspace = true }
 
+# build.rs embeds fxsound.exe's icon, version information and manifest. A build script runs on
+# the build machine, so this table is matched against the host, not the target: a Windows host
+# builds winresource whatever it targets, and build.rs does nothing with it unless the target is
+# Windows too. A Linux host never builds it.
+[target.'cfg(windows)'.build-dependencies]
+winresource = { workspace = true }
+
 [dev-dependencies]
 # The tests' scratch directories and guarded children (`fxsound_core::test_support`).
 fxsound-core = { workspace = true, features = ["test-support"] }
