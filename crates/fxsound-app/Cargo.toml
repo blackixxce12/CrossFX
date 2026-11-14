@@ -38,18 +38,19 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
 log = { workspace = true }
-# Two runtimes, never one: ksni's tray service runs on a private current-thread runtime of its own
-# (`docs/api/linux-desktop-crates.md` §1), and the D-Bus service (`src/dbus.rs`) builds another
-# on its `fxsound-dbus` thread. `net` and `time` are that runtime's drivers — zbus's socket is a
-# tokio `UnixStream` there, and a method call waits for the GUI thread under a timeout — and
-# `sync` is the oneshot the answer comes back on. zbus asks for all three itself; naming them
-# here keeps the build from depending on that.
+# A runtime per job, never a shared one: ksni's tray service runs on a private current-thread
+# runtime of its own (`docs/api/linux-desktop-crates.md` §1), and the D-Bus service
+# (`src/dbus.rs`), the suspend watcher (`src/sleep.rs`) and the notifications' kept connection
+# (`src/notify.rs`) each build another. `net` and `time` are those runtimes' drivers — zbus
+# registers its socket with the reactor, and a method call waits for the GUI thread under a
+# timeout — and `sync` is the oneshot the answer comes back on. zbus asks for all three itself;
+# naming them here keeps the build from depending on that.
 tokio = { workspace = true, features = ["net", "sync", "time"] }
-# The D-Bus service. Already in the tree through ksni and notify-rust, with `tokio` and `async-io`
-# both on; `tokio` is named so the service does not depend on that unification, and
-# `blocking-api` for `zbus::blocking`, which nothing else enables (the tests call the service
-# through a blocking proxy).
-zbus = { workspace = true, features = ["tokio", "blocking-api"] }
+# The D-Bus service, the notifications and the suspend watcher. zbus 6 has no blocking API: every
+# connection here is async and is built inside one of the runtimes above, which `tokio` puts it
+# on; `service` is the object server the service is served by. notify-rust brings `proxy` and
+# `default-rt` along; the program relies on neither, and the tests name `proxy` themselves.
+zbus = { workspace = true, features = ["tokio", "service"] }
 # The tray's status icons, rasterised once at start-up for hosts that do not look them up by name
 # in the icon theme (0.4.0 design §11). The same three the UI crate draws its artwork with.
 resvg = { workspace = true }
@@ -60,3 +61,5 @@ tiny-skia = { workspace = true }
 # The tests' scratch directories and guarded children (`fxsound_core::test_support`).
 fxsound-core = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
+# The tests call the service, and ask the bus who owns a name, through proxies.
+zbus = { workspace = true, features = ["proxy"] }

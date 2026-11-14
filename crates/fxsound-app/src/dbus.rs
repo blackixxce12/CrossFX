@@ -79,8 +79,9 @@
 //! the connection's socket, its object server and every method handler run there, so a slow bus
 //! never holds up the window. Handlers are `async` and await the GUI thread's answer; they never
 //! block, and never call `zbus::block_on`, which would start a runtime inside this one. This
-//! runtime has nothing to do with the one ksni's tray runs on (`crate::tray`), nor with the one
-//! zbus keeps for notify-rust's toasts.
+//! runtime has nothing to do with the one ksni's tray runs on (`crate::tray`), nor with the ones
+//! the notifications' connection (`crate::notify`) and the suspend watcher (`crate::sleep`) run
+//! on.
 //!
 //! The GUI thread holds a [`DbusHandle`]. [`DbusHandle::publish`] folds each [`AppEvent`] of the
 //! `--watch` stream into the [`Properties`] the getters read, and hands the matching [`Signal`] and
@@ -439,7 +440,7 @@ impl zbus::DBusError for MethodError {
         call: &zbus::message::Header<'_>,
     ) -> zbus::Result<zbus::message::Message> {
         match self {
-            Self::Refused(text) => zbus::message::Message::error(call, self.name())?.build(text),
+            Self::Refused(text) => zbus::message::Message::error(call, self.name()).build(text),
             Self::Standard(err) => err.create_reply(call),
         }
     }
@@ -1440,22 +1441,24 @@ async fn connect(
     bus: &Bus,
     service: Service,
 ) -> Result<(zbus::Connection, InterfaceRef<Service>), String> {
-    let builder = match bus {
-        Bus::Session => zbus::connection::Builder::session()
-            .map_err(|err| format!("there is no session bus ({err})"))?,
-        Bus::Address(address) => zbus::connection::Builder::address(address.as_str())
+    // The address first, on its own: zbus 6's builder keeps every error for `build`, and a
+    // missing session bus is a different thing to report from an unreachable one.
+    let address = match bus {
+        Bus::Session => {
+            zbus::Address::session().map_err(|err| format!("there is no session bus ({err})"))?
+        }
+        Bus::Address(address) => zbus::Address::try_from(address.as_str())
             .map_err(|err| format!("{address} is not a bus address ({err})"))?,
     };
     // The object is served before a name is asked for, so no call to the name can miss it.
-    let connection = builder
+    let connection = zbus::connection::Builder::address(address)
         .serve_at(OBJECT_PATH, service)
-        .map_err(|err| format!("{OBJECT_PATH} could not be served ({err})"))?
         .build()
         .await
         .map_err(|err| format!("the bus could not be reached ({err})"))?;
     // Not queued behind an owner: a service that would only answer once somebody else quits is
     // not one to report as serving.
-    let flags = fdo::RequestNameFlags::DoNotQueue.into();
+    let flags = fdo::RequestNameFlags::DO_NOT_QUEUE;
     match connection.request_name_with_flags(BUS_NAME, flags).await {
         Ok(_) => {}
         Err(zbus::Error::NameTaken) => {
@@ -1506,7 +1509,7 @@ mod tests {
     use crate::commands::InputMeters;
     use crate::events::LaneState;
     use crate::ipc::{Forwarded, Instance};
-    use crate::private_bus::PrivateBus;
+    use crate::private_bus::{Client, PrivateBus, next};
     use clap::Parser as _;
     use fxsound_core::NoiseSuppressionOverride;
     use std::sync::atomic::AtomicBool;
@@ -3072,19 +3075,61 @@ mod tests {
         }
     }
 
-    fn proxy(client: &zbus::blocking::Connection) -> zbus::blocking::Proxy<'static> {
-        zbus::blocking::Proxy::new(client, BUS_NAME, OBJECT_PATH, INTERFACE).expect("a proxy")
+    /// A proxy whose calls block the test thread, as zbus 5's blocking proxy did: each one is
+    /// waited for on the client's runtime, which the client's own thread drives meanwhile — and
+    /// with it the property cache, which `PropertiesChanged` keeps current.
+    struct BlockingProxy<'c> {
+        client: &'c Client,
+        proxy: zbus::Proxy<'static>,
+    }
+
+    impl BlockingProxy<'_> {
+        fn call<B, R>(&self, method: &str, body: &B) -> zbus::Result<R>
+        where
+            B: Serialize + zbus::DynamicType,
+            R: for<'d> zbus::wire::DynamicDeserialize<'d>,
+        {
+            self.client.block_on(self.proxy.call(method, body))
+        }
+
+        fn get_property<T>(&self, property: &str) -> zbus::Result<T>
+        where
+            T: DeserializeOwned + zbus::Type,
+        {
+            self.client.block_on(self.proxy.get_property(property))
+        }
+    }
+
+    /// The service's interface, called through `client`.
+    fn proxy(client: &Client) -> BlockingProxy<'_> {
+        proxy_for(client, INTERFACE)
+    }
+
+    /// `interface` of the service's object, called through `client`.
+    fn proxy_for<'c>(client: &'c Client, interface: &'static str) -> BlockingProxy<'c> {
+        let proxy = client
+            .block_on(zbus::Proxy::new(
+                client.connection(),
+                BUS_NAME,
+                OBJECT_PATH,
+                interface,
+            ))
+            .expect("a proxy");
+        BlockingProxy { client, proxy }
     }
 
     /// Every `member` signal the service emits, on a channel.
     fn signals(
-        proxy: &zbus::blocking::Proxy<'static>,
+        proxy: &BlockingProxy<'_>,
         member: &'static str,
     ) -> crossbeam_channel::Receiver<zbus::Message> {
-        let iterator = proxy.receive_signal(member).expect("subscribe");
+        let mut stream = proxy
+            .client
+            .block_on(proxy.proxy.receive_signal(member))
+            .expect("subscribe");
         let (tx, rx) = crossbeam_channel::unbounded();
-        thread::spawn(move || {
-            for message in iterator {
+        proxy.client.spawn(async move {
+            while let Some(message) = next(&mut stream).await {
                 if tx.send(message).is_err() {
                     return;
                 }
@@ -3093,20 +3138,26 @@ mod tests {
         rx
     }
 
+    /// The name and the text of the error a call failed with.
     fn method_error(result: zbus::Result<()>) -> (String, String) {
+        use zbus::DBusError as _;
         match result {
             Err(zbus::Error::MethodError(name, detail, _)) => {
                 (name.to_string(), detail.unwrap_or_default())
             }
+            // zbus 6 hands an error whose name is a standard one back as that `fdo::Error`.
+            Err(zbus::Error::FDO(error)) => (
+                error.name().to_string(),
+                error.description().unwrap_or_default().to_owned(),
+            ),
             other => panic!("expected a method error, got {other:?}"),
         }
     }
 
     /// Poll `property` until it reads `expected`, for at most five seconds.
-    fn eventually<T>(proxy: &zbus::blocking::Proxy<'static>, property: &str, expected: &T)
+    fn eventually<T>(proxy: &BlockingProxy<'_>, property: &str, expected: &T)
     where
-        T: TryFrom<zvariant_owned::OwnedValue> + PartialEq + std::fmt::Debug,
-        T::Error: Into<zbus::Error>,
+        T: DeserializeOwned + zbus::Type + PartialEq + std::fmt::Debug,
     {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -3121,8 +3172,6 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
     }
-
-    use zbus::zvariant as zvariant_owned;
 
     #[test]
     fn over_a_private_bus_every_method_runs_on_the_gui_thread_and_the_signals_arrive() {
@@ -3193,13 +3242,7 @@ mod tests {
         assert_eq!(status["version"], VERSION);
 
         // «Как в Windows»: a level taken and announced, Everything refused even when forced.
-        let properties = zbus::blocking::Proxy::new(
-            &client,
-            BUS_NAME,
-            OBJECT_PATH,
-            "org.freedesktop.DBus.Properties",
-        )
-        .expect("a properties proxy");
+        let properties = proxy_for(&client, "org.freedesktop.DBus.Properties");
         let property_signals = signals(&properties, "PropertiesChanged");
         let () = proxy
             .call("SetWindowsParity", &("sound", false))
@@ -3211,7 +3254,7 @@ mod tests {
                 .expect("PropertiesChanged with WindowsParity");
             let (interface, mut changed, _): (
                 String,
-                std::collections::HashMap<String, zvariant_owned::OwnedValue>,
+                std::collections::HashMap<String, zbus::OwnedVariant>,
                 Vec<String>,
             ) = signal
                 .body()

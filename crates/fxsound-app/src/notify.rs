@@ -60,14 +60,34 @@
 //!
 //! Connecting and sending are blocking D-Bus round trips, so they must never happen on the egui
 //! thread. [`Notifier`] owns a worker thread and the GUI only ever hands it a [`Message`].
+//!
+//! zbus 6 has no blocking API. [`DesktopSink`] runs its connection on a current-thread tokio
+//! runtime of its own and blocks the worker on each round trip with `Runtime::block_on`; the
+//! thread that follows a clicked notification's link drives the same runtime while it waits, so a
+//! click is taken in between two messages too. The runtime is none of the D-Bus service's
+//! ([`crate::dbus`]), the suspend watcher's ([`crate::sleep`]) or ksni's ([`crate::tray`]).
+//!
+//! Every one of those waits is bounded. Neither zbus nor dbus-daemon times a call out unless told
+//! to, and a daemon that takes `Notify` and does not answer — stopped, or hung — kept the worker
+//! waiting for as long as it did not, and the way out with it: the notifier waited for the worker
+//! on the GUI thread, after the window and the tray had gone but before the control socket and the
+//! instance lock had, so the process stayed and turned every new `fxsound` away as "shutting
+//! down". Connecting gives up after `CONNECT_TIMEOUT` and `Notify` after `NOTIFY_TIMEOUT`, each at
+//! the cost of the notice it was for, and dropping the [`Notifier`] waits `SHUTDOWN_GRACE` at most
+//! for what is still queued.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::num::NonZeroUsize;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 use notify_rust::{Hint, Notification, Timeout, Urgency};
+use tokio::runtime::Runtime;
+use zbus::export::futures_core::Stream;
 
 use crate::tray::APP_ID;
 use fxsound_core::i18n::{tr, tr_args};
@@ -352,17 +372,52 @@ pub trait Sink: Send + 'static {
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
+/// How long connecting may take — the handshake, `Hello`, and the subscription to the daemon's
+/// signals — before the notice it was for is given up: what the D-Bus service and the suspend
+/// watcher allow too ([`crate::dbus`], [`crate::sleep`]). zbus bounds none of it, and a bus that
+/// accepts and then says nothing would hold the worker for as long as it does.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long the daemon has to answer `Notify` before the notice is given up: D-Bus's customary
+/// reply timeout, libdbus's and GDBus's default, so that a daemon the bus is still starting has as
+/// long as any other client gives it. Neither zbus nor dbus-daemon times a call out unless told
+/// to, and a daemon that takes the call and does not answer — stopped, or hung — would hold the
+/// worker, and every notice queued behind it, for as long as it does not.
+const NOTIFY_TIMEOUT: Duration = Duration::from_secs(25);
+
 /// Delivery over `org.freedesktop.Notifications`, on one connection kept open from the first
 /// message to the last (see "One connection, kept" in the module docs).
+///
+/// [`Sink::deliver`] waits for D-Bus round trips, and so does dropping the sink: both belong on
+/// the worker thread, never inside a tokio runtime, where waiting on another runtime panics. Each
+/// of `deliver`'s waits is bounded (see "Threading" in the module docs), and one that runs out
+/// costs the notice, as any other failure does.
 pub struct DesktopSink {
     /// The bus to connect to: the session's when `None`.
     address: Option<String>,
-    connection: Option<zbus::blocking::Connection>,
+    kept: Option<Kept>,
     /// The notification whose link a click follows, and the link: the last one delivered, if it
     /// had a link. Shared with the thread that listens for the click.
     link: Arc<Mutex<Option<(u32, String)>>>,
     /// What following a link does: [`open_url`], or a test's recorder.
     open: Opener,
+    /// How long connecting may take: [`CONNECT_TIMEOUT`], or a test's shorter one.
+    connect_timeout: Duration,
+    /// How long the daemon has to answer `Notify`: [`NOTIFY_TIMEOUT`], or a test's shorter one.
+    notify_timeout: Duration,
+}
+
+/// The kept connection, and the runtime it runs on.
+///
+/// zbus 6 has no blocking API, so the connection runs on a current-thread tokio runtime made with
+/// it, and the worker waits for each round trip with [`Runtime::block_on`]. The thread that
+/// follows links drives the same runtime for as long as the connection lasts — tokio lets one
+/// thread wait on a current-thread runtime that another one drives — so the socket is read while
+/// no message is being sent as well.
+struct Kept {
+    /// Declared first, so that it goes before the runtime it runs on.
+    connection: zbus::Connection,
+    runtime: Arc<Runtime>,
 }
 
 /// Follows a link a notification was clicked for.
@@ -372,9 +427,11 @@ impl Default for DesktopSink {
     fn default() -> Self {
         Self {
             address: None,
-            connection: None,
+            kept: None,
             link: Arc::default(),
             open: Arc::new(open_url),
+            connect_timeout: CONNECT_TIMEOUT,
+            notify_timeout: NOTIFY_TIMEOUT,
         }
     }
 }
@@ -383,7 +440,7 @@ impl std::fmt::Debug for DesktopSink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DesktopSink")
             .field("address", &self.address)
-            .field("connected", &self.connection.is_some())
+            .field("connected", &self.kept.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -405,62 +462,136 @@ impl DesktopSink {
 
     /// The kept connection, made on the first call. A new one also starts the thread that follows
     /// links; it ends with the connection.
-    fn connection(&mut self) -> zbus::Result<zbus::blocking::Connection> {
-        if let Some(connection) = &self.connection {
-            return Ok(connection.clone());
-        }
-        let builder = match &self.address {
-            Some(address) => zbus::blocking::connection::Builder::address(address.as_str())?,
-            None => zbus::blocking::connection::Builder::session()?,
+    fn kept(&mut self) -> zbus::Result<&Kept> {
+        let kept = match self.kept.take() {
+            Some(kept) => kept,
+            None => self.connect()?,
         };
-        let connection = builder.build()?;
-        follow_links(&connection, Arc::clone(&self.link), Arc::clone(&self.open));
-        self.connection = Some(connection.clone());
-        Ok(connection)
+        Ok(&*self.kept.insert(kept))
+    }
+
+    /// A new connection, on a runtime of its own, and the thread that follows its links.
+    fn connect(&self) -> zbus::Result<Kept> {
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()?,
+        );
+        let builder = match &self.address {
+            Some(address) => zbus::connection::Builder::address(address.as_str()),
+            None => zbus::connection::Builder::session(),
+        };
+        // Built inside the runtime, which is what puts the connection on it.
+        let connection = runtime.block_on(within(
+            self.connect_timeout,
+            "connecting to the bus",
+            builder.build(),
+        ))?;
+        follow_links(
+            &runtime,
+            &connection,
+            self.connect_timeout,
+            Arc::clone(&self.link),
+            Arc::clone(&self.open),
+        );
+        Ok(Kept {
+            connection,
+            runtime,
+        })
     }
 
     /// Close the kept connection, which also ends the thread that follows links on it: its
     /// signal stream holds a clone, so dropping ours alone would leave both behind.
     fn disconnect(&mut self) {
-        if let Some(connection) = self.connection.take() {
-            let _ = connection.close();
+        if let Some(Kept {
+            connection,
+            runtime,
+        }) = self.kept.take()
+        {
+            let _ = runtime.block_on(connection.close());
         }
     }
 
     fn send(&mut self, notification: &Notification, replaces: Option<u32>) -> zbus::Result<u32> {
-        let connection = self.connection()?;
-        let hints: HashMap<&str, zbus::zvariant::Value<'_>> =
+        let limit = self.notify_timeout;
+        let kept = self.kept()?;
+        // notify-rust's own encoding of its hints, into the `Variant` of the zbus it is built on:
+        // the same zbus 6 as this crate's, which is what lets the map go into the call as it is.
+        let hints: HashMap<&str, zbus::Variant<'_>> =
             notification.hints.iter().map(Into::into).collect();
-        connection
-            .call_method(
-                Some(NOTIFICATIONS),
-                NOTIFICATIONS_PATH,
-                Some(NOTIFICATIONS),
-                "Notify",
-                &(
-                    &notification.appname,
-                    replaces.unwrap_or(0),
-                    &notification.icon,
-                    &notification.summary,
-                    &notification.body,
-                    &notification.actions,
-                    hints,
-                    i32::from(notification.timeout),
-                ),
-            )?
-            .body()
-            .deserialize()
+        kept.runtime.block_on(within(limit, "Notify", async {
+            kept.connection
+                .call_method(
+                    Some(NOTIFICATIONS),
+                    NOTIFICATIONS_PATH,
+                    Some(NOTIFICATIONS),
+                    "Notify",
+                    &(
+                        &notification.appname,
+                        replaces.unwrap_or(0),
+                        &notification.icon,
+                        &notification.summary,
+                        &notification.body,
+                        &notification.actions,
+                        hints,
+                        i32::from(notification.timeout),
+                    ),
+                )
+                .await?
+                .body()
+                .deserialize()
+        }))
     }
 }
+
+/// `work`, given up once `limit` has passed. The error then is the one zbus gives a method call
+/// whose own timeout runs out (`connection::Builder::method_timeout`) — an I/O error of kind
+/// `TimedOut` — carrying an [`Unanswered`] that says what went unanswered. Only ever awaited
+/// inside a runtime, whose timer it is.
+async fn within<T>(
+    limit: Duration,
+    what: &'static str,
+    work: impl Future<Output = zbus::Result<T>>,
+) -> zbus::Result<T> {
+    tokio::time::timeout(limit, work).await.unwrap_or_else(|_| {
+        Err(std::io::Error::new(std::io::ErrorKind::TimedOut, Unanswered { what, limit }).into())
+    })
+}
+
+/// A wait [`within`] gave up on: nobody answered in time, which says nothing against the
+/// connection it was waiting on — unlike a socket's own `ETIMEDOUT`, which [`unanswered`] tells
+/// apart from it.
+#[derive(Debug)]
+struct Unanswered {
+    what: &'static str,
+    limit: Duration,
+}
+
+/// Whether `error` is a wait [`within`] gave up on.
+fn unanswered(error: &zbus::Error) -> bool {
+    matches!(error, zbus::Error::InputOutput(io)
+        if io.get_ref().is_some_and(|inner| inner.is::<Unanswered>()))
+}
+
+impl std::fmt::Display for Unanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: no answer in {:?}", self.what, self.limit)
+    }
+}
+
+impl std::error::Error for Unanswered {}
 
 impl Sink for DesktopSink {
     fn deliver(&mut self, message: &Message, replaces: Option<u32>) -> Option<u32> {
         let notification = build(message, replaces);
-        let kept = self.connection.is_some();
+        let kept = self.kept.is_some();
         let mut sent = self.send(&notification, replaces);
-        if sent.is_err() && kept {
+        if kept && sent.as_ref().is_err_and(|e| !unanswered(e)) {
             // The kept connection may be the one that failed — the bus restarted under it — so
-            // one more try, on a new one.
+            // one more try, on a new one. Not when the daemon only did not answer in time: the
+            // call went out, a daemon that catches up would show the notice twice, and one that
+            // does not would hold the worker for the whole wait again.
             self.disconnect();
             sent = self.send(&notification, replaces);
         }
@@ -493,75 +624,104 @@ impl Drop for DesktopSink {
 }
 
 /// Listen on `connection` for a click on the notification in `link`, and follow its link. The
-/// thread ends when the connection does.
+/// thread ends when the connection does; until then it is the one driving `runtime`, the
+/// connection's. Subscribing is part of connecting, and has as long: `subscribe_within`.
 fn follow_links(
-    connection: &zbus::blocking::Connection,
+    runtime: &Arc<Runtime>,
+    connection: &zbus::Connection,
+    subscribe_within: Duration,
     link: Arc<Mutex<Option<(u32, String)>>>,
     open: Opener,
 ) {
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .interface(NOTIFICATIONS)
-        .and_then(|rule| rule.path(NOTIFICATIONS_PATH))
-        .map(zbus::match_rule::Builder::build);
+        .path(NOTIFICATIONS_PATH)
+        .build();
     let signals = rule.and_then(|rule| {
-        zbus::blocking::MessageIterator::for_match_rule(rule, connection, Some(16))
+        runtime.block_on(within(
+            subscribe_within,
+            "subscribing to the daemon's signals",
+            zbus::MessageStream::for_match_rule(rule, connection, NonZeroUsize::new(16)),
+        ))
     });
-    let signals = match signals {
+    let mut signals = match signals {
         Ok(signals) => signals,
         Err(e) => {
             log::warn!("notification links will not open: {e}");
             return;
         }
     };
+    let driven = Arc::clone(runtime);
     let spawned = thread::Builder::new()
         .name("fxsound-notify-links".to_owned())
         .spawn(move || {
-            for signal in signals {
-                let Ok(signal) = signal else { break };
-                let header = signal.header();
-                let member = header.member().map(zbus::names::MemberName::as_str);
-                let mut link = link
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                match member {
-                    Some("ActionInvoked") => {
-                        let Ok((id, _action)) = signal.body().deserialize::<(u32, String)>() else {
-                            continue;
-                        };
-                        if link.as_ref().is_some_and(|(shown, _)| *shown == id)
-                            && let Some((_, url)) = link.take()
-                        {
-                            open(&url);
+            driven.block_on(async move {
+                while let Some(signal) = next_signal(&mut signals).await {
+                    let Ok(signal) = signal else { break };
+                    let header = signal.header();
+                    let member = header.member().map(zbus::names::MemberName::as_str);
+                    let mut link = link
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    match member {
+                        Some("ActionInvoked") => {
+                            let Ok((id, _action)) = signal.body().deserialize::<(u32, String)>()
+                            else {
+                                continue;
+                            };
+                            if link.as_ref().is_some_and(|(shown, _)| *shown == id)
+                                && let Some((_, url)) = link.take()
+                            {
+                                open(&url);
+                            }
                         }
-                    }
-                    Some("NotificationClosed") => {
-                        let Ok((id, _reason)) = signal.body().deserialize::<(u32, u32)>() else {
-                            continue;
-                        };
-                        if link.as_ref().is_some_and(|(shown, _)| *shown == id) {
-                            *link = None;
+                        Some("NotificationClosed") => {
+                            let Ok((id, _reason)) = signal.body().deserialize::<(u32, u32)>()
+                            else {
+                                continue;
+                            };
+                            if link.as_ref().is_some_and(|(shown, _)| *shown == id) {
+                                *link = None;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
+            });
         });
     if let Err(e) = spawned {
         log::warn!("notification links will not open: {e}");
     }
 }
 
+/// The next message on `stream`; `None` once the connection has gone.
+async fn next_signal(stream: &mut zbus::MessageStream) -> Option<zbus::Result<zbus::Message>> {
+    std::future::poll_fn(|cx| Pin::new(&mut *stream).poll_next(cx)).await
+}
+
+/// How long dropping the [`Notifier`] waits for the worker to deliver what is still queued. Past
+/// it the worker is left to end on its own, which its own bounds see to ([`CONNECT_TIMEOUT`],
+/// [`NOTIFY_TIMEOUT`]) unless the instance's exit comes first and closes its connection. Waiting
+/// for it with no bound kept a quitting FxSound for as long as the daemon did not answer, and with
+/// it the instance lock, which turns every new `fxsound` away as "shutting down" meanwhile.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
+
 /// The GUI thread's end of the notification path.
 ///
 /// Dropping it closes the queue and waits for the worker, so a message pushed on the way out is
-/// still delivered.
+/// still delivered — if the daemon takes it within `SHUTDOWN_GRACE`. Past that the way out goes on
+/// without it, and leaves the worker to end on its own.
 pub struct Notifier {
     /// The persisted `hide_notifications` setting (`FxController.cpp:192`, `:2314-2323`), surfaced
     /// as the Settings dialog's "Hide notifications" toggle (`FxSettingsDialog.cpp:339`).
     hidden: bool,
     tx: Option<Sender<Message>>,
     worker: Option<JoinHandle<()>>,
+    /// Disconnected once the worker has ended, its sink and the sink's connection gone with it:
+    /// what dropping the notifier waits on, with a deadline, where a join has none. Nothing is
+    /// ever sent on it.
+    done: Receiver<()>,
 }
 
 impl Notifier {
@@ -575,14 +735,20 @@ impl Notifier {
     #[must_use]
     pub fn with_sink(hide_notifications: bool, sink: impl Sink) -> Self {
         let (tx, rx) = unbounded();
+        let (finished, done) = unbounded();
         let worker = thread::Builder::new()
             .name("fxsound-notify".to_owned())
-            .spawn(move || deliver_loop(&rx, sink))
+            .spawn(move || {
+                // Dropped last, once the sink has gone and closed its connection.
+                let _finished = finished;
+                deliver_loop(&rx, sink);
+            })
             .ok();
         Self {
             hidden: hide_notifications,
             tx: Some(tx),
             worker,
+            done,
         }
     }
 
@@ -614,9 +780,19 @@ impl Notifier {
 impl Drop for Notifier {
     fn drop(&mut self) {
         self.tx = None;
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+        let Some(worker) = self.worker.take() else {
+            return;
+        };
+        // Nothing is ever sent: the worker's end going is the whole message.
+        if let Err(RecvTimeoutError::Timeout) = self.done.recv_timeout(SHUTDOWN_GRACE) {
+            // Dropping the handle lets the thread go.
+            log::warn!(
+                "a notification is still waiting for the bus after {SHUTDOWN_GRACE:?}; going on \
+                 without it"
+            );
+            return;
         }
+        let _ = worker.join();
     }
 }
 
@@ -742,7 +918,7 @@ mod tests {
     #[test]
     fn an_id_to_replace_is_carried_into_the_call() {
         // `Notification::id` is write-only in notify-rust — the field is `pub(crate)`
-        // (`notify-rust-4.18.0/src/notification.rs:61`) and `.id()` is the setter — so the derived
+        // (`notify-rust-4.19.0/src/notification.rs:121`) and `.id()` is the setter — so the derived
         // `Debug` is the only way to see what was stored.
         let replacing = format!("{:?}", build(&Message::output_disconnected(), Some(42)));
         assert!(replacing.contains("id: Some(42)"), "{replacing}");
@@ -863,6 +1039,94 @@ mod tests {
         assert_eq!(delivered.0, Message::presets_restored());
     }
 
+    /// A sink that takes a message and does not come back until the test lets it go: a daemon
+    /// that never answers, whatever bounds the real sink keeps.
+    struct Stuck {
+        taken: Sender<()>,
+        /// Nothing is ever sent on it: the test dropping its end is what lets the sink go.
+        held: Receiver<()>,
+    }
+
+    impl Sink for Stuck {
+        fn deliver(&mut self, _message: &Message, _replaces: Option<u32>) -> Option<u32> {
+            let _ = self.taken.send(());
+            let _ = self.held.recv();
+            None
+        }
+    }
+
+    #[test]
+    fn a_notice_the_desktop_never_takes_does_not_hold_up_the_way_out() {
+        // The notifier goes on the GUI thread on the way out, before the control socket and the
+        // instance lock do: waiting for a worker stuck on a daemon that never answered kept the
+        // process, and the lock, for good.
+        let (taken_tx, taken) = unbounded();
+        let (release, held) = unbounded::<()>();
+        let notifier = Notifier::with_sink(
+            false,
+            Stuck {
+                taken: taken_tx,
+                held,
+            },
+        );
+        assert!(notifier.notify(Message::output_disconnected()));
+        assert!(notifier.notify(Message::presets_restored()));
+        taken
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the worker took the first message");
+
+        let started = Instant::now();
+        drop(notifier);
+        let waited = started.elapsed();
+        assert!(
+            waited >= SHUTDOWN_GRACE,
+            "the queue was given up early: {waited:?}"
+        );
+        assert!(
+            waited < SHUTDOWN_GRACE + Duration::from_secs(1),
+            "{waited:?}"
+        );
+
+        // Let go, the worker delivers what is left and ends, its sink with it.
+        drop(release);
+        assert_eq!(
+            taken.recv_timeout(Duration::from_secs(5)),
+            Ok(()),
+            "the message queued behind the first"
+        );
+        assert_eq!(
+            taken.recv_timeout(Duration::from_secs(5)),
+            Err(RecvTimeoutError::Disconnected),
+            "the worker outlived the queue"
+        );
+    }
+
+    #[test]
+    fn a_wait_given_up_on_is_told_apart_from_a_connection_that_failed() {
+        // `deliver` tries a failed notice once more on a new connection, but not one the daemon
+        // only did not answer in time, which would cost the whole wait again.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("a runtime");
+        let given_up = runtime
+            .block_on(within(
+                Duration::from_millis(10),
+                "Notify",
+                std::future::pending::<zbus::Result<u32>>(),
+            ))
+            .expect_err("nothing answered");
+        assert!(unanswered(&given_up), "{given_up}");
+        assert!(
+            given_up.to_string().contains("Notify: no answer in 10ms"),
+            "{given_up}"
+        );
+        // A socket's own timeout is the connection failing, as any other I/O error is.
+        let socket = zbus::Error::from(std::io::Error::from(std::io::ErrorKind::TimedOut));
+        assert!(!unanswered(&socket), "{socket}");
+        assert!(!unanswered(&zbus::Error::NameTaken));
+    }
+
     #[test]
     fn a_link_that_is_not_http_is_refused_rather_than_handed_to_a_process() {
         // `open_url` must not become a way to run a program; there is nothing to assert but the
@@ -934,7 +1198,7 @@ mod tests {
             _summary: String,
             _body: String,
             _actions: Vec<String>,
-            hints: HashMap<String, zbus::zvariant::OwnedValue>,
+            hints: HashMap<String, zbus::OwnedVariant>,
             _expire_timeout: i32,
         ) -> u32 {
             let sender = header.sender().map(ToString::to_string).unwrap_or_default();
@@ -1012,25 +1276,141 @@ mod tests {
         assert!(rx.try_recv().is_ok());
     }
 
+    #[test]
+    fn a_bus_that_never_answers_does_not_hold_up_the_way_out() {
+        // A socket that accepts and then says nothing: the handshake waits for an answer, and the
+        // worker with it, for the whole `CONNECT_TIMEOUT` — far longer than the way out waits.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("silent-bus");
+        let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
+        let notifier = Notifier::with_sink(
+            false,
+            DesktopSink::at_address(format!("unix:path={}", path.display())),
+        );
+        assert!(notifier.notify(Message::output_disconnected()));
+        let (_silent, _) = listener.accept().expect("the worker connects");
+        let started = Instant::now();
+        drop(notifier);
+        assert!(
+            started.elapsed() < SHUTDOWN_GRACE + Duration::from_secs(1),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_bus_that_never_answers_costs_the_notice_and_not_the_worker() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("silent-bus");
+        let _listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
+        let mut sink = DesktopSink::at_address(format!("unix:path={}", path.display()));
+        sink.connect_timeout = Duration::from_millis(300);
+        let started = Instant::now();
+        assert_eq!(sink.deliver(&Message::output_disconnected(), None), None);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    /// A notification daemon that answers the first `Notify` it is sent and none after it: one
+    /// that has stopped, or hung, while FxSound's connection is kept.
+    struct Stops {
+        calls: Sender<u32>,
+        answered: std::sync::atomic::AtomicBool,
+    }
+
+    #[zbus::interface(name = "org.freedesktop.Notifications")]
+    impl Stops {
+        #[allow(clippy::too_many_arguments)]
+        async fn notify(
+            &self,
+            _app_name: String,
+            replaces_id: u32,
+            _app_icon: String,
+            _summary: String,
+            _body: String,
+            _actions: Vec<String>,
+            _hints: HashMap<String, zbus::OwnedVariant>,
+            _expire_timeout: i32,
+        ) -> u32 {
+            let _ = self.calls.send(replaces_id);
+            if self
+                .answered
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                std::future::pending::<()>().await;
+            }
+            1
+        }
+    }
+
+    #[test]
+    fn a_daemon_that_stops_answering_costs_one_notice_and_is_asked_for_it_once() {
+        let Some(bus) = crate::private_bus::PrivateBus::start() else {
+            return;
+        };
+        let (tx, calls) = unbounded();
+        let _daemon = crate::private_bus::Client::build(
+            zbus::connection::Builder::address(bus.address.as_str())
+                .name("org.freedesktop.Notifications")
+                .serve_at(
+                    "/org/freedesktop/Notifications",
+                    Stops {
+                        calls: tx,
+                        answered: std::sync::atomic::AtomicBool::new(false),
+                    },
+                ),
+        )
+        .expect("the daemon is on the bus");
+        let called = || {
+            calls
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the daemon was called")
+        };
+        let mut sink = DesktopSink::at_address(bus.address.clone());
+        assert_eq!(sink.deliver(&Message::output_disconnected(), None), Some(1));
+        assert_eq!(called(), 0);
+
+        // From here on the daemon does not answer; the test waits less for it than a real one is
+        // waited for.
+        sink.notify_timeout = Duration::from_millis(500);
+        let started = Instant::now();
+        assert_eq!(sink.deliver(&Message::presets_restored(), Some(1)), None);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(called(), 1, "the second notice was asked for");
+        // It was asked for on the kept connection, where a failure is tried once more on a new
+        // one — but not a wait given up on: the call went out, and a daemon that caught up would
+        // show the notice twice.
+        assert_eq!(
+            calls.recv_timeout(Duration::from_millis(300)),
+            Err(RecvTimeoutError::Timeout),
+            "the notice was asked for again on a new connection"
+        );
+    }
+
     /// The daemon of [`Daemon`] on `bus`, as a connection the test can signal from.
     fn daemon_on(
         bus: &crate::private_bus::PrivateBus,
         tx: Sender<Received>,
-    ) -> zbus::blocking::Connection {
-        zbus::blocking::connection::Builder::address(bus.address.as_str())
-            .expect("an address")
-            .name("org.freedesktop.Notifications")
-            .expect("a well-known name")
-            .serve_at(
-                "/org/freedesktop/Notifications",
-                Daemon {
-                    tx,
-                    next_id: std::sync::atomic::AtomicU32::new(0),
-                },
-            )
-            .expect("a path")
-            .build()
-            .expect("the daemon is on the bus")
+    ) -> crate::private_bus::Client {
+        crate::private_bus::Client::build(
+            zbus::connection::Builder::address(bus.address.as_str())
+                .name("org.freedesktop.Notifications")
+                .serve_at(
+                    "/org/freedesktop/Notifications",
+                    Daemon {
+                        tx,
+                        next_id: std::sync::atomic::AtomicU32::new(0),
+                    },
+                ),
+        )
+        .expect("the daemon is on the bus")
     }
 
     #[test]
@@ -1047,25 +1427,25 @@ mod tests {
         });
         let emit = |member: &str, body: &(u32, &str)| {
             daemon
-                .emit_signal(
+                .block_on(daemon.connection().emit_signal(
                     None::<&str>,
                     NOTIFICATIONS_PATH,
                     NOTIFICATIONS,
                     member,
                     body,
-                )
+                ))
                 .expect("the signal is sent");
         };
         let click = |id: u32| emit("ActionInvoked", &(id, "default"));
         let closed = |id: u32| {
             daemon
-                .emit_signal(
+                .block_on(daemon.connection().emit_signal(
                     None::<&str>,
                     NOTIFICATIONS_PATH,
                     NOTIFICATIONS,
                     "NotificationClosed",
                     &(id, 2_u32),
-                )
+                ))
                 .expect("the signal is sent");
         };
         let next_opened = || {

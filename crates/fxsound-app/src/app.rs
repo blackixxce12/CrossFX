@@ -14321,7 +14321,6 @@ mod tests {
                 crate::sleep::LOGIND_MANAGER,
                 crate::sleep::PREPARE_FOR_SLEEP,
             )
-            .expect("a header")
             .build(&sleeping)
             .expect("a signal");
             let word = crate::sleep::prepare_for_sleep(&signal).expect("logind's signal");
