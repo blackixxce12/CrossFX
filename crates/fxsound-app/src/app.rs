@@ -686,7 +686,7 @@ impl App {
     #[must_use]
     pub fn new(engine: Option<EngineHandle>, waker: &crate::wake::Waker) -> Self {
         let settings = Settings::load();
-        crate::fonts::install(&settings);
+        crate::fonts::install(&settings, waker);
         let mut presets = PresetStore::with_default_dirs();
         presets.rescan();
         let mut voice_presets = InputPresetStore::with_default_dirs();

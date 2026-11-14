@@ -528,12 +528,38 @@ impl GilroyFaces {
                 medium_for_semibold,
                 coverage: Arc::default(),
             }),
-            (regular, semibold, bold) => Err(Weight::ALL
+            (regular, semibold, bold) => Err(Self::missing(
+                [
+                    regular.map(|_| GilroyFace::Regular),
+                    semibold.map(|_| GilroyFace::SemiBold),
+                    bold.map(|_| GilroyFace::Bold),
+                ]
                 .into_iter()
-                .zip([regular.is_none(), semibold.is_none(), bold.is_none()])
-                .filter_map(|(weight, missing)| missing.then_some(weight))
-                .collect()),
+                .flatten(),
+            )),
         }
+    }
+
+    /// The weights `faces` leave without a face, by the rule [`GilroyFaces::assemble`] goes by —
+    /// Medium stands in for a SemiBold that is not there — and none for a whole Gilroy.
+    ///
+    /// What a caller that has some faces asks before it reads more: the application, whose own
+    /// folder holding a whole Gilroy spares it the system's font folders.
+    #[must_use]
+    pub fn missing(faces: impl IntoIterator<Item = GilroyFace>) -> Vec<Weight> {
+        let mut has = [false; 3];
+        for face in faces {
+            let weight = match face {
+                GilroyFace::Regular => Weight::Regular,
+                GilroyFace::Medium | GilroyFace::SemiBold => Weight::SemiBold,
+                GilroyFace::Bold => Weight::Bold,
+            };
+            has[weight.index()] = true;
+        }
+        Weight::ALL
+            .into_iter()
+            .filter(|weight| !has[weight.index()])
+            .collect()
     }
 
     /// The face for `weight`.
@@ -1092,6 +1118,37 @@ pub(crate) mod tests {
         assert_eq!(
             GilroyFaces::assemble(std::iter::empty()).err(),
             Some(Weight::ALL.to_vec())
+        );
+    }
+
+    #[test]
+    fn what_some_faces_leave_missing_is_what_assembling_them_would_say() {
+        // The application asks `missing` of the faces in its own folder before it lists the
+        // system's: the two must never disagree on what a whole Gilroy is.
+        let bytes = stand_in(Weight::Regular, 400, false);
+        let kinds = [
+            GilroyFace::Regular,
+            GilroyFace::Medium,
+            GilroyFace::SemiBold,
+            GilroyFace::Bold,
+        ];
+        for subset in 0..1_u8 << kinds.len() {
+            let faces: Vec<GilroyFace> = kinds
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| subset & (1 << i) != 0)
+                .map(|(_, face)| *face)
+                .collect();
+            let assembled = GilroyFaces::assemble(faces.iter().map(|face| (*face, bytes.clone())));
+            assert_eq!(
+                GilroyFaces::missing(faces.iter().copied()),
+                assembled.err().unwrap_or_default(),
+                "{faces:?}"
+            );
+        }
+        assert!(
+            GilroyFaces::missing([GilroyFace::Bold, GilroyFace::Medium, GilroyFace::Regular])
+                .is_empty()
         );
     }
 
