@@ -41,13 +41,16 @@
 //! never a device to pick — is every endpoint of FxSound's driver, and both sides of a cable a lane
 //! stands on ([`fxsound_endpoints`], [`is_offered`]). Offered as an output, the device the output
 //! lane captures would have it play into what it captures; a cable's recording side offered as a
-//! microphone, the input lane record what it plays. A cable no lane stands on is a device like any
-//! other, as every endpoint but its driver's own is to the original (`docs/spec/12-audio-io.md` §5,
-//! pass 2): a user who records the desktop through "CABLE Output", or plays into "CABLE Input" for
-//! a streaming program, has the output lane play into it as the original would, and has their
-//! default given back there. Nor does a lane take a cable the user has in use — a default of theirs
-//! on either side, or the device the output lane plays to — while another will do ([`plan`]): the
-//! microphone mixed into what they route through it would be theirs to hear.
+//! microphone, the input lane record what it plays. A cable no lane stands on is offered like any
+//! other device, as every endpoint but its driver's own is to the original
+//! (`docs/spec/12-audio-io.md` §5, pass 2): a user who records the desktop through "CABLE Output",
+//! or plays into "CABLE Input" for a streaming program, has the output lane play into it as the
+//! original would, and has their default given back there — though the engine's device rules come
+//! to such a cable only where the user chose it, never as a device just added or as the first one
+//! there is (`super::Engine::device_infos`). Nor does a lane take a cable the user has in use —
+//! a default of theirs on either side, or the device the output lane plays to — while another
+//! will do ([`plan`]): the microphone mixed into what they route through it would be theirs to
+//! hear.
 
 use fxsound_core::{AudioDevice, DeviceDirection};
 

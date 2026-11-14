@@ -36,11 +36,15 @@
 //! of its own besides. With none for a lane the lane is not half-run: it reports
 //! [`AudioError::NoVirtualDevice`] (the output lane) or [`AudioError::NoVirtualInputDevice`] (the
 //! input lane) and processes nothing. No endpoint of FxSound's driver, and neither side of a cable
-//! a lane stands on, is ever offered as a device to pick; a cable no lane stands on is a device
-//! like any other, as every endpoint but its driver's is to the original, and a user's own default
-//! there is remembered, played to and given back there. The microphone never takes a cable the
-//! user has in use, and a default the speakers' lane finds on its cable already, put there by the
-//! user rather than by a run of FxSound's, stays theirs.
+//! a lane stands on, is ever offered as a device to pick; a cable no lane stands on is offered like
+//! any other device, as every endpoint but its driver's is to the original, and a user's own
+//! default there is remembered, played to and given back there. The device rules come to such a
+//! cable only where the user chose it, though — picked it, made it the system's default, or had
+//! it remembered ([`Engine::device_infos`]): a cable just installed is never "a device just added",
+//! nor the "first device there is" of a lane or of a hand-back, which would send the system's sound
+//! into it. The microphone never takes a cable the user has in use, and a default the speakers'
+//! lane finds on its cable already, put there by the user rather than by a run of FxSound's,
+//! stays theirs.
 //!
 //! # The default devices
 //!
@@ -1037,9 +1041,12 @@ pub(crate) struct Engine<S: System> {
     /// The original FxSound, while it runs.
     original: Option<String>,
     next_original_check: Instant,
-    /// When a session opened on FxSound's driver last had the original looked for at once
-    /// ([`Event::Session`]).
+    /// When a session opened on FxSound's driver last had the original looked for
+    /// ([`Event::Session`]): at once, or by the first read of the process list after it.
     session_look: Option<Instant>,
+    /// A session opened on FxSound's driver within [`ORIGINAL_EVERY`] of [`Self::session_look`]
+    /// waits for the next read of the process list, which is its look.
+    session_waits: bool,
     /// An endpoint of FxSound's driver was listed at the last read: the one thing the original
     /// cannot run without, and so the condition for looking for it at all.
     driver_seen: bool,
@@ -1120,6 +1127,7 @@ impl<S: System> Engine<S> {
             original: None,
             next_original_check: Instant::now(),
             session_look: None,
+            session_waits: false,
             driver_seen: false,
             sessions_watched: Vec::new(),
             recorders_watched: None,
@@ -1273,16 +1281,55 @@ impl<S: System> Engine<S> {
         published
     }
 
-    /// Every real device, as the device rules see devices: a cable no lane stands on among them.
+    /// Every device the rules may choose for a lane (`devices::choose_device`) and give a default
+    /// back to ([`Self::give_back`]): every device offered ([`Self::devices`]) but a cable the user
+    /// has not chosen for its direction ([`Self::chosen`]).
+    ///
+    /// A cable no lane stands on is offered like any other device, and the user who picks it, plays
+    /// into it, or records from it has it played to and their default given back there. But the
+    /// rules never come to it by themselves: installed, it would be "a device just added" (rule 5)
+    /// — or, listed before the speakers, the "first device there is" (rule 7, and the hand-back's
+    /// last resort) — and the system's sound would go into it, where nobody hears it, with the
+    /// default handed to it at the exit; and a cable installed for the microphone's lane would be
+    /// the speakers' device, which the microphone never mixes into.
     fn device_infos(&self) -> Vec<DeviceInfo> {
+        self.offered_infos(|endpoint| {
+            endpoint.virtual_kind().is_none() || self.chosen(endpoint.direction, &endpoint.id)
+        })
+    }
+
+    /// Every device offered ([`Self::devices`]) that `keep` keeps, as the device rules see devices.
+    fn offered_infos(&self, keep: impl Fn(&Endpoint) -> bool) -> Vec<DeviceInfo> {
         let ours = self.fxsound_endpoints();
         self.endpoints
             .iter()
-            .filter(|endpoint| endpoints::is_offered(endpoint, &ours))
+            .filter(|endpoint| endpoints::is_offered(endpoint, &ours) && keep(endpoint))
             .map(|endpoint| {
                 endpoint.to_device_info(self.ids.get(&endpoint.id).copied().unwrap_or(0))
             })
             .collect()
+    }
+
+    /// Whether the user has chosen `id` as the device of the lane of `direction`, as far as the
+    /// engine can tell: picked it — in FxSound's list, or as the system's default the lane followed
+    /// (`SelectionMemory::user_selected`) — has it as the system's default device, unless FxSound's
+    /// record says a run of its own left the default there ([`record`]), or has the rules remember
+    /// it: a device the lane was on, or the default from before FxSound, the settings' word on it
+    /// among them (`SelectionMemory`'s other slots).
+    fn chosen(&self, direction: DeviceDirection, id: &str) -> bool {
+        let memory = self.memory.get(direction);
+        let default = self.defaults.get(direction).main() == Some(id)
+            && self.claimed.get(direction).as_deref() != Some(id);
+        default
+            || [
+                &memory.user_selected,
+                &memory.most_recent_playback,
+                &memory.most_recent_default,
+                &memory.prior_default,
+                &memory.original_default,
+            ]
+            .into_iter()
+            .any(|remembered| remembered.as_str() == id)
     }
 
     /// FxSound's own endpoints, never a device (`endpoints::fxsound_endpoints`): its driver's, and
@@ -1376,6 +1423,12 @@ impl<S: System> Engine<S> {
     /// being seen at once ([`Event::Session`], a default moved onto its driver).
     fn check_original(&mut self, now: Instant) {
         let running = if self.driver_seen {
+            // Whatever has the list read — the beat a session waits for, the fallback's, a default
+            // moved onto the driver — answers a session that waits: it is that session's look, and
+            // the next one opened waits a beat from it (`Event::Session`).
+            if std::mem::take(&mut self.session_waits) {
+                self.session_look = Some(now);
+            }
             self.system.original_fxsound()
         } else {
             None
@@ -1616,8 +1669,9 @@ impl<S: System> Engine<S> {
         let picked =
             !memory.user_selected.is_empty() && memory.user_selected == memory.most_recent_playback;
         // FxSound's driver is never a device, ranked or not. A cable is one while no lane stands
-        // on it, and the rules only ever see it then (`Self::device_infos`): ranked, it keeps its
-        // place for when it is.
+        // on it, and the rules only ever see it then, and only once the user has chosen it
+        // (`Self::device_infos`) — the app ranks every device it is shown, unasked: ranked, it
+        // keeps its place for when it is.
         let names: Vec<String> = names
             .into_iter()
             .filter(|name| !self.is_driver(name))
@@ -1837,9 +1891,12 @@ impl<S: System> Engine<S> {
                     // start shows. Looked for now — but not again within `ORIGINAL_EVERY`, however
                     // many sessions are opened: a program that opens one for every sound it plays
                     // would otherwise have the process list, milliseconds of CPU, read for each.
-                    // One opened sooner is looked for on that beat.
+                    // One opened sooner is looked for on that beat, and the look made for it there
+                    // is the one the next session waits a beat from (`check_original`): a flood
+                    // has the list read once a beat, whatever its pace.
                     match self.session_look {
                         Some(last) if now < last + ORIGINAL_EVERY => {
+                            self.session_waits = true;
                             self.next_original_check =
                                 self.next_original_check.min(last + ORIGINAL_EVERY);
                         }
@@ -2343,8 +2400,13 @@ impl<S: System> Engine<S> {
             self.memory.get(direction),
             self.preference.get(direction),
         );
+        // What was there at this run, as the next one tells a device just added (rule 5, a
+        // ranking's newcomer): every device offered, a cable the rules leave alone among them. One
+        // the user chooses later — makes it the system's default, say, which a ranking leaves with
+        // them — has been there all along, and is no newcomer to take the lane.
+        let offered = self.offered_infos(|_| true);
         self.lanes.get_mut(direction).previous_names =
-            devices::candidates(&devices, direction, ours)
+            devices::candidates(&offered, direction, ours)
                 .into_iter()
                 .map(|device| device.name.clone())
                 .collect();
