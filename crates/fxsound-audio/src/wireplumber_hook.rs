@@ -33,18 +33,18 @@
 //! the script), is — PipeWire reports a ramp's target first and the points on the way after it, so
 //! a rise during the fade is the hook's own. And once the volume has been given back and its ramp
 //! played, it says the volume once more, at once, and again until the server reports it
-//! (`RAMP_IN_DONE_MS`, `CONFIRM_WAIT_MS` in the script; [`stream_handover`]'s `RAMP_IN_DONE` and
-//! `CONFIRM_WAIT`): a converter that last reported a point 0.10 of the way up otherwise leaves the
-//! server showing 0.10 for good, and WirePlumber keeping it for the application's next stream. A
-//! recorder gets its volume back later after its new link than a player, as in FxSound's handover
-//! (`RECORDER_LINKED`): the first cycles of its new link bring it nothing yet, and a ramp spent on
-//! them leaves the sound to start at full volume — measured at −18 to −21 dBFS for a recorder
-//! FxSound took back after the desktop's pick, once FxSound left the stream to the hook. Nor does a
-//! stream whose new link failed get its volume back before it has one (`UNLINKED_POLL_MS` in the
-//! script): FxSound links a recorder WirePlumber stranded a quarter of a second later
-//! (`crate::stranded`), and the sound would start at full volume then. A stream whose converter
-//! has no ramp — its client's libpipewire older than 0.3.68 (`core.version`) — is moved as it is,
-//! as FxSound's handover moves it.
+//! (`RAMP_IN_DONE_MS`, `CONFIRM_WAIT_MS` in the script; `crate::stream_handover`'s
+//! `RAMP_IN_DONE` and `CONFIRM_WAIT`): a converter that last reported a point 0.10 of the way up
+//! otherwise leaves the server showing 0.10 for good, and WirePlumber keeping it for the
+//! application's next stream. A recorder gets its volume back later after its new link than a
+//! player, as in FxSound's handover (`RECORDER_LINKED`): the first cycles of its new link bring it
+//! nothing yet, and a ramp spent on them leaves the sound to start at full volume — measured at
+//! −18 to −21 dBFS for a recorder FxSound took back after the desktop's pick, once FxSound left
+//! the stream to the hook. Nor does a stream whose new link failed get its volume back before it
+//! has one (`UNLINKED_POLL_MS` in the script): FxSound links a recorder WirePlumber stranded a
+//! quarter of a second later (`crate::stranded`), and the sound would start at full volume then. A
+//! stream whose converter has no ramp — its client's libpipewire older than 0.3.68
+//! (`core.version`) — is moved as it is, as FxSound's handover moves it.
 //!
 //! WirePlumber moves the streams of a pick one at a time, and with the hook each that plays waits
 //! for its fade: the second is still on FxSound's node when FxSound takes the default back, a few
@@ -52,8 +52,6 @@
 //! (`crate::engine`, `claimed_streams`) — faded by the claim, it was silent when WirePlumber moved
 //! it, the hook left it alone, and it clicked — so the hook fades it if WirePlumber still moves it,
 //! and it stays where it is if the claim comes first.
-//!
-//! [`stream_handover`]: crate::stream_handover
 //!
 //! # The volume WirePlumber keeps
 //!
@@ -476,6 +474,9 @@ mod tests {
         assert!(FRAGMENT.contains("name = fxsound/fade-on-move.lua"));
     }
 
+    // The XDG directories are Linux's: on Windows `/x/config` has no drive, is not absolute, and is
+    // rightly ignored — and there is no WirePlumber to hook.
+    #[cfg(unix)]
     #[test]
     fn the_user_s_files_follow_the_xdg_directories_and_fall_back_to_the_home() {
         use std::ffi::OsStr;
@@ -587,6 +588,8 @@ mod tests {
         assert!(other.exists());
     }
 
+    // `/proc` is Linux's: the reader it tests is `cfg(unix)`, and Windows has no WirePlumber.
+    #[cfg(unix)]
     #[test]
     fn a_process_start_is_read_from_its_stat_and_the_uptime() {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
@@ -605,6 +608,9 @@ mod tests {
         assert_eq!(started_at(stat, "1000.00 1.00", now), None);
     }
 
+    // Held to the handover's own timings (`crate::stream_handover`), which is PipeWire's and
+    // built on Linux only.
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_script_fades_before_the_link_is_broken_and_gives_back_after_the_new_one() {
         // The names of WirePlumber 0.5's own hooks the script sits between, and what makes it

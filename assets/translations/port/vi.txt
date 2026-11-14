@@ -138,3 +138,4 @@ countries: vn
 "Restart WirePlumber" = "Khởi động lại WirePlumber"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Khởi động lại WirePlumber ngay? Âm thanh của mọi ứng dụng sẽ ngắt trong giây lát."
 "Could not change WirePlumber's settings" = "Không thể thay đổi cài đặt của WirePlumber"
+"The original FxSound is running and is using the virtual device: quit it so that this FxSound can process the sound" = "FxSound gốc đang chạy và đang dùng thiết bị ảo: hãy thoát nó để FxSound này có thể xử lý âm thanh"

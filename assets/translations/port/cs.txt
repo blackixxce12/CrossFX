@@ -137,3 +137,4 @@ countries: cz
 "Restart WirePlumber" = "Restartovat WirePlumber"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Restartovat WirePlumber hned? Zvuk všech aplikací se na okamžik přeruší."
 "Could not change WirePlumber's settings" = "Nastavení WirePlumberu se nepodařilo změnit"
+"The original FxSound is running and is using the virtual device: quit it so that this FxSound can process the sound" = "Původní FxSound je spuštěný a používá virtuální zařízení: ukončete jej, aby tento FxSound mohl zpracovávat zvuk"

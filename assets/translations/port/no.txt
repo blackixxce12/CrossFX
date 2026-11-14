@@ -142,3 +142,4 @@ countries: no
 "Restart WirePlumber" = "Start WirePlumber på nytt"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "Starte WirePlumber på nytt nå? Lyden fra alle programmer stopper et øyeblikk."
 "Could not change WirePlumber's settings" = "Innstillingene til WirePlumber kunne ikke endres"
+"The original FxSound is running and is using the virtual device: quit it so that this FxSound can process the sound" = "Det opprinnelige FxSound kjører og bruker den virtuelle enheten: avslutt det, slik at dette FxSound kan behandle lyden"

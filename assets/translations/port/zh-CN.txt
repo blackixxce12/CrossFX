@@ -138,3 +138,4 @@ countries: cn sg
 "Restart WirePlumber" = "重启 WirePlumber"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "现在重启 WirePlumber？所有应用的声音会短暂中断。"
 "Could not change WirePlumber's settings" = "无法更改 WirePlumber 的设置"
+"The original FxSound is running and is using the virtual device: quit it so that this FxSound can process the sound" = "原版 FxSound 正在运行并占用虚拟设备：请退出它，以便由此 FxSound 处理声音"

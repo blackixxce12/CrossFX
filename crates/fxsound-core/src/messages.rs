@@ -1002,9 +1002,10 @@ pub enum AudioToUi {
     /// target, so the next pair built for that device starts where the user left it.
     TargetVolume(TargetVolume),
     /// Something that works but that the user should know, in already-translated text: one
-    /// Bluetooth headset as the target of both lanes, which drops its music to call quality (U9).
-    /// Not an [`AudioToUi::Error`], because nothing failed. `direction` names the lane it
-    /// concerns, or `None` for both.
+    /// Bluetooth headset as the target of both lanes, which drops its music to call quality (U9);
+    /// on Windows, the original FxSound running and holding the virtual device, which the output
+    /// lane leaves to it until it quits. Not an [`AudioToUi::Error`], because nothing failed.
+    /// `direction` names the lane it concerns, or `None` for both.
     Warning {
         direction: Option<DeviceDirection>,
         message: String,

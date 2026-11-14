@@ -339,12 +339,17 @@ pub(crate) fn build(
 /// parameters through it when a later [`UiToAudio::SetAppRoutes`] brings them — on the main loop,
 /// wait-free, never on the audio thread.
 ///
+/// Per-application routes are PipeWire's (`crate::app_routes`): on Windows only this module's own
+/// tests build one, which keep the route's DSP tested on both.
+///
 /// [`UiToAudio::SetAppRoutes`]: fxsound_core::messages::UiToAudio::SetAppRoutes
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) enum RouteParamsWriter {
     Output(Input<DspParams>),
     Input(Input<InputDspParams>),
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl RouteParamsWriter {
     /// Publish `params` to the route's chain. Refused, and `false`, when they are for the other
     /// lane's chain: a route built for one direction never runs the other's snapshot.
@@ -366,6 +371,7 @@ impl RouteParamsWriter {
 /// How many events a route's queue holds ([`route`]). A route is only ever sent the wake's
 /// [`DspEvent::ResetFilterState`], which is the same event however many of it wait: one slot, and
 /// a full one means a reset is already waiting for the route's next block.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) const ROUTE_EVENT_QUEUE_LEN: usize = 1;
 
 /// The DSP of a per-application route (`docs/0.4.0-apps.md`), built on the main loop from the
@@ -379,8 +385,9 @@ pub(crate) const ROUTE_EVENT_QUEUE_LEN: usize = 1;
 /// ([`ROUTE_EVENT_QUEUE_LEN`]), so a routed application's filters, leveller and denoiser forget
 /// the world from before a suspend with its lane's (`crate::engine`, "Sleep"). Every end is real,
 /// so the holder is the lanes' own and the process callback cannot tell a route from a lane. The
-/// parameters are sanitised by the caller ([`crate::app_routes::Rules`]), as the GUI's are by
-/// [`crate::EngineHandle`].
+/// parameters are sanitised by the caller (`crate::app_routes::Rules`, Linux's), as the GUI's are
+/// by [`crate::EngineHandle`].
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn route(
     params: RouteParams,
     spec: ChainSpec,

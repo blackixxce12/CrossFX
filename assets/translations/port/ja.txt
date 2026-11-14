@@ -137,3 +137,4 @@ countries: ja
 "Restart WirePlumber" = "WirePlumber を再起動"
 "Restart WirePlumber now? The sound of every application stops for a moment." = "今すぐ WirePlumber を再起動しますか？すべてのアプリの音が一瞬途切れます。"
 "Could not change WirePlumber's settings" = "WirePlumber の設定を変更できませんでした"
+"The original FxSound is running and is using the virtual device: quit it so that this FxSound can process the sound" = "元の FxSound が実行中で、仮想デバイスを使用しています：この FxSound で音声を処理するには、元の FxSound を終了してください"

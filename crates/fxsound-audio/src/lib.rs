@@ -12,6 +12,18 @@
 //! write arrives directly in our own process callback. There is no driver to install, no reboot,
 //! no root, no loopback capture and no monitor hop.
 //!
+//! # Windows
+//!
+//! On Windows the port does what FxSound for Windows does, with this crate's `wasapi` backend in
+//! PipeWire's place: a virtual playback device the user has installed — FxSound's own driver
+//! ("FxSound Speakers") or a virtual cable; the port ships no driver — is made the default,
+//! captured with WASAPI loopback, run through the same lane DSP and played to the real device; and
+//! behind the microphone, the microphone is processed and played into a cable of its own, whose
+//! recording side becomes the default — opened, as the Linux lane's is, only while something
+//! records from it. Everything below that names PipeWire is Linux's. The public
+//! API, the lanes' DSP, the device rules and the paths to the GUI are the same code on both, and
+//! `wasapi`'s module docs say what each control message means there.
+//!
 //! # Topology
 //!
 //! One pair of nodes per **lane** — one lane per [`fxsound_core::DeviceDirection`] — the two nodes
@@ -154,13 +166,16 @@
 //! [`AudioToUi`]: fxsound_core::messages::AudioToUi
 //! [`UiToAudio::SetAsDefault`]: fxsound_core::messages::UiToAudio::SetAsDefault
 
-// `deny`, not `forbid`, for exactly one reason: the echo canceller. PipeWire's canceller is a
-// module (`libpipewire-module-echo-cancel`, `docs/0.4.0-design.md` §7), and `pipewire` 0.10.1 has
-// no binding for loading one — no `pw_context_load_module`, no `pw_impl_module` at all. So `aec`
-// calls the C functions through `pipewire-sys`, and those three functions, and nothing else in
-// the crate, carry an `#[allow(unsafe_code)]` — each `unsafe` block with the reason it is sound
-// beside it. Everything else here, the process callbacks above all, stays as safe as `forbid`
-// made it, and a new `unsafe` anywhere else still fails the build.
+// `deny`, not `forbid`, for exactly two reasons, one per backend. On Linux, the echo canceller:
+// PipeWire's canceller is a module (`libpipewire-module-echo-cancel`, `docs/0.4.0-design.md` §7),
+// and `pipewire` 0.10.1 has no binding for loading one — no `pw_context_load_module`, no
+// `pw_impl_module` at all. So `aec` calls the C functions through `pipewire-sys`, and those three
+// functions carry an `#[allow(unsafe_code)]`. On Windows, COM: every call into WASAPI, the
+// MMDevice API and the default-device policy is `unsafe`, and all of them are in one module,
+// `wasapi::com`, behind safe wrappers — the one module of the Windows backend allowed it. Each
+// `unsafe` block in either says beside it why it is sound. Everything else here, the process
+// callbacks and the stream threads above all, stays as safe as `forbid` made it, and a new
+// `unsafe` anywhere else still fails the build.
 #![deny(unsafe_code)]
 
 // Two backends behind one API. Everything PipeWire is Linux's: the nodes, the graph, the echo
@@ -181,11 +196,8 @@ mod app_streams;
 pub mod devices;
 #[cfg(target_os = "linux")]
 pub mod engine;
-// The Windows skeleton (`wasapi`) builds the lanes but does not run them yet.
-#[cfg_attr(windows, allow(dead_code))]
 mod lane_dsp;
 pub mod locale;
-#[cfg_attr(windows, allow(dead_code))]
 mod per_direction;
 #[cfg(target_os = "linux")]
 mod routes;
@@ -221,6 +233,11 @@ pub use devices::{
     MIN_CHANNELS, Preference, Selection, SelectionMemory,
 };
 pub use locale::{node_description, sink_description, source_description};
+/// What the Windows engine sees, as a report for a person to read: every endpoint as the engine
+/// classifies it, the virtual device each lane would stand on, the formats, the defaults and the
+/// original FxSound. Read only: nothing is changed (`wasapi::probe`).
+#[cfg(windows)]
+pub use wasapi::probe as wasapi_probe;
 
 /// `node.name` of the virtual sink applications render into (output direction, NODE 1).
 ///
@@ -401,6 +418,20 @@ pub const ONE_HEADSET_ON_BOTH_LANES: &str =
 pub const TOO_MANY_APPLICATION_PRESETS: &str =
     "%s stays on FxSound's preset: at most %s application presets can run at once";
 
+/// What the Windows engine tells the user, translated, while the original FxSound — FxSound LLC's,
+/// under `…\FxSound LLC\FxSound\` — runs ([`AudioToUi::Warning`] for the output lane): it holds the
+/// same virtual device, the one it makes every application play into, so the output lane neither
+/// takes the default nor processes until it has quit. Two programs capturing one device and
+/// playing it to the speakers would play every sound twice, and each would take the default back
+/// from the other.
+///
+/// Public for the reason [`ONE_HEADSET_ON_BOTH_LANES`] is: the app's translation tables and their
+/// audit name it, and this string reaches the screen from here. Defined on every platform so that
+/// the audit reads it wherever it runs; only the Windows engine sends it.
+pub const ORIGINAL_FXSOUND_RUNNING: &str = "The original FxSound is running and is using the \
+                                            virtual device: quit it so that this FxSound can \
+                                            process the sound";
+
 /// The `node.name` of FxSound's virtual device for a direction — the value written into that
 /// direction's `default.configured.audio.*` key.
 #[must_use]
@@ -484,6 +515,13 @@ pub enum AudioError {
     /// (`docs/1.0.0-windows-port.md`). ≡ the original's "audio device is missing" state.
     #[error("no virtual playback device is installed")]
     NoVirtualDevice,
+    /// Windows only: no virtual cable for the input lane. The input lane plays the processed
+    /// microphone into a cable's playback side, for applications to record from its recording
+    /// side, and needs a cable of its own: FxSound's driver records nothing it plays, and the
+    /// output lane's cable carries the speakers' sound. The input twin of
+    /// [`AudioError::NoVirtualDevice`].
+    #[error("no virtual cable is installed for the microphone")]
+    NoVirtualInputDevice,
     /// Windows only: the Windows audio service could not be reached — COM, the MMDevice
     /// enumerator or an `IAudioClient` failed outright. The Windows twin of
     /// [`AudioError::PipewireUnavailable`].
@@ -581,8 +619,8 @@ pub struct DevicePriority {
 }
 
 /// The control channel to the audio thread: PipeWire's own on Linux, whose sender wakes the
-/// thread's loop, and on Windows `wasapi::Control`, a channel and the event that wakes the WASAPI
-/// thread out of its wait. Both have `send(message) -> Result<(), UiToAudio>`.
+/// thread's loop, and on Windows `wasapi::Control`, a channel the WASAPI control thread waits on
+/// beside its own events. Both have `send(message) -> Result<(), UiToAudio>`.
 #[cfg(target_os = "linux")]
 type ControlSender = pipewire::channel::Sender<UiToAudio>;
 #[cfg(windows)]
