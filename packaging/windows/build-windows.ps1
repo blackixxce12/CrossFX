@@ -170,6 +170,38 @@ function Get-VersionOutput([string]$exe) {
     }
 }
 
+# What `git -C <repository> <arguments>` prints, or $null without git, without a repository, or
+# when git fails. Paths are taken literally, never as patterns (a preset may have brackets in its
+# name). Through a pipe read as UTF-8, rather than through PowerShell's own capture, which in
+# Windows PowerShell decodes a native program's output in the console's code page and makes its
+# error output error records.
+function Invoke-Git([string[]]$arguments) {
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $git) {
+        return $null
+    }
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = $git.Source
+    $info.Arguments = (@('-C', $root, '--literal-pathspecs') + $arguments | ForEach-Object { ConvertTo-Argument $_ }) -join ' '
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $info.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $info.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::Start($info)
+    try {
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $null = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            return $null
+        }
+        return $stdout.Result
+    } finally {
+        $process.Dispose()
+    }
+}
+
 # The DLLs a PE image imports, read from its import directory.
 function Get-ImportedDlls([string]$path) {
     $bytes = [System.IO.File]::ReadAllBytes($path)
@@ -395,6 +427,10 @@ New-Item -ItemType Directory -Path $dist -Force | Out-Null
 
 Copy-Item -LiteralPath $exe -Destination (Join-Path $stage 'fxsound.exe')
 
+# Each file copied from the repository, by its path in the stage => its path in the repository;
+# see "the repository's bytes" below.
+$copied = [ordered]@{}
+
 # The three preset trees build-tarball.sh installs, and only the files it installs: not
 # BonusPresets.zip, nor the MeaningfulPresets list beside the .fac files.
 foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', '.toml'))) {
@@ -407,13 +443,13 @@ foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', 
     }
     foreach ($file in $files) {
         Copy-Item -LiteralPath $file.FullName -Destination $to
+        $copied["presets\$($set[0])\$($file.Name)"] = "assets/presets/$($set[0])/$($file.Name)"
     }
 }
 
 # The AGPL, and beside it the notices of the parts of the binary that are not AGPL, whose
 # licences make shipping the text a condition of shipping the binary: the RNNoise code and model
-# (BSD-3-Clause) and the embedded fonts (SIL OFL 1.1). Byte for byte, as the Linux packages carry
-# them; the CI job compares them with the tree's.
+# (BSD-3-Clause) and the embedded fonts (SIL OFL 1.1).
 $notices = [ordered]@{
     'LICENSE' = 'LICENSE'
     'COPYING.rnnoise' = 'crates\fxsound-rnnoise\COPYING'
@@ -430,6 +466,49 @@ if (Test-Path -LiteralPath (Join-Path $root $manropeOfl) -PathType Leaf) {
 }
 foreach ($name in $notices.Keys) {
     Copy-Item -LiteralPath (Join-Path $root $notices[$name]) -Destination (Join-Path $stage $name)
+    $copied[$name] = $notices[$name].Replace('\', '/')
+}
+
+# The repository's bytes, which are what the Linux packages of the same commit carry. A checkout
+# converts the line ends of a text file when core.autocrlf says so (true is Git for Windows'
+# default, and GitHub's Windows images'), and the presets and licences are stored with LF.
+# .gitattributes exempts them (-text), so this is the check that nothing slipped past it: the blob
+# id of each staged file's bytes as they are (`git hash-object --no-filters`) against the commit's
+# (`git ls-tree`). In CI a difference fails the build; elsewhere it is a warning, since a
+# developer's uncommitted edit is packed as it is.
+$tree = Invoke-Git (@('ls-tree', '-r', '-z', 'HEAD', '--') + @($copied.Values))
+$ids = Invoke-Git (@('hash-object', '--no-filters', '--') + @($copied.Keys | ForEach-Object { Join-Path $stage $_ }))
+if ($null -eq $tree -or $null -eq $ids) {
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        throw 'git could not compare the staged files with the commit'
+    }
+    Write-Host 'Not a git checkout (or no git): the staged files are not compared with a commit.'
+} else {
+    $committed = @{}
+    foreach ($entry in $tree.Split([char]0)) {
+        if ($entry -match '^\d+ blob ([0-9a-f]+)\t(.+)$') {
+            $committed[$Matches[2]] = $Matches[1]
+        }
+    }
+    $staged = @($ids.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $names = @($copied.Keys)
+    $different = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $names.Count; $i++) {
+        $want = $committed[$copied[$names[$i]]]
+        if ($i -ge $staged.Count -or $null -eq $want -or $staged[$i] -ne $want) {
+            $different.Add($names[$i])
+        }
+    }
+    if ($different.Count -gt 0) {
+        $lines = @("Not the commit's bytes: $($different -join ', ').",
+            'Line ends converted on checkout (core.autocrlf), or edits not committed.')
+        if ($env:GITHUB_ACTIONS -eq 'true') {
+            throw ($lines -join ' ')
+        }
+        Write-LoudWarning "Staged files differ from the commit" $lines
+    } else {
+        Write-Host "$($names.Count) presets and notices are the commit's bytes"
+    }
 }
 
 # README.txt with Windows line ends and a byte-order mark, so that every editor opens its

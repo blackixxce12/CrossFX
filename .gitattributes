@@ -1,0 +1,13 @@
+# Files that ship as they are stored, byte for byte, whatever the system they are checked out on:
+# the licence texts the packages carry beside the binary, the presets, and the translation tables,
+# several of which are the original FxSound's own files, CRLF and all. `-text` keeps git from
+# converting their line ends on checkout and on commit whatever core.autocrlf says, so that a
+# Windows checkout (Git for Windows' default is core.autocrlf=true, and GitHub's Windows images
+# keep it) packs what the Linux packages pack; packaging/windows/build-windows.ps1 checks the files
+# it packs against the commit. Nothing else changes: this is no renormalisation, and every file
+# keeps the line ends it is stored with.
+/LICENSE -text
+/crates/fxsound-rnnoise/COPYING -text
+/assets/fonts/OFL*.txt -text
+/assets/presets/** -text
+/assets/translations/** -text

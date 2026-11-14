@@ -225,6 +225,11 @@ jobs:
     name: Lint and test on Windows
     runs-on: windows-2025
     steps:
+      # The image's git converts line ends on checkout (core.autocrlf true, Git for Windows'
+      # default). Turned off, the tests read the bytes the Linux jobs read.
+      - name: Check out without line-end conversion
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
