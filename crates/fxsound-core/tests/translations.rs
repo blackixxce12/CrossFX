@@ -30,10 +30,11 @@ use fxsound_core::{
 const DRAWING_CRATES: [&str; 2] = ["../fxsound-ui/src", "../fxsound-app/src"];
 
 /// Crates that draw nothing but translate text the window shows: the audio engine, whose warnings
-/// about one Bluetooth headset on both lanes (`ONE_HEADSET_ON_BOTH_LANES`) and about an
-/// application left on its lane's preset (`TOO_MANY_APPLICATION_PRESETS`) are looked up on the
-/// audio thread and arrive translated. Their calls to `tr` and their string constants are read as
-/// the drawing crates' are; their string tables are node names, not keys, and are left alone.
+/// about one Bluetooth headset on both lanes (`ONE_HEADSET_ON_BOTH_LANES`), about an application
+/// left on its lane's preset (`TOO_MANY_APPLICATION_PRESETS`) and, on Windows, about the original
+/// FxSound holding the virtual device (`ORIGINAL_FXSOUND_RUNNING`) are looked up on the audio
+/// thread and arrive translated. Their calls to `tr` and their string constants are read as the
+/// drawing crates' are; their string tables are node names, not keys, and are left alone.
 const TRANSLATING_CRATES: [&str; 1] = ["../fxsound-audio/src"];
 
 /// Every argument the drawing crates pass to `tr` that the scan cannot read, as written (spaces
@@ -689,6 +690,21 @@ fn the_audio_engines_warning_about_too_many_application_presets_is_among_the_key
         "application preset warnings",
         &untranslated(&tables(), [key]),
     );
+}
+
+#[test]
+fn the_windows_engines_warning_about_the_original_fxsound_is_among_the_keys_audited() {
+    // Translated on the Windows audio thread (`fxsound-audio`, `wasapi`, `ORIGINAL_FXSOUND_RUNNING`)
+    // while FxSound LLC's own FxSound runs, and shown by the window as it arrives. The source is
+    // read wherever the audit runs, so a Linux build checks the Windows engine's text too.
+    let keys = scan().keys;
+    let key = "The original FxSound is running and is using the virtual device: quit it so that \
+               this FxSound can process the sound";
+    assert!(
+        keys.contains(key),
+        "the scan does not see the Windows engine's call to tr"
+    );
+    assert_all_translated("original FxSound warnings", &untranslated(&tables(), [key]));
 }
 
 #[test]
