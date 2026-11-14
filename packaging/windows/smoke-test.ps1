@@ -19,14 +19,22 @@
       * the installed tree checked as the .zip's is (the setup program adds its uninstaller), and
         the Start menu shortcut and the entry in the list of installed apps with it;
       * the other installer run over it, which has to refuse;
-      * the HKCU Run value FxSound's "Launch on system startup" writes, "FxSound Port", set, and
-        beside it a neighbour named "FxSound", as another program's value might be, so that the
-        uninstall is seen to remove its own value and only that;
-      * uninstalled silently, after which the folder, the shortcut, the entry and the "FxSound
-        Port" value have to be gone, and the "FxSound" value still there.
+      * the setup program only: run again over itself, as an upgrade is, with files an earlier
+        version might have shipped and this one does not planted in its folder, which the
+        upgrade has to leave out of the tree;
+      * the setup program only: FxSound Port started (--hide) to be running when it is
+        uninstalled, as it usually is, which the uninstaller has to close;
+      * what FxSound writes for itself set as it would: the HKCU Run value "Launch on system
+        startup" writes, "FxSound Port", and the registration and icon of its notifications,
+        each with a neighbour of another program's beside it, so that the uninstall is seen to
+        remove its own and only those;
+      * uninstalled silently, after which the folder, the shortcut, the entry, the "FxSound Port"
+        value, the notifications' registration and their icon have to be gone, the neighbours
+        still there, and FxSound Port not running.
 
-    Nothing here starts FxSound's window: the setup program runs /VERYSILENT, which skips its
-    "Launch" box, and the .msi /qn, which shows no last page at all.
+    Nothing here shows FxSound's window: the setup program runs /VERYSILENT, which skips its
+    "Launch" box, the .msi /qn, which shows no last page at all, and the copy started to be
+    uninstalled under starts in the notification area.
 
 .PARAMETER InstallOnThisMachine
     Install and uninstall both installers, for real, under Program Files. Not on a machine that
@@ -49,6 +57,11 @@ $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $product = 'FxSound Port'
 $publisher = 'FxSound Linux port contributors'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+# Where FxSound registers the AppUserModelID its notifications are shown under, and the folder of
+# their icon (crates/fxsound-app/src/win/toast.rs).
+$appIdKey = 'HKCU:\Software\Classes\AppUserModelId'
+$appUserModelId = 'FxSoundPort.FxSound'
+$notificationDir = Join-Path $env:LOCALAPPDATA $product
 
 function Write-Step([string]$text) {
     Write-Host ''
@@ -215,9 +228,21 @@ function Assert-Installed([string]$what, [string[]]$extras, [string]$displayVers
     Write-Host "  shortcut, and an entry for $product $displayVersion by $publisher"
 }
 
-function Set-AutostartValues {
-    New-ItemProperty -LiteralPath $runKey -Name $product -Value "`"$installDir\fxsound.exe`"" -PropertyType String -Force | Out-Null
+# What FxSound writes for itself, which the installers do not install and an uninstall has to
+# remove all the same: the Run value of "Launch on system startup", and the registration of the
+# AppUserModelID its notifications are shown under with their icon. Each with a neighbour named
+# as another program's might be, which has to be left alone.
+function Set-UserData {
+    New-ItemProperty -LiteralPath $runKey -Name $product -Value "`"$installDir\fxsound.exe`" --hide" -PropertyType String -Force | Out-Null
     New-ItemProperty -LiteralPath $runKey -Name 'FxSound' -Value 'left alone by FxSound Port' -PropertyType String -Force | Out-Null
+    foreach ($id in @($appUserModelId, 'FxSound')) {
+        $key = Join-Path $appIdKey $id
+        New-Item -Path $key -Force | Out-Null
+        New-ItemProperty -LiteralPath $key -Name 'DisplayName' -Value $id -PropertyType String -Force | Out-Null
+    }
+    New-ItemProperty -LiteralPath (Join-Path $appIdKey $appUserModelId) -Name 'IconUri' -Value (Join-Path $notificationDir 'notification.png') -PropertyType String -Force | Out-Null
+    New-Item -ItemType Directory -Path $notificationDir -Force | Out-Null
+    [System.IO.File]::WriteAllBytes((Join-Path $notificationDir 'notification.png'), [byte[]](0x89, 0x50, 0x4E, 0x47))
 }
 
 function Assert-Uninstalled([string]$what) {
@@ -227,7 +252,20 @@ function Assert-Uninstalled([string]$what) {
     Assert ($null -eq (Get-RunValue $product)) "$what left the '$product' Run value behind"
     Assert ($null -ne (Get-RunValue 'FxSound')) "$what removed the 'FxSound' Run value, which is not its own"
     Remove-ItemProperty -LiteralPath $runKey -Name 'FxSound'
-    Write-Host '  folder, shortcut, entry and Run value gone; the other Run value kept'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $appIdKey $appUserModelId))) "$what left the registration of $appUserModelId behind"
+    Assert (Test-Path -LiteralPath (Join-Path $appIdKey 'FxSound')) "$what removed the AppUserModelId 'FxSound', which is not its own"
+    Remove-Item -LiteralPath (Join-Path $appIdKey 'FxSound') -Recurse
+    Assert (-not (Test-Path -LiteralPath $notificationDir)) "$what left $notificationDir behind"
+    Write-Host '  folder, shortcut, entry, Run value and notifications'' registration gone; the others kept'
+}
+
+# The uninstaller hands over to a copy of itself in %TEMP% and exits at once, so its exit says
+# nothing about the uninstall; its entry in Apps and Features going away does.
+function Wait-ForSetupUninstall {
+    $deadline = (Get-Date).AddMinutes(3)
+    while ((@(Get-UninstallEntries).Count -gt 0 -or (Test-Path -LiteralPath $installDir)) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 1
+    }
 }
 
 Assert (-not (Test-Path -LiteralPath $installDir)) "$installDir exists already; this test needs a machine without $product"
@@ -254,24 +292,49 @@ Assert-Installed 'the .msi' @() $numeric
 Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=`"$logs\setup-over-msi.log`"" -Refused
 Assert (@(Get-UninstallEntries).Count -eq 1) 'the setup program installed over the .msi'
 Write-Host '  the setup program refuses to install over it'
-Set-AutostartValues
+Set-UserData
 Invoke-Installer 'msiexec.exe' "/x `"$msi`" /qn /norestart /l*v `"$logs\msi-uninstall.log`""
 Assert-Uninstalled 'the .msi'
 
 Write-Step "The setup program: $setup"
+$setupFiles = @('unins000.exe', 'unins000.dat', 'unins000.msg')
 Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=`"$logs\setup-install.log`""
-Assert-Installed 'the setup program' @('unins000.exe', 'unins000.dat', 'unins000.msg') $treeVersion
+Assert-Installed 'the setup program' $setupFiles $treeVersion
 Invoke-Installer 'msiexec.exe' "/i `"$msi`" /qn /norestart /l*v `"$logs\msi-over-setup.log`"" -Refused
 Assert (@(Get-UninstallEntries).Count -eq 1) 'the .msi installed over the setup program'
 Write-Host '  the .msi refuses to install over it'
-Set-AutostartValues
-# The uninstaller hands over to a copy of itself in %TEMP% and exits at once, so its exit says
-# nothing about the uninstall; its entry in Apps and Features going away does.
-Invoke-Installer (Join-Path $installDir 'unins000.exe') "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=`"$logs\setup-uninstall.log`""
-$deadline = (Get-Date).AddMinutes(3)
-while ((@(Get-UninstallEntries).Count -gt 0 -or (Test-Path -LiteralPath $installDir)) -and (Get-Date) -lt $deadline) {
-    Start-Sleep -Seconds 1
+
+# An upgrade: the setup program installs over the version before it rather than uninstalling it,
+# and the stores list every preset in the folders, so the presets and notices that version shipped
+# and this one does not have to go, as the .msi's upgrade removes them with the old product.
+$dropped = @('presets\Factsoft\Dropped.fac', 'presets\BonusPresets\Dropped.fac', 'presets\Input\Dropped.toml', 'OFL.dropped', 'COPYING.dropped')
+foreach ($relative in $dropped) {
+    [System.IO.File]::WriteAllText((Join-Path $installDir $relative), "shipped by an earlier version`n")
 }
+Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=`"$logs\setup-upgrade.log`""
+Assert-Installed 'the upgrade' $setupFiles $treeVersion
+Write-Host "  an upgrade leaves out the $($dropped.Count) files this version does not ship"
+
+# Uninstalled while FxSound Port runs, as it usually is: it sits in the notification area once
+# started. The uninstaller has to close it, or fxsound.exe and its folder stay behind.
+$running = Start-Process -FilePath (Join-Path $installDir 'fxsound.exe') -ArgumentList '--hide' -PassThru
+# Held from the start: Windows PowerShell's Process otherwise has no exit code to give once the
+# process has ended.
+$null = $running.Handle
+Start-Sleep -Seconds 5
+if ($running.HasExited) {
+    $note = "fxsound.exe --hide ended by itself (exit $($running.ExitCode)) on this machine, so closing a running FxSound Port is not tried"
+    Write-Warning $note
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Write-Host "::warning title=Smoke test::$note"
+    }
+} else {
+    Write-Host "  FxSound Port is running (process $($running.Id))"
+}
+Set-UserData
+Invoke-Installer (Join-Path $installDir 'unins000.exe') "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=`"$logs\setup-uninstall.log`""
+Wait-ForSetupUninstall
+Assert ($running.WaitForExit(30000)) "the uninstaller left FxSound Port (process $($running.Id)) running"
 Assert-Uninstalled 'the setup program'
 
 Write-Host ''

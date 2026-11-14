@@ -83,6 +83,11 @@
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="System64Folder" />
+    <!-- Where FxSound keeps its notifications' icon (crates/fxsound-app/src/win/toast.rs); named
+         here only to be emptied on uninstall. -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="NotificationIconFolder" Name="FxSound Port" />
+    </StandardDirectory>
 
     <Feature Id="FxSound" Title="FxSound Port" AllowAbsent="no">
       <ComponentGroupRef Id="Program" />
@@ -104,7 +109,13 @@
     <!-- "FxSound Port" straight in the Start menu's program list. A shortcut needs a key path of
          its own, and Windows Installer wants a per-user one for a component in the Start menu;
          the value is a marker and goes with the shortcut. The target is spelled as a path rather
-         than as [#FxSoundExe], the executable's component being another one (ICE69). -->
+         than as [#FxSoundExe], the executable's component being another one (ICE69).
+
+         With it, in the same user's profile, what FxSound writes for its notifications before
+         the first one and nobody else would remove: the registration of the AppUserModelID they
+         are shown under, which would keep a sender of that name in Windows' notification
+         settings, and its icon. Removed with the component, so on a major upgrade as well, which
+         costs nothing: FxSound writes both again before its next notification. -->
     <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
       <Shortcut Id="StartMenuShortcut"
                 Name="FxSound Port"
@@ -113,6 +124,13 @@
                 WorkingDirectory="INSTALLFOLDER" />
       <RegistryValue Root="HKCU" Key="Software\FxSound Port\Installer" Name="StartMenuShortcut"
                      Type="integer" Value="1" KeyPath="yes" />
+      <RemoveRegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\FxSoundPort.FxSound"
+                         Action="removeOnUninstall" />
+      <RemoveFile Id="NotificationIcon" Directory="NotificationIconFolder"
+                  Name="notification.png" On="uninstall" />
+      <!-- Only if that leaves it empty: Windows Installer removes no folder with anything in it. -->
+      <RemoveFolder Id="NotificationIconFolder" Directory="NotificationIconFolder"
+                    On="uninstall" />
     </Component>
 
     <!-- FxSound's "Launch on system startup" is an HKCU Run value named "FxSound Port", written by
