@@ -19,7 +19,8 @@
 //! ("FxSound Speakers") or a virtual cable; the port ships no driver — is made the default,
 //! captured with WASAPI loopback, run through the same lane DSP and played to the real device; and
 //! behind the microphone, the microphone is processed and played into a cable of its own, whose
-//! recording side becomes the default. Everything below that names PipeWire is Linux's. The public
+//! recording side becomes the default — opened, as the Linux lane's is, only while something
+//! records from it. Everything below that names PipeWire is Linux's. The public
 //! API, the lanes' DSP, the device rules and the paths to the GUI are the same code on both, and
 //! `wasapi`'s module docs say what each control message means there.
 //!

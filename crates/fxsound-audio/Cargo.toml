@@ -50,7 +50,8 @@ pipewire-sys = { workspace = true }
 # MMCSS and the process path (`System_Threading`, with `Security` for `CreateEventW`'s signature);
 # and the process list the original FxSound is found in (`Diagnostics_ToolHelp`).
 # `windows-core` itself is for the `#[interface]` that declares `IPolicyConfig` and the
-# `#[implement]` of the two notification callbacks, whose expansions name `::windows_core`.
+# `#[implement]` of the notification callbacks — the endpoints', the volume's, the sessions' —
+# whose expansions name `::windows_core`.
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Devices_FunctionDiscovery",

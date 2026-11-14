@@ -44,7 +44,8 @@
 //!
 //! # The default devices
 //!
-//! A lane that is running and wants the default ([`StartOptions::want_default`],
+//! A lane that is running — or, the input lane, waiting on its cable for a recorder ("The
+//! microphone") — and wants the default ([`StartOptions::want_default`],
 //! [`UiToAudio::SetAsDefault`]) makes its virtual endpoint the default of its direction — the
 //! output lane for the two playback roles, leaving calls on the device the user set for them as
 //! the original does, the input lane for every role ([`Role::claimed_by`]) — remembering each
@@ -98,6 +99,27 @@
 //! sessions are watched ([`Event::Session`]), and its claim a default moved onto the driver by
 //! someone else. Once found, it is watched through its process until it quits.
 //!
+//! # The microphone
+//!
+//! The input lane's microphone is open only while something records from the lane's cable — an
+//! application holding a running capture session on its recording side — or while the app holds
+//! it awake ([`UiToAudio::KeepInputAwake`]: the calibration, the meters), and for
+//! [`RECORDER_LINGER`] after: the Linux lane's capture is passive in the same way
+//! (`docs/spec/12-audio-io.md` §19.8), and the original stops its stream "to allow PC to sleep if
+//! no audio is playing" (§10). Meanwhile the lane is attached and holds the recording default on
+//! the cable, where a recorder that starts finds it, but opens nothing: no microphone light, no
+//! Bluetooth headset kept in its call profile, no chain running on the microphone's noise floor,
+//! no render stream into the cable for the audio engine to mix.
+//!
+//! Who records is heard, not polled for. The cable's recording side has its sessions watched
+//! ([`System::watch_recorders`]): every session another process opens there, and every one's
+//! starting, stopping and going, is an [`Event::Session`], and the sessions are asked then —
+//! a fraction of a millisecond — and every [`RECORDERS_CHECK`] besides, for a change missed or a
+//! watch gone with the audio service. A recorder that starts is heard at once, and a recording
+//! starts with the moment the microphone takes to open, as on Linux. Where the changes cannot be
+//! heard the sessions are asked on every tick, and an answer that cannot be had counts as a
+//! recorder: a microphone open for nothing costs less than one missing from a call.
+//!
 //! # Threads
 //!
 //! One control thread, `fxsound-audio`, in the MTA: the device rules, the defaults, the
@@ -109,8 +131,8 @@
 //!
 //! # What has no Windows meaning
 //!
-//! Echo cancellation, per-application routes and the microphone held awake are PipeWire's, and
-//! their messages are taken and ignored: [`Engine::control`] says why for each.
+//! Echo cancellation and per-application routes are PipeWire's, and their messages are taken and
+//! ignored: [`Engine::control`] says why for each.
 
 #[allow(unsafe_code)]
 mod com;
@@ -196,6 +218,78 @@ const WAKE_MUTE: Duration = Duration::from_secs(2);
 /// How long a sleep the app never ended is believed: the Linux engine's `SLEEP_LIMIT`.
 const SLEEP_LIMIT: Duration = Duration::from_secs(60);
 
+/// How long the input lane keeps its microphone open after the last application recording from
+/// its cable, or the app holding it awake, has let go of it (module docs, "The microphone"): a
+/// recorder that stops and starts again, as a call program between calls may, finds it running.
+const RECORDER_LINGER: Duration = Duration::from_secs(3);
+
+/// How often who records from the input lane's cable is asked while every change of it is heard
+/// (module docs, "The microphone"): a change missed, or a watch gone with the audio service while
+/// no stream runs to notice, costs no more than this. A few sessions read, a fraction of a
+/// millisecond each time.
+const RECORDERS_CHECK: Duration = Duration::from_secs(2);
+
+/// Who records from a recording endpoint, as [`System::recorders`] tells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Recording {
+    /// Another process records from it now — holds a running capture session there; `None` when
+    /// that cannot be told.
+    pub(crate) active: Option<bool>,
+    /// Every change of it is heard ([`Event::Session`]): nothing need ask again until one is.
+    pub(crate) heard: bool,
+}
+
+impl Recording {
+    /// Nothing could be told.
+    pub(crate) const UNKNOWN: Self = Self {
+        active: None,
+        heard: false,
+    };
+}
+
+/// Who wants the input lane's microphone open, and since when nobody has (module docs, "The
+/// microphone").
+#[derive(Debug, Default)]
+struct Recorders {
+    /// The app holds it awake ([`UiToAudio::KeepInputAwake`]): the calibration, the meters.
+    awake: bool,
+    /// Another process records from the cable's recording side, as last asked — or it could not
+    /// be told, which counts as one.
+    recording: bool,
+    /// The last answer could be had ([`Recording::active`]).
+    known: bool,
+    /// Every change of who records is heard ([`Recording::heard`]): not asked on every tick.
+    heard: bool,
+    /// When the last of the app and the recorders let go.
+    since: Option<Instant>,
+    /// When the cable is asked again whether or not anything said it changed ([`RECORDERS_CHECK`]).
+    next_check: Option<Instant>,
+}
+
+impl Recorders {
+    /// Whether the microphone is wanted at `now`: asked for, or let go of less than
+    /// [`RECORDER_LINGER`] ago.
+    fn wanted(&self, now: Instant) -> bool {
+        self.awake
+            || self.recording
+            || self
+                .since
+                .is_some_and(|since| now.saturating_duration_since(since) < RECORDER_LINGER)
+    }
+
+    /// The app's word and the sessions' as they stand at `now`.
+    fn set(&mut self, awake: bool, recording: bool, now: Instant) {
+        let asked = self.awake || self.recording;
+        self.awake = awake;
+        self.recording = recording;
+        if self.awake || self.recording {
+            self.since = None;
+        } else if asked {
+            self.since = Some(now);
+        }
+    }
+}
+
 /// How long a default that moved to an endpoint the engine cannot list yet waits to be decided on
 /// ([`Engine::decide_default`]): a device that has just arrived may not have its property store
 /// readable for a moment, and the endpoints are read again every [`SUPERVISOR_PERIOD`] meanwhile.
@@ -245,7 +339,8 @@ pub(crate) enum Event {
     /// The virtual device's own volume or mute changed.
     Volume(DeviceDirection),
     /// Another process opened an audio session on the endpoint of this ID, one whose sessions the
-    /// engine watches ([`System::watch_sessions`]).
+    /// engine watches ([`System::watch_sessions`], [`System::watch_recorders`]) — or, on one
+    /// whose recorders it follows, one of its sessions there started, stopped or went.
     Session(String),
     /// A lane's stream thread ended, asked to or not.
     StreamEnded {
@@ -451,6 +546,12 @@ pub(crate) trait System {
     /// opens on one an [`Event::Session`] — every watch made anew, the ones of other endpoints
     /// dropped; the IDs watched, which leaves out an endpoint that refused.
     fn watch_sessions(&mut self, ids: &[String]) -> Vec<String>;
+    /// Watch who records from the recording endpoint `id`, made anew — every session another
+    /// process holds there, and every one opened, started, stopped or gone, an [`Event::Session`]
+    /// — dropping the watch of any other; `None` watches none.
+    fn watch_recorders(&mut self, id: Option<&str>);
+    /// Who records from the recording endpoint `id` now.
+    fn recorders(&mut self, id: &str) -> Recording;
 }
 
 /// A lane's running stream, as the control thread holds it.
@@ -522,6 +623,8 @@ struct Windows {
     original: Option<(com::ProcessWatch, String)>,
     /// The endpoints whose sessions are watched ([`System::watch_sessions`]).
     sessions: HashMap<String, com::SessionWatch>,
+    /// The recording endpoint whose recorders are watched ([`System::watch_recorders`]).
+    recorders: Option<(String, com::SessionWatch)>,
 }
 
 impl Windows {
@@ -546,7 +649,15 @@ impl Windows {
             record: record::Record::of_user(),
             original: None,
             sessions: HashMap::new(),
+            recorders: None,
         })
+    }
+
+    /// A watch of who records from `id` ([`com::Device::watch_recorders`]), or why there is none.
+    fn recorder_watch(&self, id: &str) -> windows_core::Result<com::SessionWatch> {
+        self.enumerator
+            .device(id)
+            .and_then(|device| device.watch_recorders(self.events.clone(), id))
     }
 
     /// A new enumerator, and the endpoint notifications registered with it.
@@ -596,6 +707,7 @@ impl System for Windows {
         self.policy = com::PolicyConfig::new().ok();
         // The sessions watched were the old service's: watched again on the new one.
         self.sessions.clear();
+        self.recorders = None;
         self.list()
             .map_err(|error| AudioError::WindowsAudioUnavailable(error.message()))
     }
@@ -714,6 +826,49 @@ impl System for Windows {
             .cloned()
             .collect()
     }
+
+    fn watch_recorders(&mut self, id: Option<&str>) {
+        // Dropped here, on the control thread: never from inside a callback.
+        self.recorders = None;
+        let Some(id) = id else {
+            return;
+        };
+        match self.recorder_watch(id) {
+            Ok(watch) => self.recorders = Some((id.to_owned(), watch)),
+            Err(error) => log::info!("{id}: who records from it cannot be watched ({error})"),
+        }
+    }
+
+    /// Asked of the watch on `id` — made now, when there is none: one refused before is tried
+    /// again on every asking, rather than left to the next read of the endpoints.
+    fn recorders(&mut self, id: &str) -> Recording {
+        if self
+            .recorders
+            .as_ref()
+            .is_none_or(|(watched, _)| watched != id)
+        {
+            match self.recorder_watch(id) {
+                Ok(watch) => self.recorders = Some((id.to_owned(), watch)),
+                Err(error) => {
+                    log::debug!("{id}: who records from it cannot be watched ({error})");
+                    return Recording::UNKNOWN;
+                }
+            }
+        }
+        let Some((_, watch)) = self.recorders.as_mut() else {
+            return Recording::UNKNOWN;
+        };
+        match watch.recorders() {
+            Ok(heard) => Recording {
+                active: Some(heard.recording),
+                heard: heard.followed,
+            },
+            Err(error) => {
+                log::debug!("{id}: who records from it cannot be told ({error})");
+                Recording::UNKNOWN
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -746,6 +901,9 @@ struct Lane {
     target: Option<String>,
     /// The lane is on `target` but plays nothing: the power is off, or the original FxSound runs.
     held: bool,
+    /// The input lane is on `target`, holds its default, and keeps the microphone closed: nobody
+    /// records from its cable (module docs, "The microphone").
+    dormant: bool,
     /// The virtual device the lane stands on.
     virtual_device: Option<VirtualDevice>,
     /// The DSP, while no stream has it.
@@ -796,6 +954,7 @@ impl Lane {
             previous_names: Vec::new(),
             target: None,
             held: false,
+            dormant: false,
             virtual_device: None,
             dsp: Some(dsp),
             stream: None,
@@ -835,9 +994,9 @@ impl Lane {
     }
 
     /// What the lane is attached to, as the GUI is told it: its device while it plays there, or
-    /// is held there by the power or by the original FxSound.
+    /// is held there by the power or by the original FxSound, or waits there for a recorder.
     fn attachment(&self) -> Option<&str> {
-        if self.enabled && (self.stream.is_some() || self.held) {
+        if self.enabled && (self.stream.is_some() || self.held || self.dormant) {
             self.target.as_deref()
         } else {
             None
@@ -887,6 +1046,11 @@ pub(crate) struct Engine<S: System> {
     /// The endpoints whose sessions are watched ([`System::watch_sessions`]): the playback ones
     /// of FxSound's driver, where the original's capture shows.
     sessions_watched: Vec<String>,
+    /// The recording side of the input lane's cable, whose recorders were last asked to be
+    /// watched ([`System::watch_recorders`]).
+    recorders_watched: Option<String>,
+    /// Who wants the input lane's microphone open.
+    recorders: Recorders,
     asleep_since: Option<Instant>,
     headset_warned: Option<(String, String)>,
     last_devices: Option<Vec<AudioDevice>>,
@@ -958,6 +1122,8 @@ impl<S: System> Engine<S> {
             session_look: None,
             driver_seen: false,
             sessions_watched: Vec::new(),
+            recorders_watched: None,
+            recorders: Recorders::default(),
             asleep_since: None,
             headset_warned: None,
             last_devices: None,
@@ -1282,6 +1448,7 @@ impl<S: System> Engine<S> {
                     self.stop_lane(direction, Stop::HandBack);
                     let lane = self.lanes.get_mut(direction);
                     lane.held = lane.target.is_some();
+                    lane.dormant = false;
                 }
             }
             UiToAudio::Restart => {
@@ -1325,10 +1492,20 @@ impl<S: System> Engine<S> {
             UiToAudio::SeedTargetVolumes(_) => {}
             UiToAudio::SystemSleeping(true) => self.go_to_sleep(now),
             UiToAudio::SystemSleeping(false) => self.wake_up(now),
-            // The Linux input lane records its microphone only while something records from
-            // FxSound (Input); this one records it for as long as the lane runs, so there is
-            // nothing to hold awake.
-            UiToAudio::KeepInputAwake(_) => {}
+            // The input lane's microphone is open only while something records from its cable, as
+            // the Linux lane's is passive; the calibration and the meters hold it open meanwhile
+            // (module docs, "The microphone").
+            UiToAudio::KeepInputAwake(awake) => {
+                if awake != self.recorders.awake {
+                    log::info!(
+                        "input lane: the microphone {} held open",
+                        if awake { "is" } else { "is no longer" }
+                    );
+                }
+                let recording = self.recorders.recording;
+                self.recorders.set(awake, recording, now);
+                self.follow_recorders(now);
+            }
             // Per-application routes move one application's stream onto a node of its own, which
             // PipeWire lets a client do and Windows does not: an application's endpoint is its
             // own, or the default.
@@ -1474,6 +1651,7 @@ impl<S: System> Engine<S> {
         lane.last_error = None;
         lane.target = None;
         lane.held = false;
+        lane.dormant = false;
         // A lane that is off stands on nothing: the microphone's cable is a device again.
         lane.virtual_device = None;
         lane.attached = None;
@@ -1670,6 +1848,12 @@ impl<S: System> Engine<S> {
                             self.check_original(now);
                         }
                     }
+                }
+                if self.recorders_watched.as_deref() == Some(endpoint.as_str()) {
+                    // A recorder on the input lane's cable opened a session, or started or stopped
+                    // recording: the microphone follows now.
+                    self.ask_recorders(now);
+                    self.follow_recorders(now);
                 }
             }
             Event::StreamEnded {
@@ -1963,6 +2147,7 @@ impl<S: System> Engine<S> {
             self.devices_dirty = false;
             if self.refresh_endpoints(now) {
                 self.watch_sessions();
+                self.watch_recorders(true);
                 let driver = self.endpoints.iter().any(|endpoint| {
                     endpoint.virtual_kind() == Some(endpoints::VirtualKind::FxSound)
                 });
@@ -1984,8 +2169,10 @@ impl<S: System> Engine<S> {
                 self.apply_rules(direction, now);
             }
         }
-        // A lane that moved onto a cable, or off one, changed what the lists offer.
+        // A lane that moved onto a cable, or off one, changed what the lists offer; the input lane
+        // detached, or held by the power, has no recorders to watch for.
         self.publish_devices();
+        self.watch_recorders(false);
     }
 
     /// Watch the sessions of the playback endpoints of FxSound's driver: the original FxSound
@@ -2003,6 +2190,70 @@ impl<S: System> Engine<S> {
             .map(|endpoint| endpoint.id.clone())
             .collect();
         self.sessions_watched = self.system.watch_sessions(&ids);
+    }
+
+    /// Watch who records from the input lane's cable ([`System::watch_recorders`]; module docs,
+    /// "The microphone"): made anew after every read of the endpoints (`renew`), as the sessions
+    /// are, and otherwise only when the cable changed, or the lane left it.
+    fn watch_recorders(&mut self, renew: bool) {
+        if !renew && self.input_capture() == self.recorders_watched.as_deref() {
+            return;
+        }
+        let capture = self.input_capture().map(str::to_owned);
+        self.system.watch_recorders(capture.as_deref());
+        self.recorders_watched = capture;
+    }
+
+    /// The recording side of the cable the input lane stands on, while it is on and the power is:
+    /// what a recorder of FxSound's microphone records from.
+    fn input_capture(&self) -> Option<&str> {
+        let lane = &self.lanes.input;
+        lane.virtual_device
+            .as_ref()
+            .filter(|_| lane.enabled && !lane.held)
+            .and_then(|device| device.capture.as_deref())
+    }
+
+    /// Ask who records from the input lane's cable (module docs, "The microphone"). An answer that
+    /// cannot be had counts as a recorder — a microphone open for nothing costs less than one
+    /// missing from a call — and, the first time, has the endpoints read again, and the watch made
+    /// anew with them: the audio service may have gone with it, and nothing else would notice
+    /// while no stream runs.
+    fn ask_recorders(&mut self, now: Instant) {
+        let Some(capture) = self.input_capture().map(str::to_owned) else {
+            return;
+        };
+        let heard = self.system.recorders(&capture);
+        let recording = heard.active.unwrap_or(true);
+        if heard.active.is_none() {
+            if self.recorders.known {
+                log::info!(
+                    "input lane: who records from its cable cannot be told; its microphone stays \
+                     open, and the endpoints are read again"
+                );
+                self.devices_dirty = true;
+            }
+        } else if recording != self.recorders.recording {
+            log::info!(
+                "input lane: {} records from its cable",
+                if recording { "something" } else { "nothing" }
+            );
+        }
+        self.recorders.known = heard.active.is_some();
+        self.recorders.heard = heard.heard;
+        self.recorders.next_check = Some(now + RECORDERS_CHECK);
+        let awake = self.recorders.awake;
+        self.recorders.set(awake, recording, now);
+    }
+
+    /// Have the input lane's rules run when its microphone's being open no longer matches whether
+    /// it is wanted: a recorder came, or the last went and its moment is up.
+    fn follow_recorders(&mut self, now: Instant) {
+        let wanted = self.recorders.wanted(now);
+        let lane = &mut self.lanes.input;
+        if lane.enabled && ((wanted && lane.dormant) || (!wanted && lane.stream.is_some())) {
+            lane.needs_rules = true;
+        }
     }
 
     /// The device list, when something it is made of changed and it reads otherwise than the GUI
@@ -2045,6 +2296,15 @@ impl<S: System> Engine<S> {
         if self.repair_due.is_some_and(|due| now >= due) {
             self.repair_due = None;
             self.repair_defaults();
+        }
+        // Who records from the input lane's cable: asked on every tick where its changes are not
+        // heard, and otherwise every `RECORDERS_CHECK` — and a microphone kept open for a recorder
+        // that has stopped is let go of once its moment is up (module docs, "The microphone").
+        if self.input_capture().is_some() {
+            if !self.recorders.heard || self.recorders.next_check.is_none_or(|due| now >= due) {
+                self.ask_recorders(now);
+            }
+            self.follow_recorders(now);
         }
         for direction in DeviceDirection::ALL {
             if self
@@ -2144,6 +2404,7 @@ impl<S: System> Engine<S> {
             let lane = self.lanes.get_mut(direction);
             lane.target = None;
             lane.held = false;
+            lane.dormant = false;
             if lane.virtual_device.take().is_some() {
                 // Its cable is a device again.
                 self.list_dirty = true;
@@ -2224,6 +2485,7 @@ impl<S: System> Engine<S> {
                 let lane = self.lanes.get_mut(direction);
                 lane.target = None;
                 lane.held = false;
+                lane.dormant = false;
                 self.report_error(direction, error);
                 return;
             }
@@ -2243,11 +2505,39 @@ impl<S: System> Engine<S> {
                     Stop::HandBack
                 },
             );
-            self.lanes.get_mut(direction).held = true;
+            let lane = self.lanes.get_mut(direction);
+            lane.held = true;
+            lane.dormant = false;
             self.commit(direction, &selection);
             return;
         }
         self.lanes.get_mut(direction).held = false;
+        if direction == DeviceDirection::Input {
+            // Who records from this cable, asked now: whether the microphone opens is decided on
+            // it, and an answer from another cable, or from before the change that runs these
+            // rules, would be no answer (module docs, "The microphone").
+            self.watch_recorders(false);
+            self.ask_recorders(now);
+        }
+        if direction == DeviceDirection::Input && !self.recorders.wanted(now) {
+            // Nobody records from the cable and the app does not hold the microphone awake: it
+            // stays closed — its light off, a Bluetooth headset left in its music profile, the
+            // chain idle — while the recording default stays on the cable, where a recorder that
+            // starts finds it, and is heard (`Event::Session`). The lane is where it should be:
+            // what it reported before, and the backoff it served, are over.
+            self.stop_lane(direction, Stop::Keep);
+            let lane = self.lanes.get_mut(direction);
+            lane.dormant = true;
+            lane.attempts = 0;
+            lane.last_error = None;
+            if lane.claim.is_none() || lane.reclaim {
+                self.claim(direction);
+            }
+            self.commit(direction, &selection);
+            self.disconnected = false;
+            return;
+        }
+        self.lanes.get_mut(direction).dormant = false;
 
         let plan = match direction {
             DeviceDirection::Output => StreamPlan {

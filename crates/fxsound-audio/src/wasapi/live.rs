@@ -2,8 +2,9 @@
 //! the endpoints read and classified, a loopback capture opened and closed on the virtual device,
 //! silence rendered to a real device, a lane's stream thread run between the two with nothing but
 //! silence to render, the default-device policy's class and layout checked without writing
-//! anything, the original FxSound found when it runs, and the probe. None of them changes a
-//! default, starts the engine or plays a sound.
+//! anything, the original FxSound found when it runs, the endpoints' sessions watched and read — a
+//! child process's session heard opening, starting and stopping as it renders a moment of silence
+//! — and the probe. None of them changes a default, starts the engine or plays a sound.
 //!
 //! A machine with nothing to check against — a CI runner has no audio endpoints, and may have no
 //! audio service — passes each check, saying what it could not look at.
@@ -323,6 +324,165 @@ fn the_sessions_of_fxsound_s_driver_are_watched_without_changing_anything() {
             .all(|event| matches!(event, super::Event::Session(_))),
         "only sessions are told of"
     );
+}
+
+#[test]
+fn who_records_from_each_endpoint_is_watched_and_read_without_changing_anything() {
+    let Some((_apartment, enumerator, all)) = system() else {
+        return;
+    };
+    let own = com::own_pid();
+    let processes = com::processes();
+    let original = original::find(&processes, own, com::process_image(own).as_deref());
+    let (events, _heard) = crossbeam_channel::unbounded();
+    for endpoint in &all {
+        let device = enumerator
+            .device(&endpoint.id)
+            .expect("the endpoint is there");
+        // Every session of another process's there followed, read, and let go of: nothing is
+        // opened, and nothing of anyone's changed.
+        let mut watch = device
+            .watch_recorders(events.clone(), &endpoint.id)
+            .expect("its sessions can be watched");
+        let heard = watch.recorders().expect("its sessions are read");
+        let started = Instant::now();
+        let again = watch.recorders().expect("and read again");
+        let took = started.elapsed();
+        eprintln!(
+            "{:?} {}: {heard:?}, asked again in {took:?}",
+            endpoint.direction,
+            endpoint.label()
+        );
+        assert_eq!(again.recording, heard.recording);
+        // The original FxSound captures its driver with a loopback stream it runs for as long as
+        // it does: a running session of another process's on the driver's endpoint.
+        if original.is_some()
+            && endpoint.direction == DeviceDirection::Output
+            && endpoint.virtual_kind() == Some(endpoints::VirtualKind::FxSound)
+        {
+            assert!(heard.recording, "{}: {original:?}", endpoint.label());
+        }
+    }
+}
+
+/// What [`silence_in_a_child`] is told to render to: a real output's endpoint ID.
+const CHILD_ENDPOINT: &str = "FXSOUND_LIVE_CHILD_ENDPOINT";
+
+/// Another process's session on an endpoint, heard as the input lane hears a recorder on its
+/// cable: this test binary run again as a child that renders a moment of digital silence to a
+/// real output and stops — its session opened, started and stopped — while this process watches
+/// who plays there. Nothing is heard, and no default changes.
+#[test]
+fn another_process_s_session_starting_and_stopping_is_heard() {
+    let Some((_apartment, enumerator, all)) = system() else {
+        return;
+    };
+    let Some(output) = real_output(&all) else {
+        eprintln!("no real output here: nothing to watch");
+        return;
+    };
+    let device = enumerator.device(&output.id).expect("the output is there");
+    let (events, heard) = crossbeam_channel::unbounded();
+    let mut watch = device
+        .watch_recorders(events, &output.id)
+        .expect("its sessions can be watched");
+    let before = watch.recorders().expect("its sessions are read");
+    if before.recording {
+        eprintln!("{}: something plays there already", output.label());
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let mut child = std::process::Command::new(exe)
+        .args([
+            "--ignored",
+            "--exact",
+            "wasapi::live::silence_in_a_child",
+            "--test-threads=1",
+        ])
+        .env(CHILD_ENDPOINT, &output.id)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the child starts");
+    // Every notification is followed by an asking, as the engine asks it: the child's session
+    // heard running — at its opening, or at its start if that came after — and then stopped.
+    let mut answers: Vec<bool> = Vec::new();
+    let mut failed = false;
+    let until = Instant::now() + Duration::from_secs(10);
+    while !answers.ends_with(&[true, false]) && Instant::now() < until {
+        match heard.recv_timeout(Duration::from_millis(100)) {
+            Ok(super::Event::Session(endpoint)) => {
+                assert_eq!(endpoint, output.id);
+                let now = watch.recorders().expect("its sessions are read").recording;
+                if answers.last() != Some(&now) {
+                    answers.push(now);
+                }
+            }
+            Ok(other) => panic!("only sessions are told of: {other:?}"),
+            // A child that could not render — the output held in exclusive mode, say — has
+            // nothing to show.
+            Err(_) => {
+                if let Ok(Some(status)) = child.try_wait()
+                    && !status.success()
+                {
+                    failed = true;
+                    break;
+                }
+            }
+        }
+    }
+    let _ = child.wait();
+    if failed {
+        eprintln!(
+            "{}: the child rendered nothing: nothing to hear",
+            output.label()
+        );
+        return;
+    }
+    eprintln!(
+        "{}: the child's session heard as {answers:?}",
+        output.label()
+    );
+    assert!(
+        answers.ends_with(&[true, false]),
+        "heard running, and its stop heard too: {answers:?}"
+    );
+}
+
+/// The child of [`another_process_s_session_starting_and_stopping_is_heard`]: a moment of
+/// digital silence rendered to the output it is told of, then the stream stopped, and a moment
+/// before the process ends. Nothing at all when run by hand.
+#[test]
+#[ignore = "run as a child by another_process_s_session_starting_and_stopping_is_heard"]
+fn silence_in_a_child() {
+    let Ok(id) = std::env::var(CHILD_ENDPOINT) else {
+        return;
+    };
+    let _apartment = Apartment::join().expect("the test thread joins the MTA");
+    let enumerator = Enumerator::new().expect("the MMDevice API");
+    let device = enumerator.device(&id).expect("the output is there");
+    let format = StreamFormat {
+        rate: 48_000,
+        channels: 2,
+        mask: 0x3,
+    };
+    let render = RenderStream::open(&device, &format).expect("a stream opens");
+    render
+        .write(render.period().min(render.buffer()), |bytes| bytes.fill(0))
+        .expect("silence is written");
+    render.start().expect("it starts");
+    let until = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < until {
+        let _ = com::wait_any(&[render.event()], Duration::from_millis(20));
+        let free = render.buffer() - render.padding().expect("the padding is read");
+        render
+            .write(free, |bytes| bytes.fill(0))
+            .expect("silence is written");
+    }
+    render.stop();
+    std::thread::sleep(Duration::from_millis(500));
 }
 
 #[test]

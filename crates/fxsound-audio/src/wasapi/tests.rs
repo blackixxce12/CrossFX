@@ -49,6 +49,16 @@ struct Fake {
     sessions_refused: bool,
     /// The endpoints whose sessions are watched.
     watched: Vec<String>,
+    /// The recording endpoints another process records from.
+    recorders: Vec<String>,
+    /// Who records cannot be told.
+    recorders_unknown: bool,
+    /// The recording endpoint whose recorders are watched: none when `sessions_refused`.
+    recorders_watched: Option<String>,
+    /// How often a watch of recorders was made.
+    recorder_watches: usize,
+    /// How often who records was asked.
+    recorders_asked: usize,
 }
 
 impl Fake {
@@ -223,6 +233,22 @@ impl System for Fake {
         };
         self.watched.clone()
     }
+
+    fn watch_recorders(&mut self, id: Option<&str>) {
+        self.recorder_watches += 1;
+        self.recorders_watched = id.filter(|_| !self.sessions_refused).map(str::to_owned);
+    }
+
+    fn recorders(&mut self, id: &str) -> Recording {
+        self.recorders_asked += 1;
+        if self.recorders_unknown {
+            return Recording::UNKNOWN;
+        }
+        Recording {
+            active: Some(self.recorders.iter().any(|recorded| recorded == id)),
+            heard: self.recorders_watched.as_deref() == Some(id),
+        }
+    }
 }
 
 /// An engine on a [`Fake`], the GUI's end of its notifications, and a clock the test moves.
@@ -284,6 +310,11 @@ fn harness_recorded(
         scans: 0,
         sessions_refused: false,
         watched: Vec::new(),
+        recorders: Vec::new(),
+        recorders_unknown: false,
+        recorders_watched: None,
+        recorder_watches: 0,
+        recorders_asked: 0,
     };
     let (ui_tx, ui) = crossbeam_channel::unbounded();
     let (dsp, handover) = lanes_for_tests();
@@ -335,6 +366,19 @@ impl Harness {
     fn event(&mut self, event: Event) {
         self.engine.event(event, self.now);
         self.engine.settle(self.now);
+    }
+
+    /// An application starts recording from the recording endpoint `id` — a session of its own
+    /// there, opened or started — which the engine hears of.
+    fn record_from(&mut self, id: &str) {
+        self.fake().recorders.push(id.to_owned());
+        self.event(Event::Session(id.to_owned()));
+    }
+
+    /// Every application recording from `id` stops, which the engine hears of.
+    fn stop_recording_from(&mut self, id: &str) {
+        self.fake().recorders.retain(|recorded| recorded != id);
+        self.event(Event::Session(id.to_owned()));
     }
 
     /// Several notifications taken in one drain of the channel, as the control thread takes a burst
@@ -633,12 +677,8 @@ fn the_microphone_plays_into_a_cable_whose_recording_side_becomes_the_default() 
         node_name: microphone().id,
         direction: IN,
     });
-    let did = h.did();
-    assert_eq!(
-        did[0],
-        Did::Started(IN, microphone().id, cable_in.id.clone())
-    );
-    assert_eq!(did[1..], claimed(IN, &cable_out.id));
+    // The recording default on the cable at once, the microphone opened for nobody.
+    assert_eq!(h.did(), claimed(IN, &cable_out.id));
     let messages = h.messages();
     assert!(messages.contains(&AudioToUi::RememberedDefault {
         direction: IN,
@@ -655,6 +695,13 @@ fn the_microphone_plays_into_a_cable_whose_recording_side_becomes_the_default() 
             .iter()
             .all(|device| device.name != cable_in.id && device.name != cable_out.id)
     );
+    // A call application starts recording from the default: the microphone plays into the cable.
+    h.forget();
+    h.record_from(&cable_out.id);
+    assert_eq!(
+        h.did(),
+        [Did::Started(IN, microphone().id, cable_in.id.clone())]
+    );
 
     // Detached, it gives the recording default back to the microphone and says so.
     h.forget();
@@ -666,6 +713,249 @@ fn the_microphone_plays_into_a_cable_whose_recording_side_becomes_the_default() 
         direction: IN,
         node_name: None,
     }));
+}
+
+/// The machine the input lane's tests run on: FxSound's driver for the speakers, VB-Cable for the
+/// microphone, which is picked — and no application recording from the cable yet.
+fn microphone_on_its_cable() -> Harness {
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![speakers(), fxsound(), microphone(), cable_in, cable_out],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    h
+}
+
+/// Whether the input lane has its microphone open.
+fn microphone_open(h: &Harness) -> bool {
+    h.engine.lanes.input.stream.is_some()
+}
+
+#[test]
+fn the_microphone_is_open_only_while_something_records_from_the_cable() {
+    let [cable_in, cable_out] = cable();
+    let mut h = microphone_on_its_cable();
+    assert!(
+        !microphone_open(&h),
+        "nobody records: the microphone stays closed"
+    );
+    assert_eq!(
+        h.engine.lanes.input.attachment(),
+        Some(microphone().id.as_str()),
+        "attached all the same"
+    );
+    assert_eq!(
+        h.defaults(IN),
+        all_roles(&cable_out.id),
+        "and the default is on the cable, where a recorder will look"
+    );
+    assert_eq!(h.fake().recorders_watched, Some(cable_out.id.clone()));
+    h.tick(SUPERVISOR_PERIOD);
+    assert!(!microphone_open(&h));
+    // A call application starts recording — a session opened, or one it had started again — and
+    // is heard at once.
+    h.forget();
+    h.record_from(&cable_out.id);
+    assert_eq!(
+        h.did(),
+        [Did::Started(IN, microphone().id, cable_in.id.clone())]
+    );
+    // It stops. The microphone stays open a moment, for a recorder that starts again, and then
+    // closes; the default stays on the cable and the lane attached.
+    h.forget();
+    h.stop_recording_from(&cable_out.id);
+    h.tick(SUPERVISOR_PERIOD);
+    assert_eq!(h.did(), []);
+    for _ in 0..(RECORDER_LINGER.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert_eq!(h.did(), [Did::Stopped(IN, Duration::ZERO)]);
+    assert!(!microphone_open(&h));
+    assert_eq!(h.defaults(IN), all_roles(&cable_out.id));
+    assert_eq!(
+        h.engine.lanes.input.attachment(),
+        Some(microphone().id.as_str())
+    );
+    // A recorder that starts within the moment finds the microphone still open.
+    h.record_from(&cable_out.id);
+    h.stop_recording_from(&cable_out.id);
+    h.forget();
+    h.tick(SUPERVISOR_PERIOD);
+    h.record_from(&cable_out.id);
+    for _ in 0..(RECORDER_LINGER.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert_eq!(h.did(), [], "never closed in between");
+    assert!(microphone_open(&h));
+}
+
+#[test]
+fn who_records_is_heard_not_asked_on_every_tick() {
+    let [_, cable_out] = cable();
+    let mut h = microphone_on_its_cable();
+    // A minute in the tray with nobody recording: the cable is asked on the slow check alone.
+    h.fake().recorders_asked = 0;
+    for _ in 0..300 {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    let asked = h.fake().recorders_asked;
+    let checks = (Duration::from_secs(60).as_millis() / RECORDERS_CHECK.as_millis()) as usize;
+    assert!(
+        (checks - 1..=checks + 1).contains(&asked),
+        "{asked} asks in a minute"
+    );
+    assert!(!microphone_open(&h));
+    // A recorder whose start went unheard is found by the slow check all the same.
+    h.fake().recorders.push(cable_out.id.clone());
+    for _ in 0..(RECORDERS_CHECK.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert!(microphone_open(&h));
+}
+
+#[test]
+fn a_recorder_already_recording_from_the_cable_has_the_microphone_open_at_once() {
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    // A program set to record from "CABLE Output" itself records already: no session of its is
+    // opened or started once the lane is there, and none needs to be.
+    h.fake().recorders.push(cable_out.id.clone());
+    h.forget();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert_eq!(
+        h.did().first(),
+        Some(&Did::Started(IN, microphone().id, cable_in.id.clone())),
+        "{:?}",
+        h.did()
+    );
+}
+
+#[test]
+fn where_who_records_is_not_heard_it_is_asked_on_every_tick() {
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.fake().sessions_refused = true;
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert!(!microphone_open(&h));
+    // A recorder starts, and nothing tells of it: the next tick finds it.
+    h.forget();
+    h.fake().recorders.push(cable_out.id.clone());
+    h.tick(SUPERVISOR_PERIOD);
+    assert_eq!(
+        h.did(),
+        [Did::Started(IN, microphone().id, cable_in.id.clone())]
+    );
+}
+
+#[test]
+fn the_app_holds_the_microphone_open_with_nobody_recording_and_the_unknown_counts_as_someone() {
+    let mut h = microphone_on_its_cable();
+    // The calibration starts.
+    h.send(UiToAudio::KeepInputAwake(true));
+    assert!(microphone_open(&h));
+    // It ends: closed once the moment it is kept open for is up.
+    h.send(UiToAudio::KeepInputAwake(false));
+    assert!(microphone_open(&h));
+    for _ in 0..=(RECORDER_LINGER.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert!(!microphone_open(&h));
+    // The sessions can no longer be asked — the audio service gone, while no stream runs to
+    // notice: the microphone is open for nothing rather than missing from a call, and the
+    // endpoints are read again, the watch made anew with them.
+    h.fake().recorders_unknown = true;
+    let watches = h.fake().recorder_watches;
+    for _ in 0..=(RECORDERS_CHECK.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert!(microphone_open(&h));
+    assert!(h.fake().recorder_watches > watches);
+    // Back: nobody records, and the microphone closes once its moment is up.
+    h.fake().recorders_unknown = false;
+    for _ in 0..=((RECORDERS_CHECK + RECORDER_LINGER).as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert!(!microphone_open(&h));
+}
+
+#[test]
+fn a_microphone_waiting_for_a_recorder_hands_its_default_back_before_the_speakers_take_its_cable() {
+    // VB-Cable alone, the speakers' lane off, the microphone on the cable with nobody recording.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions {
+            output_enabled: false,
+            ..StartOptions::default()
+        },
+    );
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert!(!microphone_open(&h));
+    assert_eq!(h.defaults(IN), all_roles(&cable_out.id));
+    h.forget();
+    h.send(UiToAudio::SelectDevice {
+        node_name: speakers().id,
+        direction: OUT,
+    });
+    let did = h.did();
+    let handed_back = did
+        .iter()
+        .position(|did| *did == Did::SetDefault(IN, microphone().id, Role::Console))
+        .expect("the recording default goes back to the microphone");
+    let started = did
+        .iter()
+        .position(|did| matches!(did, Did::Started(OUT, capture, _) if *capture == cable_in.id))
+        .expect("the speakers' lane starts on the cable");
+    assert!(handed_back < started, "{did:?}");
+    assert_eq!(h.fake().recorders_watched, None, "nothing left to watch");
 }
 
 #[test]
@@ -696,6 +986,8 @@ fn switching_the_speakers_lane_off_and_on_leaves_the_microphone_on_its_cable() {
             .map(|stream| stream.plan().capture.clone()),
         Some(c_in.id.clone())
     );
+    // A call application records from the microphone's cable meanwhile.
+    h.fake().recorders.push(a_out.id.clone());
     h.send(UiToAudio::SelectDevice {
         node_name: microphone().id,
         direction: IN,
@@ -770,6 +1062,8 @@ fn the_speakers_lane_switched_on_onto_the_microphone_s_cable_takes_it_once_the_m
         node_name: microphone().id,
         direction: IN,
     });
+    // A call is being recorded from it.
+    h.record_from(&cable_out.id);
     assert_eq!(h.defaults(IN), all_roles(&cable_out.id));
     h.forget();
     // The user switches the speakers' lane on by picking the speakers.
@@ -810,7 +1104,7 @@ fn a_device_change_that_moves_the_speakers_onto_the_microphone_s_cable_stops_the
             fxsound(),
             microphone(),
             cable_in.clone(),
-            cable_out,
+            cable_out.clone(),
         ],
         all_roles(&speakers().id),
         all_roles(&microphone().id),
@@ -821,6 +1115,7 @@ fn a_device_change_that_moves_the_speakers_onto_the_microphone_s_cable_stops_the
         node_name: microphone().id,
         direction: IN,
     });
+    h.record_from(&cable_out.id);
     h.forget();
     h.fake()
         .endpoints
@@ -1784,6 +2079,8 @@ fn the_microphone_leaves_alone_a_cable_the_user_records_from_and_adopts_one_a_ki
         node_name: microphone().id,
         direction: IN,
     });
+    // The call it was killed in is still being recorded.
+    h.record_from(&cable_out.id);
     assert!(
         h.did()
             .contains(&Did::Started(IN, microphone().id, cable_in.id.clone())),
@@ -2080,7 +2377,6 @@ fn messages_with_no_windows_meaning_are_taken_and_change_nothing() {
     h.start();
     h.forget();
     h.send(UiToAudio::SetAppRoutes(Vec::new()));
-    h.send(UiToAudio::KeepInputAwake(true));
     h.send(UiToAudio::SeedTargetVolumes(Vec::new()));
     assert_eq!(h.did(), []);
     assert_eq!(h.messages(), []);
@@ -2208,7 +2504,13 @@ fn one_bluetooth_headset_on_both_lanes_is_warned_of_once() {
 fn a_new_voice_chain_is_built_in_place_while_the_lane_is_off_and_handed_over_while_it_runs() {
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
-        vec![speakers(), fxsound(), microphone(), cable_in, cable_out],
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in,
+            cable_out.clone(),
+        ],
         all_roles(&speakers().id),
         all_roles(&microphone().id),
         &StartOptions::default(),
@@ -2229,6 +2531,7 @@ fn a_new_voice_chain_is_built_in_place_while_the_lane_is_off_and_handed_over_whi
         node_name: microphone().id,
         direction: IN,
     });
+    h.record_from(&cable_out.id);
     assert!(h.engine.lanes.input.stream.is_some());
     h.send(UiToAudio::SetInputChain("broadcast".to_owned()));
     assert!(

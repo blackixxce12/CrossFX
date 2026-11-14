@@ -49,7 +49,7 @@ use windows::Win32::Devices::FunctionDiscovery::{
     PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName,
 };
 use windows::Win32::Foundation::{
-    CloseHandle, HANDLE, PROPERTYKEY, RPC_E_CHANGED_MODE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    CloseHandle, HANDLE, PROPERTYKEY, RPC_E_CHANGED_MODE, S_OK, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::Media::Audio::Endpoints::{
     IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
@@ -58,12 +58,14 @@ use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SESSIONFLAGS_DISPLAY_HIDE, AUDCLNT_SHAREMODE_SHARED,
     AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
     AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-    AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole,
+    AUDIO_VOLUME_NOTIFICATION_DATA, AudioSessionDisconnectReason, AudioSessionState,
+    AudioSessionStateActive, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole,
     IAudioCaptureClient, IAudioClient, IAudioRenderClient, IAudioSessionControl,
-    IAudioSessionControl2, IAudioSessionManager2, IAudioSessionNotification,
-    IAudioSessionNotification_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
-    IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, WAVEFORMATEX,
-    WAVEFORMATEXTENSIBLE, eCapture, eCommunications, eConsole, eMultimedia, eRender,
+    IAudioSessionControl2, IAudioSessionEvents, IAudioSessionEvents_Impl, IAudioSessionManager2,
+    IAudioSessionNotification, IAudioSessionNotification_Impl, IMMDevice, IMMDeviceEnumerator,
+    IMMNotificationClient, IMMNotificationClient_Impl, MMDeviceEnumerator,
+    PKEY_AudioEndpoint_FormFactor, WAVEFORMATEX, WAVEFORMATEXTENSIBLE, eCapture, eCommunications,
+    eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PropVariantToGUID, PropVariantToStringAlloc, PropVariantToUInt32,
@@ -81,7 +83,7 @@ use windows::Win32::System::Threading::{
     PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW, SetEvent, WaitForMultipleObjects,
     WaitForSingleObject,
 };
-use windows_core::{HRESULT, Interface, PCWSTR, PWSTR};
+use windows_core::{BOOL, GUID, HRESULT, Interface, PCWSTR, PWSTR};
 
 use super::Event;
 use super::defaults::{Defaults, Role};
@@ -712,21 +714,148 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeNotifier_Impl {
 // Audio sessions
 // ---------------------------------------------------------------------------------------------
 
-/// An endpoint's audio sessions, watched (`Device::watch_sessions`): every session another process
-/// opens there is sent to the control thread as [`Event::Session`] — the original FxSound's
-/// loopback capture of its driver above all, which shows that it has started. Unregistered when
-/// dropped.
+/// An endpoint's audio sessions, watched. Every session another process opens there is sent to the
+/// control thread as [`Event::Session`]: the original FxSound's loopback capture of its driver
+/// above all, which shows that it has started (`Device::watch_sessions`). A watch of who records
+/// from a recording endpoint (`Device::watch_recorders`) also follows every session of another
+/// process's there — its starting, its stopping and its going are an [`Event::Session`] too — and
+/// says who records ([`Self::recorders`]). Unregistered when dropped, on the control thread that
+/// made it: never from inside a callback.
 pub(crate) struct SessionWatch {
     manager: IAudioSessionManager2,
-    client: IAudioSessionNotification,
+    /// What tells of new sessions; `None` when the manager refused it.
+    client: Option<IAudioSessionNotification>,
+    events: Sender<Event>,
+    endpoint: String,
+    /// For a watch of who records: the sessions followed.
+    followed: Option<Vec<Followed>>,
+}
+
+/// A session of another process's, followed (`SessionWatch::recorders`): its starting, stopping
+/// and going sent to the control thread. Unregistered when dropped.
+struct Followed {
+    /// `IAudioSessionControl2::GetSessionInstanceIdentifier`: the same session from one listing of
+    /// them to the next.
+    id: String,
+    session: IAudioSessionControl,
+    client: IAudioSessionEvents,
+}
+
+impl Drop for Followed {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        // SAFETY: both are alive (owned by `self`), and this is the client registered with this
+        // session in `SessionWatch::recorders`. Dropped on the control thread, never from inside
+        // the callback.
+        if let Err(error) = unsafe {
+            self.session
+                .UnregisterAudioSessionNotification(&self.client)
+        } {
+            log::debug!("unregistering a session's notifications: {error}");
+        }
+    }
+}
+
+/// What a recording endpoint's sessions say of who records from it ([`SessionWatch::recorders`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Recorders {
+    /// Another process holds a running session there: it records.
+    pub(crate) recording: bool,
+    /// Every session of another process's there is followed, and a new one is told of: whatever
+    /// changes who records is heard ([`Event::Session`]).
+    pub(crate) followed: bool,
+}
+
+impl SessionWatch {
+    /// Who records from the endpoint now: whether another process holds a running session there
+    /// (`AudioSessionStateActive`). This process's own sessions and the system sounds' are not
+    /// counted. A watch of who records first follows every session of another process's it does
+    /// not follow yet, and lets go of every one no longer listed — it has expired: its process let
+    /// go of it, or ended.
+    ///
+    /// # Errors
+    /// When the sessions cannot be listed: the audio service gone, above all.
+    #[allow(unsafe_code)]
+    pub(crate) fn recorders(&mut self) -> windows_core::Result<Recorders> {
+        let Self {
+            manager,
+            client,
+            events,
+            endpoint,
+            followed,
+        } = self;
+        let own = own_pid();
+        let mut recording = false;
+        let mut every_one = client.is_some();
+        let mut listed = Vec::new();
+        // SAFETY: the manager is alive (owned by `self`); the enumerator and every session read
+        // from it are owned by this frame, or kept in `followed`, which unregisters them.
+        unsafe {
+            let sessions = manager.GetSessionEnumerator()?;
+            for index in 0..sessions.GetCount()? {
+                let Ok(session) = sessions.GetSession(index) else {
+                    every_one = false;
+                    continue;
+                };
+                let Ok(control) = session.cast::<IAudioSessionControl2>() else {
+                    // A session that says nothing of whose it is: someone's, not ours — and one
+                    // whose changes go unheard.
+                    recording |= session.GetState().ok() == Some(AudioSessionStateActive);
+                    every_one = false;
+                    continue;
+                };
+                // `S_OK` for the system sounds' session, `S_FALSE` for any other.
+                if control.IsSystemSoundsSession() == S_OK
+                    || control.GetProcessId().ok() == Some(own)
+                {
+                    continue;
+                }
+                if let Some(followed) = followed.as_mut() {
+                    match control.GetSessionInstanceIdentifier().map(take_string) {
+                        Ok(id) => {
+                            if !followed.iter().any(|known| known.id == id) {
+                                match follow(&session, events, endpoint) {
+                                    Ok(client) => followed.push(Followed {
+                                        id: id.clone(),
+                                        session: session.clone(),
+                                        client,
+                                    }),
+                                    Err(error) => {
+                                        log::debug!("{endpoint}: a session not followed: {error}");
+                                        every_one = false;
+                                    }
+                                }
+                            }
+                            listed.push(id);
+                        }
+                        Err(_) => every_one = false,
+                    }
+                }
+                // Read once the session is followed: a change made since is read here or told.
+                recording |= session.GetState().ok() == Some(AudioSessionStateActive);
+            }
+        }
+        let follows = followed.is_some();
+        if let Some(followed) = followed.as_mut() {
+            followed.retain(|session| listed.contains(&session.id));
+        }
+        Ok(Recorders {
+            recording,
+            followed: follows && every_one,
+        })
+    }
 }
 
 impl Drop for SessionWatch {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
-        // SAFETY: both are alive (owned by `self`), and this is the client `watch_sessions`
-        // registered. Dropped on the control thread, never from inside the callback.
-        if let Err(error) = unsafe { self.manager.UnregisterSessionNotification(&self.client) } {
+        let Some(client) = self.client.as_ref() else {
+            return;
+        };
+        // SAFETY: both are alive (owned by `self`), and this is the client registered with this
+        // manager (`notify_sessions`). Dropped on the control thread, never from inside the
+        // callback.
+        if let Err(error) = unsafe { self.manager.UnregisterSessionNotification(client) } {
             log::debug!("unregistering the session notifications: {error}");
         }
     }
@@ -759,33 +888,153 @@ impl IAudioSessionNotification_Impl for SessionNotifier_Impl {
     }
 }
 
+/// A followed session's callback ([`Followed`]): like [`Notifier`], it only sends — for the only
+/// changes that say who records: the session starting or stopping, and going.
+#[windows_core::implement(IAudioSessionEvents)]
+struct StateNotifier {
+    events: Sender<Event>,
+    endpoint: String,
+}
+
+impl StateNotifier_Impl {
+    fn tell(&self) {
+        let _ = self.events.send(Event::Session(self.endpoint.clone()));
+    }
+}
+
+impl IAudioSessionEvents_Impl for StateNotifier_Impl {
+    fn OnDisplayNameChanged(&self, _: &PCWSTR, _: *const GUID) -> windows_core::Result<()> {
+        Ok(())
+    }
+
+    fn OnIconPathChanged(&self, _: &PCWSTR, _: *const GUID) -> windows_core::Result<()> {
+        Ok(())
+    }
+
+    fn OnSimpleVolumeChanged(&self, _: f32, _: BOOL, _: *const GUID) -> windows_core::Result<()> {
+        Ok(())
+    }
+
+    fn OnChannelVolumeChanged(
+        &self,
+        _: u32,
+        _: *const f32,
+        _: u32,
+        _: *const GUID,
+    ) -> windows_core::Result<()> {
+        Ok(())
+    }
+
+    fn OnGroupingParamChanged(&self, _: *const GUID, _: *const GUID) -> windows_core::Result<()> {
+        Ok(())
+    }
+
+    fn OnStateChanged(&self, _: AudioSessionState) -> windows_core::Result<()> {
+        self.tell();
+        Ok(())
+    }
+
+    fn OnSessionDisconnected(&self, _: AudioSessionDisconnectReason) -> windows_core::Result<()> {
+        self.tell();
+        Ok(())
+    }
+}
+
+/// Have `session`'s starting, stopping and going sent to `events` as an [`Event::Session`] of
+/// `endpoint`; the client registered, to unregister ([`Followed`]).
+#[allow(unsafe_code)]
+fn follow(
+    session: &IAudioSessionControl,
+    events: &Sender<Event>,
+    endpoint: &str,
+) -> windows_core::Result<IAudioSessionEvents> {
+    let client: IAudioSessionEvents = StateNotifier {
+        events: events.clone(),
+        endpoint: endpoint.to_owned(),
+    }
+    .into();
+    // SAFETY: both are alive; the session keeps a reference to the client until it is
+    // unregistered, which `Followed::drop` does.
+    unsafe { session.RegisterAudioSessionNotification(&client) }?;
+    Ok(client)
+}
+
+/// Have every session another process opens on `manager`'s endpoint sent to `events` as an
+/// [`Event::Session`] of `endpoint`; the client registered, to unregister ([`SessionWatch`]).
+#[allow(unsafe_code)]
+fn notify_sessions(
+    manager: &IAudioSessionManager2,
+    events: &Sender<Event>,
+    endpoint: &str,
+) -> windows_core::Result<IAudioSessionNotification> {
+    let client: IAudioSessionNotification = SessionNotifier {
+        events: events.clone(),
+        endpoint: endpoint.to_owned(),
+        own_pid: own_pid(),
+    }
+    .into();
+    // SAFETY: both are alive; the manager keeps a reference to the client until it is
+    // unregistered, which `SessionWatch::drop` does.
+    unsafe { manager.RegisterSessionNotification(&client) }?;
+    Ok(client)
+}
+
 impl Device {
-    /// The endpoint's audio sessions, watched ([`SessionWatch`]) under the name `endpoint`.
+    /// The endpoint's session manager, its sessions listed once: it tells of no session created
+    /// until they have been — a documented quirk of `RegisterSessionNotification`.
+    #[allow(unsafe_code)]
+    fn session_manager(&self) -> windows_core::Result<IAudioSessionManager2> {
+        // SAFETY: the device is alive; no activation parameters.
+        let manager = unsafe { self.0.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) }?;
+        // SAFETY: the manager is alive; the enumerator is dropped at once.
+        drop(unsafe { manager.GetSessionEnumerator() }?);
+        Ok(manager)
+    }
+
+    /// The endpoint's audio sessions, watched ([`SessionWatch`]) under the name `endpoint`: every
+    /// session another process opens there told of.
     ///
     /// # Errors
     /// When the endpoint has no session manager, or refuses the registration.
-    #[allow(unsafe_code)]
     pub(crate) fn watch_sessions(
         &self,
         events: Sender<Event>,
         endpoint: &str,
     ) -> windows_core::Result<SessionWatch> {
-        // SAFETY: the device is alive; no activation parameters.
-        let manager = unsafe { self.0.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) }?;
-        // The session manager tells of no session created until its sessions have been listed
-        // once: a documented quirk of `RegisterSessionNotification`.
-        // SAFETY: the manager is alive; the enumerator is dropped at once.
-        drop(unsafe { manager.GetSessionEnumerator() }?);
-        let client: IAudioSessionNotification = SessionNotifier {
+        let manager = self.session_manager()?;
+        let client = notify_sessions(&manager, &events, endpoint)?;
+        Ok(SessionWatch {
+            manager,
+            client: Some(client),
             events,
             endpoint: endpoint.to_owned(),
-            own_pid: own_pid(),
-        }
-        .into();
-        // SAFETY: both are alive; the manager keeps a reference to the client until it is
-        // unregistered, which `SessionWatch::drop` does.
-        unsafe { manager.RegisterSessionNotification(&client) }?;
-        Ok(SessionWatch { manager, client })
+            followed: None,
+        })
+    }
+
+    /// Who records from the endpoint, watched under the name `endpoint`: every session another
+    /// process opens there, and every one's starting, stopping and going, told of
+    /// ([`SessionWatch::recorders`] follows them). A manager that will not tell of new sessions is
+    /// kept all the same, to be asked: [`Recorders::followed`] then says that changes go unheard.
+    ///
+    /// # Errors
+    /// When the endpoint has no session manager.
+    pub(crate) fn watch_recorders(
+        &self,
+        events: Sender<Event>,
+        endpoint: &str,
+    ) -> windows_core::Result<SessionWatch> {
+        let manager = self.session_manager()?;
+        let client = notify_sessions(&manager, &events, endpoint)
+            .map_err(|error| log::info!("{endpoint}: new sessions are not told of ({error})"))
+            .ok();
+        Ok(SessionWatch {
+            manager,
+            client,
+            events,
+            endpoint: endpoint.to_owned(),
+            followed: Some(Vec::new()),
+        })
     }
 }
 
