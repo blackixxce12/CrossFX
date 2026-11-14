@@ -19,12 +19,14 @@ fn repo() -> PathBuf {
 }
 
 /// A document as a reader sees its commands: the manual's `\-` read as `-`, a line continued with
-/// a backslash joined to the next.
+/// a backslash joined to the next. Lines may end in CR LF, as they do in a Windows checkout made
+/// with `core.autocrlf=true`.
 fn commands_of(relative: &str) -> String {
     let path = repo().join(relative);
     let text = fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("{} could not be read: {error}", path.display()));
-    text.replace("\\-", "-")
+    text.replace("\r\n", "\n")
+        .replace("\\-", "-")
         .replace("\\e\n", " ")
         .replace("\\\n", " ")
         .split_whitespace()

@@ -195,7 +195,7 @@ mod interface_font_tests {
     #[test]
     fn the_added_fonts_are_kept_beside_the_presets_in_fxsounds_data_folder() {
         let fonts = Settings::user_font_dir();
-        assert!(fonts.ends_with(std::path::Path::new("fxsound").join("fonts")));
+        assert!(fonts.ends_with(std::path::Path::new(APP_DIR_NAME).join("fonts")));
         assert_eq!(fonts.parent(), Settings::user_preset_dir().parent());
     }
 }
@@ -545,14 +545,14 @@ impl Settings {
             .join("presets")
     }
 
-    /// `~/.local/share/fxsound/fonts` (`$XDG_DATA_HOME/fxsound/fonts`; `%APPDATA%\fxsound\fonts`
-    /// on Windows) — where the Gilroy files the user added in Settings are kept, beside the
-    /// presets, and read from at every start ([`InterfaceFont`]).
+    /// `~/.local/share/fxsound/fonts` (`$XDG_DATA_HOME/fxsound/fonts`; on Windows
+    /// `%APPDATA%\FxSound Port\fonts`, [`APP_DIR_NAME`]) — where the Gilroy files the user added in
+    /// Settings are kept, beside the presets, and read from at every start ([`InterfaceFont`]).
     #[must_use]
     pub fn user_font_dir() -> std::path::PathBuf {
         dirs::data_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("fxsound")
+            .join(APP_DIR_NAME)
             .join("fonts")
     }
 
