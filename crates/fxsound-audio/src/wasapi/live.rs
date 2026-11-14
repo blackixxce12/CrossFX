@@ -281,6 +281,48 @@ fn the_original_fxsound_is_found_whenever_it_runs_and_this_process_never_is() {
     });
     assert_eq!(found.is_some(), original_runs, "{found:?}");
     assert!(found.is_none_or(|process| process.pid != own));
+    // Once found, it is watched through its process, which runs.
+    if let Some(original) = found {
+        let watch = com::ProcessWatch::open(original.pid).expect("the original can be watched");
+        assert!(!watch.has_exited(), "{original:?}");
+    }
+    let this = com::ProcessWatch::open(own).expect("this process can be watched");
+    assert!(!this.has_exited());
+}
+
+#[test]
+fn the_sessions_of_fxsound_s_driver_are_watched_without_changing_anything() {
+    let Some((_apartment, enumerator, all)) = system() else {
+        return;
+    };
+    let (events, heard) = crossbeam_channel::unbounded();
+    let drivers: Vec<&Endpoint> = all
+        .iter()
+        .filter(|endpoint| {
+            endpoint.direction == DeviceDirection::Output
+                && endpoint.virtual_kind() == Some(endpoints::VirtualKind::FxSound)
+        })
+        .collect();
+    if drivers.is_empty() {
+        eprintln!("no FxSound driver here: nothing to watch");
+    }
+    for driver in drivers {
+        let device = enumerator
+            .device(&driver.id)
+            .expect("the driver's endpoint");
+        let watch = device
+            .watch_sessions(events.clone(), &driver.id)
+            .expect("its sessions can be watched");
+        // Registered and unregistered: no session was opened meanwhile by this test.
+        drop(watch);
+        eprintln!("{}: sessions watched", driver.label());
+    }
+    assert!(
+        heard
+            .try_iter()
+            .all(|event| matches!(event, super::Event::Session(_))),
+        "only sessions are told of"
+    );
 }
 
 #[test]

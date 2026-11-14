@@ -43,6 +43,12 @@ struct Fake {
     /// Set, the next stream asked to stop sticks in WASAPI: its thread keeps the lane's DSP until
     /// the sender of this is dropped.
     stuck: Arc<std::sync::Mutex<Option<Receiver<()>>>>,
+    /// How often the original FxSound was looked for.
+    scans: usize,
+    /// No endpoint's sessions can be watched.
+    sessions_refused: bool,
+    /// The endpoints whose sessions are watched.
+    watched: Vec<String>,
 }
 
 impl Fake {
@@ -145,6 +151,7 @@ impl System for Fake {
     }
 
     fn original_fxsound(&mut self) -> Option<String> {
+        self.scans += 1;
         self.original.clone()
     }
 
@@ -207,6 +214,15 @@ impl System for Fake {
         self.gain
             .map(|gain| Box::new(Volume(gain)) as Box<dyn VolumeWatch>)
     }
+
+    fn watch_sessions(&mut self, ids: &[String]) -> Vec<String> {
+        self.watched = if self.sessions_refused {
+            Vec::new()
+        } else {
+            ids.to_vec()
+        };
+        self.watched.clone()
+    }
 }
 
 /// An engine on a [`Fake`], the GUI's end of its notifications, and a clock the test moves.
@@ -265,6 +281,9 @@ fn harness_recorded(
         log: Arc::clone(&log),
         ended: PerDirection::default(),
         stuck: Arc::default(),
+        scans: 0,
+        sessions_refused: false,
+        watched: Vec::new(),
     };
     let (ui_tx, ui) = crossbeam_channel::unbounded();
     let (dsp, handover) = lanes_for_tests();
@@ -841,24 +860,137 @@ fn while_the_original_fxsound_runs_the_output_lane_stands_aside_and_says_why() {
 
 #[test]
 fn the_original_starting_while_fxsound_holds_the_default_is_left_the_default_without_a_fight() {
+    // Its start shows at once, as its capture of its driver: a session on "FxSound Speakers". And
+    // with no watch on the driver's sessions, on the next short beat of the process list.
+    for watched in [true, false] {
+        let mut h = harness();
+        h.fake().sessions_refused = !watched;
+        h.start();
+        h.forget();
+        h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
+        if watched {
+            h.event(Event::Session(fxsound().id));
+        } else {
+            h.tick(ORIGINAL_EVERY);
+        }
+        assert_eq!(
+            h.did(),
+            [Did::Stopped(OUT, Duration::ZERO)],
+            "stopped, and no default written: it is the original's now"
+        );
+        assert!(h.messages().contains(&AudioToUi::Warning {
+            direction: Some(OUT),
+            message: fxsound_core::i18n::tr(ORIGINAL_FXSOUND_RUNNING),
+        }));
+        // And nothing is handed back at the exit either.
+        h.forget();
+        h.engine.shutdown();
+        assert_eq!(h.did(), []);
+    }
+}
+
+#[test]
+fn the_original_fxsound_is_never_looked_for_on_a_machine_without_its_driver() {
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![speakers(), microphone(), cable_in, cable_out],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    for _ in 0..300 {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert_eq!(h.fake().scans, 0, "it cannot run without its driver");
+}
+
+#[test]
+fn the_process_list_is_read_rarely_while_the_original_s_start_would_show_by_itself() {
     let mut h = harness();
     h.start();
-    h.forget();
-    h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
-    h.tick(ORIGINAL_EVERY);
+    assert_eq!(h.fake().scans, 1, "looked for once its driver is listed");
     assert_eq!(
-        h.did(),
-        [Did::Stopped(OUT, Duration::ZERO)],
-        "stopped, and no default written: it is the original's now"
+        h.fake().watched,
+        [fxsound().id],
+        "and its driver's sessions watched"
     );
-    assert!(h.messages().contains(&AudioToUi::Warning {
-        direction: Some(OUT),
-        message: fxsound_core::i18n::tr(ORIGINAL_FXSOUND_RUNNING),
-    }));
-    // And nothing is handed back at the exit either.
-    h.forget();
-    h.engine.shutdown();
-    assert_eq!(h.did(), []);
+    // A minute in the tray, the lane playing: the fallback's two reads, no more.
+    for _ in 0..300 {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert_eq!(
+        h.fake().scans,
+        3,
+        "the start's look and two of the fallback's"
+    );
+    // An application starts playing into the driver: a session, and a look.
+    h.event(Event::Session(fxsound().id));
+    assert_eq!(h.fake().scans, 4);
+    // A session on another endpoint is no news of the original's.
+    h.event(Event::Session(speakers().id));
+    assert_eq!(h.fake().scans, 4);
+
+    // While it runs, it is looked at on the short beat — its process watched, at no cost — and
+    // its quitting is seen there.
+    h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
+    h.event(Event::Session(fxsound().id));
+    assert!(h.engine.original.is_some());
+    let before = h.fake().scans;
+    h.tick(ORIGINAL_EVERY);
+    assert_eq!(h.fake().scans, before + 1);
+    h.fake().original = None;
+    h.tick(ORIGINAL_EVERY);
+    assert!(h.engine.original.is_none());
+}
+
+#[test]
+fn a_default_moved_onto_the_driver_by_another_program_has_the_original_looked_for_at_once() {
+    // The power is off: FxSound holds no default, and its process list is read on the fallback.
+    let mut h = harness_with(
+        vec![speakers(), headphones(), fxsound(), microphone()],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions {
+            want_default: false,
+            ..StartOptions::default()
+        },
+    );
+    h.start();
+    let scans = h.fake().scans;
+    // The original starts and claims its driver.
+    h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
+    h.fake().defaults.output = playback_on(&fxsound().id, &speakers().id);
+    h.burst(playback_default_changed(&fxsound().id));
+    assert_eq!(h.fake().scans, scans + 1, "looked for at the first move");
+    assert!(h.engine.original.is_some());
+    // It quits, handing the default back to the headphones it played to: not the user's pick.
+    h.fake().defaults.output = playback_on(&headphones().id, &speakers().id);
+    h.burst(playback_default_changed(&headphones().id));
+    assert!(
+        !h.messages()
+            .iter()
+            .any(|message| matches!(message, AudioToUi::DesktopPick { .. })),
+        "the original's hand-back is its own"
+    );
+}
+
+#[test]
+fn an_original_taken_to_run_is_let_go_of_with_its_driver() {
+    let mut h = harness();
+    h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
+    h.start();
+    assert!(h.engine.original.is_some());
+    // Its driver is uninstalled: without it the original cannot run.
+    h.fake()
+        .endpoints
+        .retain(|endpoint| endpoint.id != fxsound().id);
+    h.event(Event::Devices);
+    assert!(h.engine.original.is_none());
+    assert!(
+        h.fake().watched.is_empty(),
+        "nothing of the driver's left to watch"
+    );
 }
 
 #[test]

@@ -59,10 +59,11 @@ use windows::Win32::Media::Audio::{
     AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
     AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
     AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole,
-    IAudioCaptureClient, IAudioClient, IAudioRenderClient, IMMDevice, IMMDeviceEnumerator,
-    IMMNotificationClient, IMMNotificationClient_Impl, MMDeviceEnumerator,
-    PKEY_AudioEndpoint_FormFactor, WAVEFORMATEX, WAVEFORMATEXTENSIBLE, eCapture, eCommunications,
-    eConsole, eMultimedia, eRender,
+    IAudioCaptureClient, IAudioClient, IAudioRenderClient, IAudioSessionControl,
+    IAudioSessionControl2, IAudioSessionManager2, IAudioSessionNotification,
+    IAudioSessionNotification_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
+    IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, WAVEFORMATEX,
+    WAVEFORMATEXTENSIBLE, eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PropVariantToGUID, PropVariantToStringAlloc, PropVariantToUInt32,
@@ -77,9 +78,10 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 use windows::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, CreateEventW,
     GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW, SetEvent, WaitForMultipleObjects,
+    PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW, SetEvent, WaitForMultipleObjects,
+    WaitForSingleObject,
 };
-use windows_core::{HRESULT, PCWSTR, PWSTR};
+use windows_core::{HRESULT, Interface, PCWSTR, PWSTR};
 
 use super::Event;
 use super::defaults::{Defaults, Role};
@@ -704,6 +706,87 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeNotifier_Impl {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Audio sessions
+// ---------------------------------------------------------------------------------------------
+
+/// An endpoint's audio sessions, watched (`Device::watch_sessions`): every session another process
+/// opens there is sent to the control thread as [`Event::Session`] — the original FxSound's
+/// loopback capture of its driver above all, which shows that it has started. Unregistered when
+/// dropped.
+pub(crate) struct SessionWatch {
+    manager: IAudioSessionManager2,
+    client: IAudioSessionNotification,
+}
+
+impl Drop for SessionWatch {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        // SAFETY: both are alive (owned by `self`), and this is the client `watch_sessions`
+        // registered. Dropped on the control thread, never from inside the callback.
+        if let Err(error) = unsafe { self.manager.UnregisterSessionNotification(&self.client) } {
+            log::debug!("unregistering the session notifications: {error}");
+        }
+    }
+}
+
+/// The session callback: like [`Notifier`], it only sends — and only for a session of another
+/// process's, so that the lanes' own streams wake nothing.
+#[windows_core::implement(IAudioSessionNotification)]
+struct SessionNotifier {
+    events: Sender<Event>,
+    endpoint: String,
+    own_pid: u32,
+}
+
+impl IAudioSessionNotification_Impl for SessionNotifier_Impl {
+    #[allow(unsafe_code)]
+    fn OnSessionCreated(
+        &self,
+        session: windows_core::Ref<IAudioSessionControl>,
+    ) -> windows_core::Result<()> {
+        let pid = session
+            .as_ref()
+            .and_then(|session| session.cast::<IAudioSessionControl2>().ok())
+            // SAFETY: the session Windows hands over is alive for the call; read and not kept.
+            .and_then(|session| unsafe { session.GetProcessId() }.ok());
+        if pid != Some(self.own_pid) {
+            let _ = self.events.send(Event::Session(self.endpoint.clone()));
+        }
+        Ok(())
+    }
+}
+
+impl Device {
+    /// The endpoint's audio sessions, watched ([`SessionWatch`]) under the name `endpoint`.
+    ///
+    /// # Errors
+    /// When the endpoint has no session manager, or refuses the registration.
+    #[allow(unsafe_code)]
+    pub(crate) fn watch_sessions(
+        &self,
+        events: Sender<Event>,
+        endpoint: &str,
+    ) -> windows_core::Result<SessionWatch> {
+        // SAFETY: the device is alive; no activation parameters.
+        let manager = unsafe { self.0.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) }?;
+        // The session manager tells of no session created until its sessions have been listed
+        // once: a documented quirk of `RegisterSessionNotification`.
+        // SAFETY: the manager is alive; the enumerator is dropped at once.
+        drop(unsafe { manager.GetSessionEnumerator() }?);
+        let client: IAudioSessionNotification = SessionNotifier {
+            events,
+            endpoint: endpoint.to_owned(),
+            own_pid: own_pid(),
+        }
+        .into();
+        // SAFETY: both are alive; the manager keeps a reference to the client until it is
+        // unregistered, which `SessionWatch::drop` does.
+        unsafe { manager.RegisterSessionNotification(&client) }?;
+        Ok(SessionWatch { manager, client })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Streams
 // ---------------------------------------------------------------------------------------------
 
@@ -1228,6 +1311,29 @@ pub(crate) fn process_image(pid: u32) -> Option<String> {
     }
     .ok()?;
     path.get(..length as usize).map(String::from_utf16_lossy)
+}
+
+/// A process watched for its end: a handle that can be waited on, which also keeps the process's
+/// ID from being given to another while it is held. What the original FxSound is watched with once
+/// it has been found, so that its exit is seen without taking the process list again.
+pub(crate) struct ProcessWatch(OwnedHandle);
+
+impl ProcessWatch {
+    /// Watch process `pid`; `None` when it cannot be opened for that — it has exited, or is
+    /// another user's.
+    #[allow(unsafe_code)]
+    pub(crate) fn open(pid: u32) -> Option<Self> {
+        // SAFETY: no handle is inherited; a failure is an error, not a handle.
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }.ok()?;
+        Some(Self(OwnedHandle(handle)))
+    }
+
+    /// Whether the process has ended — or can no longer be waited on, which is taken for the same.
+    #[allow(unsafe_code)]
+    pub(crate) fn has_exited(&self) -> bool {
+        // SAFETY: the handle is alive (owned by `self`); a wait of no time.
+        (unsafe { WaitForSingleObject(self.0.0, 0) }) != WAIT_TIMEOUT
+    }
 }
 
 /// Every running process, by ID and executable name, with the image path of those that are

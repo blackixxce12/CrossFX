@@ -91,6 +91,13 @@
 //! picks up once the original has quit. The input lane is not affected: the original has no
 //! microphone path and never touches a cable.
 //!
+//! It is looked for only where it can run, with an endpoint of its driver listed, and without
+//! reading the process list — a snapshot of every process and thread, milliseconds of CPU — on a
+//! short beat for as long as the engine runs ([`Engine::check_original`]). Its start shows by
+//! itself: the capture of its driver it opens is a session on the driver's endpoint, whose
+//! sessions are watched ([`Event::Session`]), and its claim a default moved onto the driver by
+//! someone else. Once found, it is watched through its process until it quits.
+//!
 //! # Threads
 //!
 //! One control thread, `fxsound-audio`, in the MTA: the device rules, the defaults, the
@@ -157,8 +164,16 @@ fn backoff(attempts: u32) -> Duration {
     Duration::from_millis(BACKOFF_MS[step])
 }
 
-/// How often the process list is read for the original FxSound.
+/// How often the original FxSound is looked at while it runs — its process, watched, which costs
+/// a wait of no time ([`Engine::check_original`]) — and how often the process list is read for
+/// it while the output lane captures FxSound's driver without a watch on the driver's sessions.
 const ORIGINAL_EVERY: Duration = Duration::from_secs(2);
+
+/// How often the process list is read for the original FxSound otherwise, while an endpoint of its
+/// driver is listed: a fallback. Its start is seen at once without it — the loopback capture of
+/// its driver it opens is a session there ([`Event::Session`]), and its claim a default moved to
+/// the driver by someone else — and a snapshot of every process and thread costs milliseconds.
+const ORIGINAL_FALLBACK: Duration = Duration::from_secs(30);
 
 /// How long after the start a default left on a virtual device waits to be repaired (module docs,
 /// "The default devices"): long enough for the app to have told the engine what it remembered
@@ -229,6 +244,9 @@ pub(crate) enum Event {
     },
     /// The virtual device's own volume or mute changed.
     Volume(DeviceDirection),
+    /// Another process opened an audio session on the endpoint of this ID, one whose sessions the
+    /// engine watches ([`System::watch_sessions`]).
+    Session(String),
     /// A lane's stream thread ended, asked to or not.
     StreamEnded {
         direction: DeviceDirection,
@@ -429,6 +447,10 @@ pub(crate) trait System {
         id: &str,
         direction: DeviceDirection,
     ) -> Option<Box<dyn VolumeWatch>>;
+    /// Watch the audio sessions of exactly the endpoints `ids` — each session another process
+    /// opens on one an [`Event::Session`] — dropping the watches of any others; the IDs watched,
+    /// which leaves out an endpoint that refused.
+    fn watch_sessions(&mut self, ids: &[String]) -> Vec<String>;
 }
 
 /// A lane's running stream, as the control thread holds it.
@@ -495,6 +517,11 @@ struct Windows {
     own_pid: u32,
     own_image: Option<String>,
     record: record::Record,
+    /// The original FxSound once found, watched through its process, and as the log names it:
+    /// while it runs, it is looked at without the process list.
+    original: Option<(com::ProcessWatch, String)>,
+    /// The endpoints whose sessions are watched ([`System::watch_sessions`]).
+    sessions: HashMap<String, com::SessionWatch>,
 }
 
 impl Windows {
@@ -517,6 +544,8 @@ impl Windows {
             own_pid,
             own_image: com::process_image(own_pid),
             record: record::Record::of_user(),
+            original: None,
+            sessions: HashMap::new(),
         })
     }
 
@@ -565,6 +594,8 @@ impl System for Windows {
         self._watch = watch;
         self.enumerator = enumerator;
         self.policy = com::PolicyConfig::new().ok();
+        // The sessions watched were the old service's: watched again on the new one.
+        self.sessions.clear();
         self.list()
             .map_err(|error| AudioError::WindowsAudioUnavailable(error.message()))
     }
@@ -603,15 +634,27 @@ impl System for Windows {
         }
     }
 
+    /// The original FxSound, when it runs. Once found it is watched through its process, and the
+    /// process list — a snapshot of every process and thread, milliseconds of CPU — is read again
+    /// only once that process has ended.
     fn original_fxsound(&mut self) -> Option<String> {
+        if let Some((watch, name)) = self.original.as_ref() {
+            if !watch.has_exited() {
+                return Some(name.clone());
+            }
+            self.original = None;
+        }
         let processes = com::processes();
-        original::find(&processes, self.own_pid, self.own_image.as_deref()).map(|process| {
-            format!(
-                "{} (process {})",
-                process.image.as_deref().unwrap_or(&process.exe),
-                process.pid
-            )
-        })
+        let process = original::find(&processes, self.own_pid, self.own_image.as_deref())?;
+        let name = format!(
+            "{} (process {})",
+            process.image.as_deref().unwrap_or(&process.exe),
+            process.pid
+        );
+        if let Some(watch) = com::ProcessWatch::open(process.pid) {
+            self.original = Some((watch, name.clone()));
+        }
+        Some(name)
     }
 
     fn claimed(&mut self) -> PerDirection<Option<String>> {
@@ -646,6 +689,30 @@ impl System for Windows {
                 None
             }
         }
+    }
+
+    fn watch_sessions(&mut self, ids: &[String]) -> Vec<String> {
+        // Dropped here, on the control thread: never from inside a callback.
+        self.sessions.retain(|id, _| ids.contains(id));
+        for id in ids {
+            if self.sessions.contains_key(id) {
+                continue;
+            }
+            let watched = self
+                .enumerator
+                .device(id)
+                .and_then(|device| device.watch_sessions(self.events.clone(), id));
+            match watched {
+                Ok(watch) => {
+                    self.sessions.insert(id.clone(), watch);
+                }
+                Err(error) => log::info!("{id}: its sessions cannot be watched ({error})"),
+            }
+        }
+        ids.iter()
+            .filter(|id| self.sessions.contains_key(*id))
+            .cloned()
+            .collect()
     }
 }
 
@@ -811,6 +878,12 @@ pub(crate) struct Engine<S: System> {
     /// The original FxSound, while it runs.
     original: Option<String>,
     next_original_check: Instant,
+    /// An endpoint of FxSound's driver was listed at the last read: the one thing the original
+    /// cannot run without, and so the condition for looking for it at all.
+    driver_seen: bool,
+    /// The endpoints whose sessions are watched ([`System::watch_sessions`]): the playback ones
+    /// of FxSound's driver, where the original's capture shows.
+    sessions_watched: Vec<String>,
     asleep_since: Option<Instant>,
     headset_warned: Option<(String, String)>,
     last_devices: Option<Vec<AudioDevice>>,
@@ -879,6 +952,8 @@ impl<S: System> Engine<S> {
             lane_events,
             original: None,
             next_original_check: Instant::now(),
+            driver_seen: false,
+            sessions_watched: Vec::new(),
             asleep_since: None,
             headset_warned: None,
             last_devices: None,
@@ -958,11 +1033,11 @@ impl<S: System> Engine<S> {
         });
     }
 
-    /// The first look at the system: the endpoints, the defaults, the original FxSound; the first
-    /// device list; the output lane's first stream, when it is on.
+    /// The first look at the system: the endpoints, the defaults, the original FxSound — looked
+    /// for as soon as the first read lists its driver, before any lane's rules run ([`Self::settle`])
+    /// — the first device list; the output lane's first stream, when it is on.
     fn start(&mut self, now: Instant) {
         self.repair_due = Some(now + REPAIR_PATIENCE);
-        self.check_original(now);
         self.settle(now);
         self.tick(now);
     }
@@ -1120,9 +1195,31 @@ impl<S: System> Engine<S> {
         })
     }
 
+    /// Whether the original FxSound runs, and what follows from its starting or quitting.
+    ///
+    /// Only while an endpoint of its driver is listed: the original shows an error and quits
+    /// without its driver (`docs/spec/12-audio-io.md` §15), so a machine with only a cable never
+    /// has its processes listed for it, and an original taken to run is taken to have gone with
+    /// its driver. Looked at again in [`ORIGINAL_EVERY`] while it runs — its process watched, at
+    /// no cost — or while the output lane captures the driver with no watch on its sessions, the
+    /// way the original's own capture of it shows; otherwise in [`ORIGINAL_FALLBACK`], its start
+    /// being seen at once ([`Event::Session`], a default moved onto its driver).
     fn check_original(&mut self, now: Instant) {
-        self.next_original_check = now + ORIGINAL_EVERY;
-        let running = self.system.original_fxsound();
+        let running = if self.driver_seen {
+            self.system.original_fxsound()
+        } else {
+            None
+        };
+        let unwatched = self.lanes.output.stream.as_ref().is_some_and(|stream| {
+            self.is_driver(&stream.plan().capture)
+                && !self.sessions_watched.contains(&stream.plan().capture)
+        });
+        self.next_original_check = now
+            + if running.is_some() || unwatched {
+                ORIGINAL_EVERY
+            } else {
+                ORIGINAL_FALLBACK
+            };
         if running == self.original {
             return;
         }
@@ -1551,6 +1648,14 @@ impl<S: System> Engine<S> {
                 id,
             } => self.default_changed(direction, role, id, now),
             Event::Volume(direction) => self.follow_volume(direction),
+            Event::Session(endpoint) => {
+                if self.original.is_none() && self.is_driver(&endpoint) {
+                    // Another process opened a session on FxSound's driver: an application
+                    // playing into it, or the original FxSound's capture of it, which is how its
+                    // start shows. Looked for now.
+                    self.check_original(now);
+                }
+            }
             Event::StreamEnded {
                 direction,
                 generation,
@@ -1597,6 +1702,15 @@ impl<S: System> Engine<S> {
         self.list_dirty = true;
         if self.echoes.get_mut(direction).heard(role, id.as_deref()) {
             return;
+        }
+        if direction == DeviceDirection::Output
+            && self.original.is_none()
+            && id.as_deref().is_some_and(|id| self.is_driver(id))
+        {
+            // FxSound's driver made the default by someone else: the original FxSound starting,
+            // perhaps, and claiming it. Looked for now, before its claim — and its hand-back as it
+            // quits — could be taken for the user's pick.
+            self.check_original(now);
         }
         // The original FxSound moves the playback default as it starts and as it quits — its
         // claim and its hand-back — and neither is the user's pick.
@@ -1832,6 +1946,16 @@ impl<S: System> Engine<S> {
         if self.devices_dirty {
             self.devices_dirty = false;
             if self.refresh_endpoints(now) {
+                self.watch_sessions();
+                let driver = self.endpoints.iter().any(|endpoint| {
+                    endpoint.virtual_kind() == Some(endpoints::VirtualKind::FxSound)
+                });
+                if driver != self.driver_seen {
+                    // FxSound's driver listed — at the start too — or gone: the original is looked
+                    // for, or let go of, now, before any lane's rules run on it.
+                    self.driver_seen = driver;
+                    self.check_original(now);
+                }
                 // Against the endpoints as they are now, never as they were before a burst.
                 self.decide_defaults(now);
             }
@@ -1846,6 +1970,21 @@ impl<S: System> Engine<S> {
         }
         // A lane that moved onto a cable, or off one, changed what the lists offer.
         self.publish_devices();
+    }
+
+    /// Watch the sessions of the playback endpoints of FxSound's driver: the original FxSound
+    /// opens its capture of them as it starts, and that is how its start is seen at once.
+    fn watch_sessions(&mut self) {
+        let ids: Vec<String> = self
+            .endpoints
+            .iter()
+            .filter(|endpoint| {
+                endpoint.direction == DeviceDirection::Output
+                    && endpoint.virtual_kind() == Some(endpoints::VirtualKind::FxSound)
+            })
+            .map(|endpoint| endpoint.id.clone())
+            .collect();
+        self.sessions_watched = self.system.watch_sessions(&ids);
     }
 
     /// The device list, when something it is made of changed and it reads otherwise than the GUI
@@ -2194,9 +2333,15 @@ impl<S: System> Engine<S> {
             .and_then(|volume| volume.gain())
             .unwrap_or(1.0);
         let system_mute = self.lanes.get(direction).system_mute;
+        let capture = plan.capture.clone();
         let started = self.system.start_stream(plan, dsp, system_mute, gain);
         match started {
             Ok(stream) => {
+                if self.is_driver(&capture) && !self.sessions_watched.contains(&capture) {
+                    // Capturing the driver the original would capture, with nothing to show it
+                    // starting: the process list is read on the short beat (`check_original`).
+                    self.next_original_check = self.next_original_check.min(now + ORIGINAL_EVERY);
+                }
                 let opened = stream.opened();
                 log::info!(
                     "{} lane: {} ch @ {} Hz, at {:.0} % of the virtual device's volume",
