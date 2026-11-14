@@ -52,8 +52,10 @@
 //! is (`Palette::is_windows`, «Like FxSound for Windows» = Interface and above), and a whole
 //! Gilroy is there for the language; Manrope otherwise, never a face that is not there.
 //! [`install`] puts that face into a context ([`crate::theme::apply`] calls it), and [`sync`],
-//! which the views call every frame, installs it again the moment any of it changes. A context
-//! whose fonts were set some other way, as a test sets its own, is left as it is.
+//! which the Pro and Lite windows call at the top of every frame they draw
+//! ([`crate::views::pro::show`], [`crate::views::lite::show`]) and the Settings window at the
+//! top of its own, installs it again the moment any of it changes. A context whose fonts were set
+//! some other way, as a test sets its own, is left as it is.
 
 use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use fxsound_core::InterfaceFont;
@@ -853,6 +855,13 @@ pub(crate) mod tests {
         };
         font[selection..selection + 2].copy_from_slice(&flags.to_be_bytes());
         font
+    }
+
+    /// Whether `ctx`'s fonts were last installed for the original look, or `None` for a context
+    /// whose fonts were set another way: what [`sync`] keeps up to date.
+    pub(crate) fn installed_for_original_look(ctx: &egui::Context) -> Option<bool> {
+        ctx.data(|data| data.get_temp::<Installed>(installed_id()))
+            .map(|installed| installed.original_look)
     }
 
     /// A whole stand-in Gilroy.

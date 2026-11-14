@@ -197,6 +197,11 @@ pub mod effects {
 }
 
 /// Paint the Pro window and report what the user did.
+///
+/// First the window's face is brought up to date ([`crate::typeface::sync`]), here rather than in
+/// [`crate::views::show`]: the application draws this window itself, every frame, whatever else
+/// is open over it, so a Gilroy the search at start found, a language changed from the command
+/// line or the original look switched on shows from the next frame on.
 pub fn show(
     ui: &mut Ui,
     state: &UiState,
@@ -204,6 +209,7 @@ pub fn show(
     palette: Palette,
     assets: &mut AssetCache,
 ) -> UiResponse {
+    crate::typeface::sync(ui.ctx(), palette.is_windows());
     let origin = window_origin(ui);
 
     // `setOpaque(false)` plus a rounded fill is what makes the corners round instead of black

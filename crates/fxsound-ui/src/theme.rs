@@ -345,8 +345,9 @@ pub fn nav_caption(size: f32, colour: egui::Color32) -> egui::TextFormat {
 ///
 /// The face follows the palette: the Windows build's palette is the original look
 /// ([`Palette::is_windows`], «Like FxSound for Windows» = Interface and above), which is set in
-/// Gilroy when the user has it ([`crate::typeface::shown`]). From here on the views keep the face
-/// up to date by themselves ([`crate::typeface::sync`]).
+/// Gilroy when the user has it ([`crate::typeface::shown`]). From here on the Pro and Lite windows
+/// keep the face up to date by themselves, at the top of every frame they draw
+/// ([`crate::typeface::sync`]).
 pub fn apply(ctx: &egui::Context, palette: Palette) {
     crate::typeface::install(ctx, palette.is_windows());
     ctx.set_visuals(palette.visuals());

@@ -88,6 +88,8 @@ pub fn panel(origin: Pos2) -> Rect {
 }
 
 /// Paint the Lite window and report what the user did.
+///
+/// First the window's face is brought up to date, as the Pro window's is ([`super::pro::show`]).
 pub fn show(
     ui: &mut Ui,
     state: &UiState,
@@ -95,6 +97,7 @@ pub fn show(
     palette: Palette,
     assets: &mut AssetCache,
 ) -> UiResponse {
+    crate::typeface::sync(ui.ctx(), palette.is_windows());
     let origin = window_origin(ui);
 
     ui.painter().rect_filled(
