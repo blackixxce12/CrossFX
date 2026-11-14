@@ -95,7 +95,7 @@ pub fn act(action: &FontAction, settings: &mut Settings, state: &mut SettingsSta
             true
         }
         FontAction::Buy => {
-            if let Err(error) = open_store() {
+            if let Err(error) = crate::platform::open_url(GILROY_STORE) {
                 log::warn!("could not open {GILROY_STORE}: {error}");
                 pane().message = Some(FontMessage::NoBrowser);
             }
@@ -258,29 +258,4 @@ fn start_picker() {
             pane.message = Some(FontMessage::NoPicker);
         }
     }
-}
-
-/// Open the designer's store page in the user's browser: `xdg-open`, as every link FxSound for
-/// Linux opens (`app::open_url`).
-#[cfg(target_os = "linux")]
-fn open_store() -> Result<(), String> {
-    std::process::Command::new("xdg-open")
-        .arg(GILROY_STORE)
-        .spawn()
-        .map(drop)
-        .map_err(|error| error.to_string())
-}
-
-/// Open the designer's store page in the user's browser.
-///
-/// The one call this module leaves to the application's Windows side (Windows port, `platform`):
-/// the shell's opener, `pub fn open_url(url: &str) -> Result<(), String>` in `crate::platform`.
-#[cfg(windows)]
-fn open_store() -> Result<(), String> {
-    crate::platform::open_url(GILROY_STORE)
-}
-
-#[cfg(not(any(target_os = "linux", windows)))]
-fn open_store() -> Result<(), String> {
-    Err("no way to open a link on this platform".to_owned())
 }

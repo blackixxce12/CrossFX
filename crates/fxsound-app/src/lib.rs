@@ -15,6 +15,7 @@ pub mod events;
 pub mod fonts;
 pub mod ipc;
 pub mod notify;
+pub mod platform;
 mod priority;
 #[cfg(test)]
 mod private_bus;

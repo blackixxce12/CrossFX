@@ -639,7 +639,7 @@ fn deliver_loop(rx: &Receiver<Message>, mut sink: impl Sink) {
     }
 }
 
-/// Open a link with `xdg-open`.
+/// Open a link a notification was clicked for, with `xdg-open` ([`crate::platform::open_url`]).
 ///
 /// Spawned directly, never through a shell: `URL::launchInDefaultBrowser()`
 /// (`FxSystemTrayView.cpp:280-283`) hands the string to the shell on Windows, and doing the
@@ -647,13 +647,8 @@ fn deliver_loop(rx: &Receiver<Message>, mut sink: impl Sink) {
 /// scheme is checked for the same reason — every caller in the catalogue passes a constant, but
 /// [`Message::with_link`] is public.
 fn open_url(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        log::warn!("refusing to open a notification link that is not http(s)");
-        return;
-    }
-    match std::process::Command::new("xdg-open").arg(url).spawn() {
-        Ok(_) => {}
-        Err(e) => log::warn!("could not open {url}: {e}"),
+    if let Err(e) = crate::platform::open_url(url) {
+        log::warn!("could not open a notification link: {e}");
     }
 }
 
