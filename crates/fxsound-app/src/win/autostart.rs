@@ -150,7 +150,7 @@ mod tests {
     impl ScratchKey {
         fn new(tag: &str) -> Self {
             Self(format!(
-                r"Software\FxSound Port tests\{tag}-{}",
+                r"Software\CrossFX tests\{tag}-{}",
                 std::process::id()
             ))
         }
@@ -167,7 +167,7 @@ mod tests {
     impl Drop for ScratchKey {
         fn drop(&mut self) {
             use windows::Win32::System::Registry::{RegDeleteKeyW, RegDeleteTreeW};
-            let (own, parent) = (wide(&self.0), wide(r"Software\FxSound Port tests"));
+            let (own, parent) = (wide(&self.0), wide(r"Software\CrossFX tests"));
             // SAFETY: NUL-terminated strings; the keys are the tests' own. The parent goes only
             // once it is empty, which `RegDeleteKeyW` checks.
             unsafe {
