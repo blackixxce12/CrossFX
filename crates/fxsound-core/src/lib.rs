@@ -15,6 +15,7 @@ pub mod apps;
 pub mod atomic;
 pub mod fonts;
 pub mod i18n;
+pub mod identity;
 pub mod messages;
 pub mod parity;
 pub mod platform;

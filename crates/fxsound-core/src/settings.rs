@@ -1,15 +1,16 @@
 //! Persisted application settings.
 //!
-//! The Windows build keeps these in a JUCE `PropertiesFile` XML at
-//! `%APPDATA%\FxSound\FxSound.settings`. This port keeps the **same key names** in a TOML file at
-//! `$XDG_CONFIG_HOME/fxsound/settings.toml` (default `~/.config/fxsound/settings.toml`) so the
-//! schema stays greppable against the original C++ and a user's settings are recognisable.
+//! The original FxSound for Windows keeps these in a JUCE `PropertiesFile` XML at
+//! `%APPDATA%\FxSound\FxSound.settings`, its own folder, which CrossFX never reads. CrossFX keeps
+//! the **same key names** in a TOML file at `$XDG_CONFIG_HOME/crossfx/settings.toml` (default
+//! `~/.config/crossfx/settings.toml`; on Windows `%APPDATA%\CrossFX\settings.toml`) so the schema
+//! stays greppable against the original C++ and a user's settings are recognisable.
 //!
-//! The Windows keys nothing here reads are not written (0.4.0 audit #35): the five hotkey chords
+//! The original's keys nothing here reads are not written (0.4.0 audit #35): the five hotkey chords
 //! and the `hotkeys` switch (a Wayland client cannot grab global shortcuts; the compositor binds
 //! them to the command line), `window_x`/`window_y` (Wayland gives a client no way to place its own
 //! toplevel), `always_on_top` (winit ignores window levels there), `automatic_updates` and
-//! `last_update_time` (this fork never contacts the network), and `device_configs_version`. A file
+//! `last_update_time` (CrossFX never contacts the network), and `device_configs_version`. A file
 //! that still has them, as every file 0.3.0 wrote does, loads as before: a key the struct does not
 //! know is skipped, and the next save leaves it out. `run_minimized`, which 0.3.0 read and never
 //! wrote, is written again whenever the window hides to the tray or shows.
@@ -193,10 +194,123 @@ mod interface_font_tests {
     }
 
     #[test]
-    fn the_added_fonts_are_kept_beside_the_presets_in_fxsounds_data_folder() {
+    fn the_added_fonts_are_kept_beside_the_presets_in_crossfx_own_data_folder() {
         let fonts = Settings::user_font_dir();
         assert!(fonts.ends_with(std::path::Path::new(APP_DIR_NAME).join("fonts")));
         assert_eq!(fonts.parent(), Settings::user_preset_dir().parent());
+    }
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+
+    /// Whether any component of `path` is `fxsound` in any case: on Windows, where case is not
+    /// told apart, the original FxSound's own folder.
+    fn names_the_original(path: &Path) -> bool {
+        path.components()
+            .any(|part| part.as_os_str().eq_ignore_ascii_case("fxsound"))
+    }
+
+    /// Every folder and file CrossFX builds for itself here, as the functions build them. Only
+    /// built: nothing is created, read or listed.
+    fn own_paths() -> Vec<PathBuf> {
+        let mut paths = vec![
+            Settings::config_dir(),
+            Settings::config_path(),
+            Settings::user_preset_dir(),
+            Settings::user_font_dir(),
+            crate::AppRules::config_path(),
+        ];
+        paths.extend(Settings::local_dir());
+        paths
+    }
+
+    #[test]
+    fn every_folder_of_crossfx_is_its_own_under_the_system_directory() {
+        let config = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+        let data = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+        assert_eq!(Settings::config_dir(), config.join(APP_DIR_NAME));
+        assert_eq!(
+            Settings::config_path(),
+            config.join(APP_DIR_NAME).join("settings.toml")
+        );
+        assert_eq!(
+            Settings::user_preset_dir(),
+            data.join(APP_DIR_NAME).join("presets")
+        );
+        assert_eq!(
+            Settings::user_font_dir(),
+            data.join(APP_DIR_NAME).join("fonts")
+        );
+        assert_eq!(
+            Settings::local_dir(),
+            dirs::data_local_dir().map(|local| local.join(APP_DIR_NAME))
+        );
+        assert_eq!(APP_DIR_NAME, crate::identity::DIR_NAME);
+        // What CrossFX adds under the system's directory starts with its own folder and names the
+        // original nowhere. (The directory itself is the user's: a home called `fxsound` is theirs.)
+        let local = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+        for path in own_paths() {
+            let added = [&config, &data, &local]
+                .into_iter()
+                .find_map(|home| path.strip_prefix(home).ok())
+                .unwrap_or_else(|| panic!("{} is under no system directory", path.display()));
+            assert!(added.starts_with(APP_DIR_NAME), "{}", path.display());
+            assert!(!names_the_original(added), "{}", path.display());
+        }
+    }
+
+    #[test]
+    fn the_check_for_the_originals_folder_ignores_case() {
+        assert!(names_the_original(Path::new(
+            "/home/u/.config/fxsound/settings.toml"
+        )));
+        assert!(names_the_original(Path::new("/x/FXSOUND")));
+        assert!(names_the_original(Path::new("FxSound/Presets")));
+        assert!(!names_the_original(Path::new(
+            "/home/u/.config/crossfx/fxsound.toml"
+        )));
+        assert!(!names_the_original(Path::new("/x/FxSound Port")));
+    }
+
+    /// On Windows, where `%APPDATA%\FxSound` and `%LOCALAPPDATA%\FxSound` are the original's: every
+    /// folder CrossFX builds is `CrossFX` under the user's real roaming or local application data,
+    /// and none is the original's in any case. The real homes, but only built, never touched.
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_every_folder_is_crossfx_under_appdata_and_none_is_the_originals() {
+        let roaming = dirs::config_dir().expect("the roaming application data");
+        let local = dirs::data_local_dir().expect("the local application data");
+        assert_eq!(dirs::data_dir().as_deref(), Some(roaming.as_path()));
+        for dir in [
+            Settings::config_dir(),
+            Settings::user_preset_dir()
+                .parent()
+                .map(Path::to_owned)
+                .expect("a parent"),
+            Settings::user_font_dir()
+                .parent()
+                .map(Path::to_owned)
+                .expect("a parent"),
+            crate::AppRules::config_path()
+                .parent()
+                .map(Path::to_owned)
+                .expect("a parent"),
+        ] {
+            assert_eq!(dir, roaming.join("CrossFX"), "{}", dir.display());
+        }
+        assert_eq!(Settings::local_dir(), Some(local.join("CrossFX")));
+        for path in own_paths() {
+            assert!(!names_the_original(&path), "{}", path.display());
+            assert!(
+                path.starts_with(&roaming) || path.starts_with(&local),
+                "{}",
+                path.display()
+            );
+        }
     }
 }
 
@@ -509,18 +623,18 @@ impl Default for Settings {
     }
 }
 
-/// The folder of FxSound's own under the system's configuration and data directories: `fxsound`,
-/// and on Windows `FxSound Port`. `%APPDATA%\FxSound` is FxSound LLC's FxSound's, with its
-/// settings and its user presets in it, and Windows does not tell `fxsound` from `FxSound`: the
-/// port keeps out of the original's files there, as its installers keep out of its name.
-pub const APP_DIR_NAME: &str = if cfg!(windows) {
-    "FxSound Port"
-} else {
-    "fxsound"
-};
+/// CrossFX's folder under the system's configuration and data directories:
+/// [`crate::identity::DIR_NAME`], `crossfx`, and on Windows `CrossFX`.
+///
+/// `%APPDATA%\FxSound` and `%LOCALAPPDATA%\FxSound` are the original FxSound's, FxSound LLC's,
+/// with its settings and its user presets in them, and Windows does not tell `fxsound` from
+/// `FxSound`: CrossFX keeps out of the original's folders there, as its installers keep out of
+/// its name. Each of CrossFX's folders is made by the code that first writes into it; nothing an
+/// earlier version left is read into them.
+pub const APP_DIR_NAME: &str = crate::identity::DIR_NAME;
 
 impl Settings {
-    /// `~/.config/fxsound` (or `$XDG_CONFIG_HOME/fxsound`); on Windows `%APPDATA%\FxSound Port`
+    /// `~/.config/crossfx` (or `$XDG_CONFIG_HOME/crossfx`); on Windows `%APPDATA%\CrossFX`
     /// ([`APP_DIR_NAME`]).
     #[must_use]
     pub fn config_dir() -> std::path::PathBuf {
@@ -529,14 +643,14 @@ impl Settings {
             .join(APP_DIR_NAME)
     }
 
-    /// `~/.config/fxsound/settings.toml`.
+    /// `~/.config/crossfx/settings.toml`; on Windows `%APPDATA%\CrossFX\settings.toml`.
     #[must_use]
     pub fn config_path() -> std::path::PathBuf {
         Self::config_dir().join("settings.toml")
     }
 
-    /// `~/.local/share/fxsound/presets` — where imported and user-saved presets land; on Windows
-    /// `%APPDATA%\FxSound Port\presets`, never the original's `%APPDATA%\FxSound\Presets`.
+    /// `~/.local/share/crossfx/presets` — where imported and user-saved presets land; on Windows
+    /// `%APPDATA%\CrossFX\presets`, never the original's `%APPDATA%\FxSound\Presets`.
     #[must_use]
     pub fn user_preset_dir() -> std::path::PathBuf {
         dirs::data_dir()
@@ -545,8 +659,8 @@ impl Settings {
             .join("presets")
     }
 
-    /// `~/.local/share/fxsound/fonts` (`$XDG_DATA_HOME/fxsound/fonts`; on Windows
-    /// `%APPDATA%\FxSound Port\fonts`, [`APP_DIR_NAME`]) — where the Gilroy files the user added in
+    /// `~/.local/share/crossfx/fonts` (`$XDG_DATA_HOME/crossfx/fonts`; on Windows
+    /// `%APPDATA%\CrossFX\fonts`, [`APP_DIR_NAME`]) — where the Gilroy files the user added in
     /// Settings are kept, beside the presets, and read from at every start ([`InterfaceFont`]).
     #[must_use]
     pub fn user_font_dir() -> std::path::PathBuf {
@@ -554,6 +668,19 @@ impl Settings {
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(APP_DIR_NAME)
             .join("fonts")
+    }
+
+    /// CrossFX's folder in the data that stays on this machine: `%LOCALAPPDATA%\CrossFX` on
+    /// Windows, where the record of the default devices CrossFX holds and the toast's icon are
+    /// kept, and `~/.local/share/crossfx` (`$XDG_DATA_HOME/crossfx`) elsewhere, where the system
+    /// makes no such distinction. `None` when the system names no such directory.
+    ///
+    /// Never the original's `%LOCALAPPDATA%\FxSound`. On Windows the folder is the one the shell
+    /// names (`dirs::data_local_dir`, the known folder), not the `LOCALAPPDATA` variable: whatever
+    /// the environment says, what CrossFX keeps here is in a folder of its own name.
+    #[must_use]
+    pub fn local_dir() -> Option<std::path::PathBuf> {
+        dirs::data_local_dir().map(|dir| dir.join(APP_DIR_NAME))
     }
 
     /// Load the settings file, falling back to defaults for anything missing or unreadable.
