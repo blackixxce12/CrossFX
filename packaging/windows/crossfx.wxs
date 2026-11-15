@@ -15,8 +15,9 @@
 
   Its identity is its own, never the original's: FxSound LLC's FxSound may be installed and
   running beside it. Another product name, publisher, folder, Start menu entry and upgrade code,
-  and no driver: the virtual playback device CrossFX plays through belongs to the original
-  FxSound or to VB-CABLE, and this package says so on its last page instead of shipping one.
+  and no driver: the virtual playback device CrossFX plays through belongs to the
+  original FxSound or to VB-CABLE, and this package says so on its last page instead of
+  shipping one.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">

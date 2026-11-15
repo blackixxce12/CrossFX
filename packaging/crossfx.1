@@ -315,9 +315,9 @@ the Windows reserved characters
 .RB ( < " " > " " : " " \(dq " " / " " \e " " | " " ? " " * )
 are stripped from a name, each run of control characters (a line break, a
 tab) becomes one space, and the result is truncated to 64 characters. A new
-name is also cut to 126 bytes, on a character boundary, since the original
-FxSound for Windows reads a preset's name in that many: 63 Cyrillic letters.
-Voice presets follow
+name is also cut to 126 bytes, on a character boundary, since the
+original FxSound for Windows reads a preset's name in that many: 63 Cyrillic
+letters. Voice presets follow
 the same rule with a
 .I .toml
 extension. A user preset saved over is written to the file it was listed
