@@ -37,8 +37,8 @@ pub struct PresetEntry {
     pub name: String,
     pub path: PathBuf,
     pub source: PresetSource,
-    /// `true` when an autosave exists, i.e. the user changed this preset without saving. Shown as
-    /// a trailing `*` in the combo box.
+    /// `true` when an autosave of its own exists, i.e. the user changed this preset without
+    /// saving. Shown as a trailing `*` in the combo box.
     pub modified: bool,
 }
 
@@ -252,7 +252,9 @@ impl<F: PresetFile> Store<F> {
 
         let mut entries = merge(factory, user);
         for entry in &mut entries {
-            entry.modified = self.autosave_path(&entry.name).is_file();
+            entry.modified = self
+                .own_autosave_slots(&entry.name)
+                .any(|slot| slot.is_file());
         }
         self.entries = entries;
     }
@@ -278,7 +280,7 @@ impl<F: PresetFile> Store<F> {
         self.entries.iter().position(|e| e.name == name)
     }
 
-    /// Load a preset by name, preferring its autosave when one exists.
+    /// Load a preset by name, preferring its autosave when it has one of its own.
     ///
     /// Returns the preset and whether it came from the autosave, which is what makes the GUI show
     /// the `*` marker.
@@ -288,8 +290,7 @@ impl<F: PresetFile> Store<F> {
     pub fn load(&self, name: &str) -> Result<(F, bool), F::Error> {
         let entry = self.find(name).ok_or_else(|| F::unknown(name))?;
 
-        let autosave = self.autosave_path(name);
-        if autosave.is_file() {
+        if let Some(autosave) = self.own_autosave_slots(name).find(|slot| slot.is_file()) {
             match F::load(&autosave) {
                 Ok(mut preset) => {
                     // The autosave carries the edited values but the canonical name.
@@ -331,6 +332,10 @@ impl<F: PresetFile> Store<F> {
     /// ([`Store::autosave`], [`Store::clear_autosave`]). Without that they were orphaned: the
     /// preset loaded as last saved, without its `*`, and the edits never came back. Only on Unix,
     /// where 0.3.0 ran (`legacy_autosave_path` says why).
+    ///
+    /// The path, whatever the volume finds there: on Windows it can be the 8.3 short name of
+    /// another preset's autosave, which the store then neither reads as this name's edits nor
+    /// removes (`own_autosave_slots`) nor writes over ([`Store::autosave`]).
     #[must_use]
     pub fn autosave_path(&self, name: &str) -> PathBuf {
         let path = self.sanitised_autosave_path(name);
@@ -373,28 +378,59 @@ impl<F: PresetFile> Store<F> {
         (legacy != self.sanitised_autosave_path(name)).then_some(legacy)
     }
 
+    /// Where `name`'s unsaved edits can be, in the order [`Store::autosave_path`] looks: its file
+    /// in `AutoSave/`, then one 0.3.0 left under its name as written — each unless the volume
+    /// finds another file there, one the name reaches only as that file's alias (`alias_of`).
+    /// That file holds another preset's edits, and the name must neither read them as its own nor
+    /// remove them; [`Store::autosave`] refuses to write over them.
+    ///
+    /// On Windows `AutoSave/ROCKCO~1.fac` is `AutoSave/Rock Concert Live.fac` once NTFS has given
+    /// that file the 8.3 short name: a preset called `ROCKCO~1` was listed with Rock Concert Live's
+    /// `*`, loaded its edits, and dropped them with its own undo, save or delete.
+    fn own_autosave_slots(&self, name: &str) -> impl Iterator<Item = PathBuf> {
+        std::iter::once(self.sanitised_autosave_path(name))
+            .chain(self.legacy_autosave_path(name))
+            .filter(|slot| alias_of(slot).is_none())
+    }
+
     /// Stash the user's unsaved edits so they survive a preset switch or a restart.
     ///
     /// Written to the name's own file in `AutoSave/`; a 0.3.0 autosave of the same preset under
     /// its name as written, whose edits these now carry, goes.
     ///
+    /// Never over another file the volume finds under that name (`alias_of`): on Windows,
+    /// `AutoSave/ROCKCO~1.fac` is Rock Concert Live's autosave once NTFS has given it that 8.3
+    /// short name, and writing there replaced Rock Concert Live's unsaved edits with
+    /// `ROCKCO~1`'s. That stash is refused instead, and the edits are left with the caller; the
+    /// name is free again once the other preset's are saved or undone.
+    ///
     /// # Errors
-    /// The preset's name leaves nothing to file it under, or the file cannot be written.
+    /// The preset's name leaves nothing to file it under, its file in `AutoSave/` is another
+    /// file's alias, or the file cannot be written.
     pub fn autosave(&self, preset: &F) -> Result<(), F::Error> {
-        let path = self.autosave_dir.join(Self::file_name(preset.name())?);
+        let name = preset.name();
+        let file = Self::file_name(name)?;
+        let path = self.autosave_dir.join(&file);
+        if let Some(found) = alias_of(&path) {
+            return Err(F::shared_file(
+                name,
+                &self.alias_holder(&found, name),
+                &file,
+            ));
+        }
         preset.save(&path)?;
-        if let Some(legacy) = self.legacy_autosave_path(preset.name()) {
+        if let Some(legacy) = self.legacy_autosave_path(name) {
             remove_if_there(&legacy);
         }
         Ok(())
     }
 
     /// Drop a preset's autosave, clearing its modified marker: the one under its own file and any
-    /// 0.3.0 left under its name as written.
+    /// 0.3.0 left under its name as written — never another preset's that the name reaches only as
+    /// an alias (`own_autosave_slots`).
     pub fn clear_autosave(&mut self, name: &str) {
-        remove_if_there(&self.sanitised_autosave_path(name));
-        if let Some(legacy) = self.legacy_autosave_path(name) {
-            remove_if_there(&legacy);
+        for slot in self.own_autosave_slots(name) {
+            remove_if_there(&slot);
         }
         if let Some(entry) = self.entries.iter_mut().find(|e| e.name == name) {
             entry.modified = false;
@@ -410,7 +446,9 @@ impl<F: PresetFile> Store<F> {
     /// (`file_name` below says why one file can have two names), `ROCK` beside `Rock` on Windows,
     /// whose NTFS folds case, and any name whose file is already there and listed under the name
     /// inside it — a hand-copied `Rock.fac` that calls itself "Rock Concert", which a save of
-    /// "Rock" replaced, leaving it in a `.bak` the list does not show.
+    /// "Rock" replaced, leaving it in a `.bak` the list does not show. So is a name under which the
+    /// volume finds a file of another name, listed or not: on Windows `ROCKCO~1` once NTFS has
+    /// given `Rock Concert Live.fac` that 8.3 short name (`alias_of`).
     ///
     /// A user preset is overwritten in the file it is listed from, whatever that file is called.
     /// 0.3.0 filed a preset saved from the window under its name as written — `Rock:Live.fac` —
@@ -420,7 +458,7 @@ impl<F: PresetFile> Store<F> {
     ///
     /// # Errors
     /// The name leaves nothing to file it under, its file belongs to a preset of a different
-    /// name, or the file cannot be written.
+    /// name or is another file's alias, or the file cannot be written.
     pub fn save_as(&mut self, preset: &F, name: &str) -> Result<PathBuf, F::Error> {
         let path = match self.find(name) {
             Some(entry) if entry.source == PresetSource::User => entry.path.clone(),
@@ -432,6 +470,13 @@ impl<F: PresetFile> Store<F> {
                     .or_else(|| self.listed_from(&path, name))
                 {
                     return Err(F::shared_file(name, &other.name, &file));
+                }
+                if let Some(found) = alias_of(&path) {
+                    return Err(F::shared_file(
+                        name,
+                        &self.alias_holder(&found, name),
+                        &file,
+                    ));
                 }
                 path
             }
@@ -454,7 +499,8 @@ impl<F: PresetFile> Store<F> {
     /// Its unsaved edits, the autosave, go the same way after it rather than being dropped: a
     /// preset with unsaved changes can be deleted, and those edits exist nowhere else. The trash
     /// records each file's own place, so restoring both puts the preset back in the list with its
-    /// edits and its `*`. Should the autosave move nowhere at all, it is left where it is.
+    /// edits and its `*`. Should the autosave move nowhere at all, it is left where it is. Another
+    /// preset's that the name reaches only as an alias stays too (`own_autosave_slots`).
     ///
     /// Returns where the preset's file went, or `None` for a name the list does not hold.
     ///
@@ -474,8 +520,8 @@ impl<F: PresetFile> Store<F> {
         let path = entry.path.clone();
         let discarded = self.discard(&path)?;
         // Its own autosave, and one 0.3.0 left under its name as written.
-        let autosaves = std::iter::once(self.sanitised_autosave_path(name))
-            .chain(self.legacy_autosave_path(name))
+        let autosaves = self
+            .own_autosave_slots(name)
             .filter(|autosave| autosave.is_file())
             .collect::<Vec<_>>();
         for autosave in autosaves {
@@ -518,9 +564,16 @@ impl<F: PresetFile> Store<F> {
     /// brings none of its own, goes to the trash the way a deleted preset's does: it holds another
     /// preset's edits, never this one's.
     ///
+    /// A file the volume finds under the new name but keeps under another — on Windows an 8.3
+    /// short name, `ROCKCO~1.fac` for `Rock Concert Live.fac` (`alias_of`) — is no file of the new
+    /// name's to set aside or to trash. One in the user directory refuses the rename, and so does
+    /// another preset's autosave when this preset brings unsaved edits to put in its place; without
+    /// them the rename goes through and the other's autosave stays. The preset's own file and
+    /// autosave are its own under any name: renamed to its own short name, it moves.
+    ///
     /// # Errors
     /// `old` is not a user preset, `new` leaves nothing to file it under or is another preset's
-    /// file, or the files cannot be written or moved.
+    /// file or another file's alias, or the files cannot be written or moved.
     pub fn rename(&mut self, old: &str, new: &str) -> Result<(), F::Error> {
         let entry = self.find(old).ok_or_else(|| F::unknown(old))?;
         if entry.source == PresetSource::Factory {
@@ -543,6 +596,20 @@ impl<F: PresetFile> Store<F> {
         {
             return Err(F::shared_file(new, &other.name, &file));
         }
+        // A file the new name reaches only as another's alias: one in the user directory, which
+        // would be set aside under the new name's `.bak`, or another preset's unsaved edits, which
+        // this one's would replace. Not this preset's own file or autosave, whatever it is called.
+        let old_autosave = self.own_autosave_slots(old).find(|slot| slot.is_file());
+        let new_autosave = self.autosave_dir.join(&file);
+        let reached = alias_of(&to)
+            .filter(|_| !same_file(&from, &to))
+            .or_else(|| {
+                let own = old_autosave.as_deref()?;
+                alias_of(&new_autosave).filter(|_| !same_file(own, &new_autosave))
+            });
+        if let Some(found) = reached {
+            return Err(F::shared_file(new, &self.alias_holder(&found, new), &file));
+        }
 
         let mut preset = F::load(&from)?;
         preset.set_name(new);
@@ -553,17 +620,16 @@ impl<F: PresetFile> Store<F> {
         preset.save(&from)?;
         std::fs::rename(&from, &to)?;
 
-        let old_autosave = self.autosave_path(old);
-        let new_autosave = self.autosave_dir.join(&file);
         // An autosave already under the new name is not this preset's: a 0.3.0 microphone curve
         // stashed under a voice preset's name, the edits of a preset deleted by hand or one whose
         // autosave the trash would not take. Left there, it would be read as the renamed preset's
         // unsaved changes — the `*` on a preset that had none, and its curve loaded in place of
         // the file's on the next pick or start (0.4.0 review FA). It goes where a deleted preset's
         // edits go, not over them; so does one 0.3.0 left under the new name as written, which
-        // [`Store::autosave_path`] would find the same way.
+        // [`Store::autosave_path`] would find the same way. Another preset's autosave that the new
+        // name reaches only as an alias is no leftover of the new name's, and stays.
         let mut leftovers = Vec::new();
-        if old_autosave.is_file() {
+        if let Some(old_autosave) = old_autosave {
             let moved = F::load(&old_autosave).and_then(|mut stash| {
                 stash.set_name(new);
                 stash.save(&old_autosave)?;
@@ -577,7 +643,10 @@ impl<F: PresetFile> Store<F> {
             leftovers.push(new_autosave);
         }
         leftovers.extend(self.legacy_autosave_path(new));
-        for leftover in leftovers.into_iter().filter(|leftover| leftover.is_file()) {
+        for leftover in leftovers
+            .into_iter()
+            .filter(|leftover| leftover.is_file() && alias_of(leftover).is_none())
+        {
             if let Err(err) = self.discard(&leftover) {
                 log::warn!("{}: {err}; removing it", leftover.display());
                 if let Err(err) = std::fs::remove_file(&leftover) {
@@ -599,7 +668,8 @@ impl<F: PresetFile> Store<F> {
     ///
     /// An import adds a preset and never replaces one of the user's: a name a user preset already
     /// has, or a file already in the user directory — which on a filesystem that folds case is
-    /// also `rock.fac` when `Rock.fac` is there — is refused rather than handed to
+    /// also `rock.fac` when `Rock.fac` is there, and on Windows `ROCKCO~1.fac` when NTFS has given
+    /// `Rock Concert Live.fac` that 8.3 short name — is refused rather than handed to
     /// [`Store::save_as`], whose overwrite would leave the earlier preset only in a `.bak` the
     /// list does not show. A factory preset's name can still be taken, as a save can take it: the
     /// user's copy then stands in for the factory one. The controller refuses that too, and any
@@ -639,8 +709,13 @@ impl<F: PresetFile> Store<F> {
     /// (upstream PR #155, `FxController.cpp:1411`, which exports `preset.path`). Save first to
     /// export the edits.
     ///
+    /// A file the volume finds in `dir` under the name but keeps under another (`alias_of`) — on
+    /// Windows `ROCKCO~1.fac` once NTFS has given `Rock Concert Live.fac` that 8.3 short name — is
+    /// not replaced: the export of `ROCKCO~1` would have taken Rock Concert Live's place.
+    ///
     /// # Errors
-    /// The name is unknown, leaves nothing to file it under, or the file cannot be written.
+    /// The name is unknown, leaves nothing to file it under, its file in `dir` is another file's
+    /// alias, or the file cannot be written.
     pub fn export(&self, name: &str, dir: &Path) -> Result<PathBuf, F::Error> {
         self.export_with(name, dir, EndBands::Shifted)
     }
@@ -656,7 +731,15 @@ impl<F: PresetFile> Store<F> {
         end_bands: EndBands,
     ) -> Result<PathBuf, F::Error> {
         let preset = self.load_saved(name)?.exported(end_bands);
-        let path = dir.join(Self::file_name(name)?);
+        let file = Self::file_name(name)?;
+        let path = dir.join(&file);
+        if let Some(found) = alias_of(&path) {
+            return Err(F::shared_file(
+                name,
+                &self.alias_holder(&found, name),
+                &file,
+            ));
+        }
         preset.save(&path)?;
         Ok(path)
     }
@@ -678,8 +761,10 @@ impl<F: PresetFile> Store<F> {
     /// the directory by hand, which `rescan` lists as the two names they are; the shared autosave
     /// slot is then the one thing the list cannot tell apart. Stems are compared the way the
     /// filesystem compares them: exactly on Unix, and on Windows whatever their case, since NTFS
-    /// folds it and `ROCK.fac` is `Rock.fac` there (`same_file_name`). The case-insensitive rule
-    /// between *names* is the controller's, as the sanitiser's own note says.
+    /// folds it and `ROCK.fac` is `Rock.fac` there (`same_file_name`). What no comparison of
+    /// names can see, the volume is asked once a file is there: on Windows `ROCKCO~1.fac` is
+    /// `Rock Concert Live.fac` after NTFS has given it that 8.3 short name (`alias_of`). The
+    /// case-insensitive rule between *names* is the controller's, as the sanitiser's own note says.
     ///
     /// Public so a caller that has to know where a preset will land — the export window, asking
     /// about a file already there before it writes — asks the store rather than keeping a copy of
@@ -698,7 +783,9 @@ impl<F: PresetFile> Store<F> {
     /// The listed preset, if any, other than `name` itself whose file is `file`: the file its
     /// name maps to, compared as the filesystem compares file names (`same_file_name`). On
     /// Windows a name that differs from a listed one only in case is that preset's file, autosave
-    /// and export, whether or not the file has been written yet.
+    /// and export, whether or not the file has been written yet. A name that is the 8.3 short name
+    /// of another's is not: the volume gives that alias only to a file that is there, and
+    /// `alias_of` finds it then.
     ///
     /// An entry whose own name sanitises to nothing has no file to hold, so it can never be the
     /// holder; the `Ok` filter is that, not an error swallowed.
@@ -707,6 +794,14 @@ impl<F: PresetFile> Store<F> {
             entry.name != name
                 && Self::file_name(&entry.name).is_ok_and(|held| same_file_name(&held, file))
         })
+    }
+
+    /// Whose file `found` is — a file the volume finds under `name`'s but keeps under its own name,
+    /// `found` (`alias_of`) — as a refusal names it: the listed preset other than `name` whose
+    /// file that is, or else the file itself, which may be one no preset is listed from.
+    fn alias_holder(&self, found: &str, name: &str) -> String {
+        self.holder_of(found, name)
+            .map_or_else(|| found.to_owned(), |entry| entry.name.clone())
     }
 
     /// The listed preset, if any, other than `name` itself that is listed from the file at
@@ -728,26 +823,87 @@ impl<F: PresetFile> Store<F> {
     }
 }
 
-/// Whether two file names in one directory name one file: exactly, on Unix.
+/// Whether two file names in one directory name one file: exactly, on Unix, where a file name is
+/// the bytes it is written in. Where a filesystem there folds case after all — a FAT stick, an
+/// ext4 directory with case folding on — a file already under the other name is still found, by
+/// `listed_from`, which asks the filesystem rather than comparing names.
 #[cfg(unix)]
 fn same_file_name(a: &str, b: &str) -> bool {
     a == b
 }
 
-/// Whether two file names in one directory name one file: on Windows whatever their case, as NTFS
-/// compares them — character by character through the volume's upcase table, which holds each
-/// character's own uppercase — so `ROCK.fac` is `Rock.fac`. A character whose uppercase is more
-/// than one character, as `ß`'s is `SS`, the table leaves as it is, and so does this.
+/// Whether two file names in one directory name one file: on Windows, letter by letter as NTFS
+/// upcases them (`upcase`), so `ROCK.fac` is `Rock.fac`.
+///
+/// Names alone cannot tell the rest. Where a volume makes 8.3 short names, as a Windows system
+/// drive does by default, NTFS gives a long name a second one, `ROCKCO~1.FAC` for
+/// `Rock Concert Live.fac`, and opens the file under either: `ROCKCO~1.fac` is then that file,
+/// although no letter of the two names matches. Which long name has which alias only the volume
+/// knows, and only once the file is there; `alias_of` asks it.
 #[cfg(not(unix))]
 fn same_file_name(a: &str, b: &str) -> bool {
-    fn upcase(c: char) -> char {
-        let mut upper = c.to_uppercase();
-        match (upper.next(), upper.next()) {
-            (Some(one), None) => one,
-            _ => c,
-        }
-    }
     a.chars().map(upcase).eq(b.chars().map(upcase))
+}
+
+/// `c` as NTFS upcases it to compare file names, as near as the standard library's case tables
+/// can tell, against the table Windows 7 through 11 write: on a volume that carries it, two names
+/// this makes one are one file, or two when they differ only in a case pair newer than the table,
+/// and two names it keeps apart are never one file.
+///
+/// NTFS looks each UTF-16 unit of a name up in a table the volume carries, `$UpCase`, written by
+/// the Windows that formatted it. The one Windows 7 and later write pairs a letter with an
+/// uppercase only when each is the other's: `i` with `I`, `σ` with `Σ`. Unicode uppercases
+/// further, to a capital that lowercases to another letter — the dotless `ı` and the long `ſ` to
+/// `I` and `S`, the micro sign `µ` to the Greek capital `Μ`, the final `ς` to `Σ`, the titlecase
+/// `ǅ` to `Ǆ` — and that table tells each such letter from that capital and from the capital's own
+/// small letter: `Kayıt.fac` is one file and `Kayit.fac` another. Taking every one-letter
+/// uppercase, as this did at first, refused the second name of such a pair, which the controller
+/// lets through. So a letter is upcased only when its uppercase lowercases back to it, and only
+/// inside the Basic Multilingual Plane: a character beyond it is two units, and the table maps
+/// each of them to itself.
+///
+/// The Greek small letters with iota subscript go wrong the other way. The standard library
+/// uppercases them to two letters, `ᾳ` to `ΑΙ`, which that rule cannot follow, while the table
+/// pairs each with the one capital that lowercases to it, `ᾼ`; the match below pairs them as NTFS
+/// does. Without it `ᾳ.fac` and `ᾼ.fac` would be two names here for what NTFS makes one file.
+///
+/// The table's age is what cannot be known here. Windows' is older than the Unicode the standard
+/// library follows, so the case pairs added since — Georgian's capitals, Cherokee's small letters,
+/// the Greek capital yot `Ϳ`, the Glagolitic `Ⱟ` and `ⱟ`, and newer Latin, Cyrillic and Coptic
+/// letters — fold here and not on the volume: a name that differs from a listed one only in those
+/// is refused although NTFS would keep it apart. That is the side to be wrong on, and the
+/// controller's name check, which compares names in lowercase, refuses those names first.
+///
+/// A volume formatted by Windows XP or Vista carries an older table, which also upcases the final
+/// `ς` to `Σ`: there `Λόγος.fac` and `Λόγοσ.fac` are one file, and this keeps them apart. Folding
+/// `ς` with `σ` here would refuse `Λόγοσ` beside `Λόγος` on every newer volume, where the two are
+/// files of their own and the controller lets the name through; so the store asks such a volume
+/// instead, once a file is there under either name: `listed_from` refuses a save or a rename onto
+/// a listed preset's file, and `alias_of` keeps the other name off any file the volume finds under
+/// it. XP's table leaves the letters with iota subscript apart from their capitals as well, which
+/// only makes this refuse names that volume would keep apart.
+#[cfg(not(unix))]
+fn upcase(c: char) -> char {
+    // `ᾀ`–`ᾇ`, `ᾐ`–`ᾗ` and `ᾠ`–`ᾧ`, whose capitals are eight places on, and `ᾳ`, `ῃ` and `ῳ`,
+    // whose capitals are nine.
+    let iota_subscript = match c {
+        '\u{1F80}'..='\u{1F87}' | '\u{1F90}'..='\u{1F97}' | '\u{1FA0}'..='\u{1FA7}' => 8,
+        '\u{1FB3}' | '\u{1FC3}' | '\u{1FF3}' => 9,
+        _ => 0,
+    };
+    if iota_subscript > 0 {
+        return char::from_u32(u32::from(c) + iota_subscript).unwrap_or(c);
+    }
+    let mut upper = c.to_uppercase();
+    let (Some(u), None) = (upper.next(), upper.next()) else {
+        return c;
+    };
+    let one_unit_each = c.len_utf16() == 1 && u.len_utf16() == 1;
+    if one_unit_each && u.to_lowercase().eq([c]) {
+        u
+    } else {
+        c
+    }
 }
 
 /// Remove `path` when it is there, saying in the log when that fails.
@@ -778,6 +934,53 @@ fn same_file(a: &Path, b: &Path) -> bool {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
     }
+}
+
+/// The name of the file the volume finds at `path` when that is not `path`'s own: the file `path`
+/// opens is kept under another name, as `same_file_name` compares names, and its directory lists
+/// nothing under `path`'s. NTFS opens a file under its 8.3 short name — `ROCKCO~1.fac` is
+/// `Rock Concert Live.fac` once the volume has given it that alias — and a volume formatted by XP
+/// or Vista finds `Λόγος.fac` under `Λόγοσ.fac` (`upcase`). A write there would replace that
+/// other file, and a read would take it for this name's.
+///
+/// `None` when nothing is there, when the file is the name's own in another case, and when the
+/// volume cannot be asked. `canonicalize` names the file at the end of a link, so a name it does
+/// not match is looked for in the directory before it counts: a link under the name stays the
+/// name's own whatever the file it leads to is called.
+#[cfg(not(unix))]
+fn alias_of(path: &Path) -> Option<String> {
+    let own = path.file_name()?.to_str()?;
+    let found = std::fs::canonicalize(path).ok()?;
+    let found = found.file_name()?.to_string_lossy().into_owned();
+    if same_file_name(&found, own) {
+        return None;
+    }
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    let listed = std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|listed| same_file_name(listed, own))
+        })
+    });
+    (!listed).then_some(found)
+}
+
+/// Nothing, on Unix, where a name is its bytes (`same_file_name`). Where a filesystem there finds
+/// a file under another name after all — another case of it on a FAT stick or in a case-folding
+/// ext4 directory, or a FAT short name, which Linux's `vfat` opens as Windows does — `listed_from`
+/// still finds a listed preset's file by asking the filesystem (`same_file`). The autosave and the
+/// export a FAT short name reaches are not looked after: no Unix call names the file a path opens,
+/// and a scan of the directory by inode would still have to tell a short name from the other
+/// spellings such a filesystem folds together, case among them, without its rules. A preset folder
+/// on FAT is the rare case that leaves.
+#[cfg(unix)]
+fn alias_of(_path: &Path) -> Option<String> {
+    None
 }
 
 /// The order the list is in: numbered factory files first, by number; the rest of the factory
@@ -1482,6 +1685,465 @@ mod tests {
             .rename("Jazz Two", "JAZZ TWO")
             .expect("its own name in another case");
         assert!(store.find("JAZZ TWO").is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_letter_ntfs_does_not_fold_is_a_name_of_its_own() {
+        // Unicode uppercases the dotless `ı` to `I`, which lowercases to `i`, and NTFS keeps
+        // `Kayıt.fac` and `Kayit.fac` apart; so it keeps the micro sign from the Greek `μ`, the
+        // long `ſ` from `s` and the final `ς` from `σ`. Folding every uppercase refused the second
+        // name of each pair, which the controller lets through, and a rename onto it, although
+        // each is a file of its own. The voice store is the same `Store`.
+        fn save(store: &mut PresetStore, name: &str, main0: u8) {
+            let mut preset = Preset {
+                name: name.into(),
+                ..Preset::default()
+            };
+            preset.main_midi[0] = main0;
+            if let Err(err) = store.save_as(&preset, name) {
+                panic!("save {name}: {err}");
+            }
+        }
+        let tmp = tempdir("letters-apart");
+        let user = tmp.join("user");
+        let mut store = PresetStore::with_dirs(Vec::new(), user.clone());
+        let dotless = "Kay\u{131}t";
+        save(&mut store, dotless, 11);
+        save(&mut store, "Kayit", 12);
+        store
+            .rename("Kayit", "Elsewhere")
+            .expect("rename Kayit away");
+        store
+            .rename("Elsewhere", "Kayit")
+            .expect("and back, beside Kayıt");
+        let pairs = [
+            // The micro sign and the Greek mu, the long s and the s, the final sigma and the sigma.
+            ("\u{B5}-Bass", "\u{3BC}-Bass"),
+            ("Ga\u{17F}t", "Gast"),
+            ("Λόγο\u{3C2}", "Λόγο\u{3C3}"),
+        ];
+        let mut expected = vec![(dotless, 11), ("Kayit", 12)];
+        for ((first, second), main0) in pairs.into_iter().zip((13..).step_by(2)) {
+            save(&mut store, first, main0);
+            save(&mut store, second, main0 + 1);
+            expected.extend([(first, main0), (second, main0 + 1)]);
+        }
+
+        for (name, main0) in &expected {
+            let (preset, _) = store.load(name).expect("listed");
+            assert_eq!(preset.main_midi[0], *main0, "{name} holds its own values");
+        }
+        let files = std::fs::read_dir(&user)
+            .expect("the user directory")
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|x| x == "fac"))
+            .count();
+        assert_eq!(files, expected.len(), "a file each");
+        assert_eq!(store.entries().len(), expected.len(), "each listed once");
+
+        // The letters NTFS does fold are still one file: `KAYIT` and `kayit` are `Kayit`.
+        let err = store.save_as(&Preset::default(), "KAYIT").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Kayit"),
+            "{err}"
+        );
+        let err = store.rename(dotless, "kayit").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Kayit"),
+            "{err}"
+        );
+        assert_eq!(store.load("Kayit").expect("Kayit").0.main_midi[0], 12);
+        assert_eq!(store.load(dotless).expect("Kayıt").0.main_midi[0], 11);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_same_file_name_makes_two_names_one_file_where_ntfs_does() {
+        // Each pair of letters goes into a file name, and the volume is asked whether the other
+        // name finds the file. Wherever NTFS makes the two names one file `same_file_name` must
+        // too, or a save could take another preset's autosave and export; and the letters it keeps
+        // apart, which a Turkish, German or Greek name holds, must stay apart. The answers are
+        // those of the table Windows 7 through 11 write: the case pairs newer than it — Georgian's
+        // capitals and the like — are folded on purpose (`upcase`) and not asked about, and a
+        // volume formatted by XP or Vista, whose older table also makes the final `ς` one with `Σ`
+        // and `σ`, is skipped with a note, as a folder that tells case apart is. The store asks
+        // such a volume itself (`alias_of`).
+        let tmp = tempdir("upcase-volume");
+        let one_file = |a: char, b: char| {
+            let file = tmp.join(format!("x{a}y.fac"));
+            std::fs::write(&file, "").expect("write the probe");
+            let found = tmp.join(format!("x{b}y.fac")).exists();
+            std::fs::remove_file(&file).expect("remove the probe");
+            found
+        };
+        if !one_file('a', 'A') {
+            eprintln!("{}: this folder tells case apart; skipped", tmp.display());
+            return;
+        }
+        if one_file('\u{3C2}', '\u{3A3}') {
+            eprintln!(
+                "{}: this volume's case table is older than Windows 7's; skipped",
+                tmp.display()
+            );
+            return;
+        }
+        let pairs = [
+            // One file: plain case pairs, and the Greek letters with iota subscript and their
+            // capitals, which the standard library uppercases to two letters.
+            ('a', 'A'),
+            ('é', 'É'),
+            ('ÿ', 'Ÿ'),
+            ('я', 'Я'),
+            ('ё', 'Ё'),
+            ('σ', 'Σ'),
+            ('ό', 'Ό'),
+            ('\u{1C6}', '\u{1C4}'),
+            ('\u{1F80}', '\u{1F88}'),
+            ('\u{1FB3}', '\u{1FBC}'),
+            ('\u{1FF3}', '\u{1FFC}'),
+            // Two: the dotless and the dotted i, the long s, the micro sign, the final sigma, the
+            // titlecase dž, the curled beta, the Kelvin sign, the sharp s and its capital, and a
+            // Deseret letter, beyond the Basic Multilingual Plane, with its capital.
+            ('\u{131}', 'I'),
+            ('\u{131}', 'i'),
+            ('\u{130}', 'i'),
+            ('\u{17F}', 'S'),
+            ('\u{17F}', 's'),
+            ('\u{B5}', '\u{39C}'),
+            ('\u{B5}', '\u{3BC}'),
+            ('\u{3C2}', '\u{3A3}'),
+            ('\u{3C2}', '\u{3C3}'),
+            ('\u{1C5}', '\u{1C4}'),
+            ('\u{1C5}', '\u{1C6}'),
+            ('\u{3D0}', '\u{3B2}'),
+            ('\u{212A}', 'k'),
+            ('\u{DF}', '\u{1E9E}'),
+            ('\u{10428}', '\u{10400}'),
+        ];
+        for (a, b) in pairs {
+            assert_eq!(
+                same_file_name(&format!("x{a}y.fac"), &format!("x{b}y.fac")),
+                one_file(a, b),
+                "U+{:04X} and U+{:04X}: same_file_name, then the volume",
+                u32::from(a),
+                u32::from(b)
+            );
+        }
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn upcase_pairs_a_letter_only_with_a_capital_that_lowercases_back_to_it() {
+        // Over every character: the capital a letter is upcased to lowercases back to it, is
+        // upcased to itself and is one UTF-16 unit, as the letter is. And each capital whose
+        // uppercase is two letters, as its small letter's is — `ᾼ` and `ᾳ`, both `ΑΙ` — is that
+        // small letter's capital, which only the hand-made match makes it.
+        let mut through_the_lowercase = 0;
+        for c in (0..=u32::from(char::MAX)).filter_map(char::from_u32) {
+            let at = u32::from(c);
+            let up = upcase(c);
+            assert_eq!(upcase(up), up, "U+{at:04X}");
+            if up != c {
+                assert!(up.to_lowercase().eq([c]), "U+{at:04X}");
+                assert_eq!((c.len_utf16(), up.len_utf16()), (1, 1), "U+{at:04X}");
+            }
+            let mut lower = c.to_lowercase();
+            if let (Some(small), None) = (lower.next(), lower.next())
+                && small != c
+                && c.to_uppercase().len() > 1
+                && small.to_uppercase().eq(c.to_uppercase())
+            {
+                assert_eq!(upcase(small), c, "U+{at:04X}");
+                through_the_lowercase += 1;
+            }
+        }
+        assert_eq!(
+            through_the_lowercase, 27,
+            "the capitals with prosgegrammeni"
+        );
+    }
+
+    /// A preset called `name` whose first main value is `main0`, written nowhere yet.
+    #[cfg(windows)]
+    fn valued(name: &str, main0: u8) -> Preset {
+        let mut preset = Preset {
+            name: name.into(),
+            ..Preset::default()
+        };
+        preset.main_midi[0] = main0;
+        preset
+    }
+
+    /// The `.fac` files in `dir`, by name.
+    #[cfg(windows)]
+    fn fac_files(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .expect("read the folder")
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|x| x == "fac"))
+            .filter_map(|path| path.file_name()?.to_str().map(str::to_owned))
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
+    /// Whether `tmp`'s volume gives a long name an 8.3 short name: `Rock Concert Live.fac`, made
+    /// in a folder of its own, found again as `ROCKCO~1.fac`. Windows can turn them off for each
+    /// volume, and a test that needs them then says so and passes.
+    #[cfg(windows)]
+    fn makes_short_names(tmp: &Path) -> bool {
+        let probe = tmp.join("short-name-probe");
+        std::fs::create_dir_all(&probe).expect("make the probe's folder");
+        std::fs::write(probe.join("Rock Concert Live.fac"), "").expect("write the probe");
+        let made = probe.join("ROCKCO~1.fac").exists();
+        std::fs::remove_dir_all(&probe).expect("remove the probe");
+        if !made {
+            eprintln!(
+                "{}: this volume makes no 8.3 short names; skipped",
+                tmp.display()
+            );
+        }
+        made
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_name_that_is_another_files_short_name_never_takes_its_place() {
+        // NTFS gives `Rock Concert Live.fac` the 8.3 short name `ROCKCO~1.FAC` in a folder with no
+        // `ROCKCO~1.fac` in it yet, and the name `ROCKCO~1.fac` then opens that file. In `AutoSave`
+        // that made Rock Concert Live's unsaved edits those of a preset called `ROCKCO~1`: listed
+        // with its `*` and loaded in place of its own values, then replaced by its own next stash,
+        // which left Rock Concert Live as last saved. Its undo, save or delete dropped them too.
+        fn save(store: &mut PresetStore, name: &str, main0: u8) {
+            if let Err(err) = store.save_as(&valued(name, main0), name) {
+                panic!("save {name}: {err}");
+            }
+        }
+        fn kept(store: &PresetStore, after: &str) {
+            let entry = store.find("Rock Concert Live").expect("listed");
+            assert!(
+                entry.modified,
+                "after {after}: Rock Concert Live keeps its *"
+            );
+            let (loaded, from_autosave) = store.load("Rock Concert Live").expect("load");
+            assert_eq!(
+                (loaded.main_midi[0], from_autosave),
+                (55, true),
+                "after {after}: its unsaved edits"
+            );
+        }
+        let tmp = tempdir("short-names");
+        if !makes_short_names(&tmp) {
+            return;
+        }
+        let user = tmp.join("user");
+        let mut store = PresetStore::with_dirs(Vec::new(), user.clone());
+        save(&mut store, "ROCKCO~1", 1);
+        save(&mut store, "Rock Concert Live", 2);
+        // Second in the user folder, its file is `ROCKCO~2` there; first in `AutoSave`, its
+        // unsaved edits are `ROCKCO~1`.
+        assert!(user.join("ROCKCO~2.fac").exists(), "its file's short name");
+        store
+            .autosave(&valued("Rock Concert Live", 55))
+            .expect("its unsaved edits");
+        assert!(
+            user.join("AutoSave/ROCKCO~1.fac").exists(),
+            "its autosave's short name"
+        );
+        store.rescan();
+        kept(&store, "the listing");
+
+        // They are not ROCKCO~1's.
+        assert!(!store.find("ROCKCO~1").expect("listed").modified);
+        let (own, from_autosave) = store.load("ROCKCO~1").expect("load ROCKCO~1");
+        assert_eq!((own.main_midi[0], from_autosave), (1, false));
+
+        // Its own stash, which would replace them, is refused as a file of Rock Concert Live's.
+        let err = store.autosave(&valued("ROCKCO~1", 66)).unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { name, existing, file }
+                if name == "ROCKCO~1" && existing == "Rock Concert Live" && file == "ROCKCO~1.fac"),
+            "{err}"
+        );
+        kept(&store, "its stash");
+
+        // Its undo, its save and its delete leave them alone.
+        store.clear_autosave("ROCKCO~1");
+        kept(&store, "its undo");
+        save(&mut store, "ROCKCO~1", 3);
+        kept(&store, "its save");
+        store
+            .delete("ROCKCO~1")
+            .expect("delete")
+            .expect("it was listed");
+        kept(&store, "its delete");
+
+        // A rename onto the name that brings unsaved edits would put them in their place: refused
+        // before anything moves. Without any, it goes through and they stay.
+        save(&mut store, "Other", 4);
+        store
+            .autosave(&valued("Other", 44))
+            .expect("Other's unsaved edits");
+        store.rescan();
+        let err = store.rename("Other", "ROCKCO~1").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Rock Concert Live"),
+            "{err}"
+        );
+        let (other, from_autosave) = store.load("Other").expect("Other is still there");
+        assert_eq!((other.main_midi[0], from_autosave), (44, true));
+        kept(&store, "a refused rename");
+        store.clear_autosave("Other");
+        store
+            .rename("Other", "ROCKCO~1")
+            .expect("a rename with nothing unsaved");
+        assert!(!store.find("ROCKCO~1").expect("renamed").modified);
+        assert_eq!(store.load("ROCKCO~1").expect("load").0.main_midi[0], 4);
+        kept(&store, "a rename");
+
+        // The short name of Rock Concert Live's own file is still its file, as `listed_from` finds.
+        let err = store
+            .save_as(&valued("ROCKCO~2", 5), "ROCKCO~2")
+            .unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Rock Concert Live"),
+            "{err}"
+        );
+
+        // A file the list does not show is neither saved over nor set aside under its short name.
+        std::fs::write(user.join("Loose Concert.fac"), "not a preset").expect("write");
+        store.rescan();
+        let err = store
+            .save_as(&valued("LOOSEC~1", 6), "LOOSEC~1")
+            .unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Loose Concert.fac"),
+            "{err}"
+        );
+        let err = store.rename("ROCKCO~1", "LOOSEC~1").unwrap_err();
+        assert!(matches!(err, PresetError::SharedFile { .. }), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(user.join("Loose Concert.fac")).expect("the loose file"),
+            "not a preset"
+        );
+
+        // Nor does an export of ROCKCO~1 replace Rock Concert Live's, whose short name it is there.
+        let out = tmp.join("out");
+        store
+            .export("Rock Concert Live", &out)
+            .expect("export Rock Concert Live");
+        let err = store.export("ROCKCO~1", &out).unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Rock Concert Live"),
+            "{err}"
+        );
+        assert_eq!(fac_files(&out), ["Rock Concert Live.fac"]);
+        assert_eq!(
+            crate::load(&out.join("Rock Concert Live.fac"))
+                .expect("its export")
+                .main_midi[0],
+            2
+        );
+
+        // Renamed away, ROCKCO~1 takes only what is its own: no unsaved edits.
+        store.rename("ROCKCO~1", "Elsewhere").expect("rename away");
+        let (moved, from_autosave) = store.load("Elsewhere").expect("renamed");
+        assert_eq!((moved.main_midi[0], from_autosave), (4, false));
+        kept(&store, "a rename away");
+
+        assert_eq!(fac_files(&user.join("AutoSave")), ["Rock Concert Live.fac"]);
+        assert_eq!(
+            fac_files(&user),
+            [
+                "Elsewhere.fac",
+                "Loose Concert.fac",
+                "Rock Concert Live.fac"
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_preset_renamed_to_its_own_short_name_takes_its_file_and_edits_along() {
+        // `ROCKCO~1.fac` is Rock Concert Live's own file, and in `AutoSave` its own unsaved edits:
+        // nobody else's to keep apart from, so a rename to that name moves both.
+        let tmp = tempdir("own-short-name");
+        if !makes_short_names(&tmp) {
+            return;
+        }
+        let user = tmp.join("user");
+        let mut store = PresetStore::with_dirs(Vec::new(), user.clone());
+        store
+            .save_as(&valued("Rock Concert Live", 2), "Rock Concert Live")
+            .expect("save");
+        store
+            .autosave(&valued("Rock Concert Live", 55))
+            .expect("its unsaved edits");
+        assert!(user.join("ROCKCO~1.fac").exists() && user.join("AutoSave/ROCKCO~1.fac").exists());
+        store.rescan();
+
+        store
+            .rename("Rock Concert Live", "ROCKCO~1")
+            .expect("its own short name");
+        assert!(
+            store.find("ROCKCO~1").expect("listed").modified,
+            "with its *"
+        );
+        let (loaded, from_autosave) = store.load("ROCKCO~1").expect("load");
+        assert_eq!(
+            (loaded.name.as_str(), loaded.main_midi[0], from_autosave),
+            ("ROCKCO~1", 55, true)
+        );
+        assert_eq!(
+            store.load_saved("ROCKCO~1").expect("as saved").main_midi[0],
+            2
+        );
+        assert_eq!(store.entries().len(), 1);
+        assert_eq!(fac_files(&user), ["ROCKCO~1.fac"]);
+        assert_eq!(fac_files(&user.join("AutoSave")), ["ROCKCO~1.fac"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_link_under_a_presets_name_is_its_own_whatever_its_file_is_called() {
+        // `canonicalize` names the file at the end of a link, which is not the name the link is
+        // under: unsaved edits kept as a link to a file of another name, as a dotfile manager
+        // keeps one, are still the preset's own, read and stashed through the link.
+        /// `ERROR_PRIVILEGE_NOT_HELD`: no `SeCreateSymbolicLinkPrivilege`.
+        const PRIVILEGE_NOT_HELD: i32 = 1314;
+        let tmp = tempdir("linked-autosave");
+        let user = tmp.join("user");
+        let mut store = PresetStore::with_dirs(Vec::new(), user.clone());
+        store.save_as(&valued("Mine", 1), "Mine").expect("save");
+        let stash = tmp.join("dotfiles/stash.fac");
+        preset_at(&stash, "Mine", 77);
+        std::fs::create_dir_all(user.join("AutoSave")).expect("mkdir");
+        match std::os::windows::fs::symlink_file(&stash, user.join("AutoSave/Mine.fac")) {
+            Ok(()) => {}
+            Err(err) if err.raw_os_error() == Some(PRIVILEGE_NOT_HELD) => {
+                eprintln!("skipped: this process may not make symbolic links ({err})");
+                return;
+            }
+            Err(err) => panic!("a symbolic link: {err}"),
+        }
+        store.rescan();
+
+        assert!(store.find("Mine").expect("listed").modified, "with its *");
+        let (loaded, from_autosave) = store.load("Mine").expect("load");
+        assert_eq!((loaded.main_midi[0], from_autosave), (77, true));
+        store
+            .autosave(&valued("Mine", 78))
+            .expect("stashed through the link");
+        assert_eq!(
+            crate::load(&stash).expect("the linked file").main_midi[0],
+            78
+        );
+        store.clear_autosave("Mine");
+        assert!(!user.join("AutoSave/Mine.fac").exists(), "undone");
+        assert!(stash.is_file(), "the link went, not the file it leads to");
     }
 
     /// A preset called `name` whose first main value is `main0`, written to `path` as it is.
