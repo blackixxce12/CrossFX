@@ -9,10 +9,10 @@
     uninstaller has as much to get right as the installer.
 
     Always, the .zip: unpacked into a temporary folder, it has to hold exactly the tree the
-    installers install, and its fxsound.exe has to answer `--version` with the tree's version.
+    installers install, and its crossfx.exe has to answer `--version` with the tree's version.
 
     With -InstallOnThisMachine, first both installers asked for a folder other than
-    Program Files\FxSound Port, which each has to refuse; then the .msi and then the setup
+    Program Files\CrossFX, which each has to refuse; then the .msi and then the setup
     program, each in turn:
 
       * installed silently, per machine;
@@ -25,23 +25,32 @@
         package's, which it has to keep;
       * the setup program only: run again while a preset is held open, so that the upgrade fails
         part-way and is rolled back, which has to leave the installed tree as it was;
-      * the setup program only: FxSound Port started (--hide) to be running when it is
+      * the setup program only: CrossFX started (--hide) to be running when it is
         uninstalled, as it usually is, which the uninstaller has to close;
-      * what FxSound writes for itself set as it would: the HKCU Run value "Launch on system
-        startup" writes, "FxSound Port", and the registration and icon of its notifications,
-        each with a neighbour of another program's beside it, so that the uninstall is seen to
+      * what CrossFX writes for itself set as it would: the HKCU Run value "Launch on system
+        startup" writes, "CrossFX", and the registration and icon of its notifications, each
+        with a neighbour of this script's own beside it, a Run value and a registration that
+        no program uses and whose names begin like CrossFX's, so that the uninstall is seen to
         remove its own and only those;
-      * uninstalled silently, after which the folder, the shortcut, the entry, the "FxSound Port"
+      * uninstalled silently, after which the folder, the shortcut, the entry, the "CrossFX"
         value, the notifications' registration and their icon have to be gone, the neighbours
-        still there, and FxSound Port not running.
+        still there as they were written, and CrossFX not running.
 
-    Nothing here shows FxSound's window: the setup program runs /VERYSILENT, which skips its
+    It writes and deletes no value, key or folder but CrossFX's own and the neighbours, which it
+    writes itself and deletes again, and it reads Run values one at a time, by name, never the
+    whole list.
+
+    Nothing here shows CrossFX's window: the setup program runs /VERYSILENT, which skips its
     "Launch" box, the .msi /qn, which shows no last page at all, and the copy started to be
     uninstalled under starts in the notification area.
 
 .PARAMETER InstallOnThisMachine
-    Install and uninstall both installers, for real, under Program Files. Not on a machine that
-    is kept, and not on one where FxSound Port is installed.
+    Install and uninstall both installers, for real, under Program Files. Only on a machine that
+    is thrown away afterwards: the script refuses this mode (exit 1) unless it runs in GitHub
+    Actions (GITHUB_ACTIONS is 'true'), on the runner the windows job of
+    .github/workflows/packages.yml discards after the job. On a machine that is kept it would
+    install into and uninstall from Program Files, the Start menu and the list of installed apps,
+    write and delete values under HKCU, and start and stop CrossFX.
 
 .PARAMETER Version
     The version in the packages' file names, as build-windows.ps1's -Version; the tree's when
@@ -56,15 +65,26 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Installing is for a runner that is thrown away after the job, and for nothing else.
+if ($InstallOnThisMachine -and $env:GITHUB_ACTIONS -ne 'true') {
+    [Console]::Error.WriteLine('this mode installs and uninstalls CrossFX; it runs only on a throw-away GitHub Actions runner')
+    exit 1
+}
+
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
-$product = 'FxSound Port'
-$publisher = 'FxSound Linux port contributors'
+$product = 'CrossFX'
+$publisher = 'CrossFX contributors'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-# Where FxSound registers the AppUserModelID its notifications are shown under, and the folder of
+# Where CrossFX registers the AppUserModelID its notifications are shown under, and the folder of
 # their icon (crates/fxsound-app/src/win/toast.rs).
 $appIdKey = 'HKCU:\Software\Classes\AppUserModelId'
-$appUserModelId = 'FxSoundPort.FxSound'
+$appUserModelId = 'io.github.blackixxce12.CrossFX'
 $notificationDir = Join-Path $env:LOCALAPPDATA $product
+# The neighbours: a Run value and an AppUserModelID registration of this script's own, which no
+# program uses, written beside CrossFX's and left as they are by every uninstall.
+$neighbourValue = 'CrossFX smoke neighbour'
+$neighbourAppId = 'io.github.blackixxce12.CrossFX.SmokeNeighbour'
+$neighbourData = 'left alone by the uninstall'
 
 function Write-Step([string]$text) {
     Write-Host ''
@@ -87,7 +107,7 @@ $treeVersion = Get-TreeVersion (Join-Path $root 'Cargo.toml')
 if (-not $Version) {
     $Version = $treeVersion
 }
-$base = "fxsound-$Version-windows-x64"
+$base = "crossfx-$Version-windows-x64"
 $dist = Join-Path $root 'dist'
 $zip = Join-Path $dist "$base.zip"
 $msi = Join-Path $dist "$base.msi"
@@ -95,7 +115,7 @@ $setup = Join-Path $dist "$base-setup.exe"
 
 # What every installed or unpacked tree holds, as relative path => the file in the checkout it
 # has to equal, or $null where only its presence is checked (the executable, README.txt).
-$expected = [ordered]@{ 'fxsound.exe' = $null; 'README.txt' = $null }
+$expected = [ordered]@{ 'crossfx.exe' = $null; 'README.txt' = $null }
 $expected['LICENSE'] = Join-Path $root 'LICENSE'
 $expected['COPYING.rnnoise'] = Join-Path $root 'crates\fxsound-rnnoise\COPYING'
 $expected['OFL.noto'] = Join-Path $root 'assets\fonts\OFL.txt'
@@ -159,15 +179,15 @@ function Assert-Tree([string]$dir, [string[]]$extras = @()) {
     }
     $unexpected = @($found | Where-Object { -not $expected.Contains($_) -and $extras -notcontains $_ })
     Assert ($unexpected.Count -eq 0) "$dir has files no package should: $($unexpected -join ', ')"
-    $said = Get-VersionOutput (Join-Path $dir 'fxsound.exe')
-    Assert ($said -ceq "fxsound $treeVersion") "$dir\fxsound.exe --version says '$said', not 'fxsound $treeVersion'"
-    Write-Host "  $($expected.Count) files as expected; fxsound.exe --version: $said"
+    $said = Get-VersionOutput (Join-Path $dir 'crossfx.exe')
+    Assert ($said -ceq "crossfx $treeVersion") "$dir\crossfx.exe --version says '$said', not 'crossfx $treeVersion'"
+    Write-Host "  $($expected.Count) files as expected; crossfx.exe --version: $said"
 }
 
 Write-Step "The .zip: $zip"
 Assert (Test-Path -LiteralPath $zip -PathType Leaf) "$zip does not exist; run build-windows.ps1 first"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$unpacked = Join-Path ([System.IO.Path]::GetTempPath()) ("fxsound-smoke-" + [guid]::NewGuid().ToString('N'))
+$unpacked = Join-Path ([System.IO.Path]::GetTempPath()) ("crossfx-smoke-" + [guid]::NewGuid().ToString('N'))
 try {
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $unpacked)
     $top = @(Get-ChildItem -LiteralPath $unpacked)
@@ -191,7 +211,7 @@ $shortcut = Join-Path ([System.Environment]::GetFolderPath('CommonPrograms')) "$
 $logs = Join-Path $root 'target\windows-package\smoke-test'
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 
-# Apps and Features entries named FxSound Port, under the 64-bit and the 32-bit view.
+# Apps and Features entries named CrossFX, under the 64-bit and the 32-bit view.
 function Get-UninstallEntries {
     $keys = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -201,12 +221,18 @@ function Get-UninstallEntries {
         Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq $product })
 }
 
+# The data of the Run value $name, or $null: that one value, read by its name, and not the list
+# of every program's values Get-ItemProperty would read.
 function Get-RunValue([string]$name) {
-    $values = Get-ItemProperty -LiteralPath $runKey -ErrorAction SilentlyContinue
-    if ($values -and $values.PSObject.Properties[$name]) {
-        return $values.$name
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run')
+    if ($null -eq $key) {
+        return $null
     }
-    return $null
+    try {
+        return $key.GetValue($name, $null)
+    } finally {
+        $key.Dispose()
+    }
 }
 
 function Invoke-Installer([string]$file, [string]$arguments, [switch]$Refused) {
@@ -223,7 +249,7 @@ function Assert-Installed([string]$what, [string[]]$extras, [string]$displayVers
     Assert-Tree $installDir $extras
     Assert (Test-Path -LiteralPath $shortcut -PathType Leaf) "$what made no Start menu shortcut at $shortcut"
     $target = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut).TargetPath
-    Assert ($target -eq (Join-Path $installDir 'fxsound.exe')) "the shortcut points at $target"
+    Assert ($target -eq (Join-Path $installDir 'crossfx.exe')) "the shortcut points at $target"
     $entries = @(Get-UninstallEntries)
     Assert ($entries.Count -eq 1) "$what left $($entries.Count) entries named $product in Apps and Features"
     Assert ($entries[0].Publisher -eq $publisher) "$what's entry is published by $($entries[0].Publisher)"
@@ -231,14 +257,14 @@ function Assert-Installed([string]$what, [string[]]$extras, [string]$displayVers
     Write-Host "  shortcut, and an entry for $product $displayVersion by $publisher"
 }
 
-# What FxSound writes for itself, which the installers do not install and an uninstall has to
+# What CrossFX writes for itself, which the installers do not install and an uninstall has to
 # remove all the same: the Run value of "Launch on system startup", and the registration of the
-# AppUserModelID its notifications are shown under with their icon. Each with a neighbour named
-# as another program's might be, which has to be left alone.
+# AppUserModelID its notifications are shown under with their icon. Each with a neighbour of this
+# script's own whose name begins like it, which has to be left as it is.
 function Set-UserData {
-    New-ItemProperty -LiteralPath $runKey -Name $product -Value "`"$installDir\fxsound.exe`" --hide" -PropertyType String -Force | Out-Null
-    New-ItemProperty -LiteralPath $runKey -Name 'FxSound' -Value 'left alone by FxSound Port' -PropertyType String -Force | Out-Null
-    foreach ($id in @($appUserModelId, 'FxSound')) {
+    New-ItemProperty -LiteralPath $runKey -Name $product -Value "`"$installDir\crossfx.exe`" --hide" -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $runKey -Name $neighbourValue -Value $neighbourData -PropertyType String -Force | Out-Null
+    foreach ($id in @($appUserModelId, $neighbourAppId)) {
         $key = Join-Path $appIdKey $id
         New-Item -Path $key -Force | Out-Null
         New-ItemProperty -LiteralPath $key -Name 'DisplayName' -Value $id -PropertyType String -Force | Out-Null
@@ -253,13 +279,15 @@ function Assert-Uninstalled([string]$what) {
     Assert (-not (Test-Path -LiteralPath $shortcut)) "$what left $shortcut behind"
     Assert (@(Get-UninstallEntries).Count -eq 0) "$what left its Apps and Features entry behind"
     Assert ($null -eq (Get-RunValue $product)) "$what left the '$product' Run value behind"
-    Assert ($null -ne (Get-RunValue 'FxSound')) "$what removed the 'FxSound' Run value, which is not its own"
-    Remove-ItemProperty -LiteralPath $runKey -Name 'FxSound'
+    Assert ((Get-RunValue $neighbourValue) -eq $neighbourData) "$what changed the '$neighbourValue' Run value, which is not its own"
+    Remove-ItemProperty -LiteralPath $runKey -Name $neighbourValue
     Assert (-not (Test-Path -LiteralPath (Join-Path $appIdKey $appUserModelId))) "$what left the registration of $appUserModelId behind"
-    Assert (Test-Path -LiteralPath (Join-Path $appIdKey 'FxSound')) "$what removed the AppUserModelId 'FxSound', which is not its own"
-    Remove-Item -LiteralPath (Join-Path $appIdKey 'FxSound') -Recurse
+    $neighbourKey = Join-Path $appIdKey $neighbourAppId
+    $neighbour = Get-ItemProperty -LiteralPath $neighbourKey -ErrorAction SilentlyContinue
+    Assert ($neighbour -and $neighbour.PSObject.Properties['DisplayName'] -and $neighbour.DisplayName -eq $neighbourAppId) "$what changed the registration of $neighbourAppId, which is not its own"
+    Remove-Item -LiteralPath $neighbourKey -Recurse
     Assert (-not (Test-Path -LiteralPath $notificationDir)) "$what left $notificationDir behind"
-    Write-Host '  folder, shortcut, entry, Run value and notifications'' registration gone; the others kept'
+    Write-Host '  folder, shortcut, entry, Run value and notifications'' registration gone; the neighbours kept'
 }
 
 # The uninstaller hands over to a copy of itself in %TEMP% and exits at once, so its exit says
@@ -272,9 +300,10 @@ function Wait-ForSetupUninstall {
 }
 
 Assert (-not (Test-Path -LiteralPath $installDir)) "$installDir exists already; this test needs a machine without $product"
+Assert ($null -eq (Get-RunValue $neighbourValue) -and -not (Test-Path -LiteralPath (Join-Path $appIdKey $neighbourAppId))) "the neighbours '$neighbourValue' and $neighbourAppId exist already; they are this test's own"
 $numeric = ($treeVersion -replace '[-+].*$', '')
 
-# Each installer puts FxSound Port into Program Files\FxSound Port and nowhere else: every account
+# Each installer puts CrossFX into Program Files\CrossFX and nowhere else: every account
 # runs it from there, and a folder elsewhere, as one straight on the system drive is, may be one
 # other accounts can change. A folder asked for on the command line is refused, by the .msi's
 # launch condition (exit 1603) and by the setup program's PrepareToInstall (exit 7).
@@ -368,26 +397,26 @@ try {
 Assert-Installed 'an upgrade that failed' $setupFiles $treeVersion
 Write-Host "  an upgrade that fails on $held is rolled back with nothing of the installation lost"
 
-# Uninstalled while FxSound Port runs, as it usually is: it sits in the notification area once
-# started. The uninstaller has to close it, or fxsound.exe and its folder stay behind.
-$running = Start-Process -FilePath (Join-Path $installDir 'fxsound.exe') -ArgumentList '--hide' -PassThru
+# Uninstalled while CrossFX runs, as it usually is: it sits in the notification area once
+# started. The uninstaller has to close it, or crossfx.exe and its folder stay behind.
+$running = Start-Process -FilePath (Join-Path $installDir 'crossfx.exe') -ArgumentList '--hide' -PassThru
 # Held from the start: Windows PowerShell's Process otherwise has no exit code to give once the
 # process has ended.
 $null = $running.Handle
 Start-Sleep -Seconds 5
 if ($running.HasExited) {
-    $note = "fxsound.exe --hide ended by itself (exit $($running.ExitCode)) on this machine, so closing a running FxSound Port is not tried"
+    $note = "crossfx.exe --hide ended by itself (exit $($running.ExitCode)) on this machine, so closing a running CrossFX is not tried"
     Write-Warning $note
     if ($env:GITHUB_ACTIONS -eq 'true') {
         Write-Host "::warning title=Smoke test::$note"
     }
 } else {
-    Write-Host "  FxSound Port is running (process $($running.Id))"
+    Write-Host "  CrossFX is running (process $($running.Id))"
 }
 Set-UserData
 Invoke-Installer (Join-Path $installDir 'unins000.exe') "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=`"$logs\setup-uninstall.log`""
 Wait-ForSetupUninstall
-Assert ($running.WaitForExit(30000)) "the uninstaller left FxSound Port (process $($running.Id)) running"
+Assert ($running.WaitForExit(30000)) "the uninstaller left CrossFX (process $($running.Id)) running"
 Assert-Uninstalled 'the setup program'
 
 Write-Host ''

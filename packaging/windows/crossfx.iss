@@ -1,4 +1,4 @@
-; FxSound Port as a setup program (Inno Setup 6), in English and Russian.
+; CrossFX as a setup program (Inno Setup 6), in English and Russian.
 ;
 ; Built by packaging\windows\build-windows.ps1, never by hand: the script stages the files and
 ; passes what changes between builds on ISCC's command line, so that this file names no version
@@ -6,13 +6,13 @@
 ;
 ;   /DAppVersion=<v>          Cargo.toml's [workspace.package] version, as the program reports it
 ;   /DAppVersionNumeric=<v>   the same as four numbers, for the setup's own version information
-;   /DStageDir=<dir>          the staged tree: fxsound.exe, README.txt, the licences, presets\
-;   /DIconFile=<file>         assets\windows\fxsound.ico
+;   /DStageDir=<dir>          the staged tree: crossfx.exe, README.txt, the licences, presets\
+;   /DIconFile=<file>         assets\windows\crossfx.ico
 ;   /DOutputDir=<dir> /DOutputBaseFilename=<name>
 ;
 ; Its identity is its own, never the original's: FxSound LLC's FxSound may be installed and
 ; running beside it. Another AppId, name, publisher, folder and Start menu entry, and no driver:
-; the virtual playback device the port plays through belongs to the original FxSound or to
+; the virtual playback device CrossFX plays through belongs to the original FxSound or to
 ; VB-CABLE, and the last page says so instead of installing one.
 
 #if Ver < EncodeVer(6, 3, 0)
@@ -37,17 +37,20 @@
   #error OutputBaseFilename is not defined: build with packaging\windows\build-windows.ps1
 #endif
 
-#define AppName "FxSound Port"
-#define AppPublisher "FxSound Linux port contributors"
-#define AppURL "https://github.com/blackixxce12/fxsound-linux"
-#define AppExeName "fxsound.exe"
-; The value FxSound's "Launch on system startup" writes under
+#define AppName "CrossFX"
+; CrossFX's folder under Program Files and under %LOCALAPPDATA%: the program's DIR_NAME
+; (crates/fxsound-core/src/identity.rs).
+#define AppDirName "CrossFX"
+#define AppPublisher "CrossFX contributors"
+#define AppURL "https://github.com/blackixxce12/CrossFX"
+#define AppExeName "crossfx.exe"
+; The value CrossFX's "Launch on system startup" writes under
 ; HKCU\Software\Microsoft\Windows\CurrentVersion\Run.
-#define AutostartValue "FxSound Port"
-; The AppUserModelID FxSound's notifications are shown under, which it registers under
+#define AutostartValue "CrossFX"
+; The AppUserModelID CrossFX's notifications are shown under, which it registers under
 ; HKCU\Software\Classes\AppUserModelId before the first one, and their icon, which it writes into
 ; a folder of its own in %LOCALAPPDATA% (crates/fxsound-app/src/win/toast.rs).
-#define AppUserModelId "FxSoundPort.FxSound"
+#define AppUserModelId "io.github.blackixxce12.CrossFX"
 #define NotificationIcon "notification.png"
 
 ; Every file this version ships in the folders CurStepChanged below cleans up after an upgrade, as
@@ -75,7 +78,7 @@
 [Setup]
 ; Fixed for good: it is how a later setup finds this installation to replace it, and how
 ; Apps and Features keys it (the double brace is a literal one).
-AppId={{167B19BE-A2D2-4EF0-B5EB-056A5A09480B}
+AppId={{50CFC36F-E858-4CEB-832E-3ED2BC72D008}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -89,14 +92,14 @@ VersionInfoProductTextVersion={#AppVersion}
 VersionInfoCompany={#AppPublisher}
 VersionInfoProductName={#AppName}
 VersionInfoDescription={#AppName} Setup
-VersionInfoCopyright=Copyright (C) FxSound Linux port contributors, portions (C) FxSound LLC. GNU AGPL v3 or later.
+VersionInfoCopyright=Copyright (C) CrossFX contributors, portions (C) FxSound LLC. GNU AGPL v3 or later.
 ; Per-machine, like the .msi: one copy for every user, under Program Files, and the uninstaller
 ; needs the same rights.
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
-DefaultDirName={autopf}\{#AppName}
+DefaultDirName={autopf}\{#AppDirName}
 ; Program Files and nowhere else, so no page to choose another folder on, and PrepareToInstall
 ; below refuses one given as /DIR=.
 DisableDirPage=yes
@@ -111,7 +114,7 @@ OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBaseFilename}
 Compression=lzma2/max
 SolidCompression=yes
-; A running FxSound holds fxsound.exe open; offer to close it rather than fail or ask for a reboot.
+; A running CrossFX holds crossfx.exe open; offer to close it rather than fail or ask for a reboot.
 ; It is not restarted afterwards: the last page offers to start the new one. This is Setup's only;
 ; the uninstaller closes it in CurUninstallStepChanged below.
 CloseApplications=yes
@@ -124,32 +127,32 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Messages]
-; The last page, with the one sentence about the device FxSound plays through after the standard
+; The last page, with the one sentence about the device CrossFX plays through after the standard
 ; text, so that the layout makes room for it above the "Launch" box. NoIcons is the same page
 ; after a /NOICONS install.
-english.FinishedLabel=Setup has finished installing [name] on your computer. The application may be launched by selecting the installed shortcut.%n%nFxSound Port needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.
-english.FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nFxSound Port needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.
-russian.FinishedLabel=Программа [name] установлена на ваш компьютер. Приложение можно запустить с помощью ярлыка в меню «Пуск».%n%nДля работы FxSound Port нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: драйвер FxSound Audio Enhancer из оригинального FxSound или VB-CABLE.
-russian.FinishedLabelNoIcons=Программа [name] установлена на ваш компьютер.%n%nДля работы FxSound Port нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: драйвер FxSound Audio Enhancer из оригинального FxSound или VB-CABLE.
+english.FinishedLabel=Setup has finished installing [name] on your computer. The application may be launched by selecting the installed shortcut.%n%nCrossFX needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.
+english.FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nCrossFX needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.
+russian.FinishedLabel=Программа [name] установлена на ваш компьютер. Приложение можно запустить с помощью ярлыка в меню «Пуск».%n%nДля работы CrossFX нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: драйвер FxSound Audio Enhancer из оригинального FxSound или VB-CABLE.
+russian.FinishedLabelNoIcons=Программа [name] установлена на ваш компьютер.%n%nДля работы CrossFX нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: драйвер FxSound Audio Enhancer из оригинального FxSound или VB-CABLE.
 
 [CustomMessages]
-english.InstalledFromMsi=FxSound Port is already installed from its .msi package. Uninstall it from the list of installed apps first, or install this version from the .msi as well.
-russian.InstalledFromMsi=FxSound Port уже установлен из пакета .msi. Сначала удалите его из списка установленных приложений или установите и эту версию из пакета .msi.
-english.OnlyProgramFiles=FxSound Port can only be installed in %1. Every account on this computer runs it from its folder, and a folder elsewhere may be one that other accounts can change.
-russian.OnlyProgramFiles=FxSound Port можно установить только в папку %1. Все учётные записи этого компьютера запускают программу из её папки, а папку в другом месте могут изменять и другие учётные записи.
+english.InstalledFromMsi=CrossFX is already installed from its .msi package. Uninstall it from the list of installed apps first, or install this version from the .msi as well.
+russian.InstalledFromMsi=CrossFX уже установлен из пакета .msi. Сначала удалите его из списка установленных приложений или установите и эту версию из пакета .msi.
+english.OnlyProgramFiles=CrossFX can only be installed in %1. Every account on this computer runs it from its folder, and a folder elsewhere may be one that other accounts can change.
+russian.OnlyProgramFiles=CrossFX можно установить только в папку %1. Все учётные записи этого компьютера запускают программу из её папки, а папку в другом месте могут изменять и другие учётные записи.
 ; The uninstaller's question before it removes anything (CloseRunningProgram): CloseRunning when
-; it is about to close FxSound Port in this session, InUseElsewhere when fxsound.exe is in use
+; it is about to close CrossFX in this session, InUseElsewhere when crossfx.exe is in use
 ; where it cannot close it, either or both, then GoOn.
-english.CloseRunning=FxSound Port is running and will be closed so that it can be uninstalled. Like Exit in its menu, it first gives the default playback device back.
-russian.CloseRunning=Программа FxSound Port запущена. Для удаления она будет закрыта — так же, как по команде «Закрыть» в её меню: сначала она вернёт прежнее устройство воспроизведения по умолчанию.
-english.InUseElsewhere=FxSound Port's program file is in use where this uninstaller cannot close it, by FxSound Port in another user's session for example, and may stay until Windows restarts.
-russian.InUseElsewhere=Файл программы FxSound Port занят там, где программа удаления не может его освободить, — например, копией FxSound Port в сеансе другого пользователя — и может остаться до перезагрузки Windows.
-english.GoOn=Click OK to go on, or Cancel to keep FxSound Port installed.
-russian.GoOn=Нажмите «OK», чтобы продолжить, или «Отмена», чтобы не удалять FxSound Port.
+english.CloseRunning=CrossFX is running and will be closed so that it can be uninstalled. Like Exit in its menu, it first gives the default playback device back.
+russian.CloseRunning=Программа CrossFX запущена. Для удаления она будет закрыта — так же, как по команде «Закрыть» в её меню: сначала она вернёт прежнее устройство воспроизведения по умолчанию.
+english.InUseElsewhere=CrossFX's program file is in use where this uninstaller cannot close it, by CrossFX in another user's session for example, and may stay until Windows restarts.
+russian.InUseElsewhere=Файл программы CrossFX занят там, где программа удаления не может его освободить, — например, копией CrossFX в сеансе другого пользователя — и может остаться до перезагрузки Windows.
+english.GoOn=Click OK to go on, or Cancel to keep CrossFX installed.
+russian.GoOn=Нажмите «OK», чтобы продолжить, или «Отмена», чтобы не удалять CrossFX.
 
 [Files]
 ; The staged tree as it is: the files and folders build-windows.ps1 put there are the package.
-; uninsrestartdelete is for a copy of FxSound Port the uninstaller could not close (in another
+; uninsrestartdelete is for a copy of CrossFX the uninstaller could not close (in another
 ; user's session, say): the files it holds go when Windows restarts instead of staying for good.
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs uninsrestartdelete
 
@@ -164,9 +167,9 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 // The .msi installs the same program into the same folder under an entry of its own. Over it,
 // this setup would leave two entries in the list of installed apps, each uninstalling the files
 // the other one expects, so it stops instead; the .msi refuses the other way round. The .msi is
-// found by its upgrade code (packaging\windows\fxsound.wxs), which every version of it shares.
+// found by its upgrade code (packaging\windows\crossfx.wxs), which every version of it shares.
 const
-  MsiUpgradeCode = '{B9D37BB7-CC1E-4A59-ABE5-4CEAEF9B6496}';
+  MsiUpgradeCode = '{02B08DA0-2631-41C0-8125-7D6D5CFDF025}';
   ErrorSuccess = 0;
   ErrorMoreData = 234;
   // The preprocessor's list above (Shipped), apostrophes doubled for Pascal: "70's.fac".
@@ -190,12 +193,12 @@ begin
   end;
 end;
 
-// Program Files\FxSound Port and nowhere else. Every account on the computer runs FxSound Port
-// from its folder — from the Start menu, and at log-in once "Launch on system startup" is on —
+// Program Files\CrossFX and nowhere else. Every account on the computer runs CrossFX from its
+// folder — from the Start menu, and at log-in once "Launch on system startup" is on —
 // and an administrator runs the uninstaller in it, elevated, so the folder has to be one only
 // administrators can change. Under Program Files it is; a folder elsewhere inherits whatever its
 // parent grants, and the root of a drive lets every account create folders and change what is in
-// them: C:\FxSound Port would let any account replace fxsound.exe or the uninstaller under the
+// them: C:\CrossFX would let any account replace crossfx.exe or the uninstaller under the
 // others. It also keeps the Run values of the other accounts, which an uninstall cannot reach,
 // pointing into a folder no account but an administrator can make again. The page is not shown
 // (DisableDirPage) and a /DIR= is refused here, which in a silent install is exit code 7.
@@ -204,7 +207,7 @@ var
   Only: String;
 begin
   Result := '';
-  Only := ExpandConstant('{autopf}\{#AppName}');
+  Only := ExpandConstant('{autopf}\{#AppDirName}');
   if CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), Only) <> 0 then
     Result := FmtMessage(CustomMessage('OnlyProgramFiles'), [Only]);
 end;
@@ -249,7 +252,7 @@ end;
 // file it copied that was not there before it started: had the old presets been cleared first, as
 // [InstallDelete] clears them, the new copies would count as new and go with the rollback, leaving
 // no presets at all. Only the package's own kinds of file in the package's own folders, too: the
-// folder is always Program Files\FxSound Port (PrepareToInstall), user presets are kept under
+// folder is always Program Files\CrossFX (PrepareToInstall), user presets are kept under
 // %APPDATA%, never here, and the uninstaller and its log are left alone. A file is of the kind by
 // its own name (OfKind, above), and a name is compared without regard to case, as NTFS compares
 // it, so that no shipped file is taken for another.
@@ -297,23 +300,23 @@ begin
   end;
 end;
 
-// Closing a running FxSound Port before the uninstaller removes anything: CloseRunningProgram and
+// Closing a running CrossFX before the uninstaller removes anything: CloseRunningProgram and
 // what it uses, down to CurUninstallStepChanged.
 //
-// A running FxSound Port has fxsound.exe loaded, which cannot be deleted, and it would go on
+// A running CrossFX has crossfx.exe loaded, which cannot be deleted, and it would go on
 // playing with its presets deleted from under it, so it is closed first. With the Restart Manager,
 // as Setup's CloseApplications closes it for an upgrade and Windows Installer for the .msi: the
-// program is asked to end as at log-off, which FxSound Port answers as Exit in its menu does,
+// program is asked to end as at log-off, which CrossFX answers as Exit in its menu does,
 // giving the default playback device back first.
 //
-// Only this installation's fxsound.exe running in this session is closed. A first Restart Manager
+// Only this installation's crossfx.exe running in this session is closed. A first Restart Manager
 // session lists every process that has the file open; the ones that run it in this session are
 // registered again, by process, in a second one, and only that one is shut down. The first, shut
 // down, would also close whatever else has the file open, Explorer reading its icon say, which
 // nothing would start again; and with a copy in another user's session in its list, which cannot
 // be closed from here (a reboot reason), it would close nothing at all, this session's copy
 // included (ERROR_FAIL_NOACTION_REBOOT). FxSound LLC's FxSound.exe, which may be running too, is
-// another file and never listed. Not forced: whatever keeps fxsound.exe open is left with it, and
+// another file and never listed. Not forced: whatever keeps crossfx.exe open is left with it, and
 // the file goes when Windows restarts (uninsrestartdelete), which the question says beforehand.
 const
   // RM_REBOOT_REASON: nothing keeps the session's processes from being shut down.
@@ -437,18 +440,18 @@ begin
     begin
       Copies[Result] := InUse[I].Process;
       Result := Result + 1;
-      Which := 'FxSound Port in this session';
+      Which := 'CrossFX in this session';
     end
     else
       Which := 'not closed from here';
-    Log('fxsound.exe is in use by ' + RmAppName(InUse[I]) + ', process ' +
+    Log('crossfx.exe is in use by ' + RmAppName(InUse[I]) + ', process ' +
       IntToStr(InUse[I].Process.ProcessId) + ' in session ' + IntToStr(InUse[I].TSSessionId) +
       ': ' + Which);
   end;
 end;
 
-// The question, unless the uninstaller is silent; Cancel stops the uninstall. Closing: FxSound
-// Port is about to be closed in this session. Elsewhere: fxsound.exe is in use where it is not.
+// The question, unless the uninstaller is silent; Cancel stops the uninstall. Closing: CrossFX
+// is about to be closed in this session. Elsewhere: crossfx.exe is in use where it is not.
 procedure ConfirmClosing(Closing, Elsewhere: Boolean);
 var
   Question: String;
@@ -478,7 +481,7 @@ begin
   // What has the file open. The session key and its terminating null: 33 characters.
   if RmStartSession(Session, 0, StringOfChar(' ', 33)) <> ErrorSuccess then
   begin
-    Log('The Restart Manager did not start; a running FxSound Port is not closed');
+    Log('The Restart Manager did not start; a running CrossFX is not closed');
     Exit;
   end;
   try
@@ -499,19 +502,19 @@ begin
     Listed := Count;
     if Listed = 0 then
       Exit;
-    Log('fxsound.exe is in use; Restart Manager reboot reasons ' + IntToStr(Reasons));
+    Log('crossfx.exe is in use; Restart Manager reboot reasons ' + IntToStr(Reasons));
     Own := CopiesHere(InUse, Listed, Exe, Copies);
     Elsewhere := Own < Listed;
   end
   else if Status = ErrorMoreData then
   begin
-    Log('fxsound.exe is in use by ' + IntToStr(Needed) + ' processes; none is closed');
+    Log('crossfx.exe is in use by ' + IntToStr(Needed) + ' processes; none is closed');
     Elsewhere := True;
   end
   else
   begin
-    Log('The Restart Manager did not list what has fxsound.exe open (error ' +
-      IntToStr(Status) + '); a running FxSound Port is not closed');
+    Log('The Restart Manager did not list what has crossfx.exe open (error ' +
+      IntToStr(Status) + '); a running CrossFX is not closed');
     Exit;
   end;
 
@@ -532,15 +535,15 @@ begin
         ConfirmClosing(True, Elsewhere);
         Status := RmShutdown(Session, 0, 0);
         if Status = ErrorSuccess then
-          Log('FxSound Port was running in this session and is closed')
+          Log('CrossFX was running in this session and is closed')
         else
-          Log('FxSound Port did not close (Restart Manager error ' + IntToStr(Status) +
-            '); fxsound.exe goes when Windows restarts');
+          Log('CrossFX did not close (Restart Manager error ' + IntToStr(Status) +
+            '); crossfx.exe goes when Windows restarts');
       end
       // Unless it has ended meanwhile, it runs on where it is not closed after all.
       else if (Status <> ErrorSuccess) or (Count > 0) then
       begin
-        Log('FxSound Port is not closed in this session (Restart Manager error ' +
+        Log('CrossFX is not closed in this session (Restart Manager error ' +
           IntToStr(Status) + ', reboot reasons ' + IntToStr(Reasons) + ')');
         Elsewhere := True;
       end;
@@ -550,7 +553,7 @@ begin
   end
   else if Own > 0 then
   begin
-    Log('The Restart Manager did not start; FxSound Port is not closed in this session');
+    Log('The Restart Manager did not start; CrossFX is not closed in this session');
     Elsewhere := True;
   end;
   if not Closing and Elsewhere then
@@ -564,22 +567,23 @@ begin
     // question leaves everything as it was.
     usUninstall:
       CloseRunningProgram;
-    // What FxSound Port writes for itself, not the setup, so the uninstaller does not know of it:
+    // What CrossFX writes for itself, not the setup, so the uninstaller does not know of it:
     // the "Launch on system startup" Run value, which left behind would start a program that is no
     // longer there at every log-in, and the registration and icon of its notifications, which
     // would keep a sender of that name in Windows' notification settings. Only a real uninstall
     // gets here: an upgrade installs over the old version without uninstalling it, and the
     // setting survives. HKCU and %LOCALAPPDATA% are the uninstalling user's, which is the user who
-    // ran FxSound Port unless an administrator's account was used to elevate.
+    // ran CrossFX unless an administrator's account was used to elevate.
     usPostUninstall:
       begin
         RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run',
           '{#AutostartValue}');
         RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER,
           'Software\Classes\AppUserModelId\{#AppUserModelId}');
-        DeleteFile(ExpandConstant('{localappdata}\{#AppName}\{#NotificationIcon}'));
-        // Only when that left it empty.
-        RemoveDir(ExpandConstant('{localappdata}\{#AppName}'));
+        DeleteFile(ExpandConstant('{localappdata}\{#AppDirName}\{#NotificationIcon}'));
+        // Only when that left it empty: the record of the defaults CrossFX holds,
+        // claimed-defaults.toml, may still be there, with the user's own picks in it.
+        RemoveDir(ExpandConstant('{localappdata}\{#AppDirName}'));
       end;
   end;
 end;

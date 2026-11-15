@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds the Windows packages of FxSound Port: a setup program (Inno Setup 6), a Windows
+    Builds the Windows packages of CrossFX: a setup program (Inno Setup 6), a Windows
     Installer package (WiX Toolset 5.0.2) and a portable .zip, each with its SHA-256 sum.
 
 .DESCRIPTION
@@ -8,28 +8,28 @@
     Windows (.github/workflows/packages.yml, the windows job). Into dist\ beside the repository
     root it writes
 
-        fxsound-<version>-windows-x64-setup.exe    and .sha256
-        fxsound-<version>-windows-x64.msi          and .sha256
-        fxsound-<version>-windows-x64.zip          and .sha256
+        crossfx-<version>-windows-x64-setup.exe    and .sha256
+        crossfx-<version>-windows-x64.msi          and .sha256
+        crossfx-<version>-windows-x64.zip          and .sha256
 
     where each .sha256 is one line in sha256sum's format, so `sha256sum -c` checks it.
 
     All three carry the same tree: what build-tarball.sh ships, laid out as Windows finds it,
     everything in the folder of the executable (install_data_dirs in
-    crates/fxsound-preset/src/lib.rs looks for "presets" beside fxsound.exe):
+    crates/fxsound-preset/src/lib.rs looks for "presets" beside crossfx.exe):
 
-        fxsound.exe
+        crossfx.exe
         presets\Factsoft\*.fac   presets\BonusPresets\*.fac   presets\Input\*.toml
         LICENSE   COPYING.rnnoise   OFL.noto   OFL.manrope   README.txt
 
-    The fonts and the translations are compiled into fxsound.exe. The virtual playback device it
+    The fonts and the translations are compiled into crossfx.exe. The virtual playback device it
     plays through is not shipped and not downloaded; README.txt and both installers' last page
     say so.
 
     The version is Cargo.toml's [workspace.package] version and is written nowhere else: the
     installers get it on their compilers' command lines. As build-tarball.sh does, the script
     builds the binary from the tree it sits in, and refuses to pack one whose `--version` is not
-    "fxsound <that version>". It also refuses one that needs the Visual C++ runtime DLLs, which
+    "crossfx <that version>". It also refuses one that needs the Visual C++ runtime DLLs, which
     a clean Windows does not have: the build here links the C runtime statically.
 
     Needs cargo (unless -Binary is given), Inno Setup 6.3 or later (ISCC.exe on PATH, in its
@@ -42,7 +42,7 @@
     with; PowerShell 7 is not what it is tested on.
 
 .PARAMETER Binary
-    An fxsound.exe built elsewhere, packed instead of building one. It is held to the same two
+    A crossfx.exe built elsewhere, packed instead of building one. It is held to the same two
     checks.
 
 .PARAMETER Version
@@ -87,7 +87,7 @@ function Write-LoudWarning([string]$title, [string[]]$lines) {
     }
 }
 
-# [workspace.package]'s version: the one fxsound reports (env!("CARGO_PKG_VERSION")).
+# [workspace.package]'s version: the one crossfx reports (env!("CARGO_PKG_VERSION")).
 function Get-TreeVersion([string]$cargoToml) {
     $section = ''
     foreach ($line in [System.IO.File]::ReadAllLines($cargoToml)) {
@@ -348,14 +348,14 @@ if ($major -gt 255 -or $minor -gt 255 -or $patch -gt 65535) {
     throw "$treeVersion does not fit an MSI version (at most 255.255.65535)"
 }
 $numeric = "$major.$minor.$patch"
-$base = "fxsound-$Version-windows-x64"
+$base = "crossfx-$Version-windows-x64"
 
 $dist = Join-Path $root 'dist'
 $work = Join-Path $root 'target\windows-package'
 $stage = Join-Path $work 'stage'
-$icon = Join-Path $root 'assets\windows\fxsound.ico'
+$icon = Join-Path $root 'assets\windows\crossfx.ico'
 
-Write-Step "FxSound Port $treeVersion (files named $base)"
+Write-Step "CrossFX $treeVersion (files named $base)"
 
 # Before the build, which is the long part: a missing tool should not wait for it.
 $iscc = Find-Iscc
@@ -374,7 +374,7 @@ if ($Binary) {
     if (-not $cargo) {
         throw 'cargo was not found; install Rust, or pass -Binary'
     }
-    # Always built, as build-tarball.sh does: an fxsound.exe an earlier checkout left in target\
+    # Always built, as build-tarball.sh does: a crossfx.exe an earlier checkout left in target\
     # would otherwise be packed under this tree's version. The target directory is pinned for this
     # one command, so a CARGO_TARGET_DIR set elsewhere cannot send the build where this script does
     # not look. The C runtime is linked statically, because the dynamic one, vcruntime140.dll,
@@ -389,22 +389,22 @@ if ($Binary) {
         } else {
             $env:RUSTFLAGS = (@($env:RUSTFLAGS, '-C target-feature=+crt-static') | Where-Object { $_ }) -join ' '
         }
-        Invoke-Tool $cargo.Source @('build', '--release', '--locked', '-p', 'fxsound-app', '--bin', 'fxsound')
+        Invoke-Tool $cargo.Source @('build', '--release', '--locked', '-p', 'fxsound-app', '--bin', 'crossfx')
     } finally {
         foreach ($name in $saved.Keys) {
             # $null removes a variable that was not set before.
             [System.Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process')
         }
     }
-    $exe = Join-Path $root 'target\release\fxsound.exe'
+    $exe = Join-Path $root 'target\release\crossfx.exe'
 }
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw "$exe does not exist"
 }
 
-# The binary has to be this tree's: `fxsound --version` prints "fxsound <version>".
+# The binary has to be this tree's: `crossfx --version` prints "crossfx <version>".
 $said = Get-VersionOutput $exe
-if ($said -cne "fxsound $treeVersion") {
+if ($said -cne "crossfx $treeVersion") {
     throw "build-windows.ps1: $exe says '$said', but Cargo.toml is at $treeVersion; refusing to pack it"
 }
 Write-Host "$exe --version: $said"
@@ -425,7 +425,7 @@ if (Test-Path -LiteralPath $work) {
 New-Item -ItemType Directory -Path $stage | Out-Null
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 
-Copy-Item -LiteralPath $exe -Destination (Join-Path $stage 'fxsound.exe')
+Copy-Item -LiteralPath $exe -Destination (Join-Path $stage 'crossfx.exe')
 
 # Each file copied from the repository, by its path in the stage => its path in the repository;
 # see "the repository's bytes" below.
@@ -533,7 +533,7 @@ Invoke-Tool $iscc @(
     "/DIconFile=$icon",
     "/DOutputDir=$dist",
     "/DOutputBaseFilename=$base-setup",
-    (Join-Path $here 'fxsound.iss')
+    (Join-Path $here 'crossfx.iss')
 ) -log (Join-Path $work 'iscc.log')
 
 # ------------------------------------------------------------------- the Windows Installer package
@@ -552,9 +552,9 @@ Invoke-Tool $wix.Path @(
     '-d', "LicenseRtf=$rtf",
     '-d', "IconFile=$icon",
     '-intermediatefolder', (Join-Path $work 'wix'),
-    '-pdb', (Join-Path $work 'fxsound.wixpdb'),
+    '-pdb', (Join-Path $work 'crossfx.wixpdb'),
     '-o', $msi,
-    (Join-Path $here 'fxsound.wxs')
+    (Join-Path $here 'crossfx.wxs')
 ) -log (Join-Path $work 'wix.log')
 
 # The Windows Installer SDK's consistency checks (ICEs), as Orca runs them: on a copy of the
@@ -562,7 +562,7 @@ Invoke-Tool $wix.Path @(
 Invoke-Tool $wix.Path @(
     'msi', 'validate',
     '-sice', 'ICE61',
-    '-pdb', (Join-Path $work 'fxsound.wixpdb'),
+    '-pdb', (Join-Path $work 'crossfx.wixpdb'),
     '-intermediateFolder', (Join-Path $work 'ice'),
     $msi
 ) -log (Join-Path $work 'ice.log')

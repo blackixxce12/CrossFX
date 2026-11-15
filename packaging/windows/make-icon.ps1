@@ -1,9 +1,10 @@
 <#
 .SYNOPSIS
-    Regenerates assets\windows\fxsound.ico from assets\images\fxsound_large.png.
+    Regenerates assets\windows\crossfx.ico from assets\images\fxsound_large.png, the original's
+    artwork.
 
 .DESCRIPTION
-    The icon fxsound.exe carries (crates\fxsound-app\build.rs) and that both installers show.
+    The icon crossfx.exe carries (crates\fxsound-app\build.rs) and that both installers show.
     The .ico is committed, so a build needs neither this script nor System.Drawing; run it again
     only when the artwork changes, and commit what it writes.
 
@@ -35,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not $Source) { $Source = Join-Path $root 'assets\images\fxsound_large.png' }
-if (-not $Output) { $Output = Join-Path $root 'assets\windows\fxsound.ico' }
+if (-not $Output) { $Output = Join-Path $root 'assets\windows\crossfx.ico' }
 
 Add-Type -AssemblyName System.Drawing
 
