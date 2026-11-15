@@ -42,9 +42,11 @@ use crate::layout::{self, Chrome};
 use crate::state::{UiAction, UiResponse, UiState};
 use crate::theme::{FxColor, Palette};
 use crate::views::{ViewScratch, at, window_origin, window_size};
-use crate::widgets::PowerButton;
 use crate::widgets::icon_button::{self, IconButton};
-use egui::{CornerRadius, CursorIcon, Id, Painter, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2};
+use crate::widgets::{PowerButton, wordmark};
+use egui::{
+    Color32, CornerRadius, CursorIcon, Id, Painter, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2,
+};
 use fxsound_core::ViewMode;
 use fxsound_core::i18n::tr;
 
@@ -205,14 +207,7 @@ pub fn show(
         bar_rect(origin, width),
         &mut response,
     );
-    paint_logo(
-        ui,
-        state,
-        scratch,
-        palette,
-        assets,
-        at(origin, chrome.logo.rect()),
-    );
+    paint_logo(ui, state, scratch, palette, at(origin, chrome.logo.rect()));
 
     if icon(
         ui,
@@ -321,50 +316,35 @@ fn drag_region(
     }
 }
 
-/// The wordmark, cross-faded between its plain and highlighted variants.
+/// The wordmark's colour `fade` of the way from its plain variant to its highlighted one: the
+/// logotype's own two, `logo-white.svg`/`logo-black.svg` and `logo-red.svg`/`logo-blue.svg` —
+/// the palette's `HighlightedText` and `ImageButton`.
+#[must_use]
+pub fn logo_colour(palette: Palette, fade: f32) -> Color32 {
+    palette
+        .color(FxColor::HighlightedText)
+        .lerp_to_gamma(palette.color(FxColor::ImageButton), fade.clamp(0.0, 1.0))
+}
+
+/// The wordmark, cross-faded between its plain and highlighted colours.
 ///
 /// `FxWindow` keeps two `Drawable`s stacked at the same 106 × 15 rectangle and animates their
-/// alphas in opposite directions (`FxWindow.cpp:181`, `:193-208`); painting both at complementary
-/// opacities is the same picture. While the fade is running the context is asked to repaint, so a
-/// window with no other animation still finishes the transition.
+/// alphas in opposite directions (`FxWindow.cpp:181`, `:193-208`). The wordmark here is CrossFX's
+/// name ([`crate::widgets::wordmark`]), not the original's logotype, and runs through the same two
+/// colours over the same time ([`logo_colour`]). While the fade is running the context is asked to
+/// repaint, so a window with no other animation still finishes the transition.
 ///
-/// This is the original's wordmark at every level of «Как в Windows»; a wordmark animation of a
-/// later version gives way to it from Interface on
+/// The same wordmark at every level of «Like the original FxSound LLC», since names are not
+/// parity; a wordmark animation of a later version gives way to this one from Interface on
 /// ([`fxsound_core::LaterFeature::RainbowWordmark`]).
-fn paint_logo(
-    ui: &Ui,
-    state: &UiState,
-    scratch: &mut ViewScratch,
-    palette: Palette,
-    assets: &mut AssetCache,
-    rect: Rect,
-) {
+fn paint_logo(ui: &Ui, state: &UiState, scratch: &mut ViewScratch, palette: Palette, rect: Rect) {
     let dt = ui.input(|input| input.stable_dt);
     // The original starts the animation from `FxController` when the DSP begins processing, which
     // is audio flowing *and* the power on (`docs/spec/01-window-layout.md` §3.7).
     scratch.logo_fade = logo_fade(scratch.logo_fade, state.audio_active && state.power, dt);
     let fade = scratch.logo_fade;
 
-    if fade < 1.0 {
-        icon_button::paint_image(
-            ui,
-            rect,
-            FxImage::DefaultLogo,
-            palette.mode(),
-            assets,
-            1.0 - fade,
-        );
-    }
-    if fade > 0.0 {
-        icon_button::paint_image(
-            ui,
-            rect,
-            FxImage::HighlightedLogo,
-            palette.mode(),
-            assets,
-            fade,
-        );
-    }
+    wordmark::paint(ui.painter(), rect, logo_colour(palette, fade));
     if fade > 0.0 && fade < 1.0 {
         // Paced, not immediate: the window runs without vsync (the compositor withholds frame
         // callbacks from a hidden surface, and a blocking swap would hang the event loop), so an
@@ -674,6 +654,78 @@ mod tests {
         assert!((logo_fade(0.25, false, -1.0) - 0.25).abs() < 1e-6);
         // A poisoned previous value is replaced by the target rather than propagated.
         assert!((logo_fade(f32::NAN, true, 0.1) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_wordmark_runs_from_the_logotypes_plain_colour_to_its_highlighted_one() {
+        // logo-white.svg and logo-red.svg in the dark theme, logo-black.svg and logo-blue.svg in
+        // the light one.
+        for (mode, plain, highlighted) in [
+            (
+                ThemeMode::Dark,
+                Color32::from_rgb(0xff, 0xff, 0xff),
+                Color32::from_rgb(0xe6, 0x34, 0x62),
+            ),
+            (
+                ThemeMode::Light,
+                Color32::from_rgb(0x00, 0x00, 0x00),
+                Color32::from_rgb(0x23, 0xb6, 0xeb),
+            ),
+        ] {
+            let palette = Palette::new(mode);
+            assert_eq!(logo_colour(palette, 0.0), plain, "{mode:?}");
+            assert_eq!(logo_colour(palette, 1.0), highlighted, "{mode:?}");
+            let half = logo_colour(palette, 0.5);
+            assert!(half != plain && half != highlighted, "{mode:?}: {half:?}");
+            // Out of range holds at the ends.
+            assert_eq!(logo_colour(palette, -1.0), plain, "{mode:?}");
+            assert_eq!(logo_colour(palette, 2.0), highlighted, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn the_title_bar_names_crossfx_in_the_logotypes_box_at_every_level() {
+        // Names are not parity: «Like the original FxSound LLC» = Interface keeps CrossFX's name.
+        for view in [ViewMode::Pro, ViewMode::Lite] {
+            for level in [
+                fxsound_core::WindowsParity::Off,
+                fxsound_core::WindowsParity::Interface,
+                fxsound_core::WindowsParity::Sound,
+            ] {
+                let state = UiState {
+                    windows_parity: level,
+                    ..state(view)
+                };
+                let mut harness = crate::views::testing::Harness::new(ThemeMode::Dark);
+                let shapes = harness.settle(&state);
+                let logo = chrome(view).logo.rect();
+                let names: Vec<(Rect, Color32)> = crate::views::testing::texts(&shapes)
+                    .into_iter()
+                    .filter(|(text, ..)| text == fxsound_core::identity::PRODUCT)
+                    .map(|(_, rect, colour)| (rect, colour))
+                    .collect();
+                assert_eq!(names.len(), 1, "{view:?} {level:?}: {names:?}");
+                let (rect, colour) = names[0];
+                // A point's slack for the pixel grid.
+                assert!(
+                    logo.expand(1.0).contains_rect(rect),
+                    "{view:?} {level:?}: {rect:?} outside {logo:?}"
+                );
+                // Idle: the plain colour.
+                assert_eq!(
+                    colour,
+                    logo_colour(harness.palette, 0.0),
+                    "{view:?} {level:?}"
+                );
+                // And nothing in the bar spells the original's name.
+                assert!(
+                    crate::views::testing::texts(&shapes)
+                        .iter()
+                        .all(|(text, ..)| !text.contains("FxSound")),
+                    "{view:?} {level:?}"
+                );
+            }
+        }
     }
 
     #[test]
