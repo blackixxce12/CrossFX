@@ -222,7 +222,7 @@ jobs:
       # Container images drop every manual page a package ships: ubuntu:24.04 through a dpkg
       # path-exclude, archlinux through pacman's NoExtract, fedora through dnf's tsflags=nodocs
       # (debian:* keeps them). A desktop installation keeps them, and the smoke test below checks
-      # that the package installed its page — `fxsound --self-test` fails without one — so the
+      # that the package installed its page — `crossfx --self-test` fails without one — so the
       # image is told to keep them too. After the build dependencies, before the package.
       - name: Let the image install manual pages
         shell: bash
@@ -262,9 +262,9 @@ jobs:
             makepkg -f --noconfirm --nocheck
           ls -la ./*.pkg.tar.zst
           # Not the -debug package makepkg may split off.
-          pacman -U --noconfirm ./fxsound-linux-[0-9]*.pkg.tar.zst
+          pacman -U --noconfirm ./crossfx-[0-9]*.pkg.tar.zst
           mkdir -p ../dist
-          cp ./fxsound-linux-[0-9]*.pkg.tar.zst ../dist/
+          cp ./crossfx-[0-9]*.pkg.tar.zst ../dist/
 
       # ------------------------------------------------------------------ Debian, Ubuntu
       - name: Build and install (Debian, Ubuntu)
@@ -279,12 +279,12 @@ jobs:
           DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -us -uc -b -d -nc
           ls -la ../*.deb
           # apt rather than dpkg -i, so the runtime Depends are pulled in and checked.
-          apt-get install -y ../fxsound-linux_*_amd64.deb
+          apt-get install -y ../crossfx_*_amd64.deb
           # Both distributions name the file identically; the codename keeps the two apart in a
           # release. The -dbgsym package is not shipped.
           codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
           mkdir -p dist
-          for f in ../fxsound-linux_*_amd64.deb; do
+          for f in ../crossfx_*_amd64.deb; do
             mv "$f" "dist/$(basename "${f%.deb}").${codename}.deb"
           done
           ls -la dist/
@@ -300,11 +300,11 @@ jobs:
           ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           # Source0 is what GitHub's archive URL would serve for the tag; Source1 is the vendored
           # crate tree for that exact Cargo.lock, which no RPM build can fetch itself.
-          git archive --prefix="fxsound-linux-${ver}/" \
-            -o "$HOME/rpmbuild/SOURCES/fxsound-linux-${ver}.tar.gz" HEAD
+          git archive --prefix="CrossFX-${ver}/" \
+            -o "$HOME/rpmbuild/SOURCES/crossfx-${ver}.tar.gz" HEAD
           cargo vendor --locked vendor
-          tar caf "$HOME/rpmbuild/SOURCES/fxsound-linux-${ver}-vendor.tar.xz" vendor
-          cp packaging/fedora/fxsound.spec "$HOME/rpmbuild/SPECS/"
+          tar caf "$HOME/rpmbuild/SOURCES/crossfx-${ver}-vendor.tar.xz" vendor
+          cp packaging/fedora/crossfx.spec "$HOME/rpmbuild/SPECS/"
           extra=()
           if [ "${{ steps.fedora-rust.outputs.use_rustup }}" = true ]; then
             # cargo-rpm-macros hard-code %__cargo as /usr/bin/cargo and %cargo_prep writes
@@ -317,31 +317,31 @@ jobs:
               --define "__rustdoc $CARGO_HOME/bin/rustdoc")
           fi
           # -ba: the .src.rpm too, for COPR. --without check: the tests belong to ci.yml.
-          rpmbuild -ba --without check "${extra[@]}" "$HOME/rpmbuild/SPECS/fxsound.spec"
+          rpmbuild -ba --without check "${extra[@]}" "$HOME/rpmbuild/SPECS/crossfx.spec"
           ls -la "$HOME"/rpmbuild/RPMS/*/ "$HOME"/rpmbuild/SRPMS/
           # dnf rather than rpm -i, so Requires are resolved and checked. Not the -debuginfo and
           # -debugsource subpackages.
-          dnf -y install "$HOME"/rpmbuild/RPMS/x86_64/fxsound-linux-"${ver}"-*.x86_64.rpm
+          dnf -y install "$HOME"/rpmbuild/RPMS/x86_64/crossfx-"${ver}"-*.x86_64.rpm
           mkdir -p dist
-          cp "$HOME"/rpmbuild/RPMS/x86_64/fxsound-linux-"${ver}"-*.x86_64.rpm \
-             "$HOME"/rpmbuild/SRPMS/fxsound-linux-*.src.rpm \
-             "$HOME/rpmbuild/SOURCES/fxsound-linux-${ver}-vendor.tar.xz" dist/
+          cp "$HOME"/rpmbuild/RPMS/x86_64/crossfx-"${ver}"-*.x86_64.rpm \
+             "$HOME"/rpmbuild/SRPMS/crossfx-*.src.rpm \
+             "$HOME/rpmbuild/SOURCES/crossfx-${ver}-vendor.tar.xz" dist/
           ls -la dist/
 
       # ------------------------------------------------------------------ Tarball
       - name: Build and install (tarball)
         if: matrix.family == 'tarball'
         run: |
-          cargo build --release --bin fxsound
+          cargo build --release --bin crossfx
           packaging/build-tarball.sh
           ls -la dist/
-          tar xf dist/fxsound-linux-*.tar.gz
+          tar xf dist/crossfx-*.tar.gz
           # The glob is expanded into a variable first: as a command name it would be run as
           # whatever it matched first, and shellcheck (SC2211) rightly refuses that.
-          set -- fxsound-linux-*/install.sh
+          set -- crossfx-*/install.sh
           test "$#" -eq 1
           "./$1" /usr/local
-          test -x /usr/local/bin/fxsound
+          test -x /usr/local/bin/crossfx
 
       # ------------------------------------------------------------------ Smoke test, every leg
       # No display, no PipeWire, no session bus: everything below has to hold in that setting,
@@ -351,9 +351,9 @@ jobs:
         run: |
           set -euo pipefail
           prefix='${{ matrix.prefix }}'
-          bin="$prefix/bin/fxsound"
+          bin="$prefix/bin/crossfx"
 
-          echo "::group::fxsound --version"
+          echo "::group::crossfx --version"
           "$bin" --version
           echo "::endgroup::"
 
@@ -363,12 +363,12 @@ jobs:
           # icons, unit and man page must be looked for under the binary's own prefix — the
           # directory two above current_exe() — because on the tarball leg that is /usr/local,
           # and a self-test that only knows /usr would fail a correct install.
-          echo "::group::fxsound --self-test --json"
+          echo "::group::crossfx --self-test --json"
           "$bin" --self-test --json
           echo "::endgroup::"
 
           echo "::group::files"
-          desktop="$prefix/share/applications/com.fxsound.FxSound.desktop"
+          desktop="$prefix/share/applications/io.github.blackixxce12.CrossFX.desktop"
           test -f "$desktop"
           if [ '${{ matrix.strict_desktop }}' = true ]; then
             desktop-file-validate "$desktop"
@@ -376,17 +376,17 @@ jobs:
             desktop-file-validate "$desktop" \
               || echo "::warning::desktop-file-validate failed on $desktop (this image's desktop-file-utils predates SingleMainWindow)"
           fi
-          test -f '${{ matrix.unitdir }}/fxsound.service'
-          grep -qx 'BusName=org.fxsound.FxSound' '${{ matrix.unitdir }}/fxsound.service'
-          grep -qx 'Name=org.fxsound.FxSound' "$prefix/share/dbus-1/services/org.fxsound.FxSound.service"
-          ls "$prefix"/share/man/man1/fxsound.1*
-          test -f "$prefix/share/metainfo/com.fxsound.FxSound.metainfo.xml"
+          test -f '${{ matrix.unitdir }}/crossfx.service'
+          grep -qx 'BusName=io.github.blackixxce12.CrossFX' '${{ matrix.unitdir }}/crossfx.service'
+          grep -qx 'Name=io.github.blackixxce12.CrossFX' "$prefix/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
+          ls "$prefix"/share/man/man1/crossfx.1*
+          test -f "$prefix/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml"
           for state in off on processing; do
-            test -f "$prefix/share/icons/hicolor/scalable/status/com.fxsound.FxSound-$state.svg"
+            test -f "$prefix/share/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-$state.svg"
           done
-          # The application icon under both names: `Icon=fxsound`, and the application id every
-          # notification is sent with.
-          for name in fxsound com.fxsound.FxSound; do
+          # The application icon under the application id, the one name the desktop entry, the
+          # notifications and the sound settings look it up by.
+          for name in io.github.blackixxce12.CrossFX; do
             test -f "$prefix/share/icons/hicolor/256x256/apps/$name.png"
             test -f "$prefix/share/icons/hicolor/32x32/apps/$name.png"
           done
@@ -408,16 +408,16 @@ jobs:
           unpacked=$(mktemp -d)
           case '${{ matrix.family }}' in
             arch)
-              bsdtar -xf "$(ls dist/fxsound-linux-[0-9]*.pkg.tar.zst)" -C "$unpacked" \
-                usr/share/licenses/fxsound-linux
-              same "$unpacked/usr/share/licenses/fxsound-linux/COPYING.rnnoise" "$rnnoise" COPYING.rnnoise
-              same "$unpacked/usr/share/licenses/fxsound-linux/OFL.noto" "$ofl" OFL.noto
+              bsdtar -xf "$(ls dist/crossfx-[0-9]*.pkg.tar.zst)" -C "$unpacked" \
+                usr/share/licenses/crossfx
+              same "$unpacked/usr/share/licenses/crossfx/COPYING.rnnoise" "$rnnoise" COPYING.rnnoise
+              same "$unpacked/usr/share/licenses/crossfx/OFL.noto" "$ofl" OFL.noto
               ;;
             deb)
-              deb=$(ls dist/fxsound-linux_*.deb)
+              deb=$(ls dist/crossfx_*.deb)
               dpkg-deb --fsys-tarfile "$deb" \
-                | tar -xf - -C "$unpacked" ./usr/share/doc/fxsound-linux/copyright
-              copyright="$unpacked/usr/share/doc/fxsound-linux/copyright"
+                | tar -xf - -C "$unpacked" ./usr/share/doc/crossfx/copyright
+              copyright="$unpacked/usr/share/doc/crossfx/copyright"
               for line in 'Files: crates/fxsound-rnnoise/*' 'License: BSD-3-Clause' \
                 'Files: assets/fonts/Noto* assets/fonts/OFL.txt' 'License: OFL-1.1' \
                 ' - Neither the name of the Xiph.Org Foundation nor the names of its' \
@@ -429,12 +429,12 @@ jobs:
               done
               ;;
             rpm)
-              same /usr/share/licenses/fxsound-linux/COPYING.rnnoise "$rnnoise" COPYING.rnnoise
-              same /usr/share/licenses/fxsound-linux/OFL.noto "$ofl" OFL.noto
+              same /usr/share/licenses/crossfx/COPYING.rnnoise "$rnnoise" COPYING.rnnoise
+              same /usr/share/licenses/crossfx/OFL.noto "$ofl" OFL.noto
               ;;
             tarball)
-              same "$prefix/share/doc/fxsound-linux/COPYING.rnnoise" "$rnnoise" COPYING.rnnoise
-              same "$prefix/share/doc/fxsound-linux/OFL.noto" "$ofl" OFL.noto
+              same "$prefix/share/doc/crossfx/COPYING.rnnoise" "$rnnoise" COPYING.rnnoise
+              same "$prefix/share/doc/crossfx/OFL.noto" "$ofl" OFL.noto
               ;;
           esac
           rm -rf "$unpacked"
@@ -446,7 +446,7 @@ jobs:
           for pair in Factsoft:fac BonusPresets:fac Input:toml; do
             dir=${pair%%:*}; ext=${pair#*:}
             want=$(ls "$GITHUB_WORKSPACE/assets/presets/$dir"/*."$ext" | wc -l)
-            have=$(ls "$prefix/share/fxsound/presets/$dir"/*."$ext" | wc -l)
+            have=$(ls "$prefix/share/crossfx/presets/$dir"/*."$ext" | wc -l)
             echo "$dir: $have installed, $want in the tree"
             if [ "$have" -ne "$want" ]; then
               echo "::error::$dir has $have *.$ext installed but the tree has $want"
@@ -478,7 +478,7 @@ jobs:
     env:
       # WiX 5.0.2 and nothing later: WiX 6 and 7 build only once `wix eula accept` has accepted
       # the Open Source Maintenance Fee licence, which this project has not. Inno Setup 6, the
-      # release packaging/windows/fxsound.iss was compiled with.
+      # release packaging/windows/crossfx.iss was compiled with.
       WIX_VERSION: '5.0.2'
       INNO_SETUP_VERSION: '6.7.3'
     # Windows PowerShell 5.1, which the scripts are written and tested against. The runner's

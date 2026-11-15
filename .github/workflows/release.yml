@@ -72,27 +72,27 @@ jobs:
             "$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p}' Cargo.toml | head -1)"
           check "packaging/PKGBUILD pkgver" \
             "$(sed -n 's/^pkgver=//p' packaging/PKGBUILD)"
-          check "packaging/aur/fxsound-linux-bin/PKGBUILD pkgver" \
-            "$(sed -n 's/^pkgver=//p' packaging/aur/fxsound-linux-bin/PKGBUILD)"
+          check "packaging/aur/crossfx-bin/PKGBUILD pkgver" \
+            "$(sed -n 's/^pkgver=//p' packaging/aur/crossfx-bin/PKGBUILD)"
           # This line, not Cargo.toml, names the .deb.
           deb=$(sed -n '1s/^[^ ]* *(\([^)]*\)).*/\1/p' packaging/debian/changelog)
           check "packaging/debian/changelog head (upstream part)" "${deb%-*}"
-          check "packaging/fedora/fxsound.spec Version" \
-            "$(sed -n 's/^Version:[[:space:]]*//p' packaging/fedora/fxsound.spec)"
+          check "packaging/fedora/crossfx.spec Version" \
+            "$(sed -n 's/^Version:[[:space:]]*//p' packaging/fedora/crossfx.spec)"
           # rpmlint wants the newest %changelog entry to carry the package's own version; the
           # line reads "* <date> <name> <email> - <version>-<release>".
-          check "packaging/fedora/fxsound.spec %changelog head" \
-            "$(sed -n '/^%changelog/{n;s/.* - \([^- ]*\)-[0-9]*$/\1/p}' packaging/fedora/fxsound.spec)"
+          check "packaging/fedora/crossfx.spec %changelog head" \
+            "$(sed -n '/^%changelog/{n;s/.* - \([^- ]*\)-[0-9]*$/\1/p}' packaging/fedora/crossfx.spec)"
           check "packaging/fedora/README.md VER" \
             "$(sed -n 's/^VER=//p' packaging/fedora/README.md | head -1)"
-          check "packaging/fxsound.1 .TH" \
-            "$(sed -n 's/^\.TH FXSOUND 1 "[^"]*" "fxsound \([^"]*\)".*/\1/p' packaging/fxsound.1)"
-          newest=$(grep -m1 -o '<release version="[^"]*" date="[^"]*"' packaging/com.fxsound.FxSound.metainfo.xml || true)
-          check "packaging/com.fxsound.FxSound.metainfo.xml newest <release>" \
+          check "packaging/crossfx.1 .TH" \
+            "$(sed -n 's/^\.TH CROSSFX 1 "[^"]*" "crossfx \([^"]*\)".*/\1/p' packaging/crossfx.1)"
+          newest=$(grep -m1 -o '<release version="[^"]*" date="[^"]*"' packaging/io.github.blackixxce12.CrossFX.metainfo.xml || true)
+          check "packaging/io.github.blackixxce12.CrossFX.metainfo.xml newest <release>" \
             "$(printf '%s' "$newest" | sed 's/.*version="\([^"]*\)".*/\1/')"
           # The install commands name the artefacts by version, five times over.
           check_all "README.md install commands" \
-            "$(grep -o 'fxsound-linux[-_][0-9]*\.[0-9]*\.[0-9]*' README.md | sed 's/^fxsound-linux[-_]//' | sort -u | tr '\n' ' ')"
+            "$(grep -o 'crossfx[-_][0-9]*\.[0-9]*\.[0-9]*' README.md | sed 's/^crossfx[-_]//' | sort -u | tr '\n' ' ')"
           # A comment quoting cargo's own refusal, "package `fxsound-app v0.4.0` cannot be built";
           # the comment wraps between the name and the version, so the file is joined first.
           check_all "packaging/debian/control quoted cargo error" \
@@ -200,13 +200,13 @@ jobs:
             echo '## Packages'
             echo
             echo 'Every Linux package below was built inside the distribution it is for, installed there'
-            echo 'and smoke-tested (`fxsound --self-test`) by the same workflow that runs on every push;'
+            echo 'and smoke-tested (`crossfx --self-test`) by the same workflow that runs on every push;'
             echo 'the tarball was built on Debian 12 so its binary runs on anything with glibc 2.36 or newer.'
             echo 'The Windows setup program, `.msi` and portable `.zip` (64-bit Windows 10 and 11) were'
-            echo 'built on Windows Server 2025 by the same workflow, then installed, run (`fxsound --version`)'
+            echo 'built on Windows Server 2025 by the same workflow, then installed, run (`crossfx --version`)'
             echo 'and uninstalled there. They are not code-signed, so SmartScreen may warn before the first'
-            echo 'start, and they install no audio driver: FxSound Port needs a virtual playback device,'
-            echo 'the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.'
+            echo 'start, and they install no audio driver: CrossFX needs a virtual playback device, the'
+            echo 'FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.'
             echo 'Check a download against `SHA256SUMS` before installing it.'
           } >> release-notes.md
           cat release-notes.md
@@ -224,7 +224,7 @@ jobs:
       - name: Job summary
         run: |
           ver='${{ needs.verify.outputs.version }}'
-          sum=$(awk '$2 ~ /^fxsound-linux-.*-x86_64\.tar\.gz$/ { print $1 }' dist/SHA256SUMS)
+          sum=$(awk '$2 ~ /^crossfx-.*-x86_64\.tar\.gz$/ { print $1 }' dist/SHA256SUMS)
           {
             echo '## Published'
             echo
@@ -232,7 +232,7 @@ jobs:
             cat dist/SHA256SUMS
             echo '```'
             echo
-            echo '## packaging/aur/fxsound-linux-bin/PKGBUILD'
+            echo '## packaging/aur/crossfx-bin/PKGBUILD'
             echo
             echo 'Paste over the placeholders, then regenerate .SRCINFO with `makepkg --printsrcinfo`:'
             echo
