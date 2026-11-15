@@ -1,53 +1,55 @@
-//! «Как в Windows» / "Like FxSound for Windows": how close to the Windows build FxSound behaves.
+//! «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC": how close to the original
+//! FxSound for Windows CrossFX behaves.
 //!
-//! One setting, four cumulative levels (`docs/0.5.0-windows-parity.md`), of which 0.5.0 offers the
-//! first three:
+//! One setting, four cumulative levels (`docs/0.5.0-windows-parity.md`), of which this version
+//! offers the first three:
 //!
 //! | Level | Key | What it changes |
 //! |---|---|---|
-//! | Off | `off` | Nothing: FxSound for Linux as it is. |
-//! | Interface | `interface` | What the Windows build *shows or operates* differently goes back to Windows. The sound does not change. |
-//! | Interface and sound | `sound` | Plus the Windows DSP paths of the output lane, so a preset sounds as it does there. |
-//! | Everything | `full` | Plus the features the Windows build does not have are hidden and stopped. |
+//! | Off | `off` | Nothing: CrossFX as it is. |
+//! | Interface | `interface` | What the original *shows or operates* differently goes back to the original's way. The sound does not change. |
+//! | Interface and sound | `sound` | Plus the original's DSP paths of the output lane, so a preset sounds as it does in the original. |
+//! | Everything | `full` | Plus the features the original does not have are hidden and stopped. |
 //!
-//! Everything arrives in 0.6.0 (W4): 0.5.0 keeps it in the enum, so that a later version's
-//! `settings.toml` still reads, but refuses it on every path ([`FULL_NOT_YET`],
+//! Everything arrives in a later version (W4): this one keeps it in the enum, so that a later
+//! version's `settings.toml` still reads, but refuses it on every path ([`FULL_NOT_YET`],
 //! [`WindowsParity::offered`]). A file that says `full` keeps saying it — the level survives a
-//! save, so going back up to 0.6.0 finds Everything again — and runs as Interface and sound
-//! ([`WindowsParity::offered_or_below`]) wherever the level is used.
+//! save, so going back up to the version that offers it finds Everything again — and runs as
+//! Interface and sound ([`WindowsParity::offered_or_below`]) wherever the level is used.
 //!
 //! Every level includes the ones before it, and none of them ever writes the user's other
 //! settings: the level is a view over [`crate::Settings`], so going back to Off finds everything as
-//! it was. What is never reverted at any level — the port's own fixes where Windows is wrong, the
-//! protections against data loss, the click-free transitions, the Linux plumbing (tray, D-Bus,
+//! it was. What is never reverted at any level — CrossFX's own fixes where the original is wrong,
+//! the protections against data loss, the click-free transitions, the Linux plumbing (tray, D-Bus,
 //! `--status`, `--watch`) — is listed in the contract document.
 //!
 //! [`ParityClass`] is how every command, Settings tab and D-Bus call declares the level it belongs
 //! to. Each classification is an exhaustive `match` with no `_` arm, so a new option, tab or
 //! method does not compile until someone has decided which level changes it.
 //!
-//! Built for Windows, the same mode follows FxSound LLC's own FxSound, which runs beside it there,
-//! and is called «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC"
-//! ([`crate::Original`]). The levels and what they change are the same; the interface's words
-//! for them are the Windows build's own (`fxsound_ui::dialogs::settings`), and so are the
-//! refusals below. [`WindowsParity::label`] and [`WindowsParity::hint`] are FxSound for Linux's.
+//! The mode has one name on Linux and on Windows, where the original runs beside CrossFX: CrossFX
+//! has a Windows build of its own, so a name that said "Windows" would no longer say which program
+//! the mode follows. The levels, what they change, [`WindowsParity::label`],
+//! [`WindowsParity::hint`] and [`FULL_NOT_YET`] are the same on both; only what Everything would
+//! switch off differs, since Windows has neither the applications' presets nor D-Bus
+//! ([`full_refusal`]).
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// The level of «Как в Windows» / "Like FxSound for Windows".
+/// The level of «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC".
 ///
 /// Ordered: a level includes every level below it ([`WindowsParity::interface`],
 /// [`WindowsParity::sound`], [`WindowsParity::full`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WindowsParity {
-    /// FxSound for Linux as it is. The default.
+    /// CrossFX as it is. The default.
     #[default]
     Off,
-    /// The window and its controls as on Windows; the sound unchanged.
+    /// The window and its controls as in the original; the sound unchanged.
     Interface,
-    /// Plus the Windows sound: presets sound as they do there.
+    /// Plus the original's sound: presets sound as they do in it.
     Sound,
-    /// Plus only what Windows has: the port's own features are hidden and stopped.
+    /// Plus only what the original has: CrossFX's own features are hidden and stopped.
     Full,
 }
 
@@ -56,11 +58,12 @@ impl WindowsParity {
     pub const ALL: [Self; 4] = [Self::Off, Self::Interface, Self::Sound, Self::Full];
 
     /// The levels this version offers, in order: the slider's three positions. Everything is kept
-    /// in the enum so that a `settings.toml` of a later version still reads, and arrives in 0.6.0
-    /// (W4).
+    /// in the enum so that a `settings.toml` of a later version still reads, and arrives in a
+    /// later version (W4).
     pub const SLIDER_LEVELS: [Self; 3] = [Self::Off, Self::Interface, Self::Sound];
 
-    /// Whether this version offers the level: every level but Everything, which arrives in 0.6.0.
+    /// Whether this version offers the level: every level but Everything, which arrives in a later
+    /// version.
     #[must_use]
     pub const fn offered(self) -> bool {
         !matches!(self, Self::Full)
@@ -115,10 +118,10 @@ impl WindowsParity {
     #[must_use]
     pub const fn hint(self) -> &'static str {
         match self {
-            Self::Off => "FxSound for Linux as it is.",
-            Self::Interface => "Window and controls as on Windows. Same sound.",
-            Self::Sound => "Plus the Windows sound: presets sound the same.",
-            Self::Full => "Only what Windows has; the rest is hidden.",
+            Self::Off => "CrossFX as it is.",
+            Self::Interface => "Window and controls as in the original. Same sound.",
+            Self::Sound => "Plus the original's sound: presets sound the same.",
+            Self::Full => "Only what the original has; the rest is hidden.",
         }
     }
 
@@ -145,27 +148,27 @@ impl WindowsParity {
         matches!(self, Self::Off)
     }
 
-    /// Whether the interface is the Windows one: Interface and every level above it.
+    /// Whether the interface is the original's: Interface and every level above it.
     #[must_use]
     pub const fn interface(self) -> bool {
         self as u8 >= Self::Interface as u8
     }
 
-    /// Whether the output lane runs the Windows DSP: Interface and sound, and Everything.
+    /// Whether the output lane runs the original's DSP: Interface and sound, and Everything.
     #[must_use]
     pub const fn sound(self) -> bool {
         self as u8 >= Self::Sound as u8
     }
 
-    /// Whether the port's own features are hidden and stopped: Everything only.
+    /// Whether CrossFX's own features are hidden and stopped: Everything only.
     #[must_use]
     pub const fn full(self) -> bool {
         matches!(self, Self::Full)
     }
 
     /// Whether a thing of `class` is changed at this level: an interface thing from Interface
-    /// on, a sound thing from Interface and sound on, a port-only thing at Everything, and a thing
-    /// that is never reverted at no level at all.
+    /// on, a sound thing from Interface and sound on, a thing of CrossFX's own at Everything, and a
+    /// thing that is never reverted at no level at all.
     #[must_use]
     pub const fn changes(self, class: ParityClass) -> bool {
         match class {
@@ -183,11 +186,10 @@ impl WindowsParity {
     /// does not offer, is kept as it was read, so that the next save writes it back and going
     /// back up a version loses nothing; it runs as Interface and sound
     /// ([`WindowsParity::offered_or_below`], applied where the level is used), so a file a later
-    /// version wrote keeps the Windows interface and sound it asked for. `false` is
+    /// version wrote keeps the original's interface and sound it asked for. `false` is
     /// Off. `true` is Interface and sound: the superseded plan for this mode had a single switch
-    /// that meant the Windows interface and the Windows sound together, with nothing hidden, and
-    /// a file edited by hand from that plan says `true`. Anything else is Off, with a warning in
-    /// the log.
+    /// that meant the original's interface and sound together, with nothing hidden, and a file
+    /// edited by hand from that plan says `true`. Anything else is Off, with a warning in the log.
     #[must_use]
     pub fn from_toml(value: &toml::Value) -> Self {
         match value {
@@ -244,21 +246,22 @@ impl<'de> Deserialize<'de> for WindowsParity {
     }
 }
 
-/// The level at which something stops behaving as it does in FxSound for Linux.
+/// The level at which something stops behaving as it does in CrossFX with the mode off.
 ///
 /// Every command-line command, Settings tab and D-Bus call has one, given by an exhaustive
 /// `match` so that nothing new can be added without deciding it (`docs/0.5.0-windows-parity.md`,
 /// "Classification").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParityClass {
-    /// A Windows feature the port shows or operates differently: set back to Windows from
-    /// Interface on.
+    /// A feature of the original's that CrossFX shows or operates differently: set back to the
+    /// original's way from Interface on.
     Interface,
-    /// A Windows DSP path the port computes differently: set back from Interface and sound on.
+    /// A DSP path of the original's that CrossFX computes differently: set back from Interface
+    /// and sound on.
     Sound,
-    /// A feature the Windows build does not have: hidden and stopped at Everything.
+    /// A feature the original does not have: hidden and stopped at Everything.
     Full,
-    /// Kept as it is at every level: a fix of the port's where Windows is wrong, a protection
+    /// Kept as it is at every level: a fix of CrossFX's where the original is wrong, a protection
     /// against losing data, a click-free transition, or Linux plumbing.
     Never,
 }
@@ -276,34 +279,35 @@ impl ParityClass {
     }
 }
 
-/// A way the window looks or works in the Windows build that the port changed, and that
-/// Interface sets back (`docs/0.5.0-windows-parity.md` §2, "Window look", and §2.1): one variant
-/// per approved row, named at the place in the interface that follows it, so that a search for
-/// the variant finds everything the row changes.
+/// A way the window looks or works in the original that CrossFX changed, and that Interface sets
+/// back (`docs/0.5.0-windows-parity.md` §2, "Window look", and §2.1): one variant per approved
+/// row, named at the place in the interface that follows it, so that a search for the variant
+/// finds everything the row changes.
 ///
 /// Not listed, because the approved table keeps them at every level: the values shown with the
-/// power off (#42, a port error), Restore Defaults keeping the band count (R5, data loss) and an
-/// effect slider showing a stored value between its positions (#14, which only keeps a touch from
-/// changing a preset silently).
+/// power off (#42, a CrossFX error), Restore Defaults keeping the band count (R5, data loss) and
+/// an effect slider showing a stored value between its positions (#14, which only keeps a touch
+/// from changing a preset silently).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WindowsLook {
-    /// Master Gain and Balance move by two decibels, as the Windows sliders do (0.4.0 audit #22).
-    /// The microphone's Makeup Gain, which Windows does not have, keeps its one.
+    /// Master Gain and Balance move by two decibels, as the original's sliders do (0.4.0 audit
+    /// #22). The microphone's Makeup Gain, which the original does not have, keeps its one.
     LevelSteps,
     /// Volume Leveling's readout says `dB` after its 0 to 4 amount (#23).
     LevelingUnit,
-    /// The Windows palette as it is (#24, #25): in the light theme a graph that is switched off
+    /// The original's palette as it is (#24, #25): in the light theme a graph that is switched off
     /// turns its colours white, and the rules and a menu's edge are `Outline`.
     Palette,
     /// A long preset name is cut with its unsaved-changes mark, not before it (#26).
     ModifiedMarkCut,
-    /// Only the tooltips the Windows build has (#27 and the tips the port added to Windows
+    /// Only the tooltips the original has (#27 and the tips CrossFX added to the original's
     /// controls): none on the title bar's buttons, the card's flip button or the level sliders,
-    /// and no line about a right-click reset or the solo. The port's own features, the microphone
+    /// and no line about a right-click reset or the solo. CrossFX's own features, the microphone
     /// lane among them, keep theirs.
     WindowsTooltips,
-    /// The three Windows tabs of Settings caption themselves in the normal font on one line, cut
-    /// where the button ends, as on Windows (#29). The port's own tabs keep the fitted caption.
+    /// The original's three tabs of Settings caption themselves in the normal font on one line,
+    /// cut where the button ends, as in the original (#29). CrossFX's own tabs keep the fitted
+    /// caption.
     NavCaptions,
     /// A slider's fill painted as `drawLinearSlider` paints it, from the thumb's x as a width
     /// (#41, `Fidelity::Faithful`).
@@ -318,11 +322,11 @@ pub enum WindowsLook {
     /// that plays (R8).
     CurveThroughBands,
     /// A right-click does not reset an effect slider (R9): it presses it as the left button does,
-    /// as a JUCE slider takes it. The level sliders and the bands keep their reset, which Windows
-    /// has.
+    /// as a JUCE slider takes it. The level sliders and the bands keep their reset, which the
+    /// original has.
     EffectReset,
-    /// The language switch runs in the Windows build's order (#28): the order only, never its
-    /// wrong names.
+    /// The language switch runs in the original's order (#28): the order only, never its wrong
+    /// names.
     LanguageOrder,
     /// The tray cuts a playback device's name after 30 characters (#31; W3).
     TrayNames,
@@ -346,8 +350,8 @@ impl WindowsLook {
         Self::TrayNames,
     ];
 
-    /// The level that sets the row back to Windows. Exhaustive, so a new row cannot be added
-    /// without deciding it.
+    /// The level that sets the row back to the original's way. Exhaustive, so a new row cannot be
+    /// added without deciding it.
     #[must_use]
     pub const fn parity_class(self) -> ParityClass {
         match self {
@@ -388,13 +392,13 @@ impl WindowsLook {
     }
 }
 
-/// A feature a later version of FxSound adds, and the level at which it gives way to the Windows
-/// build (`docs/0.5.0-windows-parity.md` §2.2). None of them is in 0.5.0: this is the hook each
-/// one asks when it arrives, through [`WindowsParity::keeps`], so that the level is decided here,
-/// once, in an exhaustive `match`, and not by each feature on its own.
+/// A feature a later version of CrossFX adds, and the level at which it gives way to the
+/// original's (`docs/0.5.0-windows-parity.md` §2.2). None of them is in this version: this is the
+/// hook each one asks when it arrives, through [`WindowsParity::keeps`], so that the level is
+/// decided here, once, in an exhaustive `match`, and not by each feature on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LaterFeature {
-    /// The Customization tab and the themes beyond FxSound's two (0.7.0): the Windows palette
+    /// The Customization tab and the themes beyond CrossFX's two (0.7.0): the original's palette
     /// from Interface on; the tab is one line there, and hidden at Everything.
     Themes,
     /// Following the system's or the shell's palette (0.7.0): its watchers stop from Interface
@@ -410,11 +414,11 @@ pub enum LaterFeature {
     /// Everything.
     ForeignFormats,
     /// Global shortcuts through the portal (0.7.0): every level, since they bring back the
-    /// Windows hotkeys.
+    /// original's hotkeys.
     GlobalShortcuts,
     /// The MCP server and `--diag` (0.6.0): every level.
     Mcp,
-    /// `fxsound cava` / `fxcava` (0.7.0): independent of the level.
+    /// `crossfx cava` / `fxcava` (0.7.0): independent of the level.
     Cava,
 }
 
@@ -432,7 +436,7 @@ impl LaterFeature {
         Self::Cava,
     ];
 
-    /// The level from which the feature gives way to the Windows build.
+    /// The level from which the feature gives way to the original's.
     #[must_use]
     pub const fn parity_class(self) -> ParityClass {
         match self {
@@ -448,65 +452,48 @@ impl LaterFeature {
 }
 
 impl WindowsParity {
-    /// Whether the window follows the Windows build in `look` at this level.
+    /// Whether the window follows the original in `look` at this level.
     #[must_use]
     pub const fn windows_look(self, look: WindowsLook) -> bool {
         self.changes(look.parity_class())
     }
 
     /// Whether a feature of a later version runs as it would with the mode off: `false` from the
-    /// level at which it gives way to the Windows build ([`LaterFeature::parity_class`]).
+    /// level at which it gives way to the original's ([`LaterFeature::parity_class`]).
     #[must_use]
     pub const fn keeps(self, feature: LaterFeature) -> bool {
         !self.changes(feature.parity_class())
     }
 }
 
-/// What the command line and D-Bus answer to Everything in 0.5.0, which does not offer it
-/// ([`WindowsParity::offered`]). Plain English, as every refusal of theirs.
-///
-/// On Windows the mode is "Like the original FxSound LLC" ([`crate::Original::FxSoundLlc`]): the
-/// interface's name for it, and the one a refusal there has to use ([`full_not_yet`]).
-pub const FULL_NOT_YET: &str = full_not_yet(crate::PLATFORM.original);
+/// What the command line and D-Bus answer to Everything, which this version does not offer
+/// ([`WindowsParity::offered`]). Plain English, as every refusal of theirs, and the same on both
+/// platforms: the mode's name is the interface's, «Like the original FxSound LLC», on both.
+pub const FULL_NOT_YET: &str = "\"Like the original FxSound LLC\" = Everything arrives in a later \
+                                version of CrossFX. This one offers off, interface and sound.";
 
 /// What the command line and D-Bus answer when a move to Everything would take something live
 /// away and nobody said to go ahead: they cannot ask, as the window does, so they refuse. Kept
-/// for Everything, which arrives in 0.6.0 (W4); until then [`FULL_NOT_YET`] is the answer.
+/// for Everything, which arrives in a later version (W4); until then [`FULL_NOT_YET`] is the
+/// answer.
 ///
 /// The confirmation's words, and how to say "go ahead" on each path ([`full_refusal`]).
-pub const FULL_REFUSAL: &str = full_refusal(crate::PLATFORM.original);
+pub const FULL_REFUSAL: &str = full_refusal(crate::PLATFORM);
 
-/// [`FULL_NOT_YET`] where the mode follows `original`.
+/// [`FULL_REFUSAL`] on `platform`: what Everything would switch off there, and how to say "go
+/// ahead" there. Windows has neither the applications' presets nor D-Bus
+/// ([`crate::Platform::WINDOWS`]), so its refusal names neither.
 #[must_use]
-pub const fn full_not_yet(original: crate::Original) -> &'static str {
-    match original {
-        crate::Original::WindowsBuild => {
-            "\"Like FxSound for Windows\" = Everything arrives in a later version of FxSound. \
-             This one offers off, interface and sound."
-        }
-        crate::Original::FxSoundLlc => {
-            "\"Like the original FxSound LLC\" = Everything arrives in a later version of \
-             FxSound. This one offers off, interface and sound."
-        }
-    }
-}
-
-/// [`FULL_REFUSAL`] where the mode follows `original`. Windows has neither the applications'
-/// presets nor D-Bus ([`crate::Platform::WINDOWS`]), so its refusal names neither.
-#[must_use]
-pub const fn full_refusal(original: crate::Original) -> &'static str {
-    match original {
-        crate::Original::WindowsBuild => {
-            "\"Like FxSound for Windows\" = Everything would switch off FxSound's microphone and \
-             application presets now: programs recording through FxSound or playing through \
-             their own preset would move straight to the devices. Your settings are kept. Add \
-             --force to switch anyway (force = true over D-Bus)."
-        }
-        crate::Original::FxSoundLlc => {
-            "\"Like the original FxSound LLC\" = Everything would switch off FxSound's \
-             microphone now: programs recording through FxSound would move straight to the \
-             microphone. Your settings are kept. Add --force to switch anyway."
-        }
+pub const fn full_refusal(platform: crate::Platform) -> &'static str {
+    if platform.app_presets && platform.dbus {
+        "\"Like the original FxSound LLC\" = Everything would switch off CrossFX's microphone and \
+         application presets now: programs recording through CrossFX or playing through their \
+         own preset would move straight to the devices. Your settings are kept. Add --force to \
+         switch anyway (force = true over D-Bus)."
+    } else {
+        "\"Like the original FxSound LLC\" = Everything would switch off CrossFX's microphone \
+         now: programs recording through CrossFX would move straight to the microphone. Your \
+         settings are kept. Add --force to switch anyway."
     }
 }
 
@@ -648,42 +635,72 @@ mod tests {
     }
 
     #[test]
-    fn the_refusals_keep_their_linux_words_and_name_the_original_and_no_d_bus_on_windows() {
-        use crate::Original::{FxSoundLlc, WindowsBuild};
-        // Linux's, word for word as 0.5.0 printed them.
+    fn the_refusals_name_the_mode_as_the_interface_does_and_d_bus_only_where_there_is_one() {
+        use crate::Platform;
         assert_eq!(
-            full_not_yet(WindowsBuild),
-            "\"Like FxSound for Windows\" = Everything arrives in a later version of FxSound. \
-             This one offers off, interface and sound."
+            FULL_NOT_YET,
+            "\"Like the original FxSound LLC\" = Everything arrives in a later version of \
+             CrossFX. This one offers off, interface and sound."
         );
         assert_eq!(
-            full_refusal(WindowsBuild),
-            "\"Like FxSound for Windows\" = Everything would switch off FxSound's microphone and \
-             application presets now: programs recording through FxSound or playing through \
+            full_refusal(Platform::LINUX),
+            "\"Like the original FxSound LLC\" = Everything would switch off CrossFX's microphone \
+             and application presets now: programs recording through CrossFX or playing through \
              their own preset would move straight to the devices. Your settings are kept. Add \
              --force to switch anyway (force = true over D-Bus)."
         );
-        for text in [full_not_yet(FxSoundLlc), full_refusal(FxSoundLlc)] {
+        assert_eq!(
+            full_refusal(Platform::WINDOWS),
+            "\"Like the original FxSound LLC\" = Everything would switch off CrossFX's microphone \
+             now: programs recording through CrossFX would move straight to the microphone. Your \
+             settings are kept. Add --force to switch anyway."
+        );
+        for text in [
+            FULL_NOT_YET,
+            full_refusal(Platform::LINUX),
+            full_refusal(Platform::WINDOWS),
+        ] {
+            // The mode's name is the only mention of the original; the program is CrossFX.
             assert!(
                 text.starts_with("\"Like the original FxSound LLC\""),
                 "{text}"
             );
-            assert!(
-                !text.contains("Windows") && !text.contains("D-Bus"),
-                "{text}"
-            );
+            assert_eq!(text.matches("FxSound").count(), 1, "{text}");
+            assert!(!text.contains("Windows"), "{text}");
         }
-        assert!(full_refusal(FxSoundLlc).contains("--force"));
-        assert_eq!(FULL_NOT_YET, full_not_yet(crate::PLATFORM.original));
-        assert_eq!(FULL_REFUSAL, full_refusal(crate::PLATFORM.original));
+        // A platform without the applications' presets or without D-Bus has nothing of the
+        // longer refusal to switch off or to answer with.
+        for platform in [
+            Platform {
+                app_presets: false,
+                ..Platform::LINUX
+            },
+            Platform {
+                dbus: false,
+                ..Platform::LINUX
+            },
+        ] {
+            assert_eq!(full_refusal(platform), full_refusal(Platform::WINDOWS));
+        }
+        assert!(!full_refusal(Platform::WINDOWS).contains("D-Bus"));
+        assert!(full_refusal(Platform::WINDOWS).contains("--force"));
+        assert_eq!(FULL_REFUSAL, full_refusal(crate::PLATFORM));
     }
 
     #[test]
     fn every_position_has_a_label_and_a_hint_of_one_short_line() {
         for level in WindowsParity::ALL {
             assert!(!level.label().is_empty());
-            // The rule the translators get: about fifty Latin characters at most.
-            assert!(level.hint().chars().count() <= 50, "{:?}", level.hint());
+            // The rule the translators get: about fifty Latin characters at most (Interface's,
+            // "as in the original", is the longest at fifty-one).
+            assert!(level.hint().chars().count() <= 51, "{:?}", level.hint());
+            // The original is "the original" in each, and the program CrossFX.
+            assert!(
+                !level.hint().contains("Windows") && !level.hint().contains("Linux"),
+                "{:?}",
+                level.hint()
+            );
         }
+        assert_eq!(WindowsParity::Off.hint(), "CrossFX as it is.");
     }
 }

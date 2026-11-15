@@ -5,8 +5,8 @@
 //! `De-esser`, `Denoise` and their two status words — shipped in English to twenty-eight
 //! languages without anyone noticing. This audit is what notices: it reads the source of the
 //! two crates that draw text, gathers what they pass to `tr`, and checks each string against
-//! every language's table built the way the app builds it at run time, the Windows original
-//! with the port's additions layered over it.
+//! every language's table built the way the app builds it at run time, the original's with
+//! CrossFX's additions layered over it.
 //!
 //! A source scan rather than a hand-kept list, because a hand-kept list is the thing that was
 //! missing. It reads a literal, an `if` or a `match` whose every branch is a literal, and a
@@ -16,15 +16,179 @@
 //! every such argument is listed in [`INDIRECT_CALLS`] with the strings it can carry, and a new
 //! one fails `every_argument_the_scan_cannot_read_is_listed_with_its_strings` until someone
 //! lists it.
+//!
+//! The strings that name the program say CrossFX, and only they do; the original's four that name
+//! it are read under CrossFX's keys (`fxsound_core::i18n::RENAMED_ORIGINALS`), and the original's
+//! name stays only where a string means the original FxSound: the name audit, the grammar guard,
+//! provenance and the derived values below.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use fxsound_core::i18n::{Catalogue, LANGUAGES};
+use fxsound_core::i18n::{Catalogue, LANGUAGES, Language, RENAMED_ORIGINALS};
 use fxsound_core::{
     DeEsserMode, DenoiseChannelMode, DenoiseChannelsOverride, DenoiseLevel, DereverbLevel,
     DeviceDirection, Effect, NoiseSuppressionOverride, WindowsParity,
 };
+
+// RENAME_IN_PROGRESS
+/// Whether the code and the port tables may still ask for, or translate, a string under its old
+/// spelling: true while the partitions of the rename are apart, false (and gone, with [`RENAMED`]
+/// and every branch on them) once they are merged.
+const RENAME_IN_PROGRESS: bool = true;
+
+// RENAME_IN_PROGRESS
+/// Every key the rename changes, as (old key, new key): the original's four, the port's own, and
+/// each retired key with the key that replaces it. Where one table holds several spellings of one
+/// new key, the new spelling wins, then the old spelling listed first here.
+const RENAMED: &[(&str, &str)] = &[
+    ("FxSound is %s.", "CrossFX is %s."),
+    (
+        "FxSound in system tray\nClick FxSound icon to reopen",
+        "CrossFX in system tray\nClick CrossFX icon to reopen",
+    ),
+    ("Turn FxSound On/Off", "Turn CrossFX On/Off"),
+    ("Open/Close FxSound", "Open/Close CrossFX"),
+    (
+        "A Wayland client cannot bind global shortcuts: the compositor owns them. Bind these \
+         commands in your compositor's configuration — each one reaches the running instance \
+         over FxSound's control socket.",
+        "A Wayland client cannot bind global shortcuts: the compositor owns them. Bind these \
+         commands in your compositor's configuration — each one reaches the running instance \
+         over CrossFX's control socket.",
+    ),
+    (
+        "Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so \
+         FxSound cannot include it. You can buy a licence and add its files here.",
+        "Gilroy, the font of the original FxSound, is Radomir Tinkov's commercial typeface, so \
+         CrossFX cannot include it. You can buy a licence and add its files here.",
+    ),
+    (
+        "Not added: %s. FxSound uses Gilroy Regular, Medium, SemiBold and Bold.",
+        "Not added: %s. CrossFX uses Gilroy Regular, Medium, SemiBold and Bold.",
+    ),
+    ("FxSound's preset", "CrossFX's preset"),
+    (
+        "No application has played or recorded through FxSound yet",
+        "No application has played or recorded through CrossFX yet",
+    ),
+    ("Like FxSound for Windows", "Like the original FxSound LLC"),
+    (
+        "Always kept: the preset trash and autosave, fixed port errors, click-free switching, the \
+         command line and D-Bus. No setting is deleted.",
+        "Always kept: the preset trash and autosave, CrossFX's own fixes, click-free switching, \
+         the command line and D-Bus. No setting is deleted.",
+    ),
+    (
+        "Always kept: the preset trash and autosave, this FxSound's fixes, click-free switching \
+         and the command line. No setting is deleted.",
+        "Always kept: the preset trash and autosave, CrossFX's own fixes, click-free switching \
+         and the command line. No setting is deleted.",
+    ),
+    ("This FxSound as it is.", "CrossFX as it is."),
+    ("FxSound for Linux as it is.", "CrossFX as it is."),
+    (
+        "Window and controls as on Windows. Same sound.",
+        "Window and controls as in the original. Same sound.",
+    ),
+    (
+        "Plus the Windows sound: presets sound the same.",
+        "Plus the original's sound: presets sound the same.",
+    ),
+    (
+        "Only what Windows has; the rest is hidden.",
+        "Only what the original has; the rest is hidden.",
+    ),
+    (
+        "Stay quiet, then speak normally, then speak loudly. FxSound measures your microphone and \
+         suggests voice settings for it.",
+        "Stay quiet, then speak normally, then speak loudly. CrossFX measures your microphone and \
+         suggests voice settings for it.",
+    ),
+    (
+        "A Bluetooth microphone wakes only while an application records from FxSound (Input), and \
+         then switches its headset to call quality.",
+        "A Bluetooth microphone wakes only while an application records from CrossFX (Input), and \
+         then switches its headset to call quality.",
+    ),
+    (
+        "FxSound is still running, but this session has no tray icon.\nRun 'fxsound --show' to \
+         bring the window back.",
+        "CrossFX is still running, but this session has no tray icon.\nRun 'crossfx --show' to \
+         bring the window back.",
+    ),
+    (
+        "FxSound could not open its window and keeps running in the system tray.\nQuit it from \
+         the tray and start FxSound again to open the window.",
+        "CrossFX could not open its window and keeps running in the system tray.\nQuit it from \
+         the tray and start CrossFX again to open the window.",
+    ),
+    (
+        "Applications that used %s now follow FxSound's preset",
+        "Applications that used %s now follow CrossFX's preset",
+    ),
+    (
+        "The original FxSound is running and is using the virtual device: quit it so that this \
+         FxSound can process the sound",
+        "The original FxSound is running and is using the virtual device: quit it so that \
+         CrossFX can process the sound",
+    ),
+    (
+        "%s stays on FxSound's preset: at most %s application presets can run at once",
+        "%s stays on CrossFX's preset: at most %s application presets can run at once",
+    ),
+    (
+        "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
+         FxSound's output already uses one",
+        "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
+         CrossFX's output already uses one",
+    ),
+    (
+        "The virtual cable is in use as FxSound's output or a default device: choose another, or \
+         install a second cable for the microphone",
+        "The virtual cable is in use as CrossFX's output or a default device: choose another, or \
+         install a second cable for the microphone",
+    ),
+];
+
+// RENAME_IN_PROGRESS
+/// `key` under its new spelling, with the rank of the spelling it was written in: 0 for a key the
+/// rename does not change or for a new spelling, and one more than its place in [`RENAMED`] for an
+/// old one.
+fn renamed(key: &str) -> (String, usize) {
+    RENAMED.iter().position(|(old, _)| *old == key).map_or_else(
+        || (key.to_owned(), 0),
+        |at| (RENAMED[at].1.to_owned(), at + 1),
+    )
+}
+
+// RENAME_IN_PROGRESS
+/// `key` under its new spelling.
+fn canonical(key: &str) -> String {
+    renamed(key).0
+}
+
+// RENAME_IN_PROGRESS
+/// `language`'s table while the rename is in progress: the original's, read under CrossFX's keys,
+/// overlaid with its port table read under the new keys, so that a repair still under its old
+/// spelling — the Chinese `Open/Close FxSound` — overrides the derived value as it will once it is
+/// re-keyed.
+fn transition_table(language: &Language) -> Table {
+    let mut table = Table::from(&language.original_catalogue());
+    let port = language.port_catalogue();
+    let mut chosen: BTreeMap<String, (usize, String)> = BTreeMap::new();
+    for key in port.keys() {
+        let (new, rank) = renamed(key);
+        let value = port.get(key).unwrap_or_default().to_owned();
+        if chosen.get(&new).is_none_or(|(held, _)| rank < *held) {
+            chosen.insert(new, (rank, value));
+        }
+    }
+    table
+        .entries
+        .extend(chosen.into_iter().map(|(key, (_, value))| (key, value)));
+    table
+}
 
 /// The crates that draw text, relative to this one. Everything else passes strings *to* them.
 const DRAWING_CRATES: [&str; 2] = ["../fxsound-ui/src", "../fxsound-app/src"];
@@ -71,8 +235,8 @@ const INDIRECT_CALLS: &[(&str, &[&str])] = &[
     (
         "command.label()",
         &[
-            "Turn FxSound On/Off",
-            "Open/Close FxSound",
+            "Turn CrossFX On/Off",
+            "Open/Close CrossFX",
             "Use Next Preset",
             "Use Previous Preset",
             "Change Playback Device",
@@ -570,6 +734,13 @@ fn scan() -> Scan {
         "the drawing crates declare one string table, the band tooltips; a second one needs a \
          look before its strings are taken as translation keys"
     );
+    // RENAME_IN_PROGRESS: a key the code still writes under its old spelling is audited under the
+    // new one.
+    let keys = if RENAME_IN_PROGRESS {
+        keys.iter().map(|key| canonical(key)).collect()
+    } else {
+        keys
+    };
     Scan { keys, unreadable }
 }
 
@@ -608,15 +779,57 @@ fn interface_keys() -> BTreeSet<String> {
 // Checking the tables
 // ---------------------------------------------------------------------------------------------
 
+/// One language's table as the audit reads it: each key with its translation.
+struct Table {
+    code: String,
+    entries: BTreeMap<String, String>,
+}
+
+impl Table {
+    /// The language code the table is for.
+    fn code(&self) -> &str {
+        &self.code
+    }
+
+    /// The translation of `key`, if there is one.
+    fn get(&self, key: &str) -> Option<&str> {
+        self.entries.get(key).map(String::as_str)
+    }
+}
+
+impl From<&Catalogue> for Table {
+    fn from(catalogue: &Catalogue) -> Self {
+        Self {
+            code: catalogue.code().to_owned(),
+            entries: catalogue
+                .keys()
+                .map(|key| {
+                    (
+                        key.to_owned(),
+                        catalogue.get(key).unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Every language's table as the app builds it at run time.
-fn tables() -> Vec<Catalogue> {
-    LANGUAGES[1..].iter().map(Catalogue::for_language).collect()
+fn tables() -> Vec<Table> {
+    // RENAME_IN_PROGRESS: the port tables are read under the new keys.
+    if RENAME_IN_PROGRESS {
+        return LANGUAGES[1..].iter().map(transition_table).collect();
+    }
+    LANGUAGES[1..]
+        .iter()
+        .map(|language| Table::from(&Catalogue::for_language(language)))
+        .collect()
 }
 
 /// The `language: key` pairs among `keys` that a table lacks, translates as nothing, or
 /// translates without the key's `%s` placeholders — the last being the one a translator can
 /// break without noticing, and the one `tr_args` cannot recover from.
-fn untranslated<'a>(tables: &[Catalogue], keys: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+fn untranslated<'a>(tables: &[Table], keys: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let mut problems = Vec::new();
     for key in keys {
         for table in tables {
@@ -669,7 +882,7 @@ fn the_audio_engines_warning_about_one_headset_on_both_lanes_is_among_the_keys_a
         "the scan does not see the audio crate's call to tr"
     );
     assert!(
-        !keys.contains("fxsound_sink"),
+        !keys.contains("crossfx_sink"),
         "a node name from the audio crate's tables is not a key"
     );
 }
@@ -681,7 +894,7 @@ fn the_audio_engines_warning_about_too_many_application_presets_is_among_the_key
     // window as it arrives: its key has two placeholders — the application, then the most
     // presets a lane runs for applications — which every translation has to keep.
     let keys = scan().keys;
-    let key = "%s stays on FxSound's preset: at most %s application presets can run at once";
+    let key = "%s stays on CrossFX's preset: at most %s application presets can run at once";
     assert!(
         keys.contains(key),
         "the scan does not see the audio crate's call to tr_args"
@@ -699,7 +912,7 @@ fn the_windows_engines_warning_about_the_original_fxsound_is_among_the_keys_audi
     // read wherever the audit runs, so a Linux build checks the Windows engine's text too.
     let keys = scan().keys;
     let key = "The original FxSound is running and is using the virtual device: quit it so that \
-               this FxSound can process the sound";
+               CrossFX can process the sound";
     assert!(
         keys.contains(key),
         "the scan does not see the Windows engine's call to tr"
@@ -743,8 +956,17 @@ fn every_string_an_indirect_call_is_listed_with_is_still_written_in_the_interfac
     let sources: String = drawing_sources().into_iter().map(|(_, src)| src).collect();
     for (arg, strings) in INDIRECT_CALLS {
         for string in *strings {
+            let written = sources.contains(&format!("{string:?}"));
+            // RENAME_IN_PROGRESS: or under an old spelling `RENAMED` maps to it, which a partition
+            // not yet merged still writes.
+            let written = written
+                || (RENAME_IN_PROGRESS
+                    && RENAMED
+                        .iter()
+                        .filter(|(_, new)| new == string)
+                        .any(|(old, _)| sources.contains(&format!("{old:?}"))));
             assert!(
-                sources.contains(&format!("{string:?}")),
+                written,
                 "tr({arg}): {string:?} is not written anywhere in the drawing crates"
             );
         }
@@ -761,7 +983,7 @@ fn the_scan_sees_literals_constants_tables_branches_and_continued_lines() {
         ("a literal", "Settings"),
         (
             "a literal continued over a line break",
-            "FxSound is still running, but this session has no tray icon.\nRun 'fxsound --show' \
+            "CrossFX is still running, but this session has no tray icon.\nRun 'crossfx --show' \
              to bring the window back.",
         ),
         ("a constant", "Not used on a microphone"),
@@ -787,7 +1009,7 @@ fn the_scan_sees_literals_constants_tables_branches_and_continued_lines() {
         ("an arm of a `match`", "Enter new preset name"),
         (
             "the key of a `tr_args` on a line of its own",
-            "FxSound is %s.",
+            "CrossFX is %s.",
         ),
         ("a stage of the readout strip", "Compressor"),
         (
@@ -820,8 +1042,19 @@ fn every_string_a_port_table_carries_is_one_the_interface_asks_for() {
     let asked = interface_keys();
     let mut stale = BTreeSet::new();
     for language in &LANGUAGES[1..] {
-        for key in language.port_catalogue().keys() {
-            if !asked.contains(key) {
+        let keys: BTreeSet<String> = language
+            .port_catalogue()
+            .keys()
+            .map(str::to_owned)
+            .collect();
+        // RENAME_IN_PROGRESS: a port key still under its old spelling is asked for under its new.
+        let keys: BTreeSet<String> = if RENAME_IN_PROGRESS {
+            keys.iter().map(|key| canonical(key)).collect()
+        } else {
+            keys
+        };
+        for key in keys {
+            if !asked.contains(&key) {
                 stale.insert(format!("{}: {key:?}", language.code));
             }
         }
@@ -836,14 +1069,17 @@ fn every_string_a_port_table_carries_is_one_the_interface_asks_for() {
 
 #[test]
 fn every_port_table_adds_the_same_strings() {
-    // The strings the Windows build never had are added to all twenty-nine tables at once; only
-    // a repair of a Windows string is particular to the table it repairs.
-    let windows: BTreeSet<String> = LANGUAGES[1..]
+    // The strings the original never had are added to all twenty-nine tables at once; only a
+    // repair of an original string is particular to the table it repairs — under the key the
+    // original's table gives it or the one the interface reads it by (`RENAMED_ORIGINALS`).
+    let original: BTreeSet<String> = LANGUAGES[1..]
         .iter()
         .flat_map(|language| {
-            language
-                .original_catalogue()
+            let (embedded, derived) =
+                (language.embedded_catalogue(), language.original_catalogue());
+            embedded
                 .keys()
+                .chain(derived.keys())
                 .map(str::to_owned)
                 .collect::<Vec<_>>()
         })
@@ -855,7 +1091,7 @@ fn every_port_table_adds_the_same_strings() {
     let added: BTreeSet<&str> = ports
         .iter()
         .flat_map(|(_, port)| port.keys())
-        .filter(|key| !windows.contains(*key))
+        .filter(|key| !original.contains(*key))
         .collect();
     assert!(added.len() >= 60, "only {} added strings", added.len());
     let mut missing = Vec::new();
@@ -898,9 +1134,9 @@ fn a_string_that_ends_in_a_space_keeps_the_space_in_every_language() {
 /// Strings some language writes exactly as English does: audio terms its engineers borrow
 /// (`Gate`, `De-esser`, `Mono`), words the two languages share (Dutch `Help`, Spanish `No`,
 /// Romanian `General`, the German, French and Spanish `Balance`, the Spanish, Portuguese and
-/// Romanian `Experimental`, the French, Dutch and Portuguese `Interface`), and the effect names
-/// the Polish original keeps as FxSound's own. Any other string a table translates as itself is a
-/// string nobody translated.
+/// Romanian `Experimental`, the French, Dutch and Portuguese `Interface`, the Dutch `CrossFX is
+/// %s.`), and the effect names the Polish original keeps as the original's own. Any other string a
+/// table translates as itself is a string nobody translated.
 const SPELLED_AS_IN_ENGLISH: &[&str] = &[
     "Ambience",
     "Applications",
@@ -910,13 +1146,13 @@ const SPELLED_AS_IN_ENGLISH: &[&str] = &[
     "Clarity",
     "Clipping",
     "Compressor",
+    "CrossFX is %s.",
     "De-esser",
     "Dynamic Boost",
     "Echo",
     "Experimental",
     "Export",
     "Filter Q",
-    "FxSound is %s.",
     "Gate",
     "Gate %s",
     "General",
@@ -992,8 +1228,8 @@ const TOLD_APART: &[(&str, &[&str])] = &[
     (
         "the hotkey list",
         &[
-            "Turn FxSound On/Off",
-            "Open/Close FxSound",
+            "Turn CrossFX On/Off",
+            "Open/Close CrossFX",
             "Use Next Preset",
             "Use Previous Preset",
             "Change Playback Device",
@@ -1019,9 +1255,9 @@ const TOLD_APART: &[(&str, &[&str])] = &[
 
 #[test]
 fn no_table_gives_two_strings_shown_side_by_side_the_same_words() {
-    // Simplified and Traditional Chinese wrote 开启/关闭 FxSound for both the power and the window
-    // in the hotkey list; the port's layer repairs both, and this keeps any table from doing it
-    // again.
+    // The original's Simplified and Traditional Chinese tables said "turn on/off" for both the
+    // power and the window in the hotkey list; the port tables repair both, and this keeps any
+    // table from doing it again.
     let tables = tables();
     let mut alike = Vec::new();
     for (what, keys) in TOLD_APART {
@@ -1054,7 +1290,7 @@ fn a_placeholder_dropped_by_a_translation_is_reported() {
          \"Blank\" = \"  \"\n\"Empty\" = \"\"\n",
     );
     let problems = untranslated(
-        &[table],
+        &[Table::from(&table)],
         ["Could not load %s", "Fine %s", "Blank", "Empty", "Absent"],
     );
     assert_eq!(problems.len(), 4, "{problems:?}");
@@ -1065,6 +1301,155 @@ fn a_placeholder_dropped_by_a_translation_is_reported() {
     );
     assert!(problems[2].contains("has no translation"), "{problems:?}");
     assert!(problems[3].contains("has no translation"), "{problems:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The program's name and the original's
+// ---------------------------------------------------------------------------------------------
+
+/// The names a translation may carry only where its key does: CrossFX's, and the original's.
+const NAMES: [&str; 2] = ["CrossFX", "FxSound"];
+
+#[test]
+fn a_translation_names_crossfx_or_the_original_only_where_its_key_does() {
+    // The name audit. A string that names CrossFX names it in every language, and one that names
+    // the original FxSound (the font's owner, the original running, its driver, the mode named
+    // after it) names the original; no translation brings a name its English does not have, the
+    // old name of the program least of all. Case-sensitive: the command `crossfx` is not a name.
+    // RENAME_IN_PROGRESS: the port tables still translate the old keys with the old name.
+    if RENAME_IN_PROGRESS {
+        return;
+    }
+    let keys = interface_keys();
+    let mut misnamed = Vec::new();
+    for table in tables() {
+        for key in &keys {
+            let Some(value) = table.get(key) else {
+                continue;
+            };
+            for name in NAMES {
+                if value.contains(name) && !key.contains(name) {
+                    misnamed.push(format!(
+                        "{}: {key:?} = {value:?} names {name}",
+                        table.code()
+                    ));
+                }
+            }
+        }
+    }
+    assert!(misnamed.is_empty(), "{}", misnamed.join("\n"));
+}
+
+/// Whether `value` follows the original's name with a Latin letter or an apostrophe — an ending
+/// that fits the sound of "FxSound" and not of "CrossFX" (Turkish `FxSound'u`, Finnish
+/// `FxSoundin`) — and so reads wrong once the name is swapped. A hyphen, a space, punctuation, a
+/// CJK or Hangul particle after it fits either name.
+fn inflects_the_original_name(value: &str) -> bool {
+    value.match_indices(NAMES[1]).any(|(at, name)| {
+        value[at + name.len()..]
+            .chars()
+            .next()
+            .is_some_and(|next| next == '\'' || next == '\u{2019}' || is_latin_letter(next))
+    })
+}
+
+/// A letter of the Latin script: ASCII, or of the Latin-1, Latin Extended and Latin Extended
+/// Additional blocks.
+fn is_latin_letter(c: char) -> bool {
+    c.is_ascii_alphabetic()
+        || (c.is_alphabetic()
+            && matches!(u32::from(c), 0x00C0..=0x024F | 0x1E00..=0x1EFF | 0x2C60..=0x2C7F))
+}
+
+#[test]
+fn where_the_plain_swap_inflects_the_old_name_the_port_table_says_it_again() {
+    // The grammar guard. The original's four strings that name the program are read under
+    // CrossFX's keys with the name swapped (`RENAMED_ORIGINALS`); where the original's value ends
+    // the name with a suffix of its own, the swap leaves that suffix on the new name, and the
+    // language's port table must override the new key with a form that fits it.
+    // RENAME_IN_PROGRESS: the overrides are added with the port tables' new keys.
+    if RENAME_IN_PROGRESS {
+        return;
+    }
+    let mut unrepaired = Vec::new();
+    for language in &LANGUAGES[1..] {
+        let (embedded, port) = (language.embedded_catalogue(), language.port_catalogue());
+        for (original, renamed) in RENAMED_ORIGINALS {
+            if embedded
+                .get(original)
+                .is_some_and(inflects_the_original_name)
+                && port.get(renamed).is_none()
+            {
+                unrepaired.push(format!("{}: {renamed:?}", language.code));
+            }
+        }
+    }
+    assert!(unrepaired.is_empty(), "{}", unrepaired.join("\n"));
+}
+
+#[test]
+fn the_grammar_guard_tells_an_ending_from_a_particle() {
+    for inflected in [
+        "FxSound'u Aç/Kapat",
+        "FxSound\u{2019}u",
+        "Avaa FxSoundin ikkuna",
+        "FxSounda",
+        "les FxSoundé",
+    ] {
+        assert!(inflects_the_original_name(inflected), "{inflected}");
+    }
+    for plain in [
+        "Paljenje/Gašenje FxSound-a",
+        "FxSoundは%sです。",
+        "FxSound가 %s.",
+        "打开/关闭 FxSound 窗口",
+        "FxSound.",
+        "FxSound",
+        "No name at all",
+    ] {
+        assert!(!inflects_the_original_name(plain), "{plain}");
+    }
+}
+
+#[test]
+fn every_renamed_original_is_in_every_embedded_table() {
+    // Provenance: the four keys are the original's own, in each of its twenty-nine tables, so a
+    // derived value always has a source and none of the four falls back to English.
+    let mut absent = Vec::new();
+    for language in &LANGUAGES[1..] {
+        let embedded = language.embedded_catalogue();
+        for (original, _) in RENAMED_ORIGINALS {
+            if embedded.get(original).is_none() {
+                absent.push(format!("{}: {original:?}", language.code));
+            }
+        }
+    }
+    assert!(absent.is_empty(), "{}", absent.join("\n"));
+}
+
+#[test]
+fn every_derived_value_names_crossfx_wherever_the_original_named_itself() {
+    // The derived values: the old name is gone in every case, and the new one stands wherever the
+    // original's value named the program.
+    let mut wrong = Vec::new();
+    for language in &LANGUAGES[1..] {
+        let (embedded, derived) = (language.embedded_catalogue(), language.original_catalogue());
+        for (original, renamed) in RENAMED_ORIGINALS {
+            let (Some(source), Some(value)) = (embedded.get(original), derived.get(renamed)) else {
+                wrong.push(format!("{}: {renamed:?} is not derived", language.code));
+                continue;
+            };
+            if value.to_lowercase().contains("fxsound")
+                || value.matches(NAMES[0]).count() != source.matches(NAMES[1]).count()
+            {
+                wrong.push(format!(
+                    "{}: {renamed:?} = {value:?} from {source:?}",
+                    language.code
+                ));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 #[test]

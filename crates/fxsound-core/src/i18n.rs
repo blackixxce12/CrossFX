@@ -1,20 +1,27 @@
 //! UI translations.
 //!
-//! The Windows build ships its strings as JUCE `LocalisedStrings` files, one per language,
-//! embedded through `BinaryData` (`fxsound/JuceLibraryCode/BinaryData.cpp`, `FxSound_<code>_txt`)
-//! and swapped in by `FxController::setLanguage()` (`fxsound/Source/GUI/FxController.cpp:2330-2457`).
-//! Those exact files — 29 of the 31 codes `FxLanguage.cpp:25` lists as of 1.2.16.0; `en` is the
-//! source language and `hu` was never built into the Windows binary — live in
-//! `assets/translations/` and are embedded here unchanged. Bulgarian (`bg`, upstream aa220cf) is
-//! the newest: `FxSound_bg_txt` of v1.2.16.0's `BinaryData.cpp`, byte for byte.
-//! `assets/translations/port/` carries the strings this port added, in
-//! the same file format, layered on top of the original's table for the same language — and,
-//! for the few strings a Windows table misspells, omits or gets wrong where the port shows them
+//! The original FxSound for Windows ships its strings as JUCE `LocalisedStrings` files, one per
+//! language, embedded through `BinaryData` (`fxsound/JuceLibraryCode/BinaryData.cpp`,
+//! `FxSound_<code>_txt`) and swapped in by `FxController::setLanguage()`
+//! (`fxsound/Source/GUI/FxController.cpp:2330-2457`). Those exact files — 29 of the 31 codes
+//! `FxLanguage.cpp:25` lists as of 1.2.16.0; `en` is the source language and `hu` was never built
+//! into the original's binary — live in `assets/translations/` and are embedded here unchanged.
+//! Bulgarian (`bg`, the original's aa220cf) is the newest: `FxSound_bg_txt` of v1.2.16.0's
+//! `BinaryData.cpp`, byte for byte. `assets/translations/port/` carries the strings CrossFX added,
+//! in the same file format, layered on top of the original's table for the same language — and,
+//! for the few strings an original table misspells, omits or gets wrong where CrossFX shows them
 //! (Croatian's `on`/`off` left in English, Italian's `on` as "su", eleven `"Output: "`s without
 //! the space the device name needs, Arabic's Bass Boost left in English, both Chinese tables
 //! naming the window's hotkey as the power's, Italian's tray quitting with its word for the output
 //! lane and putting "Select" last), a repaired copy: a layer over a file that is embedded
 //! unchanged is the one place such a repair can live.
+//!
+//! Four of the original's strings name the program itself ([`RENAMED_ORIGINALS`]): "FxSound is
+//! %s.", the tray tip and the two hotkeys. The interface asks for them under CrossFX's name, and
+//! [`Language::original_catalogue`] gives them so, derived on load from the original's entries
+//! with `FxSound` swapped for `CrossFX` in the value: the files stay the original's, byte for
+//! byte, so a newer original table flows through, and a port table repairs the one language where
+//! the plain swap reads wrong.
 //!
 //! `tests/translations.rs` audits every string the interface passes to [`tr`] against every
 //! language's table, so a string added without its translations fails a test rather than
@@ -40,12 +47,12 @@ pub const ENGLISH: &str = "en";
 /// One language the UI can be shown in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Language {
-    /// The code the Windows build uses (`FxLanguage.cpp:25`) — persisted, so it is stable and not
+    /// The code the original uses (`FxLanguage.cpp:25`) — persisted, so it is stable and not
     /// always ISO (`ua` for Ukrainian, `ba` for Bosnian).
     pub code: &'static str,
-    /// The name in the language itself, shown untranslated in the language switch. The Windows
-    /// build's `FxController::getLanguageName()` (`FxController.cpp:2471-2594`), with its three
-    /// wrong names corrected and every name capitalised as a menu entry is (see [`LANGUAGES`]).
+    /// The name in the language itself, shown untranslated in the language switch. The original's
+    /// `FxController::getLanguageName()` (`FxController.cpp:2471-2594`), with its three wrong names
+    /// corrected and every name capitalised as a menu entry is (see [`LANGUAGES`]).
     pub native_name: &'static str,
     original: &'static str,
     port: &'static str,
@@ -69,11 +76,11 @@ macro_rules! language {
 /// untranslated string falls back to (`FxController.cpp:2593` falls back to `"English"` the same
 /// way). The rest are sorted by their native names — Latin letters first, compared without their
 /// accents, then Cyrillic, Arabic script, Thai and CJK, in code-point order — rather than in the
-/// Windows build's order (`FxLanguage.cpp:25`), which sorts neither by code nor by name and put
+/// original's order (`FxLanguage.cpp:25`), which sorts neither by code nor by name and put
 /// Russian twenty-one presses of the switch away (0.4.0 audit #28).
 ///
 /// The native names are the ones the languages call themselves, capitalised as a menu entry is.
-/// Three of the Windows build's were not names of the language at all (`FxController.cpp:2471-2594`,
+/// Three of the original's were not names of the language at all (`FxController.cpp:2471-2594`,
 /// same audit): Turkish "Türk" is "a Turk", Thai "แบบไทย" is "Thai-style" and Czech "Česky" is the
 /// adverb "in Czech"; they are "Türkçe", "ไทย" and "Čeština" here.
 pub static LANGUAGES: [Language; 30] = [
@@ -114,28 +121,69 @@ pub static LANGUAGES: [Language; 30] = [
     language!("ko", "한국어", "ko"),
 ];
 
-/// The codes of [`LANGUAGES`] in the order the Windows build's language switch runs through them
-/// (`FxLanguage.cpp:25`), which «Как в Windows» = Interface and above bring back — the order only;
-/// the names stay [`LANGUAGES`]' own (0.4.0 audit #28, `fxsound_core::WindowsLook::LanguageOrder`).
+/// The codes of [`LANGUAGES`] in the order the original's language switch runs through them
+/// (`FxLanguage.cpp:25`), which «Like the original FxSound LLC» = Interface and above bring back
+/// — the order only; the names stay [`LANGUAGES`]' own (0.4.0 audit #28,
+/// `fxsound_core::WindowsLook::LanguageOrder`).
 ///
-/// The Windows list has Hungarian, which it never shipped a table for, and no Bulgarian, which this
-/// port has; Bulgarian goes where the Windows list, ordered by the languages' English names from
-/// Arabic on, would have put it, after Bosnian.
+/// The original's list has Hungarian, which it never shipped a table for, and no Bulgarian, which
+/// CrossFX has; Bulgarian goes where the original's list, ordered by the languages' English names
+/// from Arabic on, would have put it, after Bosnian.
 pub const WINDOWS_ORDER: [&str; 30] = [
     ENGLISH, "ar", "ba", "bg", "hr", "cs", "de", "es", "fi", "fr", "id", "it", "ja", "ko", "nl",
     "no", "fa", "pl", "pt", "pt-br", "ro", "ru", "sl", "sv", "th", "tr", "ua", "vi", "zh-CN",
     "zh-TW",
 ];
 
+/// The original's strings that name the program, by the key the original's tables give them and
+/// the key CrossFX's interface asks for.
+///
+/// The interface asks for the second; [`Language::original_catalogue`] moves each original entry
+/// to it, with `FxSound` swapped for `CrossFX` in the value. Only these four: the original's other
+/// strings that name FxSound are not shown, and one joins the list only when the interface starts
+/// to show it.
+pub const RENAMED_ORIGINALS: [(&str, &str); 4] = [
+    ("FxSound is %s.", "CrossFX is %s."),
+    (
+        "FxSound in system tray\nClick FxSound icon to reopen",
+        "CrossFX in system tray\nClick CrossFX icon to reopen",
+    ),
+    ("Turn FxSound On/Off", "Turn CrossFX On/Off"),
+    ("Open/Close FxSound", "Open/Close CrossFX"),
+];
+
+/// The name the original's values call the program by, which [`Language::original_catalogue`]
+/// swaps for [`crate::identity::PRODUCT`] in the values of [`RENAMED_ORIGINALS`].
+const ORIGINAL_NAME: &str = "FxSound";
+
 impl Language {
-    /// The Windows build's table for this language on its own, as it is embedded.
+    /// The original's table for this language exactly as it is embedded.
     #[must_use]
-    pub fn original_catalogue(&self) -> Catalogue {
+    pub fn embedded_catalogue(&self) -> Catalogue {
         Catalogue::parse(self.code, self.original)
     }
 
-    /// The strings this port layers over [`Self::original_catalogue`], on their own: the ones the
-    /// Windows build never had, and the repairs of the ones it misspells or mistranslates.
+    /// The original's table as the interface reads it: [`Self::embedded_catalogue`] with every
+    /// [`RENAMED_ORIGINALS`] entry moved from the original's key to CrossFX's, `FxSound` swapped
+    /// for `CrossFX` in its value. The four values name the program in no other spelling, so the
+    /// exact name is what is swapped; where the plain swap reads wrong in a language (a suffix that
+    /// follows the old name's sound), that language's port table overrides the new key.
+    #[must_use]
+    pub fn original_catalogue(&self) -> Catalogue {
+        let mut catalogue = self.embedded_catalogue();
+        for (original, renamed) in RENAMED_ORIGINALS {
+            if let Some(value) = catalogue.entries.remove(original) {
+                catalogue.entries.insert(
+                    renamed.to_owned(),
+                    value.replace(ORIGINAL_NAME, crate::identity::PRODUCT),
+                );
+            }
+        }
+        catalogue
+    }
+
+    /// The strings CrossFX layers over [`Self::original_catalogue`], on their own: the ones the
+    /// original never had, and the repairs of the ones it misspells or mistranslates.
     #[must_use]
     pub fn port_catalogue(&self) -> Catalogue {
         Catalogue::parse(self.code, self.port)
@@ -193,17 +241,17 @@ impl Catalogue {
     /// The format is line based: `language:` and `countries:` headers, then one
     /// `"source" = "translation"` per line. Both strings are unescaped the way JUCE's
     /// `unescapeString` does (`\"`, `\'`, `\\`, `\t`, `\r`, `\n`), and Windows line breaks
-    /// inside a string are then folded to `\n`, because that is how this port writes its own
+    /// inside a string are then folded to `\n`, because that is how CrossFX writes its own
     /// multi-line keys. A translation left empty is no translation, as in JUCE, so the key shows in
     /// English rather than as nothing.
     ///
     /// Every line JUCE takes, this takes (0.4.0 audit #50). A line in the exact form is read
     /// whole: from its first quote to the `"` `=` `"` that closes the key, and from there to the
-    /// quote that ends the line. Any other line is read the way JUCE reads it ([`juce_entry`]):
+    /// quote that ends the line. Any other line is read the way JUCE reads it (`juce_entry`):
     /// the key up to its first unescaped quote, whatever stands between it and the next quote
     /// skipped — no space around the `=`, or none at all — and the translation up to the
-    /// next unescaped quote or the end of the line, closed or not. Three lines of the Windows
-    /// tables are of that kind and were dropped here while Windows read them: Slovenian's
+    /// next unescaped quote or the end of the line, closed or not. Three lines of the original's
+    /// tables are of that kind and were dropped here while the original read them: Slovenian's
     /// "Save Preset" and German's hotkey hint never close their translation, and Brazilian
     /// Portuguese's tooltip for the 16 kHz band has no space after its `=`. The exact form is
     /// tried first because JUCE's reading cuts a string at a quote inside it, which lost the
@@ -230,7 +278,8 @@ impl Catalogue {
         }
     }
 
-    /// The original's table for `language`, with the port's additions merged over it.
+    /// The original's table for `language` as the interface reads it
+    /// ([`Language::original_catalogue`]), with CrossFX's own strings and repairs merged over it.
     #[must_use]
     pub fn for_language(language: &Language) -> Self {
         let mut catalogue = language.original_catalogue();
@@ -660,8 +709,95 @@ mod tests {
         assert_eq!(original("de", "Output: ").as_deref(), Some("Ausgabe:"));
     }
 
+    /// The original's key of a [`RENAMED_ORIGINALS`] entry, by CrossFX's.
+    fn embedded_key(renamed: &str) -> &'static str {
+        RENAMED_ORIGINALS
+            .iter()
+            .find(|(_, new)| *new == renamed)
+            .map(|(original, _)| *original)
+            .unwrap_or_else(|| panic!("{renamed:?} is not a renamed original"))
+    }
+
     #[test]
-    fn the_port_repairs_the_bass_boost_the_hotkey_list_and_the_italian_tray() {
+    fn the_originals_strings_that_name_the_program_are_read_under_crossfx_own_keys() {
+        for language in &LANGUAGES[1..] {
+            let embedded = language.embedded_catalogue();
+            let derived = language.original_catalogue();
+            for (original, renamed) in RENAMED_ORIGINALS {
+                let source = embedded
+                    .get(original)
+                    .unwrap_or_else(|| panic!("{}: {original:?}", language.code));
+                let value = derived
+                    .get(renamed)
+                    .unwrap_or_else(|| panic!("{}: {renamed:?}", language.code));
+                // The original's key is gone, the value is the original's with the name swapped,
+                // and nothing else of the table moved.
+                assert_eq!(derived.get(original), None, "{}", language.code);
+                assert_eq!(
+                    value,
+                    source.replace("FxSound", crate::identity::PRODUCT),
+                    "{}",
+                    language.code
+                );
+                assert!(
+                    !value.to_lowercase().contains("fxsound"),
+                    "{}: {value:?}",
+                    language.code
+                );
+            }
+            assert_eq!(derived.len(), embedded.len(), "{}", language.code);
+            for key in embedded.keys() {
+                if !RENAMED_ORIGINALS
+                    .iter()
+                    .any(|(original, _)| *original == key)
+                {
+                    assert_eq!(
+                        derived.get(key),
+                        embedded.get(key),
+                        "{}: {key:?}",
+                        language.code
+                    );
+                }
+            }
+        }
+        // The new key is the original's with the name swapped, and so is what the interface reads.
+        for (original, renamed) in RENAMED_ORIGINALS {
+            assert_eq!(
+                original.replace("FxSound", crate::identity::PRODUCT),
+                renamed
+            );
+        }
+        let ru = Catalogue::for_language(language("ru").expect("ru"));
+        assert_eq!(ru.get("CrossFX is %s."), Some("CrossFX %s."));
+        assert_eq!(ru.get("FxSound is %s."), None);
+    }
+
+    #[test]
+    fn a_table_without_a_renamed_original_is_left_as_it_is() {
+        // English has no table, and a language whose original lacked one of the four would keep
+        // what it has: the derivation moves only what is there.
+        let english = language(ENGLISH).expect("English");
+        assert!(english.original_catalogue().is_empty());
+        let made_up = Language {
+            code: "xx",
+            native_name: "Xx",
+            original: "\"FxSound is %s.\" = \"FxSound ist %s.\"\n\"Settings\" = \"Einstellungen\"\n",
+            port: "",
+        };
+        let derived = made_up.original_catalogue();
+        assert_eq!(derived.get("CrossFX is %s."), Some("CrossFX ist %s."));
+        assert_eq!(derived.get("Settings"), Some("Einstellungen"));
+        assert_eq!(derived.get("Turn CrossFX On/Off"), None);
+        assert_eq!(derived.len(), 2);
+        // The embedded table is the file as it is.
+        assert_eq!(
+            made_up.embedded_catalogue().get("FxSound is %s."),
+            Some("FxSound ist %s.")
+        );
+    }
+
+    #[test]
+    fn the_port_repairs_the_bass_boost_and_the_italian_tray() {
         let get = |code: &str, key: &str| {
             Catalogue::for_language(language(code).expect(code))
                 .get(key)
@@ -678,32 +814,6 @@ mod tests {
         // own word for bass is الجهير.
         assert_eq!(original("ar", "Bass Boost").as_deref(), Some("Bass Boost"));
         assert_eq!(get("ar", "Bass Boost").as_deref(), Some("تعزيز الجهير"));
-        // Both Chinese tables said "turn FxSound on/off" for the window's hotkey too.
-        for code in ["zh-CN", "zh-TW"] {
-            assert_eq!(
-                original(code, "Turn FxSound On/Off"),
-                original(code, "Open/Close FxSound"),
-                "{code}"
-            );
-            assert_ne!(
-                get(code, "Turn FxSound On/Off"),
-                get(code, "Open/Close FxSound"),
-                "{code}"
-            );
-            assert_eq!(
-                get(code, "Turn FxSound On/Off"),
-                original(code, "Turn FxSound On/Off"),
-                "{code}: the power's line keeps its words"
-            );
-        }
-        assert_eq!(
-            get("zh-CN", "Open/Close FxSound").as_deref(),
-            Some("打开/关闭 FxSound 窗口")
-        );
-        assert_eq!(
-            get("zh-TW", "Open/Close FxSound").as_deref(),
-            Some("開啟/關閉 FxSound 視窗")
-        );
         // Italian's tray put the verb last ("Playback device Select") and quit with the word its
         // window uses for the output lane.
         assert_eq!(
@@ -717,6 +827,41 @@ mod tests {
         assert_eq!(original("it", "Exit").as_deref(), Some("Uscita"));
         assert_eq!(get("it", "Exit").as_deref(), Some("Esci"));
         assert_eq!(get("it", "Output").as_deref(), Some("Uscita"));
+    }
+
+    #[test]
+    #[ignore = "crossfx-rename: until integration"]
+    fn the_port_repairs_both_chinese_hotkey_lines() {
+        let get = |code: &str, key: &str| {
+            Catalogue::for_language(language(code).expect(code))
+                .get(key)
+                .map(str::to_owned)
+        };
+        let (power, window) = ("Turn CrossFX On/Off", "Open/Close CrossFX");
+        // Both Chinese tables said "turn the program on/off" for the window's hotkey too.
+        for code in ["zh-CN", "zh-TW"] {
+            let table = language(code).expect(code);
+            let embedded = table.embedded_catalogue();
+            assert_eq!(
+                embedded.get(embedded_key(power)),
+                embedded.get(embedded_key(window)),
+                "{code}"
+            );
+            assert_ne!(get(code, power), get(code, window), "{code}");
+            assert_eq!(
+                get(code, power).as_deref(),
+                table.original_catalogue().get(power),
+                "{code}: the power's line keeps the original's words"
+            );
+        }
+        assert_eq!(
+            get("zh-CN", window).as_deref(),
+            Some("打开/关闭 CrossFX 窗口")
+        );
+        assert_eq!(
+            get("zh-TW", window).as_deref(),
+            Some("開啟/關閉 CrossFX 視窗")
+        );
     }
 
     #[test]

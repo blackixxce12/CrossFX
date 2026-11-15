@@ -1,12 +1,12 @@
 //! What the platform this build is for has, decided once, at compile time.
 //!
-//! FxSound for Linux sits on PipeWire and WirePlumber, serves D-Bus, and leaves its global
+//! CrossFX on Linux sits on PipeWire and WirePlumber, serves D-Bus, and leaves its global
 //! shortcuts to the compositor; the same code built for Windows is a WASAPI application with none
-//! of those, beside the original FxSound LLC's own. What the interface offers follows from that,
-//! and is asked of [`PLATFORM`] rather than of a `cfg` at each control: a pane, a checkbox or a
-//! line that one platform lacks names the field it depends on here, so that what Windows does not
-//! have is decided in one place and can be read in one place. Linux is described as it was before
-//! the Windows build existed, so nothing there changes.
+//! of those, beside the original FxSound by FxSound LLC. What the interface offers follows from
+//! that, and is asked of [`PLATFORM`] rather than of a `cfg` at each control: a pane, a checkbox
+//! or a line that one platform lacks names the field it depends on here, so that what Windows does
+//! not have is decided in one place and can be read in one place. Linux is described as it was
+//! before CrossFX had a Windows build, so nothing there changes.
 //!
 //! [`Platform::LINUX`] and [`Platform::WINDOWS`] are both ordinary values on both platforms: a
 //! test can draw the other platform's interface without building for it.
@@ -31,7 +31,7 @@ pub struct Platform {
     /// PipeWire's echo canceller in front of the microphone (`module-echo-cancel`): Settings ▸
     /// Microphone ▸ "Echo cancellation" and the line under it.
     pub echo_cancel: bool,
-    /// WirePlumber, and FxSound's hook in it: Settings ▸ Experimental ▸ "Smooth moves in
+    /// WirePlumber, and CrossFX's hook in it: Settings ▸ Experimental ▸ "Smooth moves in
     /// WirePlumber", the lines under it and "Restart WirePlumber".
     pub wireplumber: bool,
     /// A preset of its own for each application, which moves the application's streams onto a
@@ -39,13 +39,13 @@ pub struct Platform {
     /// applications the preset list's tip names are the engine's to report, and an engine without
     /// routes reports none.
     pub app_presets: bool,
-    /// Global shortcuts belong to the compositor, which binds FxSound's commands to keys: the
+    /// Global shortcuts belong to the compositor, which binds CrossFX's commands to keys: the
     /// Wayland note over the shortcut table and the link to the example configuration under it.
     pub compositor_shortcuts: bool,
 }
 
 impl Platform {
-    /// FxSound for Linux.
+    /// CrossFX on Linux.
     pub const LINUX: Self = Self {
         original: Original::WindowsBuild,
         dbus: true,
@@ -55,7 +55,7 @@ impl Platform {
         compositor_shortcuts: true,
     };
 
-    /// FxSound for Windows: none of the Linux plumbing, and FxSound LLC's FxSound as the original.
+    /// CrossFX on Windows: none of the Linux plumbing, and FxSound LLC's FxSound as the original.
     pub const WINDOWS: Self = Self {
         original: Original::FxSoundLlc,
         dbus: false,
