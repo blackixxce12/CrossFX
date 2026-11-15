@@ -1,5 +1,5 @@
-//! The control pipe: `\\.\pipe\fxsound-<user SID>`, the single-instance lock and the command
-//! channel of the Windows build, where Linux has a Unix socket and its lock file (`crate::ipc`).
+//! The control pipe: `\\.\pipe\crossfx-<user SID>`, the single-instance lock and the command
+//! channel of CrossFX on Windows, where Linux has a Unix socket and its lock file (`crate::ipc`).
 //!
 //! [`PipeListener`] and [`PipeStream`] have the methods of `UnixListener` and `UnixStream` that
 //! `crate::ipc` is written against — `connect`, the read and write timeouts, a non-blocking read,
@@ -13,7 +13,7 @@
 //! primary, as taking the `flock` does on Linux, and the kernel gives it up with the last handle,
 //! so a crash leaves nothing stale behind. Every instance after the first is created *before* the
 //! one before it is handed to its caller ([`PipeListener::accept`]): a name with no instance left
-//! would be free for a second FxSound to take while the first one is still running.
+//! would be free for a second CrossFX to take while the first one is still running.
 //!
 //! # Who may connect
 //!
@@ -23,15 +23,15 @@
 //! reached before it writes a byte, and connects at identification level, so that a pipe someone
 //! else created first cannot act as the caller either. It checks two things: the owner, against
 //! its own SID, which keeps out a pipe another account made; and the integrity label, which must
-//! be medium or above, as FxSound's own is (`user::integrity_of`). An owner is only a name
+//! be medium or above, as CrossFX's own is (`user::integrity_of`). An owner is only a name
 //! its creator gave, and a process of this same user at low integrity — a browser's renderer, a
 //! document viewer's sandbox — may give the user's: without the label it would be handed every
 //! command line forwarded to it, with the directory it was typed in, and answer `--status` with
 //! whatever it liked. It cannot label a pipe above its own level.
 //!
 //! What no check can do is take the name back: whoever made the pipe first holds it until its last
-//! handle goes, as whoever takes the lock first does on Linux. A second FxSound then finds no
-//! FxSound to talk to and says so, rather than starting beside it.
+//! handle goes, as whoever takes the lock first does on Linux. A second CrossFX then finds no
+//! CrossFX to talk to and says so, rather than starting beside it.
 //!
 //! # Timeouts
 //!
@@ -71,6 +71,8 @@ use windows::Win32::System::Threading::{INFINITE, WaitForMultipleObjects};
 use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
 use windows::core::PCWSTR;
 
+use fxsound_core::identity::BINARY;
+
 use super::user::{self, SecurityDescriptor};
 use super::{Event, io_error, is, millis, wide};
 
@@ -99,19 +101,20 @@ fn own_sid() -> io::Result<&'static str> {
     Ok(SID.get_or_init(|| sid))
 }
 
-/// `\\.\pipe\fxsound-<user SID>`: the control pipe of this user's FxSound.
+/// `\\.\pipe\crossfx-<user SID>`: the control pipe of this user's CrossFX, named after its binary
+/// ([`BINARY`]).
 ///
 /// # Errors
 ///
 /// If the user's SID cannot be read from the process token.
 pub fn default_path() -> io::Result<PathBuf> {
     Ok(PathBuf::from(format!(
-        "{PIPE_PREFIX}fxsound-{}",
+        "{PIPE_PREFIX}{BINARY}-{}",
         own_sid()?
     )))
 }
 
-/// The control pipe of an FxSound told to keep its instance in `dir` (`ipc::Instance::acquire_in`):
+/// The control pipe of a CrossFX told to keep its instance in `dir` (`ipc::Instance::acquire_in`):
 /// the user's pipe name with a hash of the directory after it, so that two directories are two
 /// instances, as two runtime directories are on Linux. The tests run their primaries this way.
 ///
@@ -126,7 +129,7 @@ pub fn path_in(dir: &Path) -> io::Result<PathBuf> {
             (hash ^ u64::from(*unit)).wrapping_mul(0x0000_0100_0000_01b3)
         });
     Ok(PathBuf::from(format!(
-        "{PIPE_PREFIX}fxsound-{}-{hash:016x}",
+        "{PIPE_PREFIX}{BINARY}-{}-{hash:016x}",
         own_sid()?
     )))
 }
@@ -144,7 +147,7 @@ pub fn is_pipe_path(path: &Path) -> bool {
 }
 
 /// Whether a pipe of `path`'s name exists right now, waiting for no instance to come free. For
-/// `--self-test`, which must not connect to a running FxSound: a connection is a caller it would
+/// `--self-test`, which must not connect to a running CrossFX: a connection is a caller it would
 /// answer.
 #[must_use]
 pub fn exists(path: &Path) -> bool {
@@ -156,7 +159,7 @@ pub fn exists(path: &Path) -> bool {
 }
 
 /// The first instance of `path`'s pipe as a sandboxed process of this user can make it before
-/// FxSound does: the user's name as its owner, and its own level, low, as its label — which is all
+/// CrossFX does: the user's name as its owner, and its own level, low, as its label — which is all
 /// it can give a pipe. The tests' squatter, which holds the name until the handle goes.
 ///
 /// # Errors
@@ -306,12 +309,12 @@ impl PipeStream {
         HANDLE(self.handle.as_raw_handle())
     }
 
-    /// Connect to the pipe at `path` and check that it is this user's FxSound's: owned by this
+    /// Connect to the pipe at `path` and check that it is this user's CrossFX's: owned by this
     /// user, and made at medium integrity or above (see the module docs).
     ///
     /// # Errors
     ///
-    /// `NotFound` when `path` is not a pipe's name or no pipe of that name exists — FxSound is
+    /// `NotFound` when `path` is not a pipe's name or no pipe of that name exists — CrossFX is
     /// not running; `PermissionDenied` when the pipe is another account's, or was made at low
     /// integrity; any other failure to open it.
     pub fn connect(path: impl AsRef<Path>) -> io::Result<Self> {
@@ -354,7 +357,7 @@ impl PipeStream {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!(
-                    "{} belongs to another account ({owner}); FxSound does not talk to it",
+                    "{} belongs to another account ({owner}); CrossFX does not talk to it",
                     path.display()
                 ),
             ));
@@ -366,7 +369,7 @@ impl PipeStream {
                 io::ErrorKind::PermissionDenied,
                 format!(
                     "{} was made by a program running at low integrity (level {level:#x}), not \
-                     by FxSound; FxSound does not talk to it, and cannot start while it holds \
+                     by CrossFX; CrossFX does not talk to it, and cannot start while it holds \
                      the name",
                     path.display()
                 ),
@@ -375,8 +378,8 @@ impl PipeStream {
         Ok(stream)
     }
 
-    /// Let the FxSound at the other end of this client's connection bring a window to the front
-    /// once: the one a forwarded `fxsound` or `fxsound --show` opens or raises, which Windows
+    /// Let the CrossFX at the other end of this client's connection bring a window to the front
+    /// once: the one a forwarded `crossfx` or `crossfx --show` opens or raises, which Windows
     /// would otherwise leave behind the window the user is in, with its taskbar button flashing.
     /// Windows gives that right to the process the user is working in — a command just typed or
     /// a shortcut just clicked — and this hands it on. Nothing happens when this process has no
@@ -403,7 +406,7 @@ impl PipeStream {
         use std::sync::atomic::AtomicUsize;
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let path = PathBuf::from(format!(
-            "{PIPE_PREFIX}fxsound-{}-pair-{}-{}",
+            "{PIPE_PREFIX}{BINARY}-{}-pair-{}-{}",
             own_sid()?,
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
@@ -568,7 +571,7 @@ pub struct PipeListener {
 
 impl PipeListener {
     /// Take `path`'s pipe as its first instance: `Some` when this process is the primary, `None`
-    /// when an instance exists already — another FxSound of this user, or, behind a pipe of the
+    /// when an instance exists already — another CrossFX of this user, or, behind a pipe of the
     /// same name, an account whose pipe a client then refuses to talk to.
     ///
     /// # Errors
@@ -742,7 +745,7 @@ mod tests {
         use std::sync::atomic::AtomicUsize;
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         PathBuf::from(format!(
-            "{PIPE_PREFIX}fxsound-test-{tag}-{}-{}",
+            "{PIPE_PREFIX}crossfx-test-{tag}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))
@@ -752,7 +755,7 @@ mod tests {
     fn the_users_pipe_is_named_for_their_sid_and_a_directory_for_its_own() {
         let path = default_path().expect("a SID");
         let text = path.to_str().expect("ASCII");
-        assert!(text.starts_with(r"\\.\pipe\fxsound-S-1-"), "{text}");
+        assert!(text.starts_with(r"\\.\pipe\crossfx-S-1-"), "{text}");
         let a = path_in(Path::new(r"C:\one")).expect("a SID");
         let b = path_in(Path::new(r"C:\two")).expect("a SID");
         assert_ne!(a, b);
@@ -872,10 +875,10 @@ mod tests {
     }
 
     #[test]
-    fn fxsounds_pipe_is_labelled_medium_and_is_taken_for_fxsounds() {
+    fn crossfx_pipe_is_labelled_medium_and_is_taken_for_crossfx_own() {
         let path = unique("medium");
         let _listener = PipeListener::bind(&path).expect("bind");
-        let client = PipeStream::connect(&path).expect("FxSound's own pipe");
+        let client = PipeStream::connect(&path).expect("CrossFX's own pipe");
         assert_eq!(
             user::integrity_of(client.raw()).expect("the label"),
             Some(user::MEDIUM_INTEGRITY),
@@ -888,14 +891,14 @@ mod tests {
         // What a sandboxed process of this user can make first ([`squat`]).
         let path = unique("low");
         let _squatter = squat(&path).expect("the squatter's pipe");
-        let e = PipeStream::connect(&path).expect_err("not FxSound's");
+        let e = PipeStream::connect(&path).expect_err("not CrossFX's");
         assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
         assert!(e.to_string().contains("low integrity"), "{e}");
 
         // Nothing of a command line reaches one: the forwarding fails before a byte is written.
         let path = unique("low-forward");
         let squatter = squat(&path).expect("the squatter's pipe");
-        let argv = ["fxsound".to_owned(), "--status".to_owned()];
+        let argv = ["crossfx".to_owned(), "--status".to_owned()];
         let e = crate::ipc::forward_to(&path, &argv, Path::new(r"C:\secret"), BUSY_WAIT)
             .expect_err("refused");
         assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");

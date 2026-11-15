@@ -7,7 +7,7 @@
 //!
 //! - **Its own thread.** The icon's hidden window, and the menu's, belong to the thread that made
 //!   them, which has to run a message loop for them; the GUI thread's own loop does not run while
-//!   the window is hidden, which is when the tray matters most. So `fxsound-tray` makes the icon
+//!   the window is hidden, which is when the tray matters most. So `crossfx-tray` makes the icon
 //!   and pumps its messages, and an update reaches it as a posted message to a window of its own,
 //!   which is dispatched even inside the menu's modal loop and applied once that loop is over —
 //!   a menu is never replaced under the user's pointer.
@@ -22,12 +22,12 @@
 //!   tray-icon or muda reports is recorded (`Pending`) and followed by a posted `WM_WAKE`
 //!   (`record`), as tray-icon asks of a loop of one's own.
 //! - **No hover tracking.** tray-icon follows the pointer over the icon with a 15 ms timer, for
-//!   enter and leave events FxSound has no use for, and its timer outlived the pointer — after
+//!   enter and leave events CrossFX has no use for, and its timer outlived the pointer — after
 //!   every right click, among others — and woke the tray thread some sixty times a second for as
-//!   long as FxSound ran on. The pointer's moves over the icon are kept from it (`icon_window`),
+//!   long as CrossFX ran on. The pointer's moves over the icon are kept from it (`icon_window`),
 //!   so the timer never starts; the clicks still reach it.
 //! - **A taskbar that comes back** — Explorer restarted — has none of the old one's icons.
-//!   tray-icon adds FxSound's again from what the shell last took, which is not what FxSound
+//!   tray-icon adds CrossFX's again from what the shell last took, which is not what CrossFX
 //!   shows now when a change came while there was no taskbar to take it. So the tray keeps what
 //!   the shell took apart from the mirror (`Shown`), sets again whatever differs at every look,
 //!   and looks once tray-icon has added the icon to a new taskbar.
@@ -96,7 +96,7 @@ const WM_WAKE: u32 = WM_APP + 3;
 /// them.
 const TRAY_ICON_CALLBACK: u32 = 6002;
 
-/// FxSound's subclass of tray-icon's window, beside muda's: `SetWindowSubclass` tells the two
+/// CrossFX's subclass of tray-icon's window, beside muda's: `SetWindowSubclass` tells the two
 /// apart by procedure and id.
 const ICON_SUBCLASS: usize = 1;
 
@@ -258,7 +258,7 @@ pub fn spawn(
     let thread = {
         let shared = Arc::clone(&shared);
         thread::Builder::new()
-            .name("fxsound-tray".to_owned())
+            .name("crossfx-tray".to_owned())
             .spawn(move || run(state, &tx, &shared, &ready_tx))
             .map_err(|err| TrayError(format!("the tray's thread did not start: {err}")))?
     };
@@ -402,8 +402,8 @@ pub enum Row {
 
 /// The tree of `showContextMenu` (`FxSystemTrayView.cpp:216-330`) for two lanes, in the order the
 /// Linux tray lists it: Open, the power, a preset submenu per lane, the device submenus between
-/// separators, Settings, Theme, Exit. The preset submenus go with the power at «Как в Windows» =
-/// Interface and above, as on Windows ([`WindowsLook::PresetsNeedPower`]).
+/// separators, Settings, Theme, Exit. The preset submenus go with the power at «Как в оригинальном
+/// FxSound LLC» = Interface and above, as in the original ([`WindowsLook::PresetsNeedPower`]).
 #[must_use]
 pub fn menu_rows(state: &TrayState) -> Vec<Row> {
     let mut rows = vec![
@@ -539,7 +539,7 @@ fn build_item(
     commands: &mut HashMap<MenuId, TrayCommand>,
 ) -> Option<Box<dyn IsMenuItem>> {
     let mut id = |command: &TrayCommand| {
-        let id = MenuId::new(format!("fxsound-{}", commands.len()));
+        let id = MenuId::new(format!("crossfx-{}", commands.len()));
         commands.insert(id.clone(), command.clone());
         id
     };
@@ -657,7 +657,7 @@ fn route_events() {
 }
 
 /// tray-icon's report of the pointer on the icon: the clicks the loop acts on are recorded, and
-/// nothing else is — the pointer entering and leaving, which FxSound does not follow.
+/// nothing else is — the pointer entering and leaving, which CrossFX does not follow.
 fn on_icon_event(event: TrayIconEvent) {
     if let Some(click) = Click::of(&event) {
         record(|pending| pending.clicks.push(click));
@@ -678,7 +678,7 @@ fn taskbar_created() -> Option<u32> {
     (message != 0).then_some(message)
 }
 
-/// tray-icon's window, the one the icon belongs to, as FxSound subclasses it
+/// tray-icon's window, the one the icon belongs to, as CrossFX subclasses it
 /// ([`guard_icon_window`]):
 ///
 /// - the pointer's moves over the icon stop here, before tray-icon starts its hover timer for
@@ -752,7 +752,7 @@ unsafe extern "system" fn tray_window(
                 LRESULT(0)
             }
             // `taskkill` without `/F` reaches only the session watcher's window, and an installer
-            // closes FxSound through the Restart Manager, which ends its session
+            // closes CrossFX through the Restart Manager, which ends its session
             // (`crate::win::session`): neither sends this window `WM_CLOSE`. A closer that sends
             // every top-level window of the process one reaches the session watcher's too, which
             // hears it as the tray's Exit; this window stays, and so does the icon's
@@ -769,7 +769,7 @@ unsafe extern "system" fn tray_window(
 
 fn create_window() -> Result<HWND, String> {
     static REGISTERED: OnceLock<()> = OnceLock::new();
-    let class_name = w!("FxSoundTray");
+    let class_name = w!("CrossFXTray");
     // SAFETY: this module's own handle.
     let instance = unsafe { GetModuleHandleW(None) }.ok().map(Into::into);
     REGISTERED.get_or_init(|| {
@@ -783,12 +783,12 @@ fn create_window() -> Result<HWND, String> {
         unsafe { RegisterClassW(&raw const class) };
     });
     // SAFETY: the class is registered; the window is this thread's, never shown. Its title is
-    // the port's, not FxSound LLC's FxSound's (see `crate::win::session`).
+    // CrossFX's own, never the original FxSound's window title (see `crate::win::session`).
     unsafe {
         CreateWindowExW(
             WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0),
             class_name,
-            w!("FxSound Port tray"),
+            w!("CrossFX tray"),
             WS_OVERLAPPED,
             0,
             0,
@@ -841,7 +841,7 @@ impl Notify for Notification {
     }
 }
 
-/// What the notification area shows, as far as FxSound knows: the picture and the tooltip the
+/// What the notification area shows, as far as CrossFX knows: the picture and the tooltip the
 /// shell last took. `None` for one it refused — there was no taskbar, say — or that a new taskbar
 /// may show otherwise, which the next look sets again ([`Tray::show`]).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -1416,7 +1416,7 @@ mod tests {
         on_a_thread_of_its_own(|| {
             let icon = Recorder::default();
             let mut tray = tray(populated(), false, || false);
-            // Explorer is gone, and FxSound is turned off meanwhile: the shell refuses both.
+            // Explorer is gone, and CrossFX is turned off meanwhile: the shell refuses both.
             icon.refusing.set(true);
             let off = TrayState {
                 power: false,
@@ -1484,7 +1484,7 @@ mod tests {
             unsafe { DefWindowProcW(window, message, wparam, lparam) }
         }
         static REGISTERED: OnceLock<()> = OnceLock::new();
-        let name = w!("FxSoundTrayTestIconWindow");
+        let name = w!("CrossFXTrayTestIconWindow");
         // SAFETY: this module's own handle.
         let instance = unsafe { GetModuleHandleW(None) }.ok().map(Into::into);
         REGISTERED.get_or_init(|| {

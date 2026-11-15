@@ -11,7 +11,7 @@
 //!   without a banner (`SuppressPopup`), as GNOME files a low-urgency one. Do Not Disturb holds
 //!   back either, as it does any application's.
 //! - **A link** is followed when the toast is clicked, its body or its button.
-//! - **Gone with FxSound.** What FxSound showed is taken out of the notification centre when it
+//! - **Gone with CrossFX.** What CrossFX showed is taken out of the notification centre when it
 //!   quits, as GNOME takes the notices of a sender that left the bus: they would otherwise offer
 //!   a link of an application that is not running.
 //!
@@ -19,12 +19,13 @@
 //!
 //! Windows shows a toast only for an application it knows by its AppUserModelID. A packaged app
 //! has one from its package; this one is registered under
-//! `HKCU\Software\Classes\AppUserModelId\FxSoundPort.FxSound` ([`APP_USER_MODEL_ID`]) before the
-//! first toast, with the name and the icon the toast is shown with — the way the Windows App SDK
-//! registers an unpackaged application for its notifications. The ID and the name are the port's
-//! own, as its installers' are: FxSound LLC's FxSound may be installed beside it. The process does
-//! not take that ID for its window as well: the taskbar would then group the window under it and
-//! apart from a pinned shortcut that does not carry it.
+//! `HKCU\Software\Classes\AppUserModelId\io.github.blackixxce12.CrossFX` ([`APP_USER_MODEL_ID`])
+//! before the first toast, with the name and the icon the toast is shown with — the way the
+//! Windows App SDK registers an unpackaged application for its notifications. The ID and the name
+//! are CrossFX's own ([`fxsound_core::identity`]), as its installers' are: FxSound LLC's FxSound
+//! may be installed beside it. The process does not take that ID for its window as well: the
+//! taskbar would then group the window under it and apart from a pinned shortcut that does not
+//! carry it.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,16 +41,17 @@ use crate::notify::{APP_NAME, Message, Sink, Weight};
 
 use super::wide;
 
-/// The AppUserModelID the toasts are shown under. Its registration,
-/// `HKCU\Software\Classes\AppUserModelId\FxSoundPort.FxSound`, is the uninstallers' to delete.
-pub const APP_USER_MODEL_ID: &str = "FxSoundPort.FxSound";
+/// The AppUserModelID the toasts are shown under: CrossFX's application id. Its registration,
+/// `HKCU\Software\Classes\AppUserModelId\io.github.blackixxce12.CrossFX`, is the uninstallers' to
+/// delete.
+pub const APP_USER_MODEL_ID: &str = fxsound_core::identity::APP_ID;
 
-/// The name the toasts are shown under, and the one Windows' notification settings list: the
-/// port's, as the Start menu and the installed apps name it.
-const DISPLAY_NAME: &str = "FxSound Port";
+/// The name the toasts are shown under, and the one Windows' notification settings list:
+/// CrossFX's, as the Start menu and the installed apps name it.
+const DISPLAY_NAME: &str = fxsound_core::identity::PRODUCT;
 
 /// The tag and the group every toast is shown with: the one slot.
-const SLOT: &str = "fxsound";
+const SLOT: &str = fxsound_core::identity::BINARY;
 
 /// Where an unpackaged application's AppUserModelID is described.
 const APP_ID_KEY: &str = r"Software\Classes\AppUserModelId";
@@ -73,7 +75,7 @@ fn escape(text: &str) -> String {
 /// The toast's XML for `message`.
 ///
 /// A generic toast shows up to three lines of text and the first in bold: the message's first
-/// line is that headline — "FxSound in system tray", "Preset: Rock" — and the rest follow it. The
+/// line is that headline — "CrossFX in system tray", "Preset: Rock" — and the rest follow it. The
 /// application's own name is in the toast's header already, so it is not the headline as well.
 #[must_use]
 pub fn content(message: &Message) -> String {
@@ -134,21 +136,26 @@ fn register_app_id(icon: Option<&PathBuf>) -> windows::core::Result<()> {
 }
 
 /// The icon a toast is shown with: the tray's blue bars, written once as a PNG where the
-/// registration can point at it — `%LOCALAPPDATA%\FxSound Port`, the port's own folder
-/// ([`fxsound_core::settings::APP_DIR_NAME`]). `None` when it cannot be written; the toast then
+/// registration can point at it ([`icon_path`]). `None` when it cannot be written; the toast then
 /// has Windows' default.
 fn toast_icon() -> Option<PathBuf> {
-    let dir = dirs::cache_dir()?.join(fxsound_core::settings::APP_DIR_NAME);
-    let path = dir.join("notification.png");
+    let path = icon_path()?;
     if path.is_file() {
         return Some(path);
     }
     let png = crate::tray::rasterise_png(crate::tray::TrayIcon::Processing.svg(), 64)?;
-    std::fs::create_dir_all(&dir)
+    std::fs::create_dir_all(path.parent()?)
         .and_then(|()| std::fs::write(&path, png))
         .map_err(|err| log::debug!("no icon for the notifications: {err}"))
         .ok()?;
     Some(path)
+}
+
+/// Where the toasts' icon is kept: `notification.png` in CrossFX's own local folder,
+/// `%LOCALAPPDATA%\CrossFX` ([`fxsound_core::Settings::local_dir`]), never the folder of the
+/// original FxSound there. The uninstallers delete it, and the folder once it is empty.
+fn icon_path() -> Option<PathBuf> {
+    fxsound_core::Settings::local_dir().map(|dir| dir.join("notification.png"))
 }
 
 /// Delivery as toasts (see the module docs). Replaces `notify::DesktopSink` on Windows.
@@ -178,7 +185,7 @@ impl ToastSink {
             && let Err(err) = register_app_id(toast_icon().as_ref())
         {
             log::warn!(
-                "notifications may not show: FxSound could not register itself for them ({err})"
+                "notifications may not show: CrossFX could not register itself for them ({err})"
             );
         }
         let notifier =
@@ -244,12 +251,36 @@ impl Drop for ToastSink {
 mod tests {
     use super::*;
 
+    /// The toasts are CrossFX's: the AppUserModelID and the name Windows lists them under are
+    /// CrossFX's own, and the icon is kept in CrossFX's local folder — never under a name of the
+    /// original FxSound's, which Windows does not tell from `fxsound`. Paths are only built here:
+    /// nothing is written, read or registered.
+    #[test]
+    fn the_toasts_are_crossfx_own_and_their_icon_is_kept_in_its_local_folder() {
+        assert_eq!(APP_USER_MODEL_ID, "io.github.blackixxce12.CrossFX");
+        assert_eq!(DISPLAY_NAME, "CrossFX");
+        for name in [APP_USER_MODEL_ID, DISPLAY_NAME, SLOT] {
+            assert!(!name.to_lowercase().contains("fxsound"), "{name}");
+        }
+        let local = dirs::data_local_dir().expect("the local application data");
+        let icon = icon_path().expect("a place for the icon");
+        assert_eq!(icon, local.join("CrossFX").join("notification.png"));
+        for component in icon.components() {
+            let component = component.as_os_str().to_string_lossy();
+            assert!(
+                !component.eq_ignore_ascii_case("fxsound"),
+                "{}",
+                icon.display()
+            );
+        }
+    }
+
     #[test]
     fn the_first_line_is_the_headline_and_the_toast_never_makes_a_sound() {
         let xml = content(&Message::minimised_to_tray());
         assert!(
             xml.contains(
-                "<text>FxSound in system tray</text><text>Click FxSound icon to reopen</text>"
+                "<text>CrossFX in system tray</text><text>Click CrossFX icon to reopen</text>"
             ),
             "{xml}"
         );

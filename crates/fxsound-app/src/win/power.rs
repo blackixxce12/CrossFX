@@ -9,7 +9,7 @@
 //! resume heard twice is said to the engine once.
 //!
 //! Nothing holds the suspend up, as on Linux: the callback hands the word over and returns.
-//! Upstream does the same from this very notification (d62e024, `FxController.cpp:2145-2159`).
+//! The original does the same from this very notification (d62e024, `FxController.cpp:2145-2159`).
 
 use std::ffi::c_void;
 
@@ -63,7 +63,7 @@ pub struct SleepWatch {
 
 impl SleepWatch {
     /// Listen for suspend and resume, and send what each says on `sleeping`. Never fails: without
-    /// the registration — it is refused only to a service — FxSound runs on without it, as the
+    /// the registration — it is refused only to a service — CrossFX runs on without it, as the
     /// Linux build does without a system bus.
     #[must_use]
     pub fn start(sleeping: impl Into<WakingSender<bool>>) -> Self {
