@@ -2840,6 +2840,7 @@ mod tests {
             is_default: true,
             direction: DeviceDirection::Output,
             form_factor: "microphone".into(),
+            is_virtual: false,
         }];
         a.state.selected_output = Some(0);
 
@@ -2872,6 +2873,7 @@ mod tests {
                 is_default: true,
                 direction: fxsound_core::DeviceDirection::Output,
                 form_factor: "speaker".into(),
+                is_virtual: false,
             },
             AudioDevice {
                 id: 2,
@@ -2880,6 +2882,7 @@ mod tests {
                 is_default: false,
                 direction: fxsound_core::DeviceDirection::Output,
                 form_factor: "speaker".into(),
+                is_virtual: false,
             },
         ];
 
@@ -2914,6 +2917,7 @@ mod tests {
             is_default: false,
             direction,
             form_factor: "speaker".into(),
+            is_virtual: false,
         }
     }
 

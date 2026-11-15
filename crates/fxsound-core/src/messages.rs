@@ -938,10 +938,13 @@ pub enum UiToAudio {
     ///
     /// On Windows the input lane plays into a virtual cable, and its microphone is open only while
     /// an application records from the cable's recording side: the Windows face of the passive
-    /// stream. While this holds it, the engine opens the microphone and runs the lane into the
-    /// cable whether or not anything records there — which puts a Bluetooth headset in its call
-    /// profile there too — and after `false` it lets the microphone go once nothing has recorded
-    /// from the cable for three seconds. The recording default stays on the cable throughout.
+    /// stream. While this holds it, and the lane stands on its cable with the power on — holding
+    /// the recording default there, open or closed — the engine opens the microphone and runs the
+    /// lane into the cable whether or not anything records there, which puts a Bluetooth headset
+    /// in its call profile there too. With the power off the lane holds no default and opens
+    /// nothing, held or not; nor does a lane without a cable. After `false` the microphone stays
+    /// open three seconds more — or, while an application records from the cable, until three
+    /// seconds after the last one stops — and is then let go.
     KeepInputAwake(bool),
     /// Every rule that gives an application a preset of its own, both lanes at once, running or
     /// not, and the rules that follow the lane where they outrank one of those

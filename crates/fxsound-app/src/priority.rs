@@ -91,6 +91,14 @@ pub(crate) fn sort_by_rank(devices: &mut [AudioDevice], settings: &Settings) {
 /// default — and the rest as listed. Taken in any other order, the first list would rank some
 /// device above the one playing, and the engine would move the lane to it.
 ///
+/// A virtual cable ([`AudioDevice::is_virtual`]) is nobody's device by being there: Windows makes
+/// one it has just installed the default of every role by itself, and nobody hears what plays
+/// into it. So it is never taken for the device in use for being the session default, and ranks
+/// below every real device in a first list; and *Prioritize new output devices* puts it at the
+/// bottom, not the top, and moves no lane to it. The saved device and the attached one keep their
+/// places whatever they are: the user picked them, and the engine plays to a cable only where the
+/// user chose it.
+///
 /// An entry the list already has keeps its place and its preset, and takes the device's current
 /// description and form factor, which the Settings pane shows.
 pub(crate) fn learn(
@@ -149,6 +157,8 @@ pub(crate) fn learn(
                     0
                 } else if attached == Some(device.name.as_str()) {
                     1
+                } else if device.is_virtual {
+                    4
                 } else if device.is_default {
                     2
                 } else {
@@ -160,10 +170,15 @@ pub(crate) fn learn(
                 .device_configs
                 .extend(newcomers.into_iter().map(entry));
         } else if settings.prioritize_new_output {
-            learned.promoted[lane(direction)] = Some(newcomers[0].name.clone());
+            let (cables, real): (Vec<&AudioDevice>, Vec<&AudioDevice>) =
+                newcomers.into_iter().partition(|device| device.is_virtual);
+            learned.promoted[lane(direction)] = real.first().map(|device| device.name.clone());
             settings
                 .device_configs
-                .splice(0..0, newcomers.into_iter().map(entry));
+                .splice(0..0, real.into_iter().map(entry));
+            settings
+                .device_configs
+                .extend(cables.into_iter().map(entry));
         } else {
             settings
                 .device_configs
@@ -196,12 +211,21 @@ mod tests {
             is_default: false,
             direction,
             form_factor: String::new(),
+            is_virtual: false,
         }
     }
 
     fn default_device(name: &str, direction: DeviceDirection) -> AudioDevice {
         AudioDevice {
             is_default: true,
+            ..device(name, direction)
+        }
+    }
+
+    /// A side of a virtual cable, as the Windows engine lists one.
+    fn cable(name: &str, direction: DeviceDirection) -> AudioDevice {
+        AudioDevice {
+            is_virtual: true,
             ..device(name, direction)
         }
     }
@@ -263,6 +287,72 @@ mod tests {
         assert_eq!(
             names(&settings, OUT),
             ["headphones", "hdmi", "speakers", "usb"]
+        );
+    }
+
+    #[test]
+    fn a_first_list_ranks_a_cable_below_every_real_device_whatever_the_default() {
+        // VB-Cable installed before the first run, and Windows made it the default of every role
+        // by itself — listed first, as "CABLE Input" sorts before "Speakers".
+        let mut settings = Settings::default();
+        let devices = [
+            AudioDevice {
+                is_default: true,
+                ..cable("cable-in", OUT)
+            },
+            device("speakers", OUT),
+            device("headphones", OUT),
+            AudioDevice {
+                is_default: true,
+                ..cable("cable-out", IN)
+            },
+            device("mic", IN),
+        ];
+        learn(&mut settings, &devices, [None, None]);
+        assert_eq!(
+            names(&settings, OUT),
+            ["speakers", "headphones", "cable-in"]
+        );
+        assert_eq!(names(&settings, IN), ["mic", "cable-out"]);
+        // A cable the lane is saved on, or attached to, is the user's: in use, and first.
+        let mut settings = Settings::default();
+        settings.set_device_name(OUT, "cable-in");
+        learn(&mut settings, &devices, [None, Some("cable-out")]);
+        assert_eq!(
+            names(&settings, OUT),
+            ["cable-in", "speakers", "headphones"]
+        );
+        assert_eq!(names(&settings, IN), ["cable-out", "mic"]);
+    }
+
+    #[test]
+    fn a_cable_just_installed_is_never_prioritised_nor_promoted() {
+        let mut settings = known(&[("speakers", OUT), ("mic", IN)]);
+        settings.prioritize_new_output = true;
+        // VB-Cable installed while FxSound runs: both of its sides are new.
+        let devices = [
+            cable("cable-in", OUT),
+            device("speakers", OUT),
+            cable("cable-out", IN),
+            device("mic", IN),
+        ];
+        let learned = learn(&mut settings, &devices, [Some("speakers"), Some("mic")]);
+        assert!(learned.changed);
+        assert_eq!(learned.promoted, [None, None], "no lane is moved to it");
+        assert_eq!(names(&settings, OUT), ["speakers", "cable-in"]);
+        assert_eq!(names(&settings, IN), ["mic", "cable-out"]);
+        // A real device arriving beside one is promoted as ever, and the cable stays below it.
+        let devices = [
+            cable("cable-a-in", OUT),
+            device("usb", OUT),
+            device("speakers", OUT),
+            cable("cable-in", OUT),
+        ];
+        let learned = learn(&mut settings, &devices, [Some("speakers"), None]);
+        assert_eq!(learned.promoted, [Some("usb".to_owned()), None]);
+        assert_eq!(
+            names(&settings, OUT),
+            ["usb", "speakers", "cable-in", "cable-a-in"]
         );
     }
 

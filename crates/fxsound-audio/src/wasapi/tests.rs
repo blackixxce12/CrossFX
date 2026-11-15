@@ -37,6 +37,8 @@ struct Fake {
     gain: Option<f32>,
     /// FxSound's record of the defaults it holds (`record`), as the last run left it.
     record: PerDirection<Option<String>>,
+    /// The record's word on the defaults the user put on a cable themselves.
+    users_cables: PerDirection<Defaults>,
     log: Arc<std::sync::Mutex<Vec<Did>>>,
     /// The running streams' "ended by themselves" switches, by lane.
     ended: PerDirection<Option<EndSwitch>>,
@@ -174,6 +176,14 @@ impl System for Fake {
         self.did(Did::Recorded(claimed.output.clone(), claimed.input.clone()));
     }
 
+    fn users_cables(&mut self) -> PerDirection<Defaults> {
+        self.users_cables.clone()
+    }
+
+    fn keep_users_cables(&mut self, cables: &PerDirection<Defaults>) {
+        self.users_cables = cables.clone();
+    }
+
     fn start_stream(
         &mut self,
         plan: StreamPlan,
@@ -292,6 +302,39 @@ fn harness_recorded(
     options: &StartOptions,
     record: PerDirection<Option<String>>,
 ) -> Harness {
+    harness_kept(
+        endpoints,
+        output_defaults,
+        input_defaults,
+        options,
+        record,
+        PerDirection::default(),
+    )
+}
+
+/// The next start after `previous`'s run: the same machine, with the defaults and FxSound's record
+/// as that run left them.
+fn harness_after(previous: &mut Harness, options: &StartOptions) -> Harness {
+    let fake = previous.fake();
+    harness_kept(
+        fake.endpoints.clone(),
+        fake.defaults.output.clone(),
+        fake.defaults.input.clone(),
+        options,
+        fake.record.clone(),
+        fake.users_cables.clone(),
+    )
+}
+
+/// [`harness_recorded`], with the record's word on the user's own cable defaults besides.
+fn harness_kept(
+    endpoints: Vec<Endpoint>,
+    output_defaults: Defaults,
+    input_defaults: Defaults,
+    options: &StartOptions,
+    record: PerDirection<Option<String>>,
+    users_cables: PerDirection<Defaults>,
+) -> Harness {
     let log = Arc::new(std::sync::Mutex::new(Vec::new()));
     let fake = Fake {
         endpoints,
@@ -304,6 +347,7 @@ fn harness_recorded(
         refuse_streams: false,
         gain: None,
         record,
+        users_cables,
         log: Arc::clone(&log),
         ended: PerDirection::default(),
         stuck: Arc::default(),
@@ -2400,8 +2444,35 @@ fn on_a_machine_with_only_a_cable_a_default_windows_put_on_it_is_given_back_to_t
     assert_eq!(h.fake().record.output, None);
     assert_eq!(
         h.defaults(IN),
+        all_roles(&microphone().id),
+        "and the recording roles, which Windows put on the recording side of FxSound's own cable \
+         — where every recorder records the desktop's sound — are on the microphone again"
+    );
+
+    // The same while it runs, once the app has had its say: whatever records, records the
+    // microphone, not the desktop.
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+        ],
+        all_roles(&cable_in.id),
         all_roles(&cable_out.id),
-        "and the recording roles, which FxSound never held, are where Windows put them"
+        &StartOptions::default(),
+    );
+    h.start();
+    h.forget();
+    h.send(UiToAudio::SeedRememberedDefaults {
+        output: String::new(),
+        input: String::new(),
+    });
+    assert_eq!(h.did(), every_role(IN, &microphone().id), "{:?}", h.did());
+    assert_eq!(
+        h.defaults(OUT),
+        all_roles(&cable_in.id),
+        "the playback roles are FxSound's, and calls heard through it"
     );
 }
 
@@ -3366,4 +3437,664 @@ fn a_new_voice_chain_is_built_in_place_while_the_lane_is_off_and_handed_over_whi
         "built here and sent to the stream"
     );
     assert!(!h.engine.input_spec_pending);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Whose a default on a cable is: the evidence, and Windows' defaults put back
+// ---------------------------------------------------------------------------------------------
+
+/// Both lanes ranked, as the app's settings are by default: a lane's device the ranking decides,
+/// the speakers and the laptop's microphone first.
+fn both_ranked() -> StartOptions {
+    StartOptions {
+        output_priority: DevicePriority {
+            names: vec![speakers().id],
+            new_devices_first: false,
+        },
+        input_priority: DevicePriority {
+            names: vec![microphone().id],
+            new_devices_first: false,
+        },
+        ..StartOptions::default()
+    }
+}
+
+/// The streams the lanes run, as (capture, render).
+fn streams(h: &Harness) -> Vec<(String, String)> {
+    h.engine
+        .lanes
+        .iter()
+        .filter_map(|(_, lane)| lane.stream.as_ref())
+        .map(|stream| (stream.plan().capture.clone(), stream.plan().render.clone()))
+        .collect()
+}
+
+/// Every device the rules of `direction` remember, the user's word and their own choices alike.
+fn remembered_slots(h: &Harness, direction: DeviceDirection) -> Vec<String> {
+    let memory = h.engine.memory.get(direction);
+    [
+        &memory.user_selected,
+        &memory.most_recent_playback,
+        &memory.most_recent_default,
+        &memory.prior_default,
+        &memory.original_default,
+    ]
+    .into_iter()
+    .filter(|slot| !slot.is_empty())
+    .cloned()
+    .collect()
+}
+
+/// The endpoint the input lane holds its claim on.
+fn input_claim(h: &Harness) -> Option<String> {
+    h.engine
+        .lanes
+        .input
+        .claim
+        .as_ref()
+        .map(|claim| claim.endpoint.clone())
+}
+
+/// Whether `messages` hold an error of any lane's, or a pick the desktop made.
+fn any_error_or_pick(messages: &[AudioToUi]) -> bool {
+    messages.iter().any(|message| {
+        matches!(
+            message,
+            AudioToUi::Error { .. } | AudioToUi::DesktopPick { .. }
+        )
+    })
+}
+
+#[test]
+fn a_cable_installed_while_the_original_fxsound_runs_is_windows_and_the_microphone_s() {
+    // This machine: the original FxSound runs and holds the playback roles on its driver, calls on
+    // the speakers. The port's microphone lane is on, with no cable yet; the user installs
+    // VB-Cable, Windows gives it every role, and the original takes its two back onto its driver.
+    // Then the original quits, handing its default back to the speakers.
+    let [cable_in, cable_out] = cable();
+    for options in [StartOptions::default(), both_ranked()] {
+        let mut h = harness_with(
+            vec![speakers(), fxsound(), microphone()],
+            playback_on(&fxsound().id, &speakers().id),
+            all_roles(&microphone().id),
+            &options,
+        );
+        h.fake().original = Some("FxSound.exe (process 12364)".to_owned());
+        h.start();
+        h.send(UiToAudio::SelectDevice {
+            node_name: microphone().id,
+            direction: IN,
+        });
+        h.forget();
+        windows_gives_a_new_cable_every_role(&mut h, &cable_in, &cable_out);
+        // The microphone has the cable at once, and Windows' playback roles on it go back where
+        // they were: the original's two onto its driver, where it plays from.
+        assert_eq!(input_claim(&h), Some(cable_out.id.clone()), "{options:?}");
+        assert_eq!(
+            h.defaults(OUT),
+            playback_on(&fxsound().id, &speakers().id),
+            "{options:?}: {:?}",
+            h.did()
+        );
+        for &role in Role::claimed_by(OUT) {
+            h.fake().defaults.output.set(role, Some(fxsound().id));
+        }
+        h.burst(playback_default_changed(&fxsound().id));
+        h.tick(SUPERVISOR_PERIOD);
+        let messages = h.messages();
+        assert!(
+            !any_error_or_pick(&messages),
+            "{options:?}: the cable is no use of the user's: {messages:?}"
+        );
+        assert_eq!(input_claim(&h), Some(cable_out.id.clone()), "{options:?}");
+        assert_eq!(
+            h.defaults(OUT),
+            playback_on(&fxsound().id, &speakers().id),
+            "{options:?}: calls back on the speakers, the original's two on its driver"
+        );
+        assert!(!h.engine.in_users_use(&cable_in.id), "{options:?}");
+        // The held speakers' lane took no cable for its device, and remembers none.
+        assert_eq!(
+            h.engine.lanes.output.target.as_deref(),
+            Some(speakers().id.as_str()),
+            "{options:?}"
+        );
+        assert!(
+            !remembered_slots(&h, OUT).contains(&cable_in.id),
+            "{options:?}: {:?}",
+            h.engine.memory.output
+        );
+
+        // The original quits.
+        h.forget();
+        h.fake().original = None;
+        for &role in Role::claimed_by(OUT) {
+            h.fake().defaults.output.set(role, Some(speakers().id));
+        }
+        h.tick(ORIGINAL_EVERY);
+        h.burst(playback_default_changed(&speakers().id));
+        h.tick(REPAIR_PATIENCE);
+        assert_eq!(
+            streams(&h),
+            [(fxsound().id, speakers().id)],
+            "{options:?}: the speakers, never the cable"
+        );
+        assert!(!any_error_or_pick(&h.messages()), "{options:?}");
+        h.engine.shutdown();
+        assert_eq!(h.defaults(OUT), all_roles(&speakers().id), "{options:?}");
+        assert_eq!(h.defaults(IN), all_roles(&microphone().id), "{options:?}");
+    }
+}
+
+#[test]
+fn the_rules_own_choice_of_a_cable_never_makes_it_the_user_s() {
+    // What the rules remember having played to, or found the default on, is no word of the
+    // user's: a cable they came to by mistake would be the user's for good.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out,
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    let memory = &mut h.engine.memory.output;
+    memory.most_recent_playback.clone_from(&cable_in.id);
+    memory.most_recent_default.clone_from(&cable_in.id);
+    memory.prior_default.clone_from(&cable_in.id);
+    memory.original_default.clone_from(&cable_in.id);
+    assert!(!h.engine.remembers(OUT, &cable_in.id));
+    assert!(!h.engine.chosen(OUT, &cable_in.id));
+    // The user's word is: a pick, or the settings'.
+    h.engine
+        .memory
+        .output
+        .user_selected
+        .clone_from(&cable_in.id);
+    assert!(h.engine.chosen(OUT, &cable_in.id));
+    h.engine.memory.output.user_selected.clear();
+    h.send(UiToAudio::SeedRememberedDefaults {
+        output: cable_in.id.clone(),
+        input: String::new(),
+    });
+    assert!(h.engine.chosen(OUT, &cable_in.id));
+}
+
+#[test]
+fn a_cable_listed_only_after_its_wait_is_windows_once_it_is_listed() {
+    // VB-Cable installed while FxSound runs, Windows' default heard at once and the cable's
+    // endpoints readable only after PICK_WAIT: no pick was decided, and the default is Windows'.
+    // Calls were on the headphones, which the lane's hand-back would not know to go back to.
+    let [cable_in, cable_out] = cable();
+    for options in [StartOptions::default(), both_ranked()] {
+        let mut h = harness_with(
+            vec![speakers(), headphones(), fxsound(), microphone()],
+            playback_on(&speakers().id, &headphones().id),
+            all_roles(&microphone().id),
+            &options,
+        );
+        h.start();
+        h.send(UiToAudio::SelectDevice {
+            node_name: microphone().id,
+            direction: IN,
+        });
+        h.forget();
+        h.fake().defaults.output = all_roles(&cable_in.id);
+        h.fake().defaults.input = all_roles(&cable_out.id);
+        let mut events = vec![Event::Devices];
+        for (direction, id) in [(OUT, &cable_in.id), (IN, &cable_out.id)] {
+            events.extend(Role::ALL.into_iter().map(|role| Event::DefaultChanged {
+                direction,
+                role,
+                id: Some(id.clone()),
+            }));
+        }
+        h.burst(events);
+        for _ in 0..=(PICK_WAIT.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+            h.tick(SUPERVISOR_PERIOD);
+        }
+        assert!(h.engine.pending.output.is_empty() && h.engine.pending.input.is_empty());
+        h.fake()
+            .endpoints
+            .extend([cable_in.clone(), cable_out.clone()]);
+        h.event(Event::Devices);
+        h.tick(SUPERVISOR_PERIOD);
+        let messages = h.messages();
+        assert!(!any_error_or_pick(&messages), "{options:?}: {messages:?}");
+        assert!(!remembered(&messages, &cable_in.id) && !remembered(&messages, &cable_out.id));
+        assert_eq!(
+            h.defaults(OUT),
+            playback_on(&fxsound().id, &headphones().id),
+            "{options:?}: the playback roles back, calls back on the headphones"
+        );
+        assert_eq!(
+            streams(&h),
+            [(fxsound().id, speakers().id)],
+            "{options:?}: the microphone waits on its cable for a recorder"
+        );
+        assert_eq!(input_claim(&h), Some(cable_out.id.clone()), "{options:?}");
+        h.engine.shutdown();
+        assert_eq!(
+            h.defaults(OUT),
+            playback_on(&speakers().id, &headphones().id),
+            "{options:?}"
+        );
+        assert_eq!(h.defaults(IN), all_roles(&microphone().id), "{options:?}");
+    }
+
+    // A real device read late is no cable, and nothing of Windows' to put back: the rules take it
+    // for the device just added that it is.
+    let mut h = harness();
+    h.start();
+    for &role in Role::claimed_by(OUT) {
+        h.fake().defaults.output.set(role, Some(usb_headset().id));
+    }
+    h.burst(playback_default_changed(&usb_headset().id));
+    for _ in 0..=(PICK_WAIT.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert!(h.engine.placed.output.get(Role::Console).is_some());
+    h.fake().endpoints.push(usb_headset());
+    h.event(Event::Devices);
+    h.tick(SUPERVISOR_PERIOD);
+    assert_eq!(h.engine.placed.output, Placements::default());
+    assert_eq!(streams(&h), [(fxsound().id, usb_headset().id)]);
+    assert_eq!(h.defaults(OUT), playback_on(&fxsound().id, &speakers().id));
+}
+
+#[test]
+fn a_role_windows_moves_off_a_cable_it_had_put_it_on_never_goes_back_onto_that_cable() {
+    // VB-Cable's defaults found at the start, then Cable A installed while FxSound runs: Windows
+    // moves the calls' role from one cable to the next. It goes to a real device, never back onto
+    // VB-Cable — which would make that cable the user's in use, and the microphone avoid it.
+    let [cable_in, cable_out] = cable();
+    let [a_in, a_out] = cable_a();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+        ],
+        all_roles(&cable_in.id),
+        all_roles(&cable_out.id),
+        &StartOptions::default(),
+    );
+    h.start();
+    h.forget();
+    windows_gives_a_new_cable_every_role(&mut h, &a_in, &a_out);
+    assert!(
+        !h.did().contains(&Did::SetDefault(
+            OUT,
+            cable_in.id.clone(),
+            Role::Communications
+        )),
+        "{:?}",
+        h.did()
+    );
+    assert_eq!(h.defaults(OUT), playback_on(&fxsound().id, &speakers().id));
+    assert!(!h.engine.in_users_use(&cable_in.id));
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert_eq!(
+        input_claim(&h),
+        Some(cable_out.id.clone()),
+        "VB-Cable, which sorts first, is the microphone's"
+    );
+    h.engine.shutdown();
+    assert_eq!(h.defaults(OUT), all_roles(&speakers().id));
+    assert_eq!(h.defaults(IN), all_roles(&microphone().id));
+
+    // VB-Cable installed with the power off, the power on, then Cable A: where Windows put the
+    // calls is followed back to the speakers they were on.
+    let mut h = harness_with(
+        vec![speakers(), fxsound(), microphone()],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions {
+            want_default: false,
+            ..StartOptions::default()
+        },
+    );
+    h.start();
+    windows_gives_a_new_cable_every_role(&mut h, &cable_in, &cable_out);
+    h.send(UiToAudio::SetAsDefault {
+        direction: OUT,
+        want: true,
+    });
+    assert_eq!(
+        h.defaults(OUT),
+        playback_on(&fxsound().id, &speakers().id),
+        "FxSound in the playback roles' path: calls off the cable too"
+    );
+    h.forget();
+    windows_gives_a_new_cable_every_role(&mut h, &a_in, &a_out);
+    assert!(
+        !h.did()
+            .iter()
+            .any(|did| matches!(did, Did::SetDefault(OUT, id, _) if *id == cable_in.id)),
+        "{:?}",
+        h.did()
+    );
+    assert_eq!(h.defaults(OUT), playback_on(&fxsound().id, &speakers().id));
+    assert!(!h.engine.in_users_use(&cable_in.id) && !h.engine.in_users_use(&a_in.id));
+}
+
+#[test]
+fn calls_windows_left_on_a_cable_at_the_start_go_back_once_the_app_has_had_its_say() {
+    // VB-Cable installed before FxSound started, every default on it, the microphone never
+    // picked. The speakers' lane holds its claim: calls in the cable are in FxSound's path.
+    let [cable_in, cable_out] = cable();
+    let machine = vec![
+        speakers(),
+        fxsound(),
+        microphone(),
+        cable_in.clone(),
+        cable_out.clone(),
+    ];
+    let mut h = harness_with(
+        machine.clone(),
+        all_roles(&cable_in.id),
+        all_roles(&cable_out.id),
+        &StartOptions::default(),
+    );
+    h.start();
+    assert_eq!(
+        h.defaults(OUT).get(Role::Communications),
+        Some(cable_in.id.as_str()),
+        "not before the app has said whether the settings know the cable"
+    );
+    h.forget();
+    h.send(UiToAudio::SeedRememberedDefaults {
+        output: speakers().id,
+        input: microphone().id,
+    });
+    assert_eq!(
+        h.did(),
+        [Did::SetDefault(OUT, speakers().id, Role::Communications)]
+    );
+    assert_eq!(
+        h.defaults(IN),
+        all_roles(&cable_out.id),
+        "the recording roles, which no lane holds, on a cable no lane uses, are left to Windows"
+    );
+    h.engine.shutdown();
+    assert_eq!(h.defaults(OUT), all_roles(&speakers().id));
+
+    // The app never speaks: the wait for it is up as the repair's is.
+    let mut h = harness_with(
+        machine.clone(),
+        all_roles(&cable_in.id),
+        all_roles(&cable_out.id),
+        &StartOptions::default(),
+    );
+    h.start();
+    h.forget();
+    for _ in 0..=(REPAIR_PATIENCE.as_millis() / SUPERVISOR_PERIOD.as_millis()) {
+        h.tick(SUPERVISOR_PERIOD);
+    }
+    assert_eq!(
+        h.did(),
+        [Did::SetDefault(OUT, speakers().id, Role::Communications)]
+    );
+
+    // The settings remember "CABLE Input" as the user's default from before FxSound: theirs, and
+    // their calls stay in it.
+    let mut h = harness_with(
+        machine,
+        all_roles(&cable_in.id),
+        all_roles(&cable_out.id),
+        &StartOptions::default(),
+    );
+    h.start();
+    h.send(UiToAudio::SeedRememberedDefaults {
+        output: cable_in.id.clone(),
+        input: String::new(),
+    });
+    h.tick(REPAIR_PATIENCE + SUPERVISOR_PERIOD);
+    assert_eq!(
+        h.defaults(OUT).get(Role::Communications),
+        Some(cable_in.id.as_str())
+    );
+    h.engine.shutdown();
+    assert_eq!(h.defaults(OUT), all_roles(&cable_in.id));
+}
+
+#[test]
+fn a_claim_that_adopts_windows_roles_tells_the_settings_where_they_were() {
+    // VB-Cable installed with the microphone's lane on: Windows gave the cable every recording
+    // role, the lane adopts them on its cable and writes none — and the settings learn where they
+    // were, for a run killed before the hand-back.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness();
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    h.forget();
+    windows_gives_a_new_cable_every_role(&mut h, &cable_in, &cable_out);
+    assert!(
+        !h.did()
+            .iter()
+            .any(|did| matches!(did, Did::SetDefault(IN, ..))),
+        "adopted, not written: {:?}",
+        h.did()
+    );
+    let messages = h.messages();
+    assert!(
+        messages.contains(&AudioToUi::RememberedDefault {
+            direction: IN,
+            node_name: microphone().id,
+        }),
+        "{messages:?}"
+    );
+    assert_eq!(h.engine.memory.input.most_recent_default, microphone().id);
+    // Said once: a later run of the rules that learns nothing new says nothing.
+    h.forget();
+    h.engine.lanes.input.reclaim = true;
+    h.event(Event::Devices);
+    assert!(
+        !h.messages()
+            .iter()
+            .any(|message| matches!(message, AudioToUi::RememberedDefault { .. }))
+    );
+}
+
+#[test]
+fn a_default_moved_onto_the_cable_the_microphone_stands_on_is_never_the_user_s() {
+    // VB-Cable installed while FxSound runs, its endpoints listed at once, the microphone's lane
+    // taking it — and Windows' default for it heard only 2.5 s later, past PICK_WAIT. Whoever made
+    // it the default, the cable is FxSound's own now: whatever plays into it goes out with the
+    // voice.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness();
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    h.fake()
+        .endpoints
+        .extend([cable_in.clone(), cable_out.clone()]);
+    h.event(Event::Devices);
+    assert!(h.engine.lanes.input.claim.is_some());
+    h.tick(Duration::from_millis(2500));
+    h.forget();
+    h.fake().defaults.output = all_roles(&cable_in.id);
+    h.burst(Role::ALL.into_iter().map(|role| Event::DefaultChanged {
+        direction: OUT,
+        role,
+        id: Some(cable_in.id.clone()),
+    }));
+    h.tick(SUPERVISOR_PERIOD);
+    let messages = h.messages();
+    assert!(!any_error_or_pick(&messages), "{messages:?}");
+    assert_eq!(h.defaults(OUT), playback_on(&fxsound().id, &speakers().id));
+    assert_eq!(input_claim(&h), Some(cable_out.id.clone()));
+    assert!(!h.engine.in_users_use(&cable_in.id));
+    h.engine.shutdown();
+    assert_eq!(h.defaults(OUT), all_roles(&speakers().id));
+}
+
+#[test]
+fn a_cable_the_user_made_their_default_while_fxsound_ran_stays_theirs_at_the_next_start() {
+    // A ranking decides the speakers' device, as the app's settings have it by default. The
+    // cable long installed, the user sends everything into "CABLE Input" for a streaming program:
+    // theirs for the run, and — FxSound's record keeping it — for the next.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &both_ranked(),
+    );
+    h.start();
+    h.tick(PICK_WAIT + SUPERVISOR_PERIOD);
+    h.fake().defaults.output = all_roles(&cable_in.id);
+    h.burst(Role::ALL.into_iter().map(|role| Event::DefaultChanged {
+        direction: OUT,
+        role,
+        id: Some(cable_in.id.clone()),
+    }));
+    h.tick(SUPERVISOR_PERIOD);
+    assert_eq!(h.fake().users_cables.output, all_roles(&cable_in.id));
+    h.forget();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert!(h.messages().contains(&AudioToUi::Error {
+        direction: Some(IN),
+        message: AudioError::VirtualInputDeviceInUse.to_string(),
+    }));
+    h.engine.shutdown();
+    assert_eq!(h.defaults(OUT), all_roles(&cable_in.id), "left theirs");
+
+    // The next start, on what that run left: the cable is theirs still.
+    let mut h = harness_after(&mut h, &both_ranked());
+    h.start();
+    h.send(UiToAudio::SeedRememberedDefaults {
+        output: speakers().id,
+        input: microphone().id,
+    });
+    let messages = h.messages();
+    assert!(
+        messages.contains(&AudioToUi::RememberedDefault {
+            direction: OUT,
+            node_name: cable_in.id.clone(),
+        }),
+        "the default from before FxSound, which the settings keep: {messages:?}"
+    );
+    assert_eq!(
+        h.defaults(OUT),
+        playback_on(&fxsound().id, &cable_in.id),
+        "the playback roles FxSound's, as at any start; the calls left in the cable"
+    );
+    h.forget();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert!(h.messages().contains(&AudioToUi::Error {
+        direction: Some(IN),
+        message: AudioError::VirtualInputDeviceInUse.to_string(),
+    }));
+    h.engine.shutdown();
+    assert_eq!(
+        h.defaults(OUT),
+        playback_on(&speakers().id, &cable_in.id),
+        "the playback roles to the lane's own device, as for any default; calls theirs"
+    );
+
+    // And the one after: the record forgets the roles found elsewhere, and keeps the calls'.
+    let mut h = harness_after(&mut h, &both_ranked());
+    h.start();
+    let mut calls = Defaults::default();
+    calls.set(Role::Communications, Some(cable_in.id.clone()));
+    assert_eq!(h.fake().users_cables.output, calls);
+    h.tick(REPAIR_PATIENCE + SUPERVISOR_PERIOD);
+    assert_eq!(
+        h.defaults(OUT).get(Role::Communications),
+        Some(cable_in.id.as_str())
+    );
+}
+
+#[test]
+fn a_lane_standing_on_a_cable_just_installed_plays_to_the_device_the_user_had() {
+    // No FxSound driver: VB-Cable, installed while FxSound runs, is the speakers' lane's device,
+    // and takes the place of the default the user had on the headphones. That default is where
+    // the lane plays, and where it is given back.
+    let [cable_in, cable_out] = cable();
+    let mut h = harness_with(
+        vec![speakers(), headphones(), microphone()],
+        all_roles(&headphones().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    windows_gives_a_new_cable_every_role(&mut h, &cable_in, &cable_out);
+    assert_eq!(streams(&h), [(cable_in.id.clone(), headphones().id)]);
+    assert!(h.messages().contains(&AudioToUi::RememberedDefault {
+        direction: OUT,
+        node_name: headphones().id,
+    }));
+    assert_eq!(
+        h.defaults(IN),
+        all_roles(&microphone().id),
+        "the recorders off the cable's recording side, which records the desktop"
+    );
+    h.engine.shutdown();
+    assert_eq!(h.defaults(OUT), all_roles(&headphones().id));
+}
+
+#[test]
+fn a_lane_ending_leaves_the_other_lane_s_defaults_to_its_claim() {
+    // The speakers' lane plays on FxSound's driver and the microphone's waits on VB-Cable; Cable A
+    // has the playback roles, unheard yet, when the microphone's lane is switched off. Its
+    // hand-back puts Windows' defaults in FxSound's path right — the speakers' roles back on
+    // FxSound's driver, which still plays, not straight to the speakers past it.
+    let [cable_in, cable_out] = cable();
+    let [a_in, a_out] = cable_a();
+    let mut h = harness_with(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in,
+            cable_out.clone(),
+            a_in.clone(),
+            a_out,
+        ],
+        all_roles(&speakers().id),
+        all_roles(&microphone().id),
+        &StartOptions::default(),
+    );
+    h.start();
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    assert_eq!(input_claim(&h), Some(cable_out.id.clone()));
+    h.fake().defaults.output = all_roles(&a_in.id);
+    h.forget();
+    h.send(UiToAudio::DetachLane(IN));
+    assert_eq!(h.defaults(OUT), playback_on(&fxsound().id, &speakers().id));
+    assert_eq!(h.defaults(IN), all_roles(&microphone().id));
+    assert_eq!(streams(&h), [(fxsound().id, speakers().id)]);
 }

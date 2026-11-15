@@ -1,6 +1,6 @@
 //! FxSound's own record of the defaults it holds: the endpoint each lane has made its direction's
 //! default, written before the first write of a claim and cleared once its hand-back has moved
-//! every role off the endpoint.
+//! every role off the endpoint — and of the defaults the user put on a virtual cable themselves.
 //!
 //! What the record is for is the run that never hands back. The release profile aborts on a panic
 //! and a process can be killed, and either leaves the defaults on the virtual device, which
@@ -15,6 +15,16 @@
 //! later decides for itself whose each default it finds there is — the user's, or one Windows put
 //! there by itself: `super`, "Whose default it is".)
 //!
+//! The other way round, a default the user put on a cable is theirs ([`Kept::users`]). A start
+//! finds it there with nothing to tell it from one Windows put there as it installed the cable —
+//! and Windows' it takes it for, which FxSound moves wherever it is in that default's path. What
+//! says the user chose it is that a run of FxSound saw them move it there; that is kept here, role
+//! by role, for as long as the role stays there, so that a later start leaves a call application
+//! sent to "CABLE Input", or a recorder of the desktop on "CABLE Output", where the user put it.
+//! It is forgotten once the role is somewhere else: moved by anyone but FxSound while a run
+//! watches, or found elsewhere by the next start — anywhere but on FxSound's own endpoint, where
+//! a run killed while it held the role left it.
+//!
 //! The Linux engine needs none of this: its virtual nodes are its own, and a default naming one is
 //! FxSound's by its name.
 //!
@@ -23,23 +33,38 @@
 //!
 //! ```toml
 //! output = "{0.0.0.00000000}.{73ca9fe5-1336-4bd0-b0a4-149e64acf557}"
+//!
+//! [users.output]
+//! communications = "{0.0.0.00000000}.{0b5f1e8e-7a3c-4d0b-9c8e-2f1a4d6b3c21}"
 //! ```
 //!
 //! Written whole, to a temporary file renamed over it, so that a run killed in the middle of a
-//! write leaves the old record or the new one, never half of one; removed once neither lane holds
-//! anything. Read once, at the start. A record that cannot be read is no record, and a record that
-//! cannot be written is logged: neither is worth more than the sound.
+//! write leaves the old record or the new one, never half of one; removed once it holds nothing.
+//! Read once, at the start. A record that cannot be read is no record, and a record that cannot be
+//! written is logged: neither is worth more than the sound.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::defaults::{Defaults, Role};
 use crate::per_direction::PerDirection;
 
 /// The file's name, in [`Record::of_user`]'s directory.
 const FILE_NAME: &str = "claimed-defaults.toml";
 
-/// The record's contents: each lane's endpoint, or nothing.
+/// What the record keeps.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Kept {
+    /// The endpoint each lane holds its direction's defaults on, or nothing.
+    pub(crate) claimed: PerDirection<Option<String>>,
+    /// Per direction and role, the virtual cable the user made that role's default themselves
+    /// while a run of FxSound watched (`super`, "Whose default it is"): theirs at a later start
+    /// too, which would otherwise find it there with nothing to tell it from one Windows put there.
+    pub(crate) users: PerDirection<Defaults>,
+}
+
+/// The record's contents: each lane's endpoint, or nothing, and the user's own cable defaults.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 struct Contents {
@@ -47,13 +72,84 @@ struct Contents {
     output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     input: Option<String>,
+    #[serde(skip_serializing_if = "Users::is_empty")]
+    users: Users,
 }
 
-impl From<&PerDirection<Option<String>>> for Contents {
-    fn from(claimed: &PerDirection<Option<String>>) -> Self {
+/// The user's own cable defaults, per direction.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+struct Users {
+    #[serde(skip_serializing_if = "Roles::is_empty")]
+    output: Roles,
+    #[serde(skip_serializing_if = "Roles::is_empty")]
+    input: Roles,
+}
+
+impl Users {
+    fn is_empty(&self) -> bool {
+        self.output.is_empty() && self.input.is_empty()
+    }
+}
+
+/// One direction's endpoint per role, or nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+struct Roles {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    console: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    multimedia: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    communications: Option<String>,
+}
+
+impl Roles {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    fn slot(&mut self, role: Role) -> &mut Option<String> {
+        match role {
+            Role::Console => &mut self.console,
+            Role::Multimedia => &mut self.multimedia,
+            Role::Communications => &mut self.communications,
+        }
+    }
+}
+
+impl From<&Defaults> for Roles {
+    fn from(defaults: &Defaults) -> Self {
+        let mut roles = Self::default();
+        for role in Role::ALL {
+            *roles.slot(role) = defaults.get(role).map(str::to_owned);
+        }
+        roles
+    }
+}
+
+impl From<Roles> for Defaults {
+    fn from(mut roles: Roles) -> Self {
+        let mut defaults = Self::default();
+        for role in Role::ALL {
+            defaults.set(
+                role,
+                roles.slot(role).take().filter(|id| !id.trim().is_empty()),
+            );
+        }
+        defaults
+    }
+}
+
+impl From<&Kept> for Contents {
+    fn from(kept: &Kept) -> Self {
         Self {
-            output: claimed.output.clone(),
-            input: claimed.input.clone(),
+            output: kept.claimed.output.clone(),
+            input: kept.claimed.input.clone(),
+            users: Users {
+                output: Roles::from(&kept.users.output),
+                input: Roles::from(&kept.users.input),
+            },
         }
     }
 }
@@ -82,26 +178,26 @@ impl Record {
     }
 
     /// What the record holds; nothing for a record that is not there or cannot be read.
-    pub(crate) fn read(&self) -> PerDirection<Option<String>> {
+    pub(crate) fn read(&self) -> Kept {
         let Some(path) = self.path.as_ref() else {
-            return PerDirection::default();
+            return Kept::default();
         };
         match std::fs::read_to_string(path) {
             Ok(text) => parse(&text),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PerDirection::default(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Kept::default(),
             Err(error) => {
                 log::warn!("{}: {error}; taken as no record", path.display());
-                PerDirection::default()
+                Kept::default()
             }
         }
     }
 
-    /// Keep `claimed`, replacing whatever the record held; remove the file when it holds nothing.
-    pub(crate) fn write(&self, claimed: &PerDirection<Option<String>>) {
+    /// Keep `kept`, replacing whatever the record held; remove the file when it holds nothing.
+    pub(crate) fn write(&self, kept: &Kept) {
         let Some(path) = self.path.as_ref() else {
             return;
         };
-        let written = match render(claimed) {
+        let written = match render(kept) {
             None => match std::fs::remove_file(path) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 other => other,
@@ -124,21 +220,27 @@ impl Record {
 }
 
 /// The record a file's `text` holds. Anything unreadable in it is no record of that lane.
-fn parse(text: &str) -> PerDirection<Option<String>> {
+fn parse(text: &str) -> Kept {
     let contents: Contents = toml::from_str(text).unwrap_or_else(|error| {
         log::warn!("the record of FxSound's defaults is unreadable ({error}); taken as no record");
         Contents::default()
     });
     let keep = |id: Option<String>| id.filter(|id| !id.trim().is_empty());
-    PerDirection {
-        output: keep(contents.output),
-        input: keep(contents.input),
+    Kept {
+        claimed: PerDirection {
+            output: keep(contents.output),
+            input: keep(contents.input),
+        },
+        users: PerDirection {
+            output: contents.users.output.into(),
+            input: contents.users.input.into(),
+        },
     }
 }
 
-/// The file `claimed` is kept as, or `None` when it holds nothing and the file goes.
-fn render(claimed: &PerDirection<Option<String>>) -> Option<String> {
-    let contents = Contents::from(claimed);
+/// The file `kept` is kept as, or `None` when it holds nothing and the file goes.
+fn render(kept: &Kept) -> Option<String> {
+    let contents = Contents::from(kept);
     if contents == Contents::default() {
         return None;
     }
@@ -147,22 +249,35 @@ fn render(claimed: &PerDirection<Option<String>>) -> Option<String> {
         .ok()?;
     Some(format!(
         "# The default devices FxSound holds, so that a start after a run that was killed gives \
-         them back.\n# Written and removed by FxSound itself.\n{body}"
+         them back; and the ones\n# the user put on a virtual cable themselves, so that a later \
+         start leaves them theirs.\n# Written and removed by FxSound itself.\n{body}"
     ))
 }
 
 #[cfg(test)]
 mod tests {
+    use fxsound_core::DeviceDirection;
+
     use super::*;
 
     const FX: &str = "{0.0.0.00000000}.{73ca9fe5-1336-4bd0-b0a4-149e64acf557}";
+    const CABLE_IN: &str = "{0.0.0.00000000}.{cable-in}";
     const CABLE_OUT: &str = "{0.0.1.00000000}.{cable-out}";
 
-    fn claimed(output: Option<&str>, input: Option<&str>) -> PerDirection<Option<String>> {
-        PerDirection {
-            output: output.map(str::to_owned),
-            input: input.map(str::to_owned),
+    fn claimed(output: Option<&str>, input: Option<&str>) -> Kept {
+        Kept {
+            claimed: PerDirection {
+                output: output.map(str::to_owned),
+                input: input.map(str::to_owned),
+            },
+            users: PerDirection::default(),
         }
+    }
+
+    /// `kept` with the user's own cable default for `role` of `direction`.
+    fn theirs(mut kept: Kept, direction: DeviceDirection, role: Role, id: &str) -> Kept {
+        kept.users.get_mut(direction).set(role, Some(id.to_owned()));
+        kept
     }
 
     #[test]
@@ -171,6 +286,23 @@ mod tests {
             claimed(Some(FX), None),
             claimed(None, Some(CABLE_OUT)),
             claimed(Some(FX), Some(CABLE_OUT)),
+            theirs(
+                claimed(Some(FX), None),
+                DeviceDirection::Output,
+                Role::Communications,
+                CABLE_IN,
+            ),
+            theirs(
+                theirs(
+                    claimed(None, None),
+                    DeviceDirection::Input,
+                    Role::Console,
+                    CABLE_OUT,
+                ),
+                DeviceDirection::Input,
+                Role::Multimedia,
+                CABLE_OUT,
+            ),
         ] {
             let text = render(&record).expect("something to keep");
             assert!(text.starts_with('#'), "says what it is: {text}");
@@ -185,10 +317,24 @@ mod tests {
         assert_eq!(parse("output = \n"), claimed(None, None));
         assert_eq!(parse("output = 3"), claimed(None, None));
         assert_eq!(parse("output = \"  \""), claimed(None, None));
+        assert_eq!(
+            parse("[users.output]\ncommunications = \" \"\n"),
+            claimed(None, None)
+        );
         // Another key beside it is not the record's business.
         assert_eq!(
-            parse("output = \"x\"\nlater = true\n"),
-            claimed(Some("x"), None)
+            parse("output = \"x\"\nlater = true\n[users.input]\nconsole = \"y\"\nlater = 1\n"),
+            theirs(
+                claimed(Some("x"), None),
+                DeviceDirection::Input,
+                Role::Console,
+                "y"
+            )
+        );
+        // A record from before the user's own cables were kept reads as it did.
+        assert_eq!(
+            parse(&format!("output = \"{FX}\"\n")),
+            claimed(Some(FX), None)
         );
     }
 
@@ -212,6 +358,17 @@ mod tests {
         assert_eq!(record.read(), claimed(None, None));
         // Removing a record that is not there is no error.
         record.write(&claimed(None, None));
+        // The user's own cable defaults alone are something to keep.
+        let users = theirs(
+            claimed(None, None),
+            DeviceDirection::Output,
+            Role::Communications,
+            CABLE_IN,
+        );
+        record.write(&users);
+        assert_eq!(record.read(), users);
+        record.write(&claimed(None, None));
+        assert!(!path.exists());
     }
 
     #[test]

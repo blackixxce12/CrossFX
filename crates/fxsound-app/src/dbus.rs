@@ -2020,6 +2020,7 @@ mod tests {
             is_default: true,
             direction: DeviceDirection::Input,
             form_factor: "headset".to_owned(),
+            is_virtual: false,
         }];
         let status = crate::commands::run(&mut app, &commands(Call::ListPresets)).stdout;
         let presets: Value =
@@ -2236,6 +2237,7 @@ mod tests {
             is_default: true,
             direction: DeviceDirection::Output,
             form_factor: String::new(),
+            is_virtual: false,
         }];
         app.state.selected_output = Some(0);
         let properties = Properties::of(&app);
@@ -3637,6 +3639,7 @@ mod tests {
             is_default: false,
             direction: DeviceDirection::Input,
             form_factor: "microphone".into(),
+            is_virtual: false,
         }];
         app.mark_devices_seen_for_tests();
         let outcome =

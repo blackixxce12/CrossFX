@@ -157,6 +157,6 @@ countries: fi
 "Plus the original's sound: presets sound the same." = "Lisäksi alkuperäisen ääni: esiasetukset kuulostavat samalta."
 "Only what the original has; the rest is hidden." = "Vain mitä alkuperäisessä on; muu on piilotettu."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Virtuaalista toistolaitetta ei ole: asenna FxSound-ohjain tai VB-CABLE"
-"No virtual cable for the microphone: install VB-CABLE or another cable" = "Mikrofonille ei ole virtuaalikaapelia: asenna VB-CABLE tai jokin muu kaapeli"
-"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "Virtuaalikaapeli on jo käytössä: aseta jokin muu laite oletukseksi tai asenna mikrofonille toinen kaapeli"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "Mikrofonille ei ole jäljellä virtuaalikaapelia: asenna VB-CABLE tai toinen kaapeli, jos FxSoundin ulostulo käyttää jo yhtä"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "Virtuaalikaapeli on käytössä FxSoundin ulostulona tai oletuslaitteena: valitse jokin muu tai asenna mikrofonille toinen kaapeli"
 "The Windows audio service is not available" = "Windowsin äänipalvelu ei ole käytettävissä"

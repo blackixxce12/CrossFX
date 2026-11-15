@@ -157,6 +157,6 @@ countries: th
 "Plus the original's sound: presets sound the same." = "รวมเสียงของต้นฉบับ: พรีเซตให้เสียงเหมือนกัน"
 "Only what the original has; the rest is hidden." = "เฉพาะสิ่งที่ต้นฉบับมี ที่เหลือจะถูกซ่อน"
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "ไม่มีอุปกรณ์เล่นเสียงเสมือน: ติดตั้งไดรเวอร์ FxSound หรือ VB-CABLE"
-"No virtual cable for the microphone: install VB-CABLE or another cable" = "ไม่มีสายเคเบิลเสมือนสำหรับไมโครโฟน: ติดตั้ง VB-CABLE หรือสายเคเบิลอื่น"
-"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "สายเคเบิลเสมือนกำลังถูกใช้งาน: ตั้งอุปกรณ์อื่นเป็นค่าเริ่มต้น หรือติดตั้งสายเคเบิลอีกเส้นสำหรับไมโครโฟน"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "ไม่มีสายเคเบิลเสมือนเหลือสำหรับไมโครโฟน: ติดตั้ง VB-CABLE หรือสายเคเบิลเส้นที่สองหากเอาต์พุตของ FxSound ใช้อยู่หนึ่งเส้นแล้ว"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "สายเคเบิลเสมือนถูกใช้เป็นเอาต์พุตของ FxSound หรือเป็นอุปกรณ์เริ่มต้น: เลือกอุปกรณ์อื่น หรือติดตั้งสายเคเบิลเส้นที่สองสำหรับไมโครโฟน"
 "The Windows audio service is not available" = "บริการเสียงของ Windows ไม่พร้อมใช้งาน"

@@ -1228,13 +1228,20 @@ impl App {
     /// `setOutput` and so becomes the device the lane is saved on.
     ///
     /// Nothing for a lane that is switched off, for one already on it, or while the system's
-    /// default decides: none of those is the list's to move. Quietly, as the engine's own moves
-    /// are, and without touching the edit direction: the user plugged something in, and did not
-    /// ask to look at it.
+    /// default decides: none of those is the list's to move. Never a virtual cable either, which
+    /// [`priority::learn`] neither puts first nor names here: one just installed is no device
+    /// anybody plugged in to listen to, and a cable the app picked would be the user's pick to
+    /// the engine, and saved as their device. Quietly, as the engine's own moves are, and without
+    /// touching the edit direction: the user plugged something in, and did not ask to look at it.
     fn promote(&mut self, lane: DeviceDirection, newcomer: &str) -> Option<UiToAudio> {
+        let cable =
+            self.state.devices.iter().any(|device| {
+                device.direction == lane && device.name == newcomer && device.is_virtual
+            });
         if !self.settings.lane_enabled(lane)
             || self.settings.follow_system_default
             || self.attached(lane) == Some(newcomer)
+            || cable
         {
             return None;
         }
@@ -4442,15 +4449,18 @@ fn engine_error_notice(message: &str) -> String {
         // The Windows engine's: what is missing, and the two drivers that give FxSound one.
         "No virtual playback device: install the FxSound driver or VB-CABLE"
     } else if is(AudioError::NoVirtualInputDevice) {
-        // The Windows engine's: the microphone plays into a cable of its own — none is
-        // installed, or the only one is the speakers' — so another cable is what it needs.
-        "No virtual cable for the microphone: install VB-CABLE or another cable"
+        // The Windows engine's: the microphone plays into a cable of its own, and none is left
+        // for it — none is installed, or the only one is the one FxSound's output lane stands on
+        // (a machine without FxSound's driver), where installing VB-CABLE again adds nothing.
+        "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
+         FxSound's output already uses one"
     } else if is(AudioError::VirtualInputDeviceInUse) {
-        // The Windows engine's: a cable is there, but a default of the user's is on it, or the
-        // speakers play into it, and the microphone is not mixed into what they send through it.
-        // Installing one would not help them; freeing it, or a second one, does.
-        "The virtual cable is in use: make another device the default, or install another cable \
-         for the microphone"
+        // The Windows engine's: a cable is there, but in the user's use — they picked it as
+        // FxSound's output, which plays into it, or a default device of theirs is on one of its
+        // sides — and the microphone is not mixed into what they send through it. Installing
+        // one would not help them; another output or default device, or a second cable, does.
+        "The virtual cable is in use as FxSound's output or a default device: choose another, or \
+         install a second cable for the microphone"
     } else if message.starts_with(windows_unavailable.trim_end()) {
         // The Windows engine's, whatever the detail the log has: the service every WASAPI client
         // talks to (`Audiosrv`, "Windows Audio" in the list of services).
@@ -7254,6 +7264,7 @@ mod tests {
             is_default,
             direction,
             form_factor: "speaker".into(),
+            is_virtual: false,
         }
     }
 
@@ -7946,12 +7957,13 @@ mod tests {
             ),
             (
                 AudioError::NoVirtualInputDevice,
-                "No virtual cable for the microphone: install VB-CABLE or another cable",
+                "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
+                 FxSound's output already uses one",
             ),
             (
                 AudioError::VirtualInputDeviceInUse,
-                "The virtual cable is in use: make another device the default, or install \
-                 another cable for the microphone",
+                "The virtual cable is in use as FxSound's output or a default device: choose \
+                 another, or install a second cable for the microphone",
             ),
             (
                 AudioError::WindowsAudioUnavailable("IMMDeviceEnumerator: 0x80070422".to_owned()),
@@ -13643,6 +13655,74 @@ mod tests {
         engine.feed(AudioToUi::Devices(again));
         app.poll_audio();
         assert!(select_devices(&engine.take_sent()).is_empty());
+    }
+
+    #[test]
+    fn with_new_devices_prioritised_a_cable_just_installed_takes_no_lane_and_is_saved_for_none() {
+        // VB-Cable installed while FxSound runs, both lanes on: the engine's next list carries both
+        // of its sides, before any lane's rules have stood on it. Promoted, the speakers' lane
+        // would play into it and the microphone's record from it — and both be saved so.
+        const CABLE_IN: &str = "{0.0.0.00000000}.{cable-in}";
+        const CABLE_OUT: &str = "{0.0.1.00000000}.{cable-out}";
+        let mut settings = saved_settings(OUT);
+        settings.prioritize_new_output = true;
+        let (mut app, engine, _dir) = listed_with(settings, HEADPHONES);
+        let _ = engine.take_sent();
+        let saved = [
+            app.settings.device_name(OUT).to_owned(),
+            app.settings.device_name(IN).to_owned(),
+        ];
+        let mut more = two_lane_devices();
+        for (name, direction) in [(CABLE_IN, OUT), (CABLE_OUT, IN)] {
+            more.push(AudioDevice {
+                description: "CABLE (VB-Audio Virtual Cable)".into(),
+                is_virtual: true,
+                ..device(name, direction, true)
+            });
+        }
+        engine.feed(AudioToUi::Devices(more));
+        app.poll_audio();
+        let sent = engine.take_sent();
+        assert!(select_devices(&sent).is_empty(), "{sent:?}");
+        assert_eq!(
+            [app.settings.device_name(OUT), app.settings.device_name(IN)],
+            [saved[0].as_str(), saved[1].as_str()]
+        );
+        // Ranked, below every real device: offered all the same.
+        assert_eq!(
+            rankings(&sent),
+            [
+                (OUT, owned(&[HEADPHONES, SPEAKERS, CABLE_IN])),
+                (IN, owned(&[MIC, CABLE_OUT]))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_first_ranking_puts_a_cable_windows_made_the_default_below_the_real_devices() {
+        // The first run on a machine where Windows gave VB-Cable, just installed, every role.
+        const CABLE_IN: &str = "{0.0.0.00000000}.{cable-in}";
+        const CABLE_OUT: &str = "{0.0.1.00000000}.{cable-out}";
+        let (mut app, engine, _dir) = started_with(Settings::default());
+        let cable = |name: &str, direction| AudioDevice {
+            description: "CABLE (VB-Audio Virtual Cable)".into(),
+            is_virtual: true,
+            ..device(name, direction, true)
+        };
+        engine.feed(AudioToUi::Devices(vec![
+            cable(CABLE_IN, OUT),
+            device(SPEAKERS, OUT, false),
+            cable(CABLE_OUT, IN),
+            device(MIC, IN, false),
+        ]));
+        app.poll_audio();
+        assert_eq!(
+            rankings(&engine.take_sent()),
+            [
+                (OUT, owned(&[SPEAKERS, CABLE_IN])),
+                (IN, owned(&[MIC, CABLE_OUT]))
+            ]
+        );
     }
 
     #[test]

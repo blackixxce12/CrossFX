@@ -1030,6 +1030,7 @@ mod tests {
                 is_default: true,
                 direction: fxsound_core::DeviceDirection::Output,
                 form_factor: "speaker".into(),
+                is_virtual: false,
             }],
             selected_output: Some(0),
             effects: [3.0, 5.0, 7.0, 4.0, 8.0],
@@ -1962,6 +1963,7 @@ mod tests {
             is_default: true,
             direction: fxsound_core::DeviceDirection::Input,
             form_factor: "microphone".into(),
+            is_virtual: false,
         }];
         state.direction = fxsound_core::DeviceDirection::Input;
         state
@@ -2129,6 +2131,7 @@ mod tests {
             is_default: false,
             direction,
             form_factor: String::new(),
+            is_virtual: false,
         }
     }
 

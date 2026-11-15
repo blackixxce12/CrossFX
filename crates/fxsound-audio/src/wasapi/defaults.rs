@@ -20,10 +20,11 @@
 //!
 //! Not every default is the user's, though. Windows moves them by itself: a virtual cable just
 //! installed is given the first chance at every role of its direction, and a device that goes has
-//! its roles fall back to another. A default Windows put on a cable is no device the user hears,
-//! and nothing they chose ([`Placements`], `super`, "Whose default it is"): it is never remembered
-//! as theirs, and a claim that finds it on its own cable adopts it — gives it back to a real
-//! device — rather than leaving it there as theirs.
+//! its roles fall back to another. A default on a cable that nothing says the user chose is
+//! Windows' (`super`, "Whose default it is"), no device the user hears and nothing they chose: it
+//! is never remembered as theirs, where it was before is kept ([`Placements`]) for putting it back,
+//! and a claim that finds it on its own cable adopts it — gives it back to a real device — rather
+//! than leaving it there as theirs.
 //!
 //! Pure: the writes themselves are `super::com::PolicyConfig`'s.
 
@@ -112,21 +113,24 @@ impl Defaults {
     }
 }
 
-/// A role's default Windows put on a virtual cable by itself, rather than the user: the cable just
-/// installed, which Windows gives the first chance at every role of its direction, or a fallback
-/// onto it from a device that went — or a default the engine found on a cable at its start with
-/// nothing to say the user put it there (`super`, "Whose default it is").
+/// A role's default moved onto a virtual cable by Windows rather than the user, and where it was
+/// before (`super`, "Whose default it is"): the cable just installed, which Windows gives the first
+/// chance at every role of its direction; a fallback onto it from a device that went; a move onto a
+/// cable one of FxSound's lanes stands on; one made while the original FxSound ran; or one onto an
+/// endpoint that could not be read in time, which is Windows' if it turns out to be a cable. A
+/// default found on a cable at the start has none: the engine never saw it anywhere else.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Placed {
-    /// The cable's endpoint Windows put the role on.
+    /// The endpoint Windows put the role on.
     pub(crate) endpoint: String,
-    /// Where the role was before, as Windows last reported it; `None` for a default found on the
-    /// cable at the start, which the engine never saw anywhere else.
+    /// Where the role was before, as Windows last reported it — a chain of Windows' moves from one
+    /// cable to the next followed back to where the user had it; `None` for no default at all.
     pub(crate) before: Option<String>,
 }
 
-/// One direction's roles whose default Windows put on a virtual cable by itself ([`Placed`]). Every
-/// other role's default is the user's, or FxSound's own.
+/// One direction's roles whose default Windows moved onto a virtual cable ([`Placed`]), for as long
+/// as each stays there: where each goes back to. Not whose a default on a cable is — that is
+/// Windows' wherever nothing says the user chose the cable (`super::Engine::windows_default`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Placements([Option<Placed>; 3]);
 

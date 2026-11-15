@@ -211,6 +211,7 @@ fn device(id: u32, description: &str, direction: DeviceDirection) -> AudioDevice
         is_default: id == 1,
         direction,
         form_factor: String::new(),
+        is_virtual: false,
     }
 }
 

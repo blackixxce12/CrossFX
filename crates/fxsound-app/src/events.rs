@@ -656,6 +656,7 @@ mod tests {
             is_default: false,
             direction,
             form_factor: String::new(),
+            is_virtual: false,
         }
     }
 

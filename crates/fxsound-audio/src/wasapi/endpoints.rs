@@ -43,15 +43,18 @@
 //! lane captures would have it play into what it captures; a cable's recording side offered as a
 //! microphone, the input lane record what it plays. A cable no lane stands on is offered like any
 //! other device, as every endpoint but its driver's own is to the original
-//! (`docs/spec/12-audio-io.md` §5, pass 2): a user who plays into "CABLE Input" for a streaming
-//! program, having picked it in FxSound or made it their default while FxSound ran, has the output
-//! lane play into it, and their default given back there — though the engine's device rules come
-//! to such a cable only where the user chose it, never as a device just added, as the first one
-//! there is, or for being the default Windows gave it as it was installed
-//! (`super::Engine::device_infos`; `super`, "Whose default it is"). Nor does the input lane take a
-//! cable the user has in use — a default of theirs on either side, or the device the output lane
-//! plays to — while another will do ([`plan`]): the microphone mixed into what they route through
-//! it would be theirs to hear.
+//! (`docs/spec/12-audio-io.md` §5, pass 2), and flagged as a cable
+//! ([`fxsound_core::AudioDevice::is_virtual`]), which the app moves no lane to by itself. A user
+//! who plays into "CABLE Input" for a streaming program and picks it in FxSound has the output lane
+//! play into it, and the default given back there; one who makes it the system's default while
+//! FxSound runs has the lane follow it there while the lane follows the system's default, and
+//! while a ranking decides the lane's device has the default left theirs, on the cable, through
+//! the run and after it. Either way the cable is theirs (`super`, "Whose default it is") — and the
+//! engine's device rules come to a cable only where the user chose it, never as a device just
+//! added, as the first one there is, or for being the default Windows gave it as it was installed
+//! (`super::Engine::device_infos`). Nor does the input lane take a cable the user has in use — a
+//! default of theirs on either side, or the device the output lane plays to — while another will do
+//! ([`plan`]): the microphone mixed into what they route through it would be theirs to hear.
 
 use fxsound_core::{AudioDevice, DeviceDirection};
 
@@ -207,7 +210,8 @@ impl Endpoint {
     }
 
     /// What the GUI is told about the endpoint, `id` being the runtime handle the engine gave it.
-    /// `default` is the current default endpoint of its direction.
+    /// `default` is the current default endpoint of its direction. A cable is told as one
+    /// ([`AudioDevice::is_virtual`]): offered, but no device the app moves a lane to by itself.
     pub(crate) fn to_audio_device(&self, id: u32, default: Option<&str>) -> AudioDevice {
         AudioDevice {
             id,
@@ -216,6 +220,7 @@ impl Endpoint {
             is_default: default == Some(self.id.as_str()),
             direction: self.direction,
             form_factor: self.form_factor().key().to_owned(),
+            is_virtual: self.virtual_kind().is_some(),
         }
     }
 

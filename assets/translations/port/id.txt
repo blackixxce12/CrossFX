@@ -158,6 +158,6 @@ countries: id
 "Plus the original's sound: presets sound the same." = "Plus suara aslinya: preset terdengar sama."
 "Only what the original has; the rest is hidden." = "Hanya yang ada di aslinya; sisanya disembunyikan."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Tidak ada perangkat pemutaran virtual: pasang driver FxSound atau VB-CABLE"
-"No virtual cable for the microphone: install VB-CABLE or another cable" = "Tidak ada kabel virtual untuk mikrofon: pasang VB-CABLE atau kabel lain"
-"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "Kabel virtual sedang digunakan: jadikan perangkat lain sebagai bawaan, atau pasang kabel lain untuk mikrofon"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "Tidak ada kabel virtual tersisa untuk mikrofon: pasang VB-CABLE, atau kabel kedua jika keluaran FxSound sudah memakai satu"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "Kabel virtual sedang digunakan sebagai keluaran FxSound atau perangkat bawaan: pilih yang lain, atau pasang kabel kedua untuk mikrofon"
 "The Windows audio service is not available" = "Layanan audio Windows tidak tersedia"

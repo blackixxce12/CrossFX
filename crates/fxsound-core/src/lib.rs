@@ -1501,6 +1501,14 @@ pub struct AudioDevice {
     /// here so the application layer can record it against a device the user has chosen; the
     /// backend is the only place that can work it out, and it does not outlive the device list.
     pub form_factor: String,
+    /// A virtual audio cable rather than a device anybody hears: on Windows, a side of VB-CABLE or
+    /// of Virtual Audio Cable that no lane of FxSound stands on, which carries sound from one
+    /// application to another. Offered like any other device, for a user who routes their sound
+    /// through one, but never one FxSound moves a lane to by itself: the app ranks one below every
+    /// real device in a first priority list, and *Prioritize new output devices* neither puts one
+    /// first nor moves a lane to it. Always `false` on Linux, where FxSound's own nodes are not
+    /// offered and a virtual sink is a device like any other.
+    pub is_virtual: bool,
 }
 
 /// Live state the audio engine publishes for the GUI to draw.
