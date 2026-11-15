@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Shared types for the FxSound Linux port: effects, presets, settings and the GUI/audio message boundary"
+description = "Shared types for CrossFX: effects, presets, settings and the GUI/audio message boundary"
 
 [dependencies]
 serde = { workspace = true }
@@ -16,7 +16,7 @@ tempfile = { workspace = true, optional = true }
 
 [features]
 # `test_support`: the scratch directories and the guarded children the workspace's tests share.
-# Only the crates' dev-dependencies turn it on, so none of it is in FxSound itself.
+# Only the crates' dev-dependencies turn it on, so none of it is in CrossFX itself.
 test-support = ["dep:tempfile"]
 
 [dev-dependencies]

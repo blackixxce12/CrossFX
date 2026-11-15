@@ -1,9 +1,9 @@
-//! A private graph with WirePlumber on it: for what FxSound does that only a session manager's
-//! policy shows — where it links the streams that follow the default when FxSound takes it.
+//! A private graph with WirePlumber on it: for what CrossFX does that only a session manager's
+//! policy shows — where it links the streams that follow the default when CrossFX takes it.
 //!
 //! Every other graph here has no session manager, and each test does by hand what WirePlumber
 //! would do. That cannot show a race in WirePlumber itself, and the 0.4.0 live check found one:
-//! a recorder that follows the default source, moved from a mono microphone back onto FxSound's
+//! a recorder that follows the default source, moved from a mono microphone back onto CrossFX's
 //! stereo source when the power comes back on, is now and then linked to nothing at all
 //! (`crate::stranded`). So this graph runs the real thing, inside an environment of its own: the
 //! daemon's runtime directory, a configuration, state, data and home directory of the graph's own,
@@ -204,13 +204,13 @@ impl PolicyGraph {
         Self::start_prepared(tag, |_| {})
     }
 
-    /// [`Self::start`], with FxSound's hook in WirePlumber installed where the graph's WirePlumber
+    /// [`Self::start`], with CrossFX's hook in WirePlumber installed where the graph's WirePlumber
     /// reads it ([`crate::wireplumber_hook`]), as Settings ▸ Experimental installs it for a user.
     pub(crate) fn start_with_the_hook(tag: &str) -> Option<Self> {
         Self::start_prepared(tag, |hook| hook.install().expect("the hook installs"))
     }
 
-    /// [`Self::start`], with `prepare` given the place of FxSound's hook in the graph's
+    /// [`Self::start`], with `prepare` given the place of CrossFX's hook in the graph's
     /// WirePlumber's directories before WirePlumber starts.
     pub(crate) fn start_prepared(
         tag: &str,
@@ -245,7 +245,7 @@ impl PolicyGraph {
         private_environment(&graph, &mut command);
         command
             .args(["-p", "crossfx-test"])
-            // Warnings, and what FxSound's hook says it did ([`Self::session_manager_log`]).
+            // Warnings, and what CrossFX's hook says it did ([`Self::session_manager_log`]).
             .env("WIREPLUMBER_DEBUG", "2,s-crossfx:4")
             .env_remove("WIREPLUMBER_CONFIG_DIR")
             .stdin(Stdio::null())
@@ -271,14 +271,14 @@ impl PolicyGraph {
         panic!("the private WirePlumber never picked a default sink");
     }
 
-    /// Where FxSound's hook goes for `graph`'s WirePlumber: the configuration and data
+    /// Where CrossFX's hook goes for `graph`'s WirePlumber: the configuration and data
     /// directories of its environment ([`private_environment`]).
     fn hook_place(graph: &PrivateGraph) -> crate::wireplumber_hook::Place {
         crate::wireplumber_hook::Place::under(&graph.dir.join("config"), &graph.dir.join("data"))
     }
 
     /// What the graph's WirePlumber has written to its log: warnings and errors, and the lines of
-    /// FxSound's hook.
+    /// CrossFX's hook.
     pub(crate) fn session_manager_log(&self) -> String {
         std::fs::read_to_string(self.graph.dir.join(SESSION_MANAGER_LOG)).unwrap_or_default()
     }
@@ -339,7 +339,7 @@ impl PolicyGraph {
     /// which `pipewire-pulse` 1.6.9 makes 1080 and 1200 frames. A client that asks for none is
     /// given two seconds of fragments to record into, which it writes in bursts. And one that asks
     /// for less lowers the quantum of the graph it joins, and a PulseAudio recorder in that graph
-    /// then drops samples: measured without FxSound, on this graph, a `pacat` recording `t_mic`
+    /// then drops samples: measured without CrossFX, on this graph, a `pacat` recording `t_mic`
     /// jumped in the middle of its wave each of four times a player of 256 frames was linked into
     /// `t_mic`, and not once when it went. That is PipeWire's, whoever moves the player — and a
     /// player of 20 ms, moved by the power switch, had the click scenario's recorder jump at −17.7
@@ -415,7 +415,7 @@ impl PolicyGraph {
     }
 
     /// Whether the session manager is still running: a test that finds its own checks failing
-    /// asks, so that a WirePlumber that died is not taken for FxSound's doing.
+    /// asks, so that a WirePlumber that died is not taken for CrossFX's doing.
     pub(crate) fn session_manager_runs(&mut self) -> bool {
         self.session_manager
             .try_wait()

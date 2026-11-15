@@ -10,7 +10,7 @@
 //! audio service — passes each check, saying what it could not look at.
 //!
 //! The end-to-end check, which does change the default device and plays the system's sound through
-//! FxSound, is [`end_to_end_on_this_machine`], `#[ignore]`d: it is run by hand, with the consent of
+//! CrossFX, is [`end_to_end_on_this_machine`], `#[ignore]`d: it is run by hand, with the consent of
 //! whoever owns the machine.
 
 use std::time::{Duration, Instant};
@@ -502,7 +502,7 @@ fn the_probe_reports_and_changes_no_default() {
 /// default on the virtual device, and shut down with every default given back.
 ///
 /// **Not run by default: it changes the system's default device, and plays whatever the system
-/// plays through FxSound for a few seconds.** To run it, with the consent of whoever owns the
+/// plays through CrossFX for a few seconds.** To run it, with the consent of whoever owns the
 /// machine:
 ///
 /// 1. Quit the original FxSound (its tray icon, Exit) — while it runs the engine stands aside, and
@@ -515,7 +515,7 @@ fn the_probe_reports_and_changes_no_default() {
 /// The default devices are read before and compared after: the check fails if any role is not
 /// given back.
 #[test]
-#[ignore = "changes the default device and plays the system's sound through FxSound; see its docs"]
+#[ignore = "changes the default device and plays the system's sound through CrossFX; see its docs"]
 fn end_to_end_on_this_machine() {
     use crate::ORIGINAL_FXSOUND_RUNNING;
     use fxsound_core::messages::AudioToUi;

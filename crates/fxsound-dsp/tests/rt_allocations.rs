@@ -439,14 +439,14 @@ fn switching_effects_off_and_on_and_naming_the_sides_allocates_nothing() {
 
 #[test]
 fn switching_to_the_windows_dsp_and_back_allocates_nothing() {
-    // «Like FxSound for Windows» = Interface and sound reaches the audio thread in the snapshot:
-    // the leveller's arithmetic, Dynamic Boost's floor and level, and its limiter's linking, hold
-    // and attack all change between two blocks, on 5.1 with the sides named, and back. Every one
-    // of the crossfades that carries the move (W1d) runs: the gain stage gliding between its two
-    // places with the master gain and the balance set, with the equalizer on and off and the
-    // power off; the leveller's subwoofer; Dynamic Boost's limiter handed over from one design to
-    // the other in stretches, in blocks larger and smaller than a stretch; Ambience's mix; a band
-    // below 20 Hz. None of it may allocate.
+    // «Like the original FxSound LLC» = Interface and sound reaches the audio thread in the
+    // snapshot: the leveller's arithmetic, Dynamic Boost's floor and level, and its limiter's
+    // linking, hold and attack all change between two blocks, on 5.1 with the sides named, and
+    // back. Every one of the crossfades that carries the move (W1d) runs: the gain stage gliding
+    // between its two places with the master gain and the balance set, with the equalizer on and
+    // off and the power off; the leveller's subwoofer; Dynamic Boost's limiter handed over from one
+    // design to the other in stretches, in blocks larger and smaller than a stretch; Ambience's
+    // mix; a band below 20 Hz. None of it may allocate.
     use fxsound_core::DspCompat;
     use fxsound_dsp::engine::ChannelSide::{Centre, Left, Right};
     let channels = 6;

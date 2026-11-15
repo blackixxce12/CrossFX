@@ -1,22 +1,22 @@
-//! The FxSound audio backend for Linux: a PipeWire virtual sink in front of the speakers and a
+//! The CrossFX audio backend for Linux: a PipeWire virtual sink in front of the speakers and a
 //! PipeWire virtual source behind the microphone, each with its own DSP chain in its process
 //! callback, running side by side.
 //!
 //! # What this replaces
 //!
-//! On Windows, FxSound ships a kernel virtual audio driver, forces it to be the system default
-//! render endpoint, captures from it with `AUDCLNT_STREAMFLAGS_LOOPBACK`, runs the DSP over the
-//! captured buffer and renders the result to the real device — the `audiopassthru/` module,
+//! On Windows, the original FxSound ships a kernel virtual audio driver, forces it to be the system
+//! default render endpoint, captures from it with `AUDCLNT_STREAMFLAGS_LOOPBACK`, runs the DSP over
+//! the captured buffer and renders the result to the real device — the `audiopassthru/` module,
 //! reverse-engineered in full in `docs/spec/12-audio-io.md`. On Linux none of that machinery is
 //! needed: a `pw_stream` with `media.class = "Audio/Sink"` **is** a sink, so the audio applications
-//! write arrives directly in our own process callback. There is no driver to install, no reboot,
-//! no root, no loopback capture and no monitor hop.
+//! write arrives directly in our own process callback. There is no driver to install, no reboot, no
+//! root, no loopback capture and no monitor hop.
 //!
 //! # Windows
 //!
-//! On Windows the port does what FxSound for Windows does, with this crate's `wasapi` backend in
+//! On Windows CrossFX does what FxSound for Windows does, with this crate's `wasapi` backend in
 //! PipeWire's place: a virtual playback device the user has installed — FxSound's own driver
-//! ("FxSound Speakers") or a virtual cable; the port ships no driver — is made the default,
+//! ("FxSound Speakers") or a virtual cable; CrossFX ships no driver — is made the default,
 //! captured with WASAPI loopback, run through the same lane DSP and played to the real device; and
 //! behind the microphone, the microphone is processed and played into a cable of its own, whose
 //! recording side becomes the default — opened, as the Linux lane's is, only while something
@@ -35,7 +35,7 @@
 //! its own chain and its own paths to the GUI:
 //!
 //! ```text
-//!  OUTPUT LANE (the Windows behaviour; enabled at start):
+//!  OUTPUT LANE (the original's behaviour; enabled at start):
 //!
 //!  apps ──► crossfx_sink    (Audio/Sink, Direction::Input)    process(): DSP in place ──┐
 //!                                                                                       │ ring
@@ -72,15 +72,15 @@
 //! member runnable too (`run_nodes` in `src/pipewire/context.c`). That is what lets the output
 //! lane's playback stream sleep while nothing plays into the sink, and the input lane's capture
 //! stream — and the microphone with it — while nothing records from the source (see `engine`,
-//! "Idle"), and it is why each lane has a group **of its own** — `fxsound` for the speakers,
+//! "Idle"), and it is why each lane has a group **of its own** — `crossfx` for the speakers,
 //! `crossfx-input` for the microphone (`docs/spec/12-audio-io.md` §29.2). WirePlumber would be
 //! content either way: each stream still shares a group with its own virtual node, which is all
 //! its refusal needs, and no link either lane needs ever joins two of our own nodes. The server is
 //! not. With one group, a capture stream fed by a microphone made the speakers' pair runnable with
 //! it, and the speakers never went idle again while the microphone lane ran.
 //!
-//! With both lanes enabled the system sees *two* FxSound devices: "FxSound (Output)" under its
-//! sinks and "FxSound (Input)" under its sources, each with the word in the system language
+//! With both lanes enabled the system sees *two* CrossFX devices: "CrossFX (Output)" under its
+//! sinks and "CrossFX (Input)" under its sources, each with the word in the system language
 //! ([`locale`]). Detaching a lane takes only its own device away.
 //!
 //! # Echo cancellation
@@ -90,7 +90,7 @@
 //! `libpipewire-module-echo-cancel`, loaded into this crate's PipeWire context (`aec`): it hears
 //! the microphone and the monitor of the speakers the output lane plays to, and its
 //! `crossfx_aec_source` takes the microphone's place in front of `crossfx_capture`. The three nodes
-//! it makes are FxSound's as much as the lanes' four are — named by us, in a link-group of their
+//! it makes are CrossFX's as much as the lanes' four are — named by us, in a link-group of their
 //! own ([`AEC_LINK_GROUP`]), never offered as devices — and they come and go with the microphone
 //! lane: loaded once it has a pair, reloaded when its microphone or the speakers change, unloaded
 //! when echo cancellation is switched off, when the lane is detached, and before the connection
@@ -119,11 +119,11 @@
 //!
 //! # The session default
 //!
-//! Once a lane's pair of nodes is up, FxSound **does** make itself the session default for that
+//! Once a lane's pair of nodes is up, CrossFX **does** make itself the session default for that
 //! lane's direction — `default.configured.audio.sink = crossfx_sink` for the output lane,
 //! `default.configured.audio.source = crossfx_source` for the input lane — because that is the
-//! whole point: the user picks *their* speakers or *their* microphone in FxSound and every
-//! application follows without being re-routed by hand, exactly as the Windows driver does. Each
+//! whole point: the user picks *their* speakers or *their* microphone in CrossFX and every
+//! application follows without being re-routed by hand, exactly as the original's driver does. Each
 //! lane holds its own claim. It does so politely, per `docs/spec/12-audio-io.md` §21: the default
 //! that was there before is remembered first and handed back — on exit (both lanes'), when a lane
 //! is detached (that lane's), and whenever a lane's nodes go away for good — **before** the nodes
@@ -134,12 +134,12 @@
 //! # What it deliberately does not do
 //!
 //! * **It never writes volume or mute on the target device.** On Windows the DFX endpoint and the
-//!   real endpoint are two separate system volume controls and FxSound mirrors them
+//!   real endpoint are two separate system volume controls and CrossFX mirrors them
 //!   (`sndDevicesVolCallbacks.cpp`). On Linux, once `crossfx_sink` is the default it *is* the
 //!   control the volume keys, `wpctl` and every desktop slider target; mirroring would fight
 //!   WirePlumber's own restore and would leave the real device permanently changed after we exit.
 //!   The whole `savedPlaybackVolume` / `b_never_raise_volume` contract therefore disappears — see
-//!   `docs/spec/12-audio-io.md` §19.7. What it keeps instead is FxSound's *own* volume per target
+//!   `docs/spec/12-audio-io.md` §19.7. What it keeps instead is CrossFX's *own* volume per target
 //!   device, written only to its own two virtual nodes, applied after the chain, and never raised
 //!   by a change of device (`volume`, §19.7.1).
 //! * **It never resamples.** The zero-order-hold upsampler at `sndDevicesDoPlayback.cpp:79-89` is
@@ -185,7 +185,7 @@
 // DSP of a lane (`lane_dsp`), the device rules (`devices`), the paths to the GUI and the public
 // types are the same code on both.
 #[cfg(not(any(target_os = "linux", windows)))]
-compile_error!("FxSound builds for Linux (PipeWire) and Windows (WASAPI)");
+compile_error!("CrossFX builds for Linux (PipeWire) and Windows (WASAPI)");
 
 #[cfg(target_os = "linux")]
 mod aec;
@@ -451,11 +451,11 @@ pub const fn our_node_name(direction: DeviceDirection) -> &'static str {
 /// than being truncated.
 pub const MAX_QUANTUM_FRAMES: usize = 2048;
 
-/// How many channels a lane's gains are kept for: every channel FxSound will ever run
+/// How many channels a lane's gains are kept for: every channel CrossFX will ever run
 /// ([`MAX_CHANNELS`]). The size of `lane_dsp`'s per-channel arrays on both backends.
 pub(crate) const LANE_CHANNELS: usize = MAX_CHANNELS as usize;
 
-/// The quantum FxSound asks for by default: 512 frames, ≈10.7 ms at 48 kHz, the `Normal` row of
+/// The quantum CrossFX asks for by default: 512 frames, ≈10.7 ms at 48 kHz, the `Normal` row of
 /// the spec's latency table.
 pub const DEFAULT_QUANTUM_FRAMES: u32 = 512;
 
@@ -477,7 +477,7 @@ pub const EVENT_QUEUE_LEN: usize = 64;
 /// never replied" case.
 pub const START_TIMEOUT: Duration = Duration::from_millis(1500);
 
-/// Everything that can go wrong, in 1:1 correspondence with the states the Windows GUI already
+/// Everything that can go wrong, in 1:1 correspondence with the states the original's GUI already
 /// knows how to render.
 ///
 /// The comments give the `sndDevices.h:74-143` code each variant replaces, so
@@ -513,9 +513,9 @@ pub enum AudioError {
     /// The server would not agree a format we can process. ≡ `-35` / `-36`.
     #[error("format negotiation failed")]
     FormatNegotiation,
-    /// Windows only: no virtual playback device to stand in front of the speakers. FxSound for
-    /// Windows installs its own kernel driver for that ("FxSound Audio Enhancer"); this port ships
-    /// no driver, and uses the FxSound driver or a virtual cable the user installed
+    /// Windows only: no virtual playback device to stand in front of the speakers. The original
+    /// FxSound for Windows installs its own kernel driver for that ("FxSound Audio Enhancer");
+    /// CrossFX ships no driver, and uses the FxSound driver or a virtual cable the user installed
     /// (`docs/1.0.0-windows-port.md`). ≡ the original's "audio device is missing" state.
     #[error("no virtual playback device is installed")]
     NoVirtualDevice,
@@ -532,7 +532,7 @@ pub enum AudioError {
     /// Windows only: a virtual cable is there for the input lane, but the user has it in use — they
     /// picked it as the output lane's device, which plays into it, or a default device of theirs
     /// is on one of its sides — and the lane does not mix the microphone into what they send
-    /// through it. The user frees it by picking another output device in FxSound, or making another
+    /// through it. The user frees it by picking another output device in CrossFX, or making another
     /// device the default, or installs a second cable for the microphone. A default Windows put on
     /// the cable by itself, as it was installed, is no use of theirs: the lane takes the cable then.
     #[error("the virtual cable for the microphone is in use")]
@@ -585,15 +585,15 @@ pub struct StartOptions {
     /// The output lane's device ranking (U4), as [`UiToAudio::SetDevicePriority`] would send it:
     /// the settings' ranked list of outputs, or an empty one while the app follows the system's
     /// default. Here so that the lane's first choice of device is already made by rank: made
-    /// without it, by the Windows rules, it would be the session default, and a ranking arriving a
-    /// moment later would have to take the lane from there.
+    /// without it, by the original's rules, it would be the session default, and a ranking arriving
+    /// a moment later would have to take the lane from there.
     pub output_priority: DevicePriority,
     /// The input lane's device ranking, as [`Self::output_priority`] is the output lane's.
     pub input_priority: DevicePriority,
     /// Whether both lanes take the session default once their nodes are up, as
     /// [`UiToAudio::SetAsDefault`] would say for each: `false` for an app whose power was left
-    /// off, which keeps FxSound out of the path (U12). Here so that the first pair does not claim
-    /// the default, move every playing stream onto FxSound and have them moved back a moment
+    /// off, which keeps CrossFX out of the path (U12). Here so that the first pair does not claim
+    /// the default, move every playing stream onto CrossFX and have them moved back a moment
     /// later, when a `SetAsDefault` with `want: false` arrives after it.
     ///
     /// [`UiToAudio::SetAsDefault`]: fxsound_core::messages::UiToAudio::SetAsDefault
@@ -624,8 +624,8 @@ impl Default for StartOptions {
 /// what [`StartOptions`] hands the engine for each lane's first choice.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DevicePriority {
-    /// `node.name`s, most preferred first. Empty is "follow the system": the Windows rules and the
-    /// session default decide.
+    /// `node.name`s, most preferred first. Empty is "follow the system": the original's rules and
+    /// the session default decide.
     pub names: Vec<String>,
     /// Whether a device the ranking does not name yet goes before every ranked one, or after
     /// every one: the app's "prioritize new output devices" ([`Preference::new_devices_first`]).
@@ -684,7 +684,7 @@ impl AudioEngine {
     /// [`AudioEngine::start`], naming the language the virtual nodes are described in.
     ///
     /// `language` is one of `fxsound_core::i18n::LANGUAGES`' codes — the UI's effective language,
-    /// so `FxSound (Вывод)` in the sound settings matches a Russian FxSound window even when the
+    /// so `CrossFX (Вывод)` in the sound settings matches a Russian CrossFX window even when the
     /// desktop locale says otherwise. `None` (plain [`AudioEngine::start`]) reads the locale.
     ///
     /// A caller with remembered per-device volumes starts with [`Self::start_with_options`]
@@ -870,7 +870,7 @@ impl AudioEngine {
         // If the send fails the loop is already gone; joining is still the right move.
         let _ = self.control.send(UiToAudio::Shutdown);
         if join.join().is_err() {
-            log::error!("the FxSound audio thread panicked");
+            log::error!("the CrossFX audio thread panicked");
         }
     }
 }
@@ -1049,7 +1049,7 @@ impl EngineHandle {
     /// Send a control-plane request. Non-blocking; wakes the PipeWire loop.
     pub fn send(&self, message: UiToAudio) {
         if self.engine.control.send(message).is_err() {
-            log::warn!("the FxSound audio thread is gone; control message dropped");
+            log::warn!("the CrossFX audio thread is gone; control message dropped");
         }
     }
 
@@ -1072,7 +1072,7 @@ impl EngineHandle {
 
     /// Stop the engine and wait for the PipeWire thread to finish tearing down.
     ///
-    /// Tearing down in order matters: every session default FxSound holds — the sink, the source,
+    /// Tearing down in order matters: every session default CrossFX holds — the sink, the source,
     /// or both — is handed back to a real device *before* the nodes are destroyed, so there is
     /// never a window in which a default points at a node that no longer exists
     /// (`docs/spec/12-audio-io.md` §21.5). The hand-back is confirmed by a server round trip

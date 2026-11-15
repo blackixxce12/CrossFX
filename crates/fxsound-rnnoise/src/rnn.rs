@@ -336,7 +336,7 @@ impl<'model> RnnState<'model> {
         }
     }
 
-    // fxsound: zero the three GRU states in place. `DenoiseState::new` builds these with `vec!`,
+    // crossfx: zero the three GRU states in place. `DenoiseState::new` builds these with `vec!`,
     // so before this the only way to start the network afresh was to allocate a new one.
     pub(crate) fn reset(&mut self) {
         self.vad_gru_state.fill(0.0);

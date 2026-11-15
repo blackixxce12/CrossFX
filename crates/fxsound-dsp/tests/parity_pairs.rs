@@ -1,12 +1,12 @@
-//! Every test that pins a change the port made on purpose has a twin at «Like FxSound for
-//! Windows» = Interface and sound (roadmap 0.5.0 §1, A5).
+//! Every test that pins a change CrossFX made on purpose has a twin at «Like the original
+//! FxSound LLC» = Interface and sound (roadmap 0.5.0 §1, A5).
 //!
-//! The 0.4.0 audit changed behaviour the port had copied from the Windows build, and each test
-//! that used to hold the Windows behaviour and now holds the fix says so where it was changed: a
+//! The 0.4.0 audit changed behaviour CrossFX had copied from the original, and each test
+//! that used to hold the original's behaviour and now holds the fix says so where it was changed: a
 //! comment reading "changed on purpose", with the audit's item (`#13`, `R3` and so on). At
-//! Interface and sound the output lane plays the Windows build's DSP again, so each of those
-//! tests has a twin that holds the Windows behaviour there, while the test itself goes on holding
-//! Off's — 0.4.0's. When 0.5.0 began there were 36 such comments, all in `fxsound-dsp`.
+//! Interface and sound the output lane plays the original's DSP again, so each of those
+//! tests has a twin that holds the original's behaviour there, while the test itself goes on
+//! holding Off's — 0.4.0's. When 0.5.0 began there were 36 such comments, all in `fxsound-dsp`.
 //!
 //! [`PAIRS`] is the list: for each file and item, the twins. The tests below read the sources and
 //! hold the list to them — every such comment names an item, every item a comment names in a
@@ -29,7 +29,7 @@ struct Pair {
     file: &'static str,
     /// The audit's item the comments name: `#13`, `R3`.
     item: &'static str,
-    /// The tests that hold the Windows behaviour at Interface and sound, anywhere in the
+    /// The tests that hold the original's behaviour at Interface and sound, anywhere in the
     /// workspace.
     twins: &'static [&'static str],
 }

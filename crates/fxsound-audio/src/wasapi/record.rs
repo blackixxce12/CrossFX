@@ -5,15 +5,15 @@
 //! What the record is for is the run that never hands back. The release profile aborts on a panic
 //! and a process can be killed, and either leaves the defaults on the virtual device, which
 //! swallows every sound until something gives them back. The next start does (`super`, "The
-//! default devices") — but only a default it can tell is CrossFX's. A virtual cable is not CrossFX's
-//! alone: a user who records the desktop's sound may have made "CABLE Output" their default
-//! recording device, or play into "CABLE Input" on purpose, and a start that moved those defaults
-//! away would break their setup at every start — the input lane, detached until a microphone is
-//! picked, never stands behind its cable. So a default left on a cable is given back only when the
-//! record says a run of CrossFX put it there. A default on the original FxSound's driver needs no
-//! record: nothing plays that device while neither the original nor CrossFX runs. (A lane that comes to stand on a cable
-//! later decides for itself whose each default it finds there is — the user's, or one Windows put
-//! there by itself: `super`, "Whose default it is".)
+//! default devices") — but only a default it can tell is CrossFX's. A virtual cable is not
+//! CrossFX's alone: a user who records the desktop's sound may have made "CABLE Output" their
+//! default recording device, or play into "CABLE Input" on purpose, and a start that moved those
+//! defaults away would break their setup at every start — the input lane, detached until a
+//! microphone is picked, never stands behind its cable. So a default left on a cable is given back
+//! only when the record says a run of CrossFX put it there. A default on the original FxSound's
+//! driver needs no record: nothing plays that device while neither the original nor CrossFX runs.
+//! (A lane that comes to stand on a cable later decides for itself whose each default it finds
+//! there is — the user's, or one Windows put there by itself: `super`, "Whose default it is".)
 //!
 //! The other way round, a default the user put on a cable is theirs ([`Kept::users`]). A start
 //! finds it there with nothing to tell it from one Windows put there as it installed the cable —
@@ -22,8 +22,8 @@
 //! by role, for as long as the role stays there, so that a later start leaves a call application
 //! sent to "CABLE Input", or a recorder of the desktop on "CABLE Output", where the user put it.
 //! It is forgotten once the role is somewhere else: moved by anyone but CrossFX while a run
-//! watches, or found elsewhere by the next start — anywhere but on the endpoint CrossFX holds, where
-//! a run killed while it held the role left it.
+//! watches, or found elsewhere by the next start — anywhere but on the endpoint CrossFX holds,
+//! where a run killed while it held the role left it.
 //!
 //! The Linux engine needs none of this: its virtual nodes are its own, and a default naming one is
 //! CrossFX's by its name.

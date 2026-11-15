@@ -1,4 +1,4 @@
-//! Shared vocabulary types for the FxSound Linux port.
+//! Shared vocabulary types for CrossFX.
 //!
 //! Every other crate in the workspace depends on this one and on nothing else of ours, so the
 //! types here are the contract: the DSP engine, the PipeWire backend, the preset store and the
@@ -89,7 +89,7 @@ impl Effect {
         }
     }
 
-    /// The untranslated English label — the `TRANS` key of the Windows build's slider caption
+    /// The untranslated English label — the `TRANS` key of the original's slider caption
     /// (`FxAudioControls.cpp:94`), so [`crate::i18n::tr`] finds it in every language. The first
     /// effect is "Clarity" there; "Fidelity" is the name the DSP and the preset files still use.
     #[inline]
@@ -193,7 +193,7 @@ pub mod scale {
     /// exactly 126.0 — so every stored value from 70 to 127, all 58 of them, lands on the same
     /// index and the same +11.60 dB.
     ///
-    /// The Windows build has the identical dead top: its slider is `setRange(0, 10, 1.0)` for all
+    /// The original has the identical dead top: its slider is `setRange(0, 10, 1.0)` for all
     /// five effects with no per-effect case (`FxAudioControls.cpp:113`), and the path from there
     /// to MIDI is plain linear. This is inherited, not introduced.
     pub const DYNAMIC_BOOST_MAX_MIDI: u8 = 70;
@@ -208,11 +208,11 @@ pub mod scale {
     /// position 4. So the slider's first position is 39 and its ten positions are spread from
     /// there to 127, as Dynamic Boost's are spread below its dead top.
     ///
-    /// FxSound for Linux's mapping. At «Like FxSound for Windows» = Interface and sound the
-    /// Windows build's straight line comes back with the Windows stage ([`slider_to_value_in`]).
+    /// CrossFX's mapping. At «Like the original FxSound LLC» = Interface and sound the
+    /// original's straight line comes back with the original's stage ([`slider_to_value_in`]).
     pub const AMBIENCE_FIRST_AUDIBLE_MIDI: u8 = 39;
 
-    /// Slider position to engine value, for one effect, as FxSound for Linux maps it:
+    /// Slider position to engine value, for one effect, as CrossFX maps it:
     /// [`slider_to_value_in`] with [`DspCompat::Linux`](crate::DspCompat::Linux).
     #[inline]
     #[must_use]
@@ -227,20 +227,20 @@ pub mod scale {
     /// different sound rather than several of them being the same one:
     ///
     /// - **Dynamic Boost** over `0..=DYNAMIC_BOOST_MAX_MIDI`, below its dead top, whatever
-    ///   `compat` says: the Windows build's slider walks into the dead top, and nothing but the
+    ///   `compat` says: the original's slider walks into the dead top, and nothing but the
     ///   position a value shows at changes by keeping it out.
-    /// - **Ambience** (audit report #39), in FxSound for Linux: position 0 is off, positions 1 to
+    /// - **Ambience** (audit report #39), in CrossFX: position 0 is off, positions 1 to
     ///   10 run from [`AMBIENCE_FIRST_AUDIBLE_MIDI`] to 127, and a position between 0 and 1 — which
-    ///   only a stored value can give — reads straight from 0 to 39, so a Windows preset storing
-    ///   13..38, all but silent, shows below position 1 where it sounds. At «Like FxSound for
-    ///   Windows» = Interface and sound ([`DspCompat::Windows`](crate::DspCompat::Windows)) the
-    ///   Windows build's straight line comes back with its stage (`FxAudioControls.cpp:113`
-    ///   sets every effect slider to `0..10` in whole steps, and the path to MIDI is linear):
-    ///   positions 1, 2 and 3 store 13, 25 and 38 again, which that stage plays as the Windows
-    ///   build does.
+    ///   only a stored value can give — reads straight from 0 to 39, so a preset of the original's
+    ///   storing 13..38, all but silent, shows below position 1 where it sounds. At «Like the
+    ///   original FxSound LLC» = Interface and sound
+    ///   ([`DspCompat::Windows`](crate::DspCompat::Windows)) the original's straight line comes
+    ///   back with its stage (`FxAudioControls.cpp:113` sets every effect slider to `0..10` in
+    ///   whole steps, and the path to MIDI is linear): positions 1, 2 and 3 store 13, 25 and 38
+    ///   again, which that stage plays as the original does.
     ///
     /// **The mapping changes no preset.** The mapping from a *stored* value to a gain is the
-    /// stage's, so every `.fac` — this port's, and any imported from Windows — is read as it
+    /// stage's, so every `.fac` — CrossFX's, and any imported from the original — is read as it
     /// is. What changes is only which value the application writes when a user moves one of
     /// these sliders, and the positions it shows a stored value at.
     #[inline]
@@ -520,7 +520,7 @@ pub mod limits {
 
     // ---- per-target volume ----
 
-    /// One remembered `channelVolumes` entry of FxSound's own node, as the linear amplitude
+    /// One remembered `channelVolumes` entry of CrossFX's own node, as the linear amplitude
     /// PipeWire's `Props` carry. The top is +12 dB: a little above the +11 dB pavucontrol's
     /// slider stops at, so whatever a mixer's slider can set survives. A larger number — `pactl`
     /// can ask for one, and so can a hand edit — is clamped rather than replayed as it is,
@@ -592,7 +592,7 @@ pub mod eq {
         674.485, 958.885, 1363.2, 1938.0, 2755.17, 3916.91, 5568.49, 7916.47, 11254.5, 16000.0,
     ];
 
-    /// The Windows build's twenty-band ladder (`GraphicEqSet.cpp:468-478`): octave bands from
+    /// The original's twenty-band ladder (`GraphicEqSet.cpp:468-478`): octave bands from
     /// 31.5 Hz with the third-octave band above each, so they come in pairs. Twenty-band curves
     /// saved before 0.4.0 and Windows twenty-band presets carry these centres.
     pub const WINDOWS_TWENTY_BAND_CENTRES_HZ: [f32; 20] = [
@@ -648,8 +648,8 @@ pub mod eq {
     }
 
     /// Move a twenty-band curve onto the twenty-band ladder of the DSP `compat` plays, band for
-    /// band, and say whether it moved: off the Windows ladder for FxSound for Linux
-    /// ([`move_off_the_windows_twenty_band_ladder`]), onto it at «Like FxSound for Windows» =
+    /// band, and say whether it moved: off the Windows ladder for CrossFX
+    /// ([`move_off_the_windows_twenty_band_ladder`]), onto it at «Like the original FxSound LLC» =
     /// Interface and sound ([`move_onto_the_windows_twenty_band_ladder`], audit report R4 taken
     /// back). The gains stay on their bands, so a curve taken to one ladder and back is the curve
     /// it was, bit for bit; a curve on neither ladder, or of another count, is left alone.
@@ -706,14 +706,14 @@ pub mod eq {
         }
     }
 
-    /// How far band `band` may be tuned in the Windows build, between the ladder's edges `min_hz`
+    /// How far band `band` may be tuned in the original, between the ladder's edges `min_hz`
     /// and `max_hz` (`GraphicEqGet.cpp:105-168`).
     ///
     /// The bounds sit at the geometric midpoints of the generic log-spaced grid, with `+1` below
     /// a kilohertz and `+10` above it on the low edge so that two bands never meet; the two end
     /// bands stop at the ladder's own edges. Which is why band 1 of the five- and ten-band
     /// equalizer, at 62.5 Hz, can only be turned up, and the top band, at 16 kHz, only down: each
-    /// sits at an end of its own range. [`band_frequency_range`] is the port's range.
+    /// sits at an end of its own range. [`band_frequency_range`] is CrossFX's range.
     #[must_use]
     pub fn windows_band_range(
         band: usize,
@@ -748,7 +748,7 @@ pub mod eq {
         (low, high)
     }
 
-    /// Band `band`'s tuning range in the Windows build, for the count's own ladder.
+    /// Band `band`'s tuning range in the original, for the count's own ladder.
     #[must_use]
     pub fn windows_band_frequency_range(band: usize, num_bands: usize) -> (f32, f32) {
         let (min_hz, max_hz) =
@@ -760,7 +760,7 @@ pub mod eq {
     /// reaches half a band past the ladder's edge as well, so it can be tuned both ways (audit
     /// report R6).
     ///
-    /// In the Windows build the first band of the five- and ten-band equalizer, at 62.5 Hz, sits at
+    /// In the original the first band of the five- and ten-band equalizer, at 62.5 Hz, sits at
     /// the bottom of its own range and the last, at 16 kHz, at the top of its: the first could
     /// only move up, the last only down, and no sub-bass below 62.5 Hz could be reached at all.
     /// Here the first band's range starts as far below its ladder's edge as its range ends above
@@ -769,7 +769,8 @@ pub mod eq {
     /// [`TUNING_CEILING_HZ`]: the twenty- and thirty-one-band ladders already start at 20 Hz and
     /// the thirty-one-band one ends at 20 kHz. Every other band keeps the Windows range.
     ///
-    /// A `.fac` written for a Windows FxSound has its end bands put back on the ladder's edges
+    /// A `.fac` written for the original FxSound for Windows has its end bands put back on the
+    /// ladder's edges
     /// ([`move_end_bands_back_inside_the_ladder`]); one read in keeps whatever it carries.
     #[must_use]
     pub fn band_frequency_range(band: usize, num_bands: usize) -> (f32, f32) {
@@ -794,16 +795,17 @@ pub mod eq {
         (low, high)
     }
 
-    /// Put a curve's first and last band back on the ladder's edges where this port let them go
-    /// past, for a `.fac` written for a Windows FxSound to open, and say whether either moved
+    /// Put a curve's first and last band back on the ladder's edges where CrossFX let them go
+    /// past, for a `.fac` written for the original FxSound for Windows to open, and say whether
+    /// either moved
     /// (audit report R6).
     ///
-    /// Only the two end bands reach further here than in the Windows build
+    /// Only the two end bands reach further here than in the original
     /// ([`band_frequency_range`]), and only past the ladder's own edges: a first band below the
     /// ladder's bottom goes back to it and a last band above its top goes back to that — on five
-    /// and ten bands, 62.5 Hz and 16 kHz, where the Windows build's wheels stop. Nothing else is
+    /// and ten bands, 62.5 Hz and 16 kHz, where the original's wheels stop. Nothing else is
     /// clamped: the factory presets themselves put inner bands outside their wheels' ranges
-    /// (Metal's 1000 Hz sits below the 1010 Hz its band's wheel starts at), and the Windows build
+    /// (Metal's 1000 Hz sits below the 1010 Hz its band's wheel starts at), and the original
     /// plays such a centre as it is, so a preset Windows made is exported exactly as it came. A
     /// curve of a count with no table is left alone, and so is a centre that is not a number.
     pub fn move_end_bands_back_inside_the_ladder(bands: &mut [EqBand]) -> bool {
@@ -834,7 +836,7 @@ pub mod eq {
 
     /// Keep every centre of a curve inside the equalizer's own window, [`BAND_FLOOR_HZ`] to
     /// [`BAND_CEILING_HZ`], and say whether any moved: the one limit a `.fac` exported with its
-    /// end bands as they are is held to («Like FxSound for Windows» = Interface and sound, the
+    /// end bands as they are is held to («Like the original FxSound LLC» = Interface and sound, the
     /// export window's choice against [`move_end_bands_back_inside_the_ladder`]). A centre inside
     /// it stays as it is, a band at a centre the equalizer would not design is written where it is
     /// played, and a centre that is not a number is left alone.
@@ -888,7 +890,7 @@ impl Preset {
     pub fn set_effect(&mut self, effect: Effect, value: f32) {
         self.main_midi[effect.vals_index()] = scale::value_to_midi(value);
         // The original forces the bypass flag to follow the value on every set, so a preset
-        // saved by this port matches one saved by the Windows build.
+        // saved by CrossFX matches one saved by the original.
         self.app_ints[effect.app_depend_index()] = i32::from(value != 0.0);
     }
 
@@ -1420,11 +1422,11 @@ impl DenoiseChannelsOverride {
     }
 }
 
-/// Which way audio flows through a device FxSound can attach to.
+/// Which way audio flows through a device CrossFX can attach to.
 ///
-/// The Windows build only ever sat in front of a *playback* endpoint. The Linux port can also sit
+/// The original only ever sat in front of a *playback* endpoint. CrossFX on Linux can also sit
 /// behind a *capture* device — a microphone — and publish the processed signal as a virtual
-/// source. A device is one or the other, and FxSound keeps one lane per direction: a pair of
+/// source. A device is one or the other, and CrossFX keeps one lane per direction: a pair of
 /// nodes, a chain and a claim on the session default for each, which can run at the same time
 /// and are enabled and detached independently. Which lane the window is *editing* is a separate
 /// notion (`Settings::device_direction`) that the engine never sees.
@@ -1433,10 +1435,10 @@ impl DenoiseChannelsOverride {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum DeviceDirection {
-    /// A playback device: FxSound is a virtual sink in front of it.
+    /// A playback device: CrossFX is a virtual sink in front of it.
     #[default]
     Output,
-    /// A capture device: FxSound is a virtual source fed by it.
+    /// A capture device: CrossFX is a virtual source fed by it.
     Input,
 }
 
@@ -1483,7 +1485,7 @@ impl DeviceDirection {
     }
 }
 
-/// A device the user can pick for FxSound to attach to.
+/// A device the user can pick for CrossFX to attach to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioDevice {
     /// PipeWire node id — not stable across restarts.
@@ -1503,11 +1505,11 @@ pub struct AudioDevice {
     /// backend is the only place that can work it out, and it does not outlive the device list.
     pub form_factor: String,
     /// A virtual audio cable rather than a device anybody hears: on Windows, a side of VB-CABLE or
-    /// of Virtual Audio Cable that no lane of FxSound stands on, which carries sound from one
+    /// of Virtual Audio Cable that no lane of CrossFX stands on, which carries sound from one
     /// application to another. Offered like any other device, for a user who routes their sound
-    /// through one, but never one FxSound moves a lane to by itself: the app ranks one below every
+    /// through one, but never one CrossFX moves a lane to by itself: the app ranks one below every
     /// real device in a first priority list, and *Prioritize new output devices* neither puts one
-    /// first nor moves a lane to it. Always `false` on Linux, where FxSound's own nodes are not
+    /// first nor moves a lane to it. Always `false` on Linux, where CrossFX's own nodes are not
     /// offered and a virtual sink is a device like any other.
     pub is_virtual: bool,
 }
@@ -1526,7 +1528,7 @@ pub struct AudioStatus {
 
     // ---- how the ring between the two nodes is coping ------------------------------------
     //
-    // Collected correctly since the port began and then thrown away: they crossed no process
+    // Collected correctly since CrossFX began and then thrown away: they crossed no process
     // boundary and appeared in no message, so nothing could assert on them and nobody could see
     // them. All three are cumulative since the stream was built.
     /// Frames the producer had to throw away because the consumer had stalled.
@@ -1644,7 +1646,7 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_ambiences_positions_are_the_windows_builds_straight_line() {
-        // Audit report #39 at «Like FxSound for Windows» = Interface and sound: the slider's
+        // Audit report #39 at «Like the original FxSound LLC» = Interface and sound: the slider's
         // mapping comes back with the stage, so positions 1-3 store 13, 25 and 38 again, as
         // `FxAudioControls.cpp:113`'s 0..10 slider does.
         let windows = DspCompat::Windows;
@@ -1655,7 +1657,7 @@ mod tests {
         let at_39 = scale::midi_to_slider_in(windows, Effect::Ambience, 39);
         assert!((at_39 - 3.071).abs() < 0.001, "{at_39}");
         assert_eq!(scale::slider_label_in(windows, Effect::Ambience, 1.0), "1");
-        // FxSound for Linux's is untouched, and so is every other effect's.
+        // CrossFX's is untouched, and so is every other effect's.
         for effect in Effect::ALL {
             for tenth in 0..=100 {
                 let slider = tenth as f32 / 10.0;

@@ -11,7 +11,7 @@
 //! cargo run -p fxsound-preset --example write_preset -- <out dir> [spec.json]
 //! ```
 //!
-//! With no spec file it writes the three presets this port added. With one, it writes whatever the
+//! With no spec file it writes the three presets CrossFX added. With one, it writes whatever the
 //! file describes:
 //!
 //! ```json

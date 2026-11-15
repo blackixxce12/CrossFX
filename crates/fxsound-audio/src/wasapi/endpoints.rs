@@ -1,4 +1,4 @@
-//! The endpoints the MMDevice API reports, and what each one is to FxSound: a real device the user
+//! The endpoints the MMDevice API reports, and what each one is to CrossFX: a real device the user
 //! can pick, or a virtual one a lane stands on.
 //!
 //! Pure: [`Endpoint`] is plain data read out of an endpoint's property store
@@ -10,8 +10,9 @@
 //!
 //! FxSound for Windows ships a kernel driver, "FxSound Audio Enhancer", whose one playback
 //! endpoint, "FxSound Speakers", is what it makes every application play into
-//! (`docs/spec/12-audio-io.md` §1, §6). This port ships no driver. It stands on one that is
-//! installed already: FxSound's own, when the original is (or was) installed, and otherwise a
+//! (`docs/spec/12-audio-io.md` §1, §6). CrossFX ships no driver. It stands on one that is
+//! installed already: the original FxSound's own, when the original is (or was) installed, and
+//! otherwise a
 //! virtual cable — VB-Audio's, or Eugene Muzychenko's Virtual Audio Cable. Each is found the way the
 //! original finds its own, by name and never by a GUID: the original matches the substring
 //! `"FxSound Audio Enhancer"` in the friendly name (`sndDevices_GetAll.cpp:238-247`), because
@@ -33,11 +34,11 @@
 //! The output lane needs one playback endpoint: applications play into it, and the lane captures
 //! it with WASAPI loopback. The input lane needs a cable: it plays the processed microphone into
 //! the cable's playback side, and applications record it from the cable's recording side — its
-//! twin ([`capture_twin`]). FxSound's driver has no such twin: its recording endpoints ("Microphone",
-//! "Internal AUX", "MIDI") are the driver sample's own, not a loop of its speakers. So the input
-//! lane needs a cable of its own, distinct from the output lane's ([`plan`]).
+//! twin ([`capture_twin`]). FxSound's driver has no such twin: its recording endpoints
+//! ("Microphone", "Internal AUX", "MIDI") are the driver sample's own, not a loop of its speakers.
+//! So the input lane needs a cable of its own, distinct from the output lane's ([`plan`]).
 //!
-//! What is FxSound's, in the sense `crate::is_crossfx_node` gives a node of the Linux engine —
+//! What is CrossFX's, in the sense `crate::is_crossfx_node` gives a node of the Linux engine —
 //! never a device to pick — is every endpoint of FxSound's driver, and both sides of a cable a lane
 //! stands on ([`crossfx_endpoints`], [`is_offered`]). Offered as an output, the device the output
 //! lane captures would have it play into what it captures; a cable's recording side offered as a
@@ -45,9 +46,9 @@
 //! other device, as every endpoint but its driver's own is to the original
 //! (`docs/spec/12-audio-io.md` §5, pass 2), and flagged as a cable
 //! ([`fxsound_core::AudioDevice::is_virtual`]), which the app moves no lane to by itself. A user
-//! who plays into "CABLE Input" for a streaming program and picks it in FxSound has the output lane
+//! who plays into "CABLE Input" for a streaming program and picks it in CrossFX has the output lane
 //! play into it, and the default given back there; one who makes it the system's default while
-//! FxSound runs has the lane follow it there while the lane follows the system's default, and
+//! CrossFX runs has the lane follow it there while the lane follows the system's default, and
 //! while a ranking decides the lane's device has the default left theirs, on the cable, through
 //! the run and after it. Either way the cable is theirs (`super`, "Whose default it is") — and the
 //! engine's device rules come to a cable only where the user chose it, never as a device just
@@ -263,14 +264,14 @@ impl Endpoint {
 }
 
 /// Whether an endpoint is offered to the user as a device to pick: every one that is not among
-/// `ours`, FxSound's own endpoints ([`crossfx_endpoints`]; module docs).
+/// `ours`, CrossFX's own endpoints ([`crossfx_endpoints`]; module docs).
 pub(crate) fn is_offered(endpoint: &Endpoint, ours: &[String]) -> bool {
     !ours.contains(&endpoint.id)
 }
 
-/// FxSound's own endpoints among `endpoints`, never a device to pick: every endpoint of FxSound's
-/// driver, and both sides of each of `lanes` — the virtual devices the lanes stand on (module
-/// docs).
+/// CrossFX's own endpoints among `endpoints`, never a device to pick: every endpoint of the
+/// original FxSound's driver, and both sides of each of `lanes` — the virtual devices the lanes
+/// stand on (module docs).
 pub(crate) fn crossfx_endpoints(endpoints: &[Endpoint], lanes: &[&VirtualDevice]) -> Vec<String> {
     let mut ours: Vec<String> = endpoints
         .iter()
@@ -525,7 +526,7 @@ pub(crate) mod tests {
     pub(crate) const IN: DeviceDirection = DeviceDirection::Input;
 
     /// Whether `endpoint` is offered while no lane stands on anything: only FxSound's driver is
-    /// FxSound's then.
+    /// CrossFX's then.
     fn offered_alone(endpoint: &Endpoint) -> bool {
         is_offered(
             endpoint,
@@ -681,7 +682,7 @@ pub(crate) mod tests {
         };
         assert_eq!(unnamed.virtual_kind(), Some(VirtualKind::VbCable));
         // VoiceMeeter is a mixer that plays what it is given to the speakers itself: as the
-        // device FxSound captures, it would play everything twice. Nor is a streaming device
+        // device CrossFX captures, it would play everything twice. Nor is a streaming device
         // a cable.
         for (friendly, adapter) in [
             (
@@ -719,7 +720,7 @@ pub(crate) mod tests {
                 adapter,
             );
             assert_eq!(numbered.virtual_kind(), Some(kind), "{adapter}");
-            // A device for the speakers' lane, and then FxSound's.
+            // A device for the speakers' lane, and then CrossFX's.
             let device = plan(std::slice::from_ref(&numbered), true, None, |_| false)
                 .output
                 .unwrap_or_else(|| panic!("{adapter}: a device for the speakers"));
@@ -915,7 +916,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_cable_no_lane_stands_on_is_a_device_like_any_other_and_one_a_lane_stands_on_is_fxsound_s()
+    fn a_cable_no_lane_stands_on_is_a_device_like_any_other_and_one_a_lane_stands_on_is_crossfx_s()
     {
         let [c_in, c_out] = cable();
         let all = [
@@ -935,12 +936,12 @@ pub(crate) mod tests {
             assert!(is_offered(endpoint, &ours), "{}", endpoint.label());
         }
         assert!(!is_offered(&fxsound(), &ours));
-        // The microphone's lane on it: both of its sides are FxSound's.
+        // The microphone's lane on it: both of its sides are CrossFX's.
         let input = plan.input.expect("the cable");
         let ours = crossfx_endpoints(&all, &[&output, &input]);
         assert!(!is_offered(&c_in, &ours) && !is_offered(&c_out, &ours));
         assert!(is_offered(&speakers(), &ours));
-        // The speakers' lane's cable, its recording side included, which nothing of FxSound's
+        // The speakers' lane's cable, its recording side included, which nothing of CrossFX's
         // records: offered as a microphone, it would hand the speakers' sound to a recorder.
         let only = [speakers(), microphone(), c_in.clone(), c_out.clone()];
         let output = plan_of(&only).output.expect("the cable");

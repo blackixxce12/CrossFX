@@ -57,8 +57,8 @@ pub enum ThemeMode {
 
 /// The face the interface is set in: Settings ▸ General ▸ "Interface font".
 ///
-/// Manrope is FxSound's own, embedded in the binary under the SIL Open Font License. Gilroy is the
-/// face of the original FxSound: Radomir Tinkov's commercial typeface, which FxSound neither ships
+/// Manrope is CrossFX's own, embedded in the binary under the SIL Open Font License. Gilroy is the
+/// face of the original FxSound: Radomir Tinkov's commercial typeface, which CrossFX neither ships
 /// nor downloads. It is used only when the files the user licensed are found — added from the
 /// pane, or installed on the system (`fxsound_ui::typeface`) — and only then: chosen and not
 /// found, the interface stays in Manrope.
@@ -400,7 +400,7 @@ pub struct Settings {
     // ---- audio -----------------------------------------------------------------------------
     /// Master power state, restored on launch.
     pub power: bool,
-    /// Name of the preset to select on launch while FxSound sits in front of a playback device.
+    /// Name of the preset to select on launch while CrossFX sits in front of a playback device.
     ///
     /// A `settings.toml` written by 0.2.0 — which had one preset key because it had one chain —
     /// is read through the private `legacy_preset` below. On the next save the file is written
@@ -408,7 +408,7 @@ pub struct Settings {
     /// preset: a cosmetic loss on a downgrade, not a data one, since the presets themselves are
     /// files of their own and are untouched.
     pub output_preset: String,
-    /// Name of the preset to select while FxSound sits behind a microphone.
+    /// Name of the preset to select while CrossFX sits behind a microphone.
     ///
     /// Separate because the two chains are separate. A music preset on a voice is wrong by
     /// construction — reverberation, stereo widening and a bass lift are the opposite of what a
@@ -425,9 +425,9 @@ pub struct Settings {
     /// had. A field of its own cannot collide with anything, and is never written back.
     #[serde(rename = "preset", skip_serializing)]
     legacy_preset: Option<String>,
-    /// `node.name` of the real output device FxSound renders to.
+    /// `node.name` of the real output device CrossFX renders to.
     pub output_device_name: String,
-    /// `node.name` of the real capture device FxSound listens to.
+    /// `node.name` of the real capture device CrossFX listens to.
     pub input_device_name: String,
     /// The **edit direction**: which lane the window's preset picker, equalizer, level controls
     /// and meters address. Linux only, and a GUI notion only — both lanes run regardless, and
@@ -444,19 +444,20 @@ pub struct Settings {
     /// [`Settings::lane_enabled`], which applies the same rule before sanitising has run.
     pub input_enabled: Option<bool>,
     /// Whether the output lane comes up at start. `true` unless the user detached it: the
-    /// Windows behaviour, and what a fresh install does.
+    /// original's behaviour, and what a fresh install does.
     pub output_enabled: bool,
     /// Remembered devices and their presets, in both directions.
     pub device_configs: Vec<DeviceConfig>,
     /// Switch to a newly appeared output device automatically.
     pub prioritize_new_output: bool,
-    /// Ignore the device priority list and let the session default decide (U4, upstream #629).
+    /// Ignore the device priority list and let the session default decide (U4, the original's
+    /// #629).
     ///
-    /// Off by default, which is the Windows behaviour: the ranked list of `device_configs` picks
-    /// the device. On, the app sends an empty ranking, and FxSound follows whatever the desktop's
+    /// Off by default, which is the original's behaviour: the ranked list of `device_configs` picks
+    /// the device. On, the app sends an empty ranking, and CrossFX follows whatever the desktop's
     /// own sound settings choose.
     pub follow_system_default: bool,
-    /// The volume of FxSound's own node per real target, per direction (U10).
+    /// The volume of CrossFX's own node per real target, per direction (U10).
     ///
     /// One entry per `(direction, target, port)` ([`TargetVolume::same_place`]): the speakers and
     /// the headphones of one sink keep a level each. Without it WirePlumber restores one volume for
@@ -464,11 +465,11 @@ pub struct Settings {
     /// speakers get after an unplug. [`Settings::sanitise`] drops an entry that is not a
     /// volume anyone could have set; see [`TargetVolume::sanitised`].
     pub device_volumes: Vec<TargetVolume>,
-    /// What the session default was before FxSound took it, one per direction.
+    /// What the session default was before CrossFX took it, one per direction.
     ///
     /// The audio thread keeps this on its own heap and hands the default back on exit, on a
     /// direction switch and on `SIGTERM`/`SIGINT`. None of that survives a `SIGKILL`, an OOM kill
-    /// or a power cut — and what those leave behind is a session default naming FxSound's virtual
+    /// or a power cut — and what those leave behind is a session default naming CrossFX's virtual
     /// node, which is gone. Written here so the next start can repair it, which is the only place
     /// the repair can live: no signal handler runs for any of the three.
     pub remembered_default_output: String,
@@ -502,7 +503,7 @@ pub struct Settings {
     // ---- window ----------------------------------------------------------------------------
     pub view: ViewMode,
     pub theme_mode: ThemeMode,
-    /// Start with no window, tray only: whether the window was hidden to the tray when FxSound
+    /// Start with no window, tray only: whether the window was hidden to the tray when CrossFX
     /// last ran (`FxController.cpp:911-934`, `docs/spec/07-startup-tray.md` §7.1). Written when the
     /// window shows and when it hides into a tray icon that is on screen; `--hide` and `--show`
     /// override it for one start.
@@ -513,7 +514,7 @@ pub struct Settings {
     /// consulted while `language_follows_system` is `false`.
     pub language: String,
     /// Show the UI in the desktop session's language rather than in [`Settings::language`].
-    /// Linux only: the Windows build has no such notion, so this is what a fresh install does.
+    /// Linux only: the original has no such notion, so this is what a fresh install does.
     pub language_follows_system: bool,
     pub hide_help_tooltips: bool,
     pub hide_notifications: bool,
@@ -524,8 +525,9 @@ pub struct Settings {
     /// is chosen and not found ([`InterfaceFont`]).
     pub interface_font: InterfaceFont,
 
-    // ---- like FxSound for Windows ----------------------------------------------------------
-    /// «Как в Windows» / "Like FxSound for Windows" (`docs/0.5.0-windows-parity.md`). Written only
+    // ---- like the original FxSound LLC ---------------------------------------------------
+    /// «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC"
+    /// (`docs/0.5.0-windows-parity.md`). Written only
     /// when it is not `off`, and read without ever failing: a value it cannot understand is Off
     /// ([`WindowsParity::from_toml`]), never a reason to move the file aside. Everything (`full`),
     /// which 0.5.0 does not offer, is kept here as it was read and written back by every save, so
@@ -534,9 +536,10 @@ pub struct Settings {
     #[serde(skip_serializing_if = "WindowsParity::is_off")]
     pub windows_parity: WindowsParity,
     /// Export a `.fac` with its end bands where they are, limited only to the equalizer's
-    /// 10 Hz–21 kHz, instead of back inside the range the Windows build tunes them in (0.4.0
+    /// 10 Hz–21 kHz, instead of back inside the range the original tunes them in (0.4.0
     /// audit R6): the export window's choice and `--export-unshifted`. Offered, and followed, from
-    /// «Like FxSound for Windows» = Interface and sound on; below it every export shifts them, as
+    /// «Like the original FxSound LLC» = Interface and sound on; below it every export shifts
+    /// them, as
     /// 0.4.0 does. Written only when set.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub export_unshifted: bool,
@@ -903,7 +906,7 @@ impl Settings {
         self.device_volumes = kept;
     }
 
-    /// The volume remembered for FxSound's node while attached to `target` on its port `port`
+    /// The volume remembered for CrossFX's node while attached to `target` on its port `port`
     /// (empty for a device with no port), if any.
     #[must_use]
     pub fn target_volume(
@@ -996,7 +999,7 @@ impl Settings {
         }
     }
 
-    /// What the session default was before FxSound took this direction.
+    /// What the session default was before CrossFX took this direction.
     #[must_use]
     pub fn remembered_default(&self, direction: DeviceDirection) -> &str {
         match direction {
@@ -1005,7 +1008,7 @@ impl Settings {
         }
     }
 
-    /// Record what the session default was before FxSound took this direction.
+    /// Record what the session default was before CrossFX took this direction.
     pub fn set_remembered_default(&mut self, direction: DeviceDirection, node_name: &str) {
         match direction {
             DeviceDirection::Output => node_name.clone_into(&mut self.remembered_default_output),
@@ -1075,7 +1078,8 @@ impl Settings {
     /// stores, so a memory of the output lane's `General` must never answer for a microphone.
     ///
     /// An entry with an empty preset remembers none: the device priority list adds every device
-    /// it sees, whether or not a preset was ever used with it (upstream `DeviceConfig.cpp:78-85`,
+    /// it sees, whether or not a preset was ever used with it (the original's
+    /// `DeviceConfig.cpp:78-85`,
     /// read back with `preset.isNotEmpty()` at `FxController.cpp:1126`).
     #[must_use]
     pub fn preset_for_device(&self, node_name: &str, direction: DeviceDirection) -> Option<&str> {
@@ -1267,7 +1271,7 @@ mod tests {
     #[test]
     fn each_direction_remembers_the_default_it_displaced() {
         // The memory that has to outlive the process. A SIGKILL, an OOM kill and a power cut all
-        // run no signal handler, so what they leave behind is a session default naming FxSound's
+        // run no signal handler, so what they leave behind is a session default naming CrossFX's
         // node, which is gone — and the only place to repair that is the next start.
         let mut s = Settings::default();
         assert_eq!(s.remembered_default(crate::DeviceDirection::Output), "");
@@ -1750,7 +1754,7 @@ input_preset = \"Headset\"
     #[test]
     fn a_second_broken_settings_file_is_moved_aside_beside_the_first_never_over_it() {
         // The first `.bad` is the one with the user's own settings in it; a later file that fails
-        // to load — a newer FxSound's value this one does not know, after a downgrade — is
+        // to load — a newer CrossFX's value this one does not know, after a downgrade — is
         // usually the defaults with one bad line, and must not take its place.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("settings.toml");
@@ -1989,7 +1993,7 @@ device = \"mic\"
         assert!(s.device_volumes.is_empty());
         assert!(
             !s.follow_system_default,
-            "the Windows behaviour: the ranked list picks"
+            "the original's behaviour: the ranked list picks"
         );
         let mut fresh: Settings = toml::from_str("").expect("parse");
         fresh.sanitise();

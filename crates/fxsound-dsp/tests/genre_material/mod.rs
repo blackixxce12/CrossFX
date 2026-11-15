@@ -13,7 +13,7 @@ use fxsound_dsp::analysis::{Measurement, NUM_THIRD_OCTAVES, ProgramMeter, THIRD_
 use realfft::RealFftPlanner;
 use realfft::num_complex::Complex;
 
-/// The only rate the port's capture path allows, and the rate the references were built at.
+/// The only rate CrossFX's capture path allows, and the rate the references were built at.
 pub const RATE: f32 = 48_000.0;
 /// What a PipeWire quantum looks like in practice.
 pub const BLOCK: usize = 1024;
@@ -332,8 +332,8 @@ pub fn preset_params(name: &str) -> DspParams {
     preset_params_at(name, fxsound_dsp::preset::MusicLevels::default())
 }
 
-/// [`preset_params`] at `levels`: the settings' levels and the DSP a level of «Like FxSound for
-/// Windows» plays (`preset_drift.rs`'s `PRESET_DRIFT_COMPAT`). The ladder is the levels' own,
+/// [`preset_params`] at `levels`: the settings' levels and the DSP a level of «Like the original
+/// FxSound LLC» plays (`preset_drift.rs`'s `PRESET_DRIFT_COMPAT`). The ladder is the levels' own,
 /// through a method a build with one ladder is given (`scripts/reference-checkout.sh`).
 pub fn preset_params_at(name: &str, levels: fxsound_dsp::preset::MusicLevels) -> DspParams {
     let path = repo_root()

@@ -1,4 +1,4 @@
-//! Print what FxSound's Windows audio engine sees, without changing anything: every playback and
+//! Print what CrossFX's Windows audio engine sees, without changing anything: every playback and
 //! recording endpoint as the engine classifies it, the virtual device each lane would stand on,
 //! the formats the streams would run at, the default devices, the default-device policy, the
 //! engine's own record of the defaults it holds, and whether the original FxSound runs.

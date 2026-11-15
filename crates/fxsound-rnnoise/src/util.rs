@@ -64,7 +64,7 @@ where
         .map(|(x, (y, z))| (x, y, z))
 }
 
-// fxsound: what `Biquad::filter` flushes its state to zero under.
+// crossfx: what `Biquad::filter` flushes its state to zero under.
 /// A filter state smaller than this is flushed to zero at the end of [`Biquad::filter`]. In the
 /// library's 16-bit range it is 690 dB under full scale, so nothing that can be heard is touched;
 /// what it stops is the high-pass's decay into a limit cycle on digital silence (see `filter`).
@@ -118,7 +118,7 @@ impl Biquad {
             mem[1] = (b1 * x64 - a1 * y64) as f32;
             *y = y64 as f32;
         }
-        // fxsound: flush a state that has decayed to nothing, before it can become subnormal.
+        // crossfx: flush a state that has decayed to nothing, before it can become subnormal.
         for state in mem.iter_mut() {
             if state.abs() < STATE_FLUSH {
                 *state = 0.0;
@@ -130,7 +130,7 @@ impl Biquad {
     ///
     /// See [`Biquad::filter`] for more details.
     // This is only used when the "train" feature is active.
-    // fxsound: the `train` feature is not vendored, so this is simply unused.
+    // crossfx: the `train` feature is not vendored, so this is simply unused.
     #[allow(dead_code)]
     pub fn filter_in_place(&self, data: &mut [f32], mem: &mut [f32; 2]) {
         let a0 = self.a[0] as f64;
@@ -147,7 +147,7 @@ impl Biquad {
     }
 }
 
-// fxsound: the registry crate had no tests here.
+// crossfx: the registry crate had no tests here.
 #[cfg(test)]
 mod tests {
     use super::*;

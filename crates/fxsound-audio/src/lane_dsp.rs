@@ -27,17 +27,17 @@
 //! ring is replaced by silence. So unmuting joins a chain already in step with the programme, and
 //! the engines stay what they were, a pure function of their input and their snapshot. The
 //! meters still describe the chain's output, not the silence; nobody reads them while the system
-//! sleeps. Upstream does the same thing one step later — its mute keeps capturing and processing
-//! and only skips the playback call (`AudioPassthruPrivate.cpp:568`) — and its cut is a hard one.
-//! Here the lane fades out over [`MUTE_FADE_SECONDS`] and back in over the same when the mute
-//! lifts, in the stage that fades a new pair in ([`Tail::fade_mute`]), so neither the mute nor the
-//! unmute clicks: a hard cut in the middle of a bass note is a step of up to full scale between
+//! sleeps. The original does the same thing one step later — its mute keeps capturing and
+//! processing and only skips the playback call (`AudioPassthruPrivate.cpp:568`) — and its cut is a
+//! hard one. Here the lane fades out over [`MUTE_FADE_SECONDS`] and back in over the same when the
+//! mute lifts, in the stage that fades a new pair in ([`Tail::fade_mute`]), so neither the mute nor
+//! the unmute clicks: a hard cut in the middle of a bass note is a step of up to full scale between
 //! two samples. What the lane holds while muted is silence, exactly. Only a mute or an unmute that
-//! comes while the lane plays fades: a lane's first block, and the first block of each new pair
-//! (or of a fade in again), take the mute as they find it, because nothing was playing that a cut
-//! could click in. A lane or a route muted from the start — a microphone muted before the recorder
-//! opens — gives silence from its first sample, and one that is not rises with the pair's own fade
-//! in from silence.
+//! comes while the lane plays fades: a lane's first block, and the first block of each new pair (or
+//! of a fade in again), take the mute as they find it, because nothing was playing that a cut could
+//! click in. A lane or a route muted from the start — a microphone muted before the recorder opens
+//! — gives silence from its first sample, and one that is not rises with the pair's own fade in
+//! from silence.
 //!
 //! # After the chain
 //!
@@ -63,8 +63,8 @@
 //! that is a gain with nothing behind it: the chain's last stage is its limiter — Dynamic Boost's
 //! −0.3 dBFS ceiling in the music chain, the voice limiter in the microphone's — and a loud
 //! programme leaves it at the ceiling, so 150 % would put every loud transient half again past
-//! full scale, and the real device's converter would clip it hard. Upstream never meets this: its
-//! endpoint volume, which also acts after the DSP, stops at 100 %.
+//! full scale, and the real device's converter would clip it hard. The original never meets this:
+//! its endpoint volume, which also acts after the DSP, stops at 100 %.
 //!
 //! So the part of each channel's volume above unity is applied in front of the chain instead
 //! ([`Boost`]), where the adapter applied all of it before 0.4.0, and the chain's limiter catches

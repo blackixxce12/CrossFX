@@ -1,4 +1,4 @@
-//! The system's default devices: what FxSound takes, what it remembers and what it gives back.
+//! The system's default devices: what CrossFX takes, what it remembers and what it gives back.
 //!
 //! Windows keeps three defaults for each direction, one per `ERole` — `eConsole` (what the sound
 //! settings call the default device), `eMultimedia` (the one most applications follow) and
@@ -6,7 +6,7 @@
 //! they are, as the original does: it wrote `eConsole` alone (`sndDevicesSet.cpp:60`), which
 //! Windows applies to `eMultimedia` with it. The lane has one real device to play to, so calls
 //! taken through it would leave the headset the user chose for them for the lane's speakers for
-//! as long as FxSound runs — and every start would take them again. The input lane takes all
+//! as long as CrossFX runs — and every start would take them again. The input lane takes all
 //! three on the cable's recording side: what a call application records is the microphone it is
 //! there to process ([`Role::claimed_by`]).
 //!
@@ -15,7 +15,7 @@
 //! `sndDevicesRestoreDefaultDevice` gives the default back (`sndDevicesSetupDevices.cpp:617-630`);
 //! the communications role, where the lane took it, goes back to what it was ([`hand_back`]). A
 //! role the user has moved off the virtual device since — the desktop's sound settings, a call
-//! application — and that FxSound did not take back as a pick is theirs for as long as the claim
+//! application — and that CrossFX did not take back as a pick is theirs for as long as the claim
 //! stands: it is neither claimed again nor written back ([`Claim::yield_role`]).
 //!
 //! Not every default is the user's, though. Windows moves them by itself: a virtual cable just
@@ -116,7 +116,7 @@ impl Defaults {
 /// A role's default moved onto a virtual cable by Windows rather than the user, and where it was
 /// before (`super`, "Whose default it is"): the cable just installed, which Windows gives the first
 /// chance at every role of its direction; a fallback onto it from a device that went; a move onto a
-/// cable one of FxSound's lanes stands on; one made while the original FxSound ran; or one onto an
+/// cable one of CrossFX's lanes stands on; one made while the original FxSound ran; or one onto an
 /// endpoint that could not be read in time, which is Windows' if it turns out to be a cable. A
 /// default found on a cable at the start has none: the engine never saw it anywhere else.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,20 +169,20 @@ pub(crate) struct Claim {
     pub(crate) endpoint: String,
     /// Each role's default from before the claim — never a virtual device's.
     pub(crate) before: Defaults,
-    /// The roles the user has moved off the endpoint while the claim stood, and that FxSound did
+    /// The roles the user has moved off the endpoint while the claim stood, and that CrossFX did
     /// not take back as a pick: a call application's device picked in the sound settings, or a
     /// playback device picked while a ranking decides the lane's. Theirs until the claim ends.
     yielded: [bool; 3],
     /// The roles the claim found on its endpoint already, the user's own: a cable they had made
-    /// their default, which neither a run of FxSound's nor Windows by itself put there
-    /// ([`Self::finding_theirs`]). Neither adopted nor given back — theirs before FxSound, and
+    /// their default, which neither a run of CrossFX's nor Windows by itself put there
+    /// ([`Self::finding_theirs`]). Neither adopted nor given back — theirs before CrossFX, and
     /// after it.
     theirs: [bool; 3],
 }
 
 impl Claim {
     /// A claim on `endpoint` with nothing remembered and nothing yielded: a new one, or one adopted
-    /// from a run that left the default on the endpoint — whatever it finds there is FxSound's.
+    /// from a run that left the default on the endpoint — whatever it finds there is CrossFX's.
     pub(crate) fn new(endpoint: String) -> Self {
         Self {
             endpoint,
@@ -192,7 +192,7 @@ impl Claim {
         }
     }
 
-    /// A new claim on `endpoint`, a cable's side no run of FxSound's is known to have left a
+    /// A new claim on `endpoint`, a cable's side no run of CrossFX's is known to have left a
     /// default on, `theirs` holding the roles the user put there themselves: every one of them
     /// already on it is the user's own. A user who plays into "CABLE Input" for a streaming
     /// program, or records the desktop from "CABLE Output", made it their default; the lane
@@ -221,7 +221,7 @@ impl Claim {
             .any(|role| current.get(role) == Some(self.endpoint.as_str()) && !self.is_theirs(role))
     }
 
-    /// The user has moved `role` off the endpoint, and FxSound leaves it there: the claim neither
+    /// The user has moved `role` off the endpoint, and CrossFX leaves it there: the claim neither
     /// takes it again nor gives it back.
     pub(crate) const fn yield_role(&mut self, role: Role) {
         self.yielded[role.index()] = true;
@@ -246,7 +246,7 @@ impl Claim {
 /// the user has not taken from the claim: what a claim, or a claim taken back after a desktop pick,
 /// writes. Each of them is first remembered in `claim`, as `remembered` says for the default the
 /// role has now: that default, for a device of the user's; nothing for a virtual device's — the
-/// default from before FxSound is never FxSound's — and, for one Windows put on a cable by itself
+/// default from before CrossFX is never CrossFX's — and, for one Windows put on a cable by itself
 /// ([`Placements`]), where it was before, if anywhere. A role on `endpoint` already is written
 /// nothing, and remembered only where `remembered` has something for it: a role Windows put on the
 /// cable the claim stands on, adopted, goes back where it was.
@@ -269,7 +269,7 @@ pub(crate) fn claim_roles(
         if now == Some(endpoint) {
             continue;
         }
-        // Written by FxSound, so FxSound's from here on, whoever had it there before.
+        // Written by CrossFX, so CrossFX's from here on, whoever had it there before.
         claim.theirs[role.index()] = false;
         writes.push(role);
     }
@@ -283,7 +283,7 @@ pub(crate) fn claim_roles(
 ///   remember it — `crate::devices::restore_default_candidate`'s pick, the
 ///   `sndDevicesRestoreDefaultDevice` order (`sndDevicesSetupDevices.cpp:617-630`): the device
 ///   the user picked, then the one the lane played to — and failing that to what it was before
-///   the claim. The user listened there through FxSound, and hears it there without;
+///   the claim. The user listened there through CrossFX, and hears it there without;
 /// * the communications role to what it was before the claim — calls kept on their headset — and
 ///   failing that to `device`.
 ///
@@ -317,12 +317,12 @@ pub(crate) fn hand_back(
         .collect()
 }
 
-/// The defaults FxSound has written and has not heard back yet, so that the change notification
+/// The defaults CrossFX has written and has not heard back yet, so that the change notification
 /// of each is told apart from the user's own: the Windows twin of the Linux engine's
 /// `DefaultState::unconfirmed`.
 ///
 /// Windows reports every change of a default through `IMMNotificationClient::OnDefaultDeviceChanged`,
-/// on a thread of its own and in the order it made them — FxSound's writes as much as the sound
+/// on a thread of its own and in the order it made them — CrossFX's writes as much as the sound
 /// settings'. A report that matches a write still waiting settles that write and every one before
 /// it: an earlier write the system has not reported by now changed nothing (it named what was
 /// there already) and never will be.
@@ -336,7 +336,7 @@ impl Echoes {
     /// that never comes back is dropped for the next rather than held against the user's picks.
     const KEPT: usize = 12;
 
-    /// FxSound has just made `id` the default for `role`.
+    /// CrossFX has just made `id` the default for `role`.
     pub(crate) fn wrote(&mut self, role: Role, id: &str) {
         if self.waiting.len() == Self::KEPT {
             self.waiting.pop_front();
@@ -344,7 +344,7 @@ impl Echoes {
         self.waiting.push_back((role, id.to_owned()));
     }
 
-    /// Whether `role`'s default becoming `id` is the report of a write of FxSound's.
+    /// Whether `role`'s default becoming `id` is the report of a write of CrossFX's.
     pub(crate) fn heard(&mut self, role: Role, id: Option<&str>) -> bool {
         let Some(id) = id else {
             return false;
@@ -384,8 +384,8 @@ mod tests {
         Claim::new(FX.to_owned())
     }
 
-    /// What a claim remembers of a role's default with FxSound's the only virtual device and every
-    /// other default the user's: that default, unless it is FxSound's.
+    /// What a claim remembers of a role's default with CrossFX's the only virtual device and every
+    /// other default the user's: that default, unless it is CrossFX's.
     fn users(_: Role, id: &str) -> Option<String> {
         (id != FX).then(|| id.to_owned())
     }
@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn a_role_already_on_the_virtual_device_is_neither_written_nor_remembered_as_the_user_s() {
-        // A killed run left the multimedia role on FxSound: adopted, and nothing remembered for it.
+        // A killed run left the multimedia role on CrossFX: adopted, and nothing remembered for it.
         let current = defaults(SPEAKERS, FX, "");
         let mut claim = fresh_claim();
         assert_eq!(
@@ -485,7 +485,7 @@ mod tests {
             "nothing to write: the roles are on the cable already"
         );
         assert_eq!(claim.before, defaults(MICROPHONE, MICROPHONE, ""));
-        assert!(claim.holds(&current), "FxSound's to give back");
+        assert!(claim.holds(&current), "CrossFX's to give back");
         assert_eq!(
             hand_back(&current, &claim, Some(MICROPHONE), |_| true),
             [
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn the_playback_roles_follow_the_lane_s_device_and_calls_go_back_where_they_were() {
         // Music was on the speakers and calls on the headset; the user then picked the headphones
-        // in FxSound, and listened there through it.
+        // in CrossFX, and listened there through it.
         let mut claim = fresh_claim();
         claim_roles(
             &defaults(SPEAKERS, SPEAKERS, HEADSET),
@@ -637,7 +637,7 @@ mod tests {
             claim_roles(&current, FX, &Role::ALL, &mut claim, users).len(),
             3
         );
-        // The user puts calls on the speakers while FxSound holds every role.
+        // The user puts calls on the speakers while CrossFX holds every role.
         claim.yield_role(Role::Communications);
         assert!(claim.has_yielded(Role::Communications));
         assert!(!claim.has_yielded(Role::Console));
@@ -659,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn the_report_of_a_write_of_fxsound_s_is_told_apart_from_the_user_s_pick() {
+    fn the_report_of_a_write_of_crossfx_s_is_told_apart_from_the_user_s_pick() {
         let mut echoes = Echoes::default();
         echoes.wrote(Role::Console, FX);
         echoes.wrote(Role::Multimedia, FX);

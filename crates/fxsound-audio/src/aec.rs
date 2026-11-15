@@ -1,4 +1,4 @@
-//! Echo cancellation: PipeWire's `libpipewire-module-echo-cancel`, loaded into FxSound's own
+//! Echo cancellation: PipeWire's `libpipewire-module-echo-cancel`, loaded into CrossFX's own
 //! context (`docs/0.4.0-design.md` §7).
 //!
 //! # What runs
@@ -13,7 +13,7 @@
 //! ```
 //!
 //! `monitor.mode` is what makes the far end the speakers' own monitor — what is actually played,
-//! after FxSound's chain and after every other application's sound — rather than a sink of the
+//! after CrossFX's chain and after every other application's sound — rather than a sink of the
 //! module's own that applications would have to be moved into. While the canceller's source is in
 //! the graph, the input lane's capture stream records from it instead of from the microphone, and
 //! everything after that — the voice chain, `crossfx_source`, the recorder — is unchanged.
@@ -70,7 +70,7 @@ use crate::{AEC_CAPTURE_NODE_NAME, AEC_LINK_GROUP, AEC_MONITOR_NODE_NAME, AEC_SO
 /// module directory.
 pub(crate) const MODULE_NAME: &str = "libpipewire-module-echo-cancel";
 
-/// The canceller FxSound runs: WebRTC's, the one every distribution that builds the module ships.
+/// The canceller CrossFX runs: WebRTC's, the one every distribution that builds the module ships.
 pub(crate) const WEBRTC_LIBRARY: &str = "aec/libspa-aec-webrtc";
 
 /// A canceller that cancels nothing and passes the microphone through: only ever loaded by tests,
@@ -79,13 +79,13 @@ pub(crate) const WEBRTC_LIBRARY: &str = "aec/libspa-aec-webrtc";
 pub(crate) const NULL_LIBRARY: &str = "aec/libspa-aec-null";
 
 /// `priority.session` of the canceller's source: below `crossfx_source`'s 500, so that a session
-/// manager left to choose a default source on its own never prefers the half of FxSound that no
+/// manager left to choose a default source on its own never prefers the half of CrossFX that no
 /// application is meant to record from.
 const SOURCE_PRIORITY_SESSION: u32 = 400;
 
-const CAPTURE_DESCRIPTION: &str = "FxSound echo capture";
-const MONITOR_DESCRIPTION: &str = "FxSound echo monitor";
-const SOURCE_DESCRIPTION: &str = "FxSound echo-cancelled";
+const CAPTURE_DESCRIPTION: &str = "CrossFX echo capture";
+const MONITOR_DESCRIPTION: &str = "CrossFX echo monitor";
+const SOURCE_DESCRIPTION: &str = "CrossFX echo-cancelled";
 
 /// How long the speakers alone may hold the canceller up ([`held_up_by_speakers`]) before the
 /// report names them: longer than an output pair takes to be rebuilt after a failure or two (a
@@ -103,9 +103,9 @@ const WAITING_FOR_SPEAKERS: &str = "waiting for the speakers";
 pub(crate) struct Targets {
     /// `node.name` of the microphone the input lane is attached to.
     pub(crate) microphone: String,
-    /// `node.name` of the device the output lane plays to — what is heard after FxSound. `None`
+    /// `node.name` of the device the output lane plays to — what is heard after CrossFX. `None`
     /// while the output lane is detached: the monitor stream then follows the default sink, which
-    /// is what is played when FxSound is not in the way.
+    /// is what is played when CrossFX is not in the way.
     pub(crate) speakers: Option<String>,
 }
 
@@ -213,7 +213,7 @@ pub(crate) fn plan(
 /// Only once its source is in the registry, not as soon as the module loads. A capture stream
 /// aimed at a node that does not exist yet waits for it at best; under a session manager it can be
 /// linked to whatever the default source is meanwhile, which while the input lane holds the default
-/// is FxSound's own. And only for the microphone the canceller hears: after a change of microphone
+/// is CrossFX's own. And only for the microphone the canceller hears: after a change of microphone
 /// the lane records the new one directly until the canceller has been reloaded for it.
 pub(crate) fn route(
     on: bool,
@@ -256,7 +256,7 @@ impl Arg {
 ///   `crossfx_aec_source`, and WirePlumber's `canLink` refuses outright a link into a node of the
 ///   linking node's own group — the very rule that stops `crossfx_capture` recording from
 ///   `crossfx_source`. In the input lane's group the canceller could never be used.
-/// * **Not `fxsound`.** WirePlumber would allow it, but the server runs a group's members together
+/// * **Not `crossfx`.** WirePlumber would allow it, but the server runs a group's members together
 ///   (`run_nodes`), and the canceller's capture stream runs whenever the microphone does: it would
 ///   keep `crossfx_sink`, `crossfx_output` and the speakers running for as long as the input lane
 ///   was on, the failure `graph_churn::a_microphone_being_captured_does_not_keep_the_speakers_awake`
@@ -278,7 +278,7 @@ impl Arg {
 /// # Names
 ///
 /// Each stream has a `node.description` of ours as well as a `node.name`, so that a mixer or a
-/// graph tool lists it as FxSound's rather than as the module's `Echo-Cancel Capture`,
+/// graph tool lists it as CrossFX's rather than as the module's `Echo-Cancel Capture`,
 /// `Echo-Cancel Sink` or `Echo-Cancel Source`. §7 names the capture stream and the source; the
 /// monitor stream is named for the same reason, and more so: in `monitor.mode` it is no sink but a
 /// stream recording the speakers, and the module's name for it would say otherwise.
@@ -918,7 +918,7 @@ mod tests {
         );
         assert_eq!(
             at(&args, &["capture.props", "node.description"]).cloned(),
-            text("FxSound echo capture")
+            text("CrossFX echo capture")
         );
         assert_eq!(
             at(&args, &["capture.props", "target.object"]).cloned(),
@@ -942,7 +942,7 @@ mod tests {
         );
         assert_eq!(
             at(&args, &["sink.props", "node.description"]).cloned(),
-            text("FxSound echo monitor"),
+            text("CrossFX echo monitor"),
             "named like the other two, not the module's `Echo-Cancel Sink`, which it is not"
         );
         assert_eq!(
@@ -952,7 +952,7 @@ mod tests {
         assert_eq!(
             at(&args, &["sink.props", "target.object"]).cloned(),
             text("alsa_output.pci-analog"),
-            "the monitor hears the device the output lane plays to, after FxSound"
+            "the monitor hears the device the output lane plays to, after CrossFX"
         );
 
         assert_eq!(
@@ -970,7 +970,7 @@ mod tests {
         );
         assert_eq!(
             at(&args, &["source.props", "node.description"]).cloned(),
-            text("FxSound echo-cancelled")
+            text("CrossFX echo-cancelled")
         );
         assert_eq!(
             at(&args, &["source.props", "priority.session"]),
@@ -1001,7 +1001,7 @@ mod tests {
     #[test]
     fn the_canceller_has_a_link_group_of_its_own_and_its_capture_streams_never_fall_back() {
         // `crossfx-input` would make WirePlumber refuse the link the input lane needs into the
-        // canceller's source; `fxsound` would keep the speakers' pair running with the microphone.
+        // canceller's source; `crossfx` would keep the speakers' pair running with the microphone.
         assert_ne!(AEC_LINK_GROUP, INPUT_LINK_GROUP);
         assert_ne!(AEC_LINK_GROUP, LINK_GROUP);
         assert_eq!(AEC_LINK_GROUP, "crossfx-aec");
@@ -1019,7 +1019,7 @@ mod tests {
             );
         }
         // A microphone or speakers not there yet are waited for, not replaced by the default —
-        // which while the input lane holds it is FxSound's own source.
+        // which while the input lane holds it is CrossFX's own source.
         for stream in ["capture.props", "sink.props"] {
             assert_eq!(
                 at(&args, &[stream, "node.dont-fallback"]),

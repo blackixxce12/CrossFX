@@ -1,4 +1,4 @@
-//! Clicks: what a switch does to a steady tone that plays through FxSound while it happens.
+//! Clicks: what a switch does to a steady tone that plays through CrossFX while it happens.
 //!
 //! The 0.4.0 live check (E6a) found the power button clicking at −5 to −26 dBFS and voice presets
 //! at −21, where nothing in the tests had looked: every test here asked where a stream ended up,
@@ -23,7 +23,7 @@
 //!   tone itself, unfiltered, is more than 20 dB below its steady level, in 10 ms steps
 //!   ([`EventResult::dip_ms`]): what a handover that fades instead of clicking costs.
 //!
-//! This is `~/Загрузки/fxsound-scratch/e6/bin/sig.py events` of 0.4.0, in Rust, with the same
+//! This is `~/Загрузки/crossfx-scratch/e6/bin/sig.py events` of 0.4.0, in Rust, with the same
 //! numbers; the switch times come from how much each recorder had written when the switch was
 //! made, rather than from a wall clock beside the recording.
 //!
@@ -46,25 +46,25 @@
 //!
 //! One test each, the numbers of roadmap §7's list where it has them:
 //!
-//! 1. the power switch with streams pinned to FxSound's own nodes, and with streams that follow
+//! 1. the power switch with streams pinned to CrossFX's own nodes, and with streams that follow
 //!    the default, which WirePlumber moves: `pw-cat`'s and `pw-record`'s, and PulseAudio
 //!    applications' through the graph's own `pipewire-pulse`;
 //! 2. an application's route on and off ([`UiToAudio::SetAppRoutes`]);
-//! 3. FxSound picking another device for both lanes, as the device list, `--output`,
+//! 3. CrossFX picking another device for both lanes, as the device list, `--output`,
 //!    `--next-output` and `--input` do ([`UiToAudio::SelectDevice`]);
-//! 4. the desktop picking another default device (`wpctl set-default`) with FxSound on,
-//! 5. and with FxSound off;
+//! 4. the desktop picking another default device (`wpctl set-default`) with CrossFX on,
+//! 5. and with CrossFX off;
 //!
-//! 4 and 5 again with FxSound's hook in WirePlumber (`crate::wireplumber_hook`, D5), which fades
+//! 4 and 5 again with CrossFX's hook in WirePlumber (`crate::wireplumber_hook`, D5), which fades
 //! the moves WirePlumber makes itself;
 //!
-//! and the music equalizer and presets, the voice equalizer and presets, and «Like FxSound for
+//! and the music equalizer and presets, the voice equalizer and presets, and «Like CrossFX for
 //! Windows» moved between Off and Interface and sound, on the lane and in an application's route
 //! (roadmap 0.5.0 §1 A4). Every stream but the
 //! pinned ones of the first test follows the default, as most applications' do. Both lanes but in
 //! the preset tests, which play into the lane a preset belongs to. Tests 4 and 5 run as the engine
 //! does until the app ranks its devices, following the system's default device: the mode in which
-//! FxSound acts on a desktop's pick.
+//! CrossFX acts on a desktop's pick.
 //!
 //! # Repeats, xruns and the gate
 //!
@@ -76,7 +76,7 @@
 //! a move WirePlumber makes varies by about 20 dB from run to run and from pass to pass, and a
 //! median of three can land anywhere in that.
 //!
-//! FxSound's own rings, between the node applications play into and the stream to the device,
+//! CrossFX's own rings, between the node applications play into and the stream to the device,
 //! can come up short too, and the server cannot see that. What each lane reports of them
 //! ([`AudioStatus`]) is printed with the table rather than discarded on, because a switch can do it
 //! itself: the power coming back on under a stream that follows the default leaves the speakers'
@@ -84,7 +84,7 @@
 //!
 //! [`FXSOUND_CLICK_GATE`](GATE_MODE) decides what a loud switch does:
 //!
-//! * `hard`, the default: a switch FxSound makes itself at [`HARD_GATE_DBFS`] or louder fails the
+//! * `hard`, the default: a switch CrossFX makes itself at [`HARD_GATE_DBFS`] or louder fails the
 //!   test. This is the check an audio phase runs on a developer's machine before it is done.
 //! * `report`, and the default where `CI=true`: nothing fails for loudness. The table is printed,
 //!   a switch at [`SOFT_GATE_DBFS`] or louder is marked `WARNING`, and no clean run at all is
@@ -98,24 +98,24 @@
 //! default back or takes it, when a route is made or taken away, and when a lane's nodes go and
 //! come back on another device, and WirePlumber unlinks before it links, in the middle of the
 //! wave. In 0.4.0 all of these are over the gate, so they were reported, not gated. The power
-//! switch, the route and FxSound's own pick of a device are FxSound's own switches all the same,
+//! switch, the route and CrossFX's own pick of a device are CrossFX's own switches all the same,
 //! held to the gate once 0.5.0 makes them quiet (roadmap §7 D1–D3): since D2 the power switch and
 //! the route fade the streams they move (`crate::stream_handover`) and are gated, the gap they
-//! leave held to [`HANDOVER_BUDGET`]; since D3 FxSound's own pick moves no stream at all, its
+//! leave held to [`HANDOVER_BUDGET`]; since D3 CrossFX's own pick moves no stream at all, its
 //! virtual nodes kept (`crate::engine`, "Another device, the same virtual node"), and is gated the
-//! same way. The desktop's pick with FxSound on is two moves, read as two rows
+//! same way. The desktop's pick with CrossFX on is two moves, read as two rows
 //! ([`Scenario::claims`]): WirePlumber's, which roadmap §14 #16 accepted stays where plain Linux
-//! has it unless WirePlumber itself is taught to fade (D5), and FxSound's claim of the default back
-//! after it, gated. WirePlumber's move is not gated but held to the same picks with FxSound off,
+//! has it unless WirePlumber itself is taught to fade (D5), and CrossFX's claim of the default back
+//! after it, gated. WirePlumber's move is not gated but held to the same picks with CrossFX off,
 //! plus [`BARE_MARGIN_DB`] (§7, test 4; [`against_bare_linux`]): its loudest run of all against
 //! plain Linux's, each read above the tone ([`above_the_tone`]) rather than in dBFS, since
-//! FxSound's chain plays the tone louder than plain Linux and every cut of it with it — a user
+//! CrossFX's chain plays the tone louder than plain Linux and every cut of it with it — a user
 //! hears a click beside the sound it cuts. What the move leaves at the monitor of the speakers
-//! FxSound played through, read on that monitor alone — the end of the sound it cut off in
-//! FxSound's chain, faded since D4 — is gated ([`left_behind`]). With FxSound off the pick is
-//! WirePlumber's alone, and reported: it is what the other is held to. With FxSound's hook in
+//! CrossFX played through, read on that monitor alone — the end of the sound it cut off in
+//! CrossFX's chain, faded since D4 — is gated ([`left_behind`]). With CrossFX off the pick is
+//! WirePlumber's alone, and reported: it is what the other is held to. With CrossFX's hook in
 //! WirePlumber (D5, an option of Settings ▸ Experimental) WirePlumber fades its own moves too, and
-//! the same picks, with FxSound on and with it off, are gated, WirePlumber's move and FxSound's
+//! the same picks, with CrossFX on and with it off, are gated, WirePlumber's move and CrossFX's
 //! claim alike ([`Scenario::hook`]).
 //!
 //! # Running it
@@ -143,12 +143,12 @@
 //!   as the app does, and a [`Scenario`] — or a place in one — that makes it under the tone. The
 //!   end state alone is not the test (roadmap §12 item 2).
 //! * A phase that makes a reported switch quiet sets its scenario's `gated`: D2 did it for the
-//!   power switch with following streams and for the route, D3 for FxSound's own pick of a device
+//!   power switch with following streams and for the route, D3 for CrossFX's own pick of a device
 //!   and for its claim after the desktop's, and each holds the dip to its budget with
 //!   [`EventResult::dip_ms`] as well ([`Scenario::budget`]). D3 also held WirePlumber's move after
-//!   the desktop's pick to plain Linux + 3 dB ([`against_bare_linux`]); D4 faded FxSound's part
-//!   of it, the tail it cut off in FxSound's chain, and gates it at the monitor of the speakers
-//!   FxSound played through, read on its own ([`left_behind`]); D5, whose hook in WirePlumber
+//!   the desktop's pick to plain Linux + 3 dB ([`against_bare_linux`]); D4 faded CrossFX's part
+//!   of it, the tail it cut off in CrossFX's chain, and gates it at the monitor of the speakers
+//!   CrossFX played through, read on its own ([`left_behind`]); D5, whose hook in WirePlumber
 //!   makes the rest fade, gates the desktop's picks with it in tests of their own.
 //! * A phase that says a reported switch got quieter judges by the loudest run, of several passes,
 //!   not by a shift of the median: what WirePlumber's move leaves spreads over about 20 dB (below).
@@ -160,8 +160,8 @@
 //!
 //! Measured on 28.09.2026, PipeWire 1.6.9 and WirePlumber 0.5.17, on `release/0.5.0` at 7598d79,
 //! whose audio path is 0.4.0's: one test at a time, each switch the median of three clean runs.
-//! The worst residual in dBFS, the range over passes: two for the switches FxSound makes itself
-//! that move no stream, three for the route, FxSound's and the desktop's picks, and nine for
+//! The worst residual in dBFS, the range over passes: two for the switches CrossFX makes itself
+//! that move no stream, three for the route, CrossFX's and the desktop's picks, and nine for
 //! the power switch with following streams (eight here, one a reviewer's). Four switches are given
 //! in the order they are made; a dip where there was one.
 //!
@@ -170,28 +170,28 @@
 //! | 1, power, pinned streams | off −89.7…−92.2, on −48.9…−50.9 | off −96.2…−99.6, on −87.0…−97.4 |
 //! | 1, power, following streams (reported) | off −21.2…−26.2, on −18.8…−31.1, off −23.1…−31.6, on −18.8…−41.1; dip 20–40 ms | off −17.7…−21.1, on −21.1…−32.0, off −17.7…−21.1, on −24.9…−28.2; dip 0–10 ms |
 //! | 2, route on, off (reported) | on −5.2…−5.3, off −8.8…−14.2; dip 30–50 ms off | on −17.6…−21.1, off −17.7…−21.1; dip 0–20 ms |
-//! | 3, FxSound picks the other devices and back (reported) | −4.9…−10.3; dip 20–70 ms | −17.7…−21.1; dip 40–70 ms, 740 ms once |
-//! | 4, the desktop picks them, FxSound on (reported) | −7.7…−15.6; dip 20–40 ms | −17.7…−25.0; dip 10–50 ms, 760–770 ms on the pick back in two passes |
-//! | 5, the desktop picks them, FxSound off (reported) | −18.8…−23.1; dip 10–40 ms | −23.3…−28.2; dip 0–10 ms |
+//! | 3, CrossFX picks the other devices and back (reported) | −4.9…−10.3; dip 20–70 ms | −17.7…−21.1; dip 40–70 ms, 740 ms once |
+//! | 4, the desktop picks them, CrossFX on (reported) | −7.7…−15.6; dip 20–40 ms | −17.7…−25.0; dip 10–50 ms, 760–770 ms on the pick back in two passes |
+//! | 5, the desktop picks them, CrossFX off (reported) | −18.8…−23.1; dip 10–40 ms | −23.3…−28.2; dip 0–10 ms |
 //! | music EQ off, on | −61.6…−62.0 | — |
 //! | music presets | Bass Boost −51.8…−53.0, Gaming −65.8…−68.5, Volume Boost −74.2…−77.0, General −72.0…−73.7 | — |
 //! | voice EQ off, on | — | −90.1…−97.6 |
 //! | voice presets | — | Clean Voice −73.0, Studio −77.5, Noisy Room −70.8 (dip 10–20 ms) |
 //!
 //! Floors: −108.0 to −108.3 dBFS on the speakers' lane, −118.0 to −118.5 on the microphone's, and
-//! −122.9 and −127.5 with FxSound off (5), whose tones do not go through the chains' gain. The
+//! −122.9 and −127.5 with CrossFX off (5), whose tones do not go through the chains' gain. The
 //! microphone's floor in 3 and 4 is −17.7 to −21.3 in one run of three or two: something clicks
 //! again 0.8 to 1 s after a pick, past its window. Most likely the recorder was left linked to
-//! nothing by the move and FxSound's rescue of stranded streams (`crate::stranded`) moved it again;
+//! nothing by the move and CrossFX's rescue of stranded streams (`crate::stranded`) moved it again;
 //! the dips of 740–770 ms would be the same stranding, seen inside a dip's second.
 //!
 //! The switches that move no stream are under the gate, the loudest the power coming back on with
 //! pinned streams (−49) and Bass Boost (−52). Every move of a stream is over it. WirePlumber alone,
-//! the desktop's pick with FxSound off (5), leaves −19 to −28. The power switch under following
-//! streams leaves about as much; the route and FxSound's own pick of a device leave −5 to −14 on
+//! the desktop's pick with CrossFX off (5), leaves −19 to −28. The power switch under following
+//! streams leaves about as much; the route and CrossFX's own pick of a device leave −5 to −14 on
 //! the speakers' lane — the route going on at +0.16 to +0.25 s, when the stream is linked onto the
 //! route, and a pick while it takes the lane's nodes down under the stream — and the desktop's pick
-//! with FxSound on, which moves the streams twice, −8 to −16. These are the numbers D2 and D3 are
+//! with CrossFX on, which moves the streams twice, −8 to −16. These are the numbers D2 and D3 are
 //! to bring under the gate, and roadmap §7 test 4's «bare Linux + 3 dB» is set beside 5.
 //!
 //! What a move leaves varies by about 20 dB: from run to run, and in the median of three from pass
@@ -200,23 +200,23 @@
 //! quieter does not read an improvement from a median that moved within these ranges: it runs
 //! several passes and judges by the loudest run of all of them, the `loudest run` of each table.
 //!
-//! FxSound's hook in WirePlumber, measured on 29.09.2026 at D5 in the same way: the desktop's picks
-//! with FxSound on left, over two passes, −53.8…−61.2 dBFS for WirePlumber's move (the loudest run
-//! −52.9) and −61.8…−63.8 for FxSound's claim on the speakers' lane, −58.6…−69.0 and −71.8…−76.6
-//! on the microphone's, dips 100–160 ms; with FxSound off and ranking its devices, −59.8…−60.7
+//! CrossFX's hook in WirePlumber, measured on 29.09.2026 at D5 in the same way: the desktop's picks
+//! with CrossFX on left, over two passes, −53.8…−61.2 dBFS for WirePlumber's move (the loudest run
+//! −52.9) and −61.8…−63.8 for CrossFX's claim on the speakers' lane, −58.6…−69.0 and −71.8…−76.6
+//! on the microphone's, dips 100–160 ms; with CrossFX off and ranking its devices, −59.8…−60.7
 //! and −65.9…−66.7, dips 50–100 ms. The microphone's claim is not always under the gate: in one
 //! run of a pass it jumped once in 24 switches, at −34.1 in the pass above and at −17.7 in a
 //! later one (`t_other` to `t_mic2`), as loud as plain Linux — the converter's new volume played
 //! before its ramp, below, which the hook does not end — and the scenario passes within
 //! [`Budget::loud_runs`]. Without the hook WirePlumber's move is plain Linux's −19 to −28. A first
 //! version of the hook gave the volume back 20 ms after the new link whatever the stream had left:
-//! run beside the rest of the tests, FxSound's claim then met the hook's fade in on the same
+//! run beside the rest of the tests, CrossFX's claim then met the hook's fade in on the same
 //! stream, and the converter, refusing a second ramp, jumped: −18.8 to −31.1 in two runs of three.
-//! A stream moved off FxSound's nodes is now held silent until FxSound has moved it back.
+//! A stream moved off CrossFX's nodes is now held silent until CrossFX has moved it back.
 //!
-//! «Like FxSound for Windows», measured on 29.09.2026 in the same way at W1d of 0.5.0, both scenarios
-//! at −6 dB of master gain and +4 dB of balance: on the engine before W1d the lane's move to
-//! Interface and sound left −20.0 dBFS and the move back −6.3; since W1d, which glides and
+//! «Like the original FxSound LLC», measured on 29.09.2026 in the same way at W1d of 0.5.0, both
+//! scenarios at −6 dB of master gain and +4 dB of balance: on the engine before W1d the lane's move
+//! to Interface and sound left −20.0 dBFS and the move back −6.3; since W1d, which glides and
 //! crossfades what the level changes, −64.7 and −53.3 on the lane and −64.0 and −55.7 in an
 //! application's route, the loudest run −52.2, the floor −108.5.
 //!
@@ -235,7 +235,7 @@
 //! 20, the route going on left −40.6…−43.8: the route's chain, which has heard nothing yet, took
 //! the onset at full level. Before the route's chain was switched off and let play its tail out
 //! before its pair went, the route going off left −35.6…−37.8: its reverb's tail stopped in the
-//! middle of its wave. The desktop's pick and FxSound's own pick are as before (for D3, below).
+//! middle of its wave. The desktop's pick and CrossFX's own pick are as before (for D3, below).
 //!
 //! The power switch with PulseAudio applications following the default, measured the same day in
 //! the same way: on the speakers' lane off −53.8…−57.6 and on −45.9…−49.6, a dip of 60–90 ms; on
@@ -247,15 +247,15 @@
 //! switch by switch over runs of four switches: the recorder played its tone so, at −17.7 to
 //! −24.9 dBFS, at 1 switch in 96 with one sample a step and 2 in 160 with eight; the player at
 //! −11.7 to −18.6, 3 in 96 with one and none in 160 with eight. It was put down, before it was
-//! found, to the recorder's channels changing in its move from the microphone's one to FxSound's
-//! two: it is not that — without FxSound, on a private graph, a `parec` stream faded out and in
+//! found, to the recorder's channels changing in its move from the microphone's one to CrossFX's
+//! two: it is not that — without CrossFX, on a private graph, a `parec` stream faded out and in
 //! over 50 ms by `pw-cli` did it 21 times in 2400 writes at one sample a step, and once in 1600 at
-//! eight. It is PipeWire's, and FxSound's steps make it rarer and do not end it; so a handover's
+//! eight. It is PipeWire's, and CrossFX's steps make it rarer and do not end it; so a handover's
 //! scenario counts every run, lists each switch over the gate, and fails a pass with more than one
 //! ([`Budget::loud_runs`]). With a player that asks for 20 ms rather than 85, the recorder jumped
 //! at −17.7 to −28.6 on one run in three, 90 ms after the switch and before its own handover
 //! began: the player's move changes the quantum of the graph the recorder is in, and a PulseAudio
-//! recorder drops samples when the quantum falls — without FxSound too
+//! recorder drops samples when the quantum falls — without CrossFX too
 //! (`PolicyGraph::pulse_player`'s latency).
 //!
 //! Two faults of the handover's own were mended with it. A second point of a ramp down, reported
@@ -266,50 +266,50 @@
 //! point, 0.10, which the next power switch faded from and gave back: a player left 20 dB down for
 //! good (`crate::stream_handover::CONFIRM_WAIT`).
 //!
-//! FxSound's own pick of a device and the desktop's pick with FxSound on, measured on 29.09.2026 in
+//! CrossFX's own pick of a device and the desktop's pick with CrossFX on, measured on 29.09.2026 in
 //! the same way at D3 of 0.5.0, each switch the median of three clean runs and the loudest run
-//! beside it, over three passes. FxSound's pick, both lanes' virtual nodes kept: −59.4 to −68.4
+//! beside it, over three passes. CrossFX's pick, both lanes' virtual nodes kept: −59.4 to −68.4
 //! dBFS on the speakers' lane, the loudest run −59.1, and −69.0 to −75.6 on the microphone's, a
 //! dip of 100–140 ms. Before the chain waited for its new stream's link to be active and settled,
 //! it clicked at −20 to −30, 40 to 60 ms after the move: let out on the new stream's first block,
 //! which the virtual node's link-group runs before anything links it, it faded in into nothing,
 //! and let out at the link itself, it faded in over the first cycles on the new device's clock,
-//! which left the ring a block short. The desktop's pick: FxSound's claim after it −59.9 to −60.8
+//! which left the ring a block short. The desktop's pick: CrossFX's claim after it −59.9 to −60.8
 //! and −65.9 to −66.7, a dip of 110–160 ms. Made before the applications were silent there,
-//! FxSound's move onto the picked device clicked in them at −23 to −32: the stream it linked there
+//! CrossFX's move onto the picked device clicked in them at −23 to −32: the stream it linked there
 //! changed the quantum under them. WirePlumber's move −11.6 to −23.1 dBFS on the speakers' lane
 //! and −17.7 to −24.9 on the microphone's, over plain Linux's −18.8 to −25.9 and −23.3 to −28.2 in
 //! dBFS, since the chain plays the speakers' tone at −1.1 dBFS and the microphone's at −10.8, 10.9
 //! and 7.2 dB above the bare ones. Above the tone, the loudest run of all: −10.5 dB against plain
 //! Linux's −6.8 on the speakers' lane, −6.9 against −5.3 on the microphone's; the same in a fourth
 //! pass made with [`against_bare_linux`], and −8.8 and −6.9 in a fifth, the gate's, with every
-//! measurement at once. FxSound's chain makes it no louder, and that holds it there. Floors as
+//! measurement at once. CrossFX's chain makes it no louder, and that holds it there. Floors as
 //! before.
 //!
 //! The tail de-click, measured on 29.09.2026 at D4 of 0.5.0 (`crate::engine`, "A sound cut off"):
-//! WirePlumber's move after the desktop's pick with FxSound on, over twelve passes of the test
-//! above, each speakers' monitor also read on its own. On the speakers FxSound had played through,
+//! WirePlumber's move after the desktop's pick with CrossFX on, over twelve passes of the test
+//! above, each speakers' monitor also read on its own. On the speakers CrossFX had played through,
 //! the move left −88.8 to −105.6 dBFS in 136 picks of 144, where it had left a step of the chain's
 //! tone; in the other 8, six of them the third pick, the recording skipped a few milliseconds of
-//! the fade downstream of FxSound, whose own blocks were played whole (traced), and jumped into it
+//! the fade downstream of CrossFX, whose own blocks were played whole (traced), and jumped into it
 //! at −8.4 to −16.3. On the picked speakers the application arrived unprocessed at −18.8 to −48.0,
 //! as in plain Linux. The move's median, switch by switch, went from −11.6…−26.2 dBFS to
 //! −18.8…−31.6 (plain Linux −18.8…−25.9); its loudest run above the tone to −17.7 dB in the five
 //! passes with no skip, −7.3 to −15.1 in the others (−8.8 to −10.5 at D3), and −17.7 in a
 //! thirteenth, the gate's, with every measurement at once. The microphone's lane, whose device
-//! never goes silent, and FxSound's own switches, as at D3. The monitor of the speakers FxSound had
+//! never goes silent, and CrossFX's own switches, as at D3. The monitor of the speakers CrossFX had
 //! played through is read on its own in the test since, each pick in its own row, and gated
 //! ([`left_behind`]): −89.2 to −97.1 dBFS in a fourteenth pass, the loudest run −89.2, and −89.0
 //! to −97.0 in the gate's; with the fade taken out of the engine, 10 of a pass's 12 picks at −11.6
 //! to −26.2, and it fails.
 //!
 //! E6a measured the same switches with the app's release build, where this runs the engine
-//! unoptimised, and in another order. The switches FxSound makes itself agree within a few dB,
+//! unoptimised, and in another order. The switches CrossFX makes itself agree within a few dB,
 //! except Volume Boost and Noisy Room, which E6a had at −83.1 and −77.8: 6–9 dB louder here, all
 //! far under the gate, the build and the switches around them the likely cause. WirePlumber's
 //! moves differ by more, as they do from pass to pass: E6a had the microphone's first power off at
-//! −38.3 (`~/Загрузки/fxsound-scratch/e6/evidence/02-clicks-final.txt`, `02-pinned-final.txt`).
-//! Its desktop pick with FxSound off, between two sinks of its own environment, left −19.1 to
+//! −38.3 (`~/Загрузки/crossfx-scratch/e6/evidence/02-clicks-final.txt`, `02-pinned-final.txt`).
+//! Its desktop pick with CrossFX off, between two sinks of its own environment, left −19.1 to
 //! −26.2 (`02-wpmove.txt`), each device read on its own: 5 here.
 
 use super::policy::PolicyGraph;
@@ -350,7 +350,7 @@ const TAIL: f64 = 1.0;
 /// How far after a switch a dip is looked for, in seconds.
 const DIP_AFTER: f64 = 1.0;
 
-/// How much longer than a switch's window FxSound's own move after it is read
+/// How much longer than a switch's window CrossFX's own move after it is read
 /// ([`Window::split`]): its handover may wait for another lane's before it begins
 /// (`crate::engine::fades`, one handover at a time).
 const CLAIM_EXTRA: f64 = 0.4;
@@ -361,7 +361,7 @@ const DIP_DB: f64 = 20.0;
 /// The level steps of the dip, and of the tone's steady level.
 const LEVEL_STEP: usize = RATE / 100;
 
-/// The gate: a switch FxSound makes itself must leave less than this.
+/// The gate: a switch CrossFX makes itself must leave less than this.
 const HARD_GATE_DBFS: f64 = -40.0;
 
 /// The warning of the report mode.
@@ -370,7 +370,7 @@ const SOFT_GATE_DBFS: f64 = -30.0;
 /// A floor at or above this cannot tell a click from the steady state.
 const FLOOR_LIMIT_DBFS: f64 = -60.0;
 
-/// How much louder than plain Linux WirePlumber's move after a desktop pick may be with FxSound on,
+/// How much louder than plain Linux WirePlumber's move after a desktop pick may be with CrossFX on,
 /// read above the tone ([`above_the_tone`]): roadmap 0.5.0 §7, test 4.
 const BARE_MARGIN_DB: f64 = 3.0;
 
@@ -395,7 +395,7 @@ const OUTPUT_TONE: (f64, f64) = (100.0, -12.0);
 /// The tone fed into the microphone.
 const INPUT_TONE: (f64, f64) = (300.0, -18.0);
 
-/// How long FxSound may take to begin to take a default back after the desktop picked another
+/// How long CrossFX may take to begin to take a default back after the desktop picked another
 /// device ([`Bench::mark_claims`]): a supervisor tick for the lane's rules, the fade before its
 /// stream on the device is replaced, and room for a slow machine.
 const CLAIM_PATIENCE: Duration = Duration::from_millis(1500);
@@ -569,10 +569,10 @@ impl Window {
         }
     }
 
-    /// A switch at `at` that FxSound follows at `then` with a move of its own
-    /// ([`Scenario::claims`]), read as two rows: what came before FxSound's move, from [`WINDOW`]
+    /// A switch at `at` that CrossFX follows at `then` with a move of its own
+    /// ([`Scenario::claims`]), read as two rows: what came before CrossFX's move, from [`WINDOW`]
     /// before the switch — the session manager's move, which has no dip of its own to be held to —
-    /// and FxSound's move from `then` on, for as long as a switch's window and a dip's.
+    /// and CrossFX's move from `then` on, for as long as a switch's window and a dip's.
     fn split(at: usize, then: usize) -> [Self; 2] {
         let from = at.saturating_sub(seconds(WINDOW.0));
         [
@@ -723,7 +723,7 @@ fn analyse_windows(
 
 /// How far above the tone's steady level row `row`'s worst residual is, in dB. A cut in the middle
 /// of the wave is as loud as the wave it cuts, so this is what a click is worth whatever gain the
-/// tone was played at: FxSound's chain plays the speakers' tone 11 dB above the bare one, and
+/// tone was played at: CrossFX's chain plays the speakers' tone 11 dB above the bare one, and
 /// every click on its way with it.
 fn above_the_tone(analysis: &Analysis, row: usize) -> f64 {
     analysis.events[row].worst_dbfs - analysis.tone_dbfs
@@ -839,7 +839,7 @@ enum Switch {
     /// sends ([`UiToAudio::SetAppRoutes`]), with the lanes' own snapshots, so that the move onto
     /// the route and back is all that changes.
     Route(bool),
-    /// FxSound's own pick of a device for both lanes, as the device list, `--output`,
+    /// CrossFX's own pick of a device for both lanes, as the device list, `--output`,
     /// `--next-output` and `--input` make it ([`UiToAudio::SelectDevice`]): the other devices when
     /// `true`, the first ones again when `false`.
     Device(bool),
@@ -847,9 +847,9 @@ enum Switch {
     /// — the configured keys of the `default` metadata: the other devices when `true`, the first
     /// ones again when `false`.
     Desktop(bool),
-    /// «Like FxSound for Windows» moved to a level: the music snapshot the app publishes at it
+    /// «Like the original FxSound LLC» moved to a level: the music snapshot the app publishes at it
     /// (`App::set_windows_parity`), to the speakers' lane and to the applications' output routes
-    /// alike, which play the Windows build's DSP from Interface and sound on.
+    /// alike, which play the original's DSP from Interface and sound on.
     Parity(WindowsParity, Box<DspParams>),
 }
 
@@ -862,7 +862,7 @@ impl Switch {
             Self::Voice(name, ..) => format!("voice preset {name}"),
             Self::Route(true) => "route on".to_owned(),
             Self::Route(false) => "route off".to_owned(),
-            Self::Device(other) => format!("FxSound picks {}", lane_devices(*other).join(", ")),
+            Self::Device(other) => format!("CrossFX picks {}", lane_devices(*other).join(", ")),
             Self::Desktop(other) => format!("desktop picks {}", lane_devices(*other).join(", ")),
             Self::Parity(level, _) => format!("like Windows: {}", level.key()),
         }
@@ -882,7 +882,7 @@ fn lane_devices(other: bool) -> [&'static str; 2] {
 /// Where the tone's streams are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Streams {
-    /// On FxSound's own nodes, and kept there (`node.dont-move`): only FxSound acts on them.
+    /// On CrossFX's own nodes, and kept there (`node.dont-move`): only CrossFX acts on them.
     Pinned,
     /// Following the default, as most applications do: WirePlumber moves them when it changes.
     Following,
@@ -900,9 +900,9 @@ struct Scenario {
     spacing: Duration,
     /// Whether the switches are held to the gate.
     gated: bool,
-    /// Said with the table: why switches FxSound makes itself are only reported.
+    /// Said with the table: why switches CrossFX makes itself are only reported.
     note: &'static str,
-    /// Whether FxSound's power is off before the tone starts, the defaults on the devices.
+    /// Whether CrossFX's power is off before the tone starts, the defaults on the devices.
     off: bool,
     /// Whether the tone is heard on both devices of its direction: the speakers' lane recorded at
     /// both sinks' monitors, both microphones fed the same tone. For the switches that move a lane
@@ -919,17 +919,17 @@ struct Scenario {
     /// than `pw-cat` and `pw-record`. The recorders at the sinks' monitors stand for the devices,
     /// and stay `pw-record`.
     pulse: bool,
-    /// Whether FxSound takes each lane's default back after each switch — the desktop's pick with
-    /// FxSound on — so that each switch is two moves, WirePlumber's and then FxSound's, and is read
-    /// as two rows ([`Window::split`]): the first from the switch to the moment FxSound begins its
-    /// claim (its [`AudioToUi::RememberedDefault`]), reported; FxSound's from then on, held to the
+    /// Whether CrossFX takes each lane's default back after each switch — the desktop's pick with
+    /// CrossFX on — so that each switch is two moves, WirePlumber's and then CrossFX's, and is read
+    /// as two rows ([`Window::split`]): the first from the switch to the moment CrossFX begins its
+    /// claim (its [`AudioToUi::RememberedDefault`]), reported; CrossFX's from then on, held to the
     /// gate when the scenario is `gated`.
     claims: bool,
-    /// Whether the graph's WirePlumber runs FxSound's hook ([`crate::wireplumber_hook`]), which
+    /// Whether the graph's WirePlumber runs CrossFX's hook ([`crate::wireplumber_hook`]), which
     /// fades the streams it moves itself: then WirePlumber's move after a desktop pick is held to
     /// the gate too ([`Self::rows`]).
     hook: bool,
-    /// Whether FxSound ranks the graph's devices, the first ones of each direction above the
+    /// Whether CrossFX ranks the graph's devices, the first ones of each direction above the
     /// others ([`UiToAudio::SetDevicePriority`]), as the app has it unless *Follow the system's
     /// default device* is ticked; otherwise the engine follows the system's default, as it does
     /// until the app ranks its devices.
@@ -938,7 +938,7 @@ struct Scenario {
 
 impl Scenario {
     /// The rows of each lane's table, in order, and whether each is held to the gate: one per
-    /// switch, or two for a scenario whose switches FxSound follows with a claim
+    /// switch, or two for a scenario whose switches CrossFX follows with a claim
     /// ([`Self::claims`]).
     fn rows(&self) -> Vec<(String, bool)> {
         self.switches
@@ -948,7 +948,7 @@ impl Scenario {
                 if self.claims {
                     vec![
                         (format!("{label}: the move"), self.gated && self.hook),
-                        (format!("{label}: FxSound's claim"), self.gated),
+                        (format!("{label}: CrossFX's claim"), self.gated),
                     ]
                 } else {
                     vec![(label, self.gated)]
@@ -971,15 +971,15 @@ struct Budget {
     floor_dbfs: f64,
     /// How many switches of all the clean runs of a pass may each go over the gate, the median
     /// aside, before the pass fails. Every one is listed in a warning. One: PipeWire's converter
-    /// plays a quantum at the new volume before the ramp to it now and then, a race FxSound can
+    /// plays a quantum at the new volume before the ramp to it now and then, a race CrossFX can
     /// make rarer and cannot end (`crate::stream_handover::RAMP_STEP_SAMPLES`) — measured at two
     /// recorder switches in 160; a handover that goes wrong on its own leaves more than one.
     loud_runs: usize,
 }
 
-/// The moves FxSound makes itself — the power switch's and a route's (D2), a device FxSound picks
+/// The moves CrossFX makes itself — the power switch's and a route's (D2), a device CrossFX picks
 /// and the default it takes back after the desktop's pick (D3): a gap of a tenth of a second or so
-/// instead of the click, and a steady state as quiet as FxSound's own.
+/// instead of the click, and a steady state as quiet as CrossFX's own.
 const HANDOVER_BUDGET: Budget = Budget {
     dip: Duration::from_millis(200),
     floor_dbfs: -90.0,
@@ -1060,7 +1060,7 @@ struct Bench {
 
 impl Bench {
     /// `None` when the graph could not run here (a skip, said by [`PolicyGraph::start`]). With
-    /// FxSound's `hook` in the graph's WirePlumber, or without it.
+    /// CrossFX's `hook` in the graph's WirePlumber, or without it.
     fn start(tag: &str, hook: bool) -> Option<Self> {
         let graph = if hook {
             PolicyGraph::start_with_the_hook(tag)?
@@ -1079,7 +1079,7 @@ impl Bench {
             assert_eq!(
                 graph.default_settles_on(direction, our_node_name(direction)),
                 Some(Ok(())),
-                "FxSound never became the default {}",
+                "CrossFX never became the default {}",
                 direction.key()
             );
         }
@@ -1176,7 +1176,7 @@ impl Bench {
         }
     }
 
-    /// Whether the tone's player is linked into one of FxSound's route nodes, within the
+    /// Whether the tone's player is linked into one of CrossFX's route nodes, within the
     /// patience: what a scenario that gives it a route of its own is measuring through.
     fn player_plays_through_a_route(&self) -> bool {
         let deadline = Instant::now() + PATIENCE;
@@ -1402,7 +1402,7 @@ impl Bench {
     }
 
     /// By how many frames each lane's ring has come up short or overflowed, and how often it had
-    /// to resync, as the lanes last reported it, in [`DeviceDirection::ALL`]'s order: FxSound's own
+    /// to resync, as the lanes last reported it, in [`DeviceDirection::ALL`]'s order: CrossFX's own
     /// gaps, which `pw-top` cannot see. Each lane reports once a second.
     fn ring_trouble(&mut self) -> [u64; 2] {
         while let Some(message) = self.engine.try_recv() {
@@ -1414,7 +1414,7 @@ impl Bench {
             .map(|status| status.underrun_frames + status.dropped_frames + status.resyncs)
     }
 
-    /// Wait until FxSound has begun to take the default of every lane of `lanes` back after a
+    /// Wait until CrossFX has begun to take the default of every lane of `lanes` back after a
     /// switch — its [`AudioToUi::RememberedDefault`] for the lane, said as the claim begins — and
     /// note how much each lane's first recorder had written by then ([`Lane::claims`]).
     fn mark_claims(&mut self, lanes: &mut [Lane], title: &str) {
@@ -1442,7 +1442,7 @@ impl Bench {
         }
         assert!(
             waiting.is_empty(),
-            "{title}: FxSound never took the default back for {waiting:?}"
+            "{title}: CrossFX never took the default back for {waiting:?}"
         );
     }
 
@@ -1525,11 +1525,11 @@ fn music_params(preset: &Preset) -> DspParams {
     )
 }
 
-/// «Like FxSound for Windows» moved to `level` with E6a's music preset playing: the snapshot the
-/// app publishes for it there (`App::set_windows_parity`, [`fxsound_dsp::preset::MusicLevels`]),
-/// at −6 dB of master gain and +4 dB of balance — the levels the W1c live check heard the switch
-/// click at, −39.4 dBFS on the way to Interface and sound and −25.1 on the way back
-/// (`docs/0.5.0-dsp-inventory.md`).
+/// «Like the original FxSound LLC» moved to `level` with E6a's music preset playing: the snapshot
+/// the app publishes for it there (`App::set_windows_parity`,
+/// [`fxsound_dsp::preset::MusicLevels`]), at −6 dB of master gain and +4 dB of balance — the levels
+/// the W1c live check heard the switch click at, −39.4 dBFS on the way to Interface and sound and
+/// −25.1 on the way back (`docs/0.5.0-dsp-inventory.md`).
 fn to_parity(level: WindowsParity) -> Switch {
     let levels = fxsound_dsp::preset::MusicLevels {
         master_gain_db: -6.0,
@@ -1587,7 +1587,7 @@ fn lane_of(direction: DeviceDirection) -> usize {
 struct Lane {
     direction: DeviceDirection,
     taps: Vec<(Tap, Vec<usize>)>,
-    /// How much the first recorder had written when FxSound began to take the lane's default back
+    /// How much the first recorder had written when CrossFX began to take the lane's default back
     /// after each switch ([`Scenario::claims`]).
     claims: Vec<usize>,
 }
@@ -1600,8 +1600,8 @@ struct Run {
     /// The frames each lane's ring came up short or overflowed by, and its resyncs, in
     /// [`DeviceDirection::ALL`]'s order.
     ring: [u64; 2],
-    /// A scenario of the desktop's picks with FxSound on ([`Scenario::claims`]), heard on both
-    /// speakers: each pick's WirePlumber's move read at the monitor of the speakers FxSound had
+    /// A scenario of the desktop's picks with CrossFX on ([`Scenario::claims`]), heard on both
+    /// speakers: each pick's WirePlumber's move read at the monitor of the speakers CrossFX had
     /// played through before it alone, the loudest high-passed sample in dBFS
     /// ([`left_behind`]). Empty for any other scenario.
     left_behind: Vec<f64>,
@@ -1813,10 +1813,10 @@ fn run_once(scenario: &Scenario) -> Option<Run> {
 }
 
 /// Each desktop pick's WirePlumber's move — the first of its two rows ([`Window::split`]) — read
-/// at the monitor of the speakers FxSound had played through before it alone, out of a speakers'
+/// at the monitor of the speakers CrossFX had played through before it alone, out of a speakers'
 /// lane `recording` [`joined`] from both monitors, each one's two channels in the order of
 /// [`lane_devices`]: the loudest high-passed sample in dBFS, pick by pick. What is heard there is
-/// the end of the sound FxSound's chain played, cut off by the move ([`left_behind`]).
+/// the end of the sound CrossFX's chain played, cut off by the move ([`left_behind`]).
 fn speakers_left_behind(
     scenario: &Scenario,
     recording: &Channels,
@@ -1843,7 +1843,7 @@ fn speakers_left_behind(
             let Switch::Desktop(other) = switch else {
                 return None;
             };
-            // Before the pick of the `other` devices, FxSound played through the first ones.
+            // Before the pick of the `other` devices, CrossFX played through the first ones.
             let before = lane_devices(!other)[0];
             let monitor = speakers.iter().position(|sink| *sink == before)?;
             Some(monitors.get(monitor)?.events.get(2 * n)?.worst_dbfs)
@@ -1970,7 +1970,7 @@ fn report(scenario: &Scenario, gate: Gate, clean: &[Run], discarded: &[u64]) -> 
         if ring.iter().any(|frames| *frames > 0) {
             let _ = writeln!(
                 text,
-                "FxSound's ring came up short or overflowed by {ring:?} frames in the runs"
+                "CrossFX's ring came up short or overflowed by {ring:?} frames in the runs"
             );
         }
         if let Some(budget) = scenario.budget.filter(|_| scenario.gated)
@@ -2052,7 +2052,7 @@ fn report(scenario: &Scenario, gate: Gate, clean: &[Run], discarded: &[u64]) -> 
     }
     if let Some(budget) = scenario.budget.filter(|_| !over.is_empty()) {
         let switches = clean.len() * scenario.lanes.len() * scenario.switches.len();
-        // (A scenario read in two rows a switch counts only FxSound's, the gated one.)
+        // (A scenario read in two rows a switch counts only CrossFX's, the gated one.)
         let line = format!(
             "{}: {} of {switches} switches over {HARD_GATE_DBFS} dBFS, run by run: {}",
             scenario.title,
@@ -2067,10 +2067,10 @@ fn report(scenario: &Scenario, gate: Gate, clean: &[Run], discarded: &[u64]) -> 
     Report { text, failures }
 }
 
-/// Hold WirePlumber's move after each desktop pick with FxSound on — the ungated rows of a
+/// Hold WirePlumber's move after each desktop pick with CrossFX on — the ungated rows of a
 /// scenario that `claims` ([`Scenario::rows`]) — to plain Linux + [`BARE_MARGIN_DB`], lane by lane
 /// (roadmap 0.5.0 §7, test 4): the loudest of all the `clean` runs' moves against the loudest of
-/// all the `bare` runs' switches of the same scenario with FxSound off, both read above the tone
+/// all the `bare` runs' switches of the same scenario with CrossFX off, both read above the tone
 /// ([`above_the_tone`]). The text for the table, and what the gate fails.
 fn against_bare_linux(
     scenario: &Scenario,
@@ -2144,17 +2144,17 @@ fn against_bare_linux(
     Report { text, failures }
 }
 
-/// How many of a pass's picks may leave [`HARD_GATE_DBFS`] or more at the speakers FxSound played
+/// How many of a pass's picks may leave [`HARD_GATE_DBFS`] or more at the speakers CrossFX played
 /// through, of all the clean runs, before [`left_behind`] fails it: a quarter. Now and then the
-/// monitor's recorder skips a few milliseconds of the fade downstream of FxSound, whose own blocks
+/// monitor's recorder skips a few milliseconds of the fade downstream of CrossFX, whose own blocks
 /// were played whole, and jumps into it — 8 picks in 144 over twelve passes at D4, six of them the
-/// third, at −8.4 to −16.3 dBFS — which its recording cannot tell from a sound FxSound left cut
+/// third, at −8.4 to −16.3 dBFS — which its recording cannot tell from a sound CrossFX left cut
 /// off. Without the fade every pick is one (roadmap 0.5.0 §7, D4).
 const SKIPPED_FADES: f64 = 0.25;
 
-/// Hold what WirePlumber's move after each desktop pick with FxSound on leaves on the speakers
-/// FxSound had played through ([`Run::left_behind`]) to the gate, run by run: since D4 the end of
-/// the sound the move cut off in FxSound's chain fades there (`crate::engine`, "A sound cut off"),
+/// Hold what WirePlumber's move after each desktop pick with CrossFX on leaves on the speakers
+/// CrossFX had played through ([`Run::left_behind`]) to the gate, run by run: since D4 the end of
+/// the sound the move cut off in CrossFX's chain fades there (`crate::engine`, "A sound cut off"),
 /// and what is left of the move is the application arriving on the picked speakers, unprocessed,
 /// as in plain Linux ([`against_bare_linux`]). Every pick over the gate is listed; more than
 /// [`SKIPPED_FADES`] of them fail the pass. The text for the table, and what the gate fails.
@@ -2175,7 +2175,7 @@ fn left_behind(scenario: &Scenario, gate: Gate, clean: &[Run]) -> Report {
     let labels: Vec<String> = scenario.switches.iter().map(Switch::label).collect();
     if picks.is_empty() {
         let line = format!(
-            "{}: no clean run read the speakers FxSound played through",
+            "{}: no clean run read the speakers CrossFX played through",
             scenario.title
         );
         let _ = writeln!(text, "WARNING: {line}");
@@ -2186,7 +2186,7 @@ fn left_behind(scenario: &Scenario, gate: Gate, clean: &[Run]) -> Report {
     }
     let _ = writeln!(
         text,
-        "## output: WirePlumber's move at the monitor of the speakers FxSound played through"
+        "## output: WirePlumber's move at the monitor of the speakers CrossFX played through"
     );
     for (n, label) in labels.iter().enumerate() {
         let mut values: Vec<f64> = picks
@@ -2213,7 +2213,7 @@ fn left_behind(scenario: &Scenario, gate: Gate, clean: &[Run]) -> Report {
         return Report { text, failures };
     }
     let line = format!(
-        "{}: at the speakers FxSound played through, {} of {} picks over {HARD_GATE_DBFS} dBFS, \
+        "{}: at the speakers CrossFX played through, {} of {} picks over {HARD_GATE_DBFS} dBFS, \
          run by run: {}",
         scenario.title,
         loud.len(),
@@ -2264,14 +2264,14 @@ fn conclude(report: Report) {
 // ---------------------------------------------------------------------------------------------
 // The scenarios.
 
-/// With the streams on FxSound's own nodes, the power switch changes nothing but the processing:
+/// With the streams on CrossFX's own nodes, the power switch changes nothing but the processing:
 /// the chains fade between processed and bypassed, and nothing is moved. Both lanes, off and on
 /// twice. 0.4.0 fixed this in E6a: −5 dBFS before, −48 after.
 #[test]
-fn under_a_steady_tone_the_power_switch_does_not_click_in_streams_pinned_to_fxsound() {
+fn under_a_steady_tone_the_power_switch_does_not_click_in_streams_pinned_to_crossfx() {
     check(&Scenario {
         tag: "clk-pin",
-        title: "power, streams pinned to FxSound",
+        title: "power, streams pinned to CrossFX",
         streams: Streams::Pinned,
         lanes: &DeviceDirection::ALL,
         switches: [false, true, false, true].map(Switch::Power).to_vec(),
@@ -2291,7 +2291,7 @@ fn under_a_steady_tone_the_power_switch_does_not_click_in_streams_pinned_to_fxso
 
 /// With streams that follow the default, the power switch hands the defaults back or takes them,
 /// and WirePlumber moves the streams — unlinking before it links, in the middle of the wave. Since
-/// D2 FxSound fades each stream it is about to have moved to silence first, and gives it its volume
+/// D2 CrossFX fades each stream it is about to have moved to silence first, and gives it its volume
 /// back once it is linked where it went (`crate::stream_handover`): gated, with the dip each move
 /// leaves held to [`HANDOVER_BUDGET`] (roadmap §7, test 1).
 #[test]
@@ -2347,7 +2347,7 @@ fn under_a_steady_tone_the_power_switch_moves_pulseaudio_applications_that_follo
 }
 
 /// The music equalizer off and on, then four shipped presets, under the speakers' tone of an
-/// application that follows the default: FxSound's own switches, which glide over 20 ms.
+/// application that follows the default: CrossFX's own switches, which glide over 20 ms.
 #[test]
 fn under_a_steady_tone_the_equalizer_and_the_music_presets_switch_without_a_click() {
     let eq = |on: bool| {
@@ -2383,12 +2383,12 @@ fn under_a_steady_tone_the_equalizer_and_the_music_presets_switch_without_a_clic
     });
 }
 
-/// «Like FxSound for Windows» moved between Off and Interface and sound and back, twice, under
+/// «Like the original FxSound LLC» moved between Off and Interface and sound and back, twice, under
 /// the speakers' tone of an application that follows the default (roadmap 0.5.0 §1 A4): the
 /// output lane changes DSP under the stream, the gain stage moving from before the equalizer to
-/// inside its block, and nothing moves the stream. FxSound's own switch, gated.
+/// inside its block, and nothing moves the stream. CrossFX's own switch, gated.
 #[test]
-fn under_a_steady_tone_moving_like_fxsound_for_windows_between_off_and_sound_does_not_click() {
+fn under_a_steady_tone_moving_like_the_original_fxsound_llc_between_off_and_sound_does_not_click() {
     check(&Scenario {
         tag: "clk-parity",
         title: "like Windows, Off and Interface and sound",
@@ -2418,7 +2418,8 @@ fn under_a_steady_tone_moving_like_fxsound_for_windows_between_off_and_sound_doe
 /// application's output route changes DSP with the lane (`App::refresh_app_routes`), its
 /// parameters written in place, and nothing moves the stream. Gated.
 #[test]
-fn under_a_steady_tone_moving_like_fxsound_for_windows_in_an_application_route_does_not_click() {
+fn under_a_steady_tone_moving_like_the_original_fxsound_llc_in_an_application_route_does_not_click()
+{
     check(&Scenario {
         tag: "clk-parroute",
         title: "like Windows, Off and Interface and sound, in an application's route",
@@ -2504,7 +2505,7 @@ fn under_a_steady_tone_an_application_route_moves_the_streams_on_and_off_without
     });
 }
 
-/// FxSound picks the other speakers and the other microphone, then the first ones again, twice
+/// CrossFX picks the other speakers and the other microphone, then the first ones again, twice
 /// (roadmap §7, test 3), as the device list, `--output`, `--next-output` and `--input` do. 0.4.0
 /// took both of a lane's nodes down and built them again on the new device, and meanwhile
 /// WirePlumber moved the streams that follow the default onto a device of its own and back. Since
@@ -2513,10 +2514,10 @@ fn under_a_steady_tone_an_application_route_moves_the_streams_on_and_off_without
 /// node"): gated, with the gap held to [`HANDOVER_BUDGET`]. The tone is heard on both devices of
 /// each direction.
 #[test]
-fn under_a_steady_tone_fxsound_picks_another_device_without_a_click() {
+fn under_a_steady_tone_crossfx_picks_another_device_without_a_click() {
     check(&Scenario {
         tag: "clk-device",
-        title: "FxSound picks another device",
+        title: "CrossFX picks another device",
         streams: Streams::Following,
         lanes: &DeviceDirection::ALL,
         switches: [true, false, true, false].map(Switch::Device).to_vec(),
@@ -2535,15 +2536,15 @@ fn under_a_steady_tone_fxsound_picks_another_device_without_a_click() {
 }
 
 /// The desktop's pick of the other speakers and the other microphone as the defaults, then of the
-/// first ones again, twice, with FxSound `on` (roadmap §7, test 4) or off (test 5). The tone is
+/// first ones again, twice, with CrossFX `on` (roadmap §7, test 4) or off (test 5). The tone is
 /// heard on both devices of each direction.
 fn desktop_picks(on: bool) -> Scenario {
     Scenario {
         tag: if on { "clk-deskon" } else { "clk-deskoff" },
         title: if on {
-            "desktop picks the default device, FxSound on"
+            "desktop picks the default device, CrossFX on"
         } else {
-            "desktop picks the default device, FxSound off"
+            "desktop picks the default device, CrossFX off"
         },
         streams: Streams::Following,
         lanes: &DeviceDirection::ALL,
@@ -2551,8 +2552,8 @@ fn desktop_picks(on: bool) -> Scenario {
         spacing: Duration::from_secs(3),
         gated: on,
         note: if on {
-            "Each pick is two moves: WirePlumber's, from the switch to FxSound's claim, held to \
-             plain Linux + 3 dB above the tone (roadmap 0.5.0 §7 test 4, §14 #16), and FxSound's \
+            "Each pick is two moves: WirePlumber's, from the switch to CrossFX's claim, held to \
+             plain Linux + 3 dB above the tone (roadmap 0.5.0 §7 test 4, §14 #16), and CrossFX's \
              claim of the default back, gated"
         } else {
             ""
@@ -2568,31 +2569,31 @@ fn desktop_picks(on: bool) -> Scenario {
     }
 }
 
-/// [`desktop_picks`] with FxSound's hook in the graph's WirePlumber (roadmap §7, D5; test 4 "with
+/// [`desktop_picks`] with CrossFX's hook in the graph's WirePlumber (roadmap §7, D5; test 4 "with
 /// the hook"): every move WirePlumber makes itself is faded, so each pick is held to the gate,
-/// WirePlumber's move as well as FxSound's claim after it with FxSound `on`.
+/// WirePlumber's move as well as CrossFX's claim after it with CrossFX `on`.
 ///
-/// With FxSound off, FxSound ranks its devices ([`Scenario::ranked`]), as it does unless *Follow
-/// the system's default device* is ticked. Following it, FxSound's lane — out of the sound, with
+/// With CrossFX off, CrossFX ranks its devices ([`Scenario::ranked`]), as it does unless *Follow
+/// the system's default device* is ticked. Following it, CrossFX's lane — out of the sound, with
 /// the power off — moves to the picked device too, about 0.2 s after the pick, and that move
 /// clicks the stream the hook has just faded in there: −23 to −32 dBFS where the pick itself was
 /// −60 (measured for D5, 3 runs × 4 picks; with the hook's fade in held back 300 ms, past it, the
-/// click went). That is FxSound's own lane moving under another application's sound, not
+/// click went). That is CrossFX's own lane moving under another application's sound, not
 /// WirePlumber's move, and not this scenario's.
 fn desktop_picks_with_the_hook(on: bool) -> Scenario {
     Scenario {
         tag: if on { "clk-hookon" } else { "clk-hookoff" },
         title: if on {
-            "desktop picks the default device, FxSound on, FxSound's hook in WirePlumber"
+            "desktop picks the default device, CrossFX on, CrossFX's hook in WirePlumber"
         } else {
-            "desktop picks the default device, FxSound off, FxSound's hook in WirePlumber"
+            "desktop picks the default device, CrossFX off, CrossFX's hook in WirePlumber"
         },
         gated: true,
         note: if on {
-            "Each pick is two moves: WirePlumber's, faded by FxSound's hook in WirePlumber, and \
-             FxSound's claim of the default back; both gated (roadmap 0.5.0 §7 test 4, D5)"
+            "Each pick is two moves: WirePlumber's, faded by CrossFX's hook in WirePlumber, and \
+             CrossFX's claim of the default back; both gated (roadmap 0.5.0 §7 test 4, D5)"
         } else {
-            "WirePlumber's move alone, faded by FxSound's hook in WirePlumber, with FxSound \
+            "WirePlumber's move alone, faded by CrossFX's hook in WirePlumber, with CrossFX \
              ranking its devices; gated (roadmap 0.5.0 §7, D5)"
         },
         budget: Some(HANDOVER_BUDGET),
@@ -2602,8 +2603,8 @@ fn desktop_picks_with_the_hook(on: bool) -> Scenario {
     }
 }
 
-/// The desktop's picks with FxSound off, measured once for both the tests that read them: plain
-/// Linux, which the picks with FxSound on are held to. `None` when they cannot run here.
+/// The desktop's picks with CrossFX off, measured once for both the tests that read them: plain
+/// Linux, which the picks with CrossFX on are held to. `None` when they cannot run here.
 fn bare_desktop_picks() -> Option<&'static Measured> {
     static MEASURED: std::sync::OnceLock<Option<Measured>> = std::sync::OnceLock::new();
     MEASURED
@@ -2612,19 +2613,19 @@ fn bare_desktop_picks() -> Option<&'static Measured> {
 }
 
 /// The desktop picks the other speakers and the other microphone as the defaults, then the first
-/// ones again, twice, with FxSound on (roadmap §7, test 4). WirePlumber moves the streams off
-/// FxSound's nodes onto the picked devices at once, as it would without FxSound; FxSound, following
+/// ones again, twice, with CrossFX on (roadmap §7, test 4). WirePlumber moves the streams off
+/// CrossFX's nodes onto the picked devices at once, as it would without CrossFX; CrossFX, following
 /// the system's default device as the engine does until the app ranks its devices, moves its lanes
 /// there, keeping its virtual nodes, and takes the defaults back, fading the streams it moves.
-/// Each switch is read as two rows ([`Scenario::claims`]): FxSound's claim, gated, with the gap
+/// Each switch is read as two rows ([`Scenario::claims`]): CrossFX's claim, gated, with the gap
 /// held to [`HANDOVER_BUDGET`]; and WirePlumber's move, which roadmap §14 #16 leaves where plain
-/// Linux has it, held to the same picks with FxSound off + 3 dB ([`against_bare_linux`]): heard in
-/// FxSound's chain, above the tone and not in dBFS, since the chain plays the tone louder than
-/// plain Linux does. The tail it cuts off in FxSound's chain fades since D4 (`crate::engine`, "A
-/// sound cut off"), held to the gate at the monitor of the speakers FxSound played through
+/// Linux has it, held to the same picks with CrossFX off + 3 dB ([`against_bare_linux`]): heard in
+/// CrossFX's chain, above the tone and not in dBFS, since the chain plays the tone louder than
+/// plain Linux does. The tail it cuts off in CrossFX's chain fades since D4 (`crate::engine`, "A
+/// sound cut off"), held to the gate at the monitor of the speakers CrossFX played through
 /// ([`left_behind`]), and what is left is the application's arrival on the picked device.
 #[test]
-fn under_a_steady_tone_a_desktop_pick_with_fxsound_on_is_taken_back_without_a_click() {
+fn under_a_steady_tone_a_desktop_pick_with_crossfx_on_is_taken_back_without_a_click() {
     let gate = Gate::from_env();
     let scenario = desktop_picks(true);
     let Some(measured) = measure(&scenario) else {
@@ -2648,13 +2649,13 @@ fn under_a_steady_tone_a_desktop_pick_with_fxsound_on_is_taken_back_without_a_cl
     conclude(result);
 }
 
-/// The desktop's picks with FxSound on, with FxSound's hook in WirePlumber (roadmap §7, test 4
-/// with the hook; D5): WirePlumber fades each stream it moves off FxSound's nodes onto the picked
-/// device and back in once it is there, and FxSound takes the default back as without it. Both
-/// moves of each pick are gated, and what the move leaves at the speakers FxSound played through is
+/// The desktop's picks with CrossFX on, with CrossFX's hook in WirePlumber (roadmap §7, test 4
+/// with the hook; D5): WirePlumber fades each stream it moves off CrossFX's nodes onto the picked
+/// device and back in once it is there, and CrossFX takes the default back as without it. Both
+/// moves of each pick are gated, and what the move leaves at the speakers CrossFX played through is
 /// held as without the hook ([`left_behind`]).
 #[test]
-fn under_a_steady_tone_a_desktop_pick_with_fxsound_on_and_its_hook_in_wireplumber_does_not_click() {
+fn under_a_steady_tone_a_desktop_pick_with_crossfx_on_and_its_hook_in_wireplumber_does_not_click() {
     let gate = Gate::from_env();
     let scenario = desktop_picks_with_the_hook(true);
     let Some(measured) = measure(&scenario) else {
@@ -2667,20 +2668,20 @@ fn under_a_steady_tone_a_desktop_pick_with_fxsound_on_and_its_hook_in_wireplumbe
     conclude(result);
 }
 
-/// The desktop's picks with FxSound off, with FxSound's hook in WirePlumber and FxSound ranking its
+/// The desktop's picks with CrossFX off, with CrossFX's hook in WirePlumber and CrossFX ranking its
 /// devices: WirePlumber alone moves the streams, and the hook fades each move. Plain Linux's
-/// click, which the option takes away with FxSound out of the sound too; gated.
+/// click, which the option takes away with CrossFX out of the sound too; gated.
 #[test]
-fn under_a_steady_tone_a_desktop_pick_with_fxsound_off_and_its_hook_in_wireplumber_does_not_click()
+fn under_a_steady_tone_a_desktop_pick_with_crossfx_off_and_its_hook_in_wireplumber_does_not_click()
 {
     check(&desktop_picks_with_the_hook(false));
 }
 
-/// The same picks with FxSound's power off (roadmap §7, test 5): FxSound is out of the sound, and
+/// The same picks with CrossFX's power off (roadmap §7, test 5): CrossFX is out of the sound, and
 /// WirePlumber alone moves the streams from one device to the other — the bare Linux move every
 /// other device switch is set beside. Reported.
 #[test]
-fn under_a_steady_tone_a_desktop_pick_of_the_default_device_with_fxsound_off_is_reported() {
+fn under_a_steady_tone_a_desktop_pick_of_the_default_device_with_crossfx_off_is_reported() {
     let Some(measured) = bare_desktop_picks() else {
         return;
     };
@@ -2752,10 +2753,10 @@ fn a_step_in_the_tone_is_found_at_its_switch_and_the_steady_state_stays_below_it
 }
 
 #[test]
-fn a_switch_followed_by_fxsounds_own_move_is_read_as_the_click_before_it_and_the_gap_after() {
+fn a_switch_followed_by_crossfx_own_move_is_read_as_the_click_before_it_and_the_gap_after() {
     let mut tone = sine(OUTPUT_TONE.0, OUTPUT_TONE.1, 6.0);
     let switch = 3 * RATE;
-    // The session manager's move: a jump 20 ms after the switch. FxSound's, 150 ms after: 100 ms
+    // The session manager's move: a jump 20 ms after the switch. CrossFX's, 150 ms after: 100 ms
     // of silence, faded out and in over 20 ms, which is no click.
     tone[switch + RATE / 50] += 0.2;
     let claim = switch + 3 * RATE / 20;
@@ -2772,21 +2773,21 @@ fn a_switch_followed_by_fxsounds_own_move_is_read_as_the_click_before_it_and_the
     }
     let windows = Window::split(switch, claim);
     let analysis = analyse_windows(&vec![tone], RATE / 2, &windows, &[switch, claim], &[]);
-    let [the_move, fxsounds] = [analysis.events[0], analysis.events[1]];
+    let [the_move, crossfx] = [analysis.events[0], analysis.events[1]];
     assert!(the_move.worst_dbfs > -40.0, "{analysis:?}");
     assert!((the_move.at_s - 0.02).abs() < 0.002, "{analysis:?}");
     assert!(
         the_move.dip_ms < 1.0,
         "the move's row has no dip to hold: {analysis:?}"
     );
-    assert!(fxsounds.worst_dbfs < -60.0, "{analysis:?}");
-    assert!((90.0..=120.0).contains(&fxsounds.dip_ms), "{analysis:?}");
+    assert!(crossfx.worst_dbfs < -60.0, "{analysis:?}");
+    assert!((90.0..=120.0).contains(&crossfx.dip_ms), "{analysis:?}");
     assert!(analysis.floor_dbfs < -100.0, "{analysis:?}");
 }
 
 #[test]
 fn a_click_is_read_above_the_tone_so_the_gain_the_tone_was_played_at_cancels() {
-    // The same cut at two levels, 11 dB apart as the speakers' tone with and without FxSound's
+    // The same cut at two levels, 11 dB apart as the speakers' tone with and without CrossFX's
     // chain: the stream stopped at the crest of a wave for 20 ms, and back.
     let cut = |level: f64| {
         let mut tone = sine(OUTPUT_TONE.0, level, 6.0);
@@ -2809,7 +2810,7 @@ fn a_click_is_read_above_the_tone_so_the_gain_the_tone_was_played_at_cancels() {
 }
 
 #[test]
-fn wireplumbers_move_with_fxsound_on_is_held_to_plain_linux_plus_3_db_above_the_tone() {
+fn wireplumbers_move_with_crossfx_on_is_held_to_plain_linux_plus_3_db_above_the_tone() {
     let (on, bare) = (desktop_picks(true), desktop_picks(false));
     let analysis = |tone_dbfs: f64, worst: &[f64]| Analysis {
         floor_dbfs: -110.0,
@@ -2835,8 +2836,8 @@ fn wireplumbers_move_with_fxsound_on_is_held_to_plain_linux_plus_3_db_above_the_
         run(-12.0, &[-19.0, -21.0, -20.0, -23.0]),
         run(-12.0, &[-22.0, -20.0, -25.0, -21.0]),
     ];
-    // FxSound on: the tone at −1 dBFS, WirePlumber's moves (the even rows) 11 dB louder in dBFS
-    // than plain Linux's and 2 dB above them over the tone; FxSound's claims (the odd rows) are
+    // CrossFX on: the tone at −1 dBFS, WirePlumber's moves (the even rows) 11 dB louder in dBFS
+    // than plain Linux's and 2 dB above them over the tone; CrossFX's claims (the odd rows) are
     // loud here only to show that they are the gate's, not this.
     let moves = [-6.0, -2.0, -9.0, -2.0, -8.0, -2.0, -10.0, -2.0];
     let quiet = [run(-1.0, &moves), run(-1.0, &moves)];
@@ -2845,7 +2846,7 @@ fn wireplumbers_move_with_fxsound_on_is_held_to_plain_linux_plus_3_db_above_the_
     assert!(
         held.text.contains(
             "## output: WirePlumber's move, above the tone: loudest run -5.0 dB; plain Linux \
-             (desktop picks the default device, FxSound off) -7.0 dB; held to -4.0 dB  ok"
+             (desktop picks the default device, CrossFX off) -7.0 dB; held to -4.0 dB  ok"
         ),
         "{}",
         held.text
@@ -2867,7 +2868,7 @@ fn wireplumbers_move_with_fxsound_on_is_held_to_plain_linux_plus_3_db_above_the_
 }
 
 #[test]
-fn a_desktop_pick_that_leaves_the_speakers_fxsound_played_through_loud_in_more_than_a_quarter_of_runs_fails()
+fn a_desktop_pick_that_leaves_the_speakers_crossfx_played_through_loud_in_more_than_a_quarter_of_runs_fails()
  {
     let scenario = desktop_picks(true);
     let run = |left_behind: [f64; 4]| Run {
@@ -2894,7 +2895,7 @@ fn a_desktop_pick_that_leaves_the_speakers_fxsound_played_through_loud_in_more_t
     assert!(held.failures.is_empty(), "{:?}", held.failures);
     assert!(
         held.text.contains(
-            "at the speakers FxSound played through, 1 of 12 picks over -40 dBFS, run by run: \
+            "at the speakers CrossFX played through, 1 of 12 picks over -40 dBFS, run by run: \
              desktop picks t_other, t_mic2 in run 2 at -12.4 dBFS"
         ),
         "{}",

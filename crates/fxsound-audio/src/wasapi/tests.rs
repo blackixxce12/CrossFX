@@ -19,7 +19,7 @@ enum Did {
     SetDefault(DeviceDirection, String, Role),
     Started(DeviceDirection, String, String),
     Stopped(DeviceDirection, Duration),
-    /// The record of the defaults FxSound holds, as kept: the output lane's, the input lane's.
+    /// The record of the defaults CrossFX holds, as kept: the output lane's, the input lane's.
     Recorded(Option<String>, Option<String>),
 }
 
@@ -35,7 +35,7 @@ struct Fake {
     original: Option<String>,
     refuse_streams: bool,
     gain: Option<f32>,
-    /// FxSound's record of the defaults it holds (`record`), as the last run left it.
+    /// CrossFX's record of the defaults it holds (`record`), as the last run left it.
     record: PerDirection<Option<String>>,
     /// The record's word on the defaults the user put on a cable themselves.
     users_cables: PerDirection<Defaults>,
@@ -293,7 +293,7 @@ fn harness_with(
     )
 }
 
-/// [`harness_with`], on a machine whose record of FxSound's defaults (`record`) is `record`: what a
+/// [`harness_with`], on a machine whose record of CrossFX's defaults (`record`) is `record`: what a
 /// run before this one left.
 fn harness_recorded(
     endpoints: Vec<Endpoint>,
@@ -312,7 +312,7 @@ fn harness_recorded(
     )
 }
 
-/// The next start after `previous`'s run: the same machine, with the defaults and FxSound's record
+/// The next start after `previous`'s run: the same machine, with the defaults and CrossFX's record
 /// as that run left them.
 fn harness_after(previous: &mut Harness, options: &StartOptions) -> Harness {
     let fake = previous.fake();
@@ -373,7 +373,7 @@ fn harness_kept(
     }
 }
 
-/// The machine this port is written on: the Realtek speakers and microphone array, and FxSound's
+/// The machine CrossFX is written on: the Realtek speakers and microphone array, and CrossFX's
 /// driver — the original installed, not running — with every default on the speakers.
 fn harness() -> Harness {
     harness_with(
@@ -1198,7 +1198,7 @@ fn while_the_original_fxsound_runs_the_output_lane_stands_aside_and_says_why() {
 }
 
 #[test]
-fn the_original_starting_while_fxsound_holds_the_default_is_left_the_default_without_a_fight() {
+fn the_original_starting_while_crossfx_holds_the_default_is_left_the_default_without_a_fight() {
     // Its start shows at once, as its capture of its driver: a session on "FxSound Speakers". And
     // with no watch on the driver's sessions, on the next short beat of the process list.
     for watched in [true, false] {
@@ -1349,7 +1349,7 @@ fn sessions_out_of_step_with_the_beat_have_the_process_list_read_once_a_beat_too
 
 #[test]
 fn a_default_moved_onto_the_driver_by_another_program_has_the_original_looked_for_at_once() {
-    // The power is off: FxSound holds no default, and its process list is read on the fallback.
+    // The power is off: CrossFX holds no default, and its process list is read on the fallback.
     let mut h = harness_with(
         vec![speakers(), headphones(), fxsound(), microphone()],
         all_roles(&speakers().id),
@@ -1405,7 +1405,7 @@ fn a_device_the_desktop_picks_is_the_users_pick_and_the_default_is_taken_back() 
         &StartOptions::default(),
     );
     h.start();
-    // FxSound's own writes come back first, and are no pick.
+    // CrossFX's own writes come back first, and are no pick.
     for &role in Role::claimed_by(OUT) {
         h.event(Event::DefaultChanged {
             direction: OUT,
@@ -1508,7 +1508,7 @@ fn with_a_ranking_a_desktop_pick_moves_nothing() {
     );
 }
 
-/// A headset's microphone, for calls: what a user may record calls from instead of FxSound.
+/// A headset's microphone, for calls: what a user may record calls from instead of CrossFX.
 fn headset_microphone() -> Endpoint {
     Endpoint {
         enumerator: "USB".to_owned(),
@@ -1586,7 +1586,7 @@ fn a_device_plugged_in_and_made_the_default_in_one_burst_is_followed_as_when_the
     assert_eq!(
         defaults,
         playback_on(&fxsound().id, &speakers().id),
-        "the playback roles are FxSound's again: the headset is heard through it"
+        "the playback roles are CrossFX's again: the headset is heard through it"
     );
 }
 
@@ -1652,7 +1652,7 @@ fn windows_moving_a_default_off_a_device_that_went_is_no_pick_and_the_saved_devi
         &StartOptions::default(),
     );
     h.start();
-    // The user listens on the headphones, picked in FxSound.
+    // The user listens on the headphones, picked in CrossFX.
     h.send(UiToAudio::SelectDevice {
         node_name: headphones().id,
         direction: OUT,
@@ -1809,7 +1809,7 @@ fn a_virtual_device_renamed_in_the_sound_settings_is_still_the_device_the_lanes_
 }
 
 #[test]
-fn calls_the_user_moves_while_fxsound_holds_them_stay_where_they_were_put() {
+fn calls_the_user_moves_while_crossfx_holds_them_stay_where_they_were_put() {
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
         vec![
@@ -1873,7 +1873,7 @@ fn calls_the_user_moves_while_fxsound_holds_them_stay_where_they_were_put() {
 }
 
 #[test]
-fn the_playback_roles_go_back_to_the_device_the_user_picked_in_fxsound() {
+fn the_playback_roles_go_back_to_the_device_the_user_picked_in_crossfx() {
     let mut defaults = all_roles(&speakers().id);
     defaults.set(Role::Communications, Some(microphone_speakers().id));
     let mut h = harness_with(
@@ -1902,7 +1902,7 @@ fn the_playback_roles_go_back_to_the_device_the_user_picked_in_fxsound() {
     assert_eq!(
         after.get(Role::Console),
         Some(headphones().id.as_str()),
-        "where the user listened through FxSound, as the original gives it back"
+        "where the user listened through CrossFX, as the original gives it back"
     );
     assert_eq!(after.get(Role::Multimedia), Some(headphones().id.as_str()));
     assert_eq!(
@@ -1961,7 +1961,7 @@ fn a_cable_the_user_made_their_default_is_never_taken_for_one_a_killed_run_left(
     // FxSound's driver for the speakers, VB-Cable for the microphone — and "CABLE Output" the
     // user's own default recording device, which they record the desktop with. The input lane is
     // detached, as it is at every start until a microphone is picked. At the start nothing tells
-    // their default from one Windows put there; FxSound never held either, and repairs neither.
+    // their default from one Windows put there; CrossFX never held either, and repairs neither.
     let [cable_in, cable_out] = cable();
     let endpoints = vec![
         speakers(),
@@ -2017,7 +2017,8 @@ fn offered(h: &Harness) -> Vec<String> {
         .collect()
 }
 
-/// Whether `messages` say that `name` was the default from before FxSound, for the settings to keep.
+/// Whether `messages` say that `name` was the default from before CrossFX, for the settings to
+/// keep.
 fn remembered(messages: &[AudioToUi], name: &str) -> bool {
     messages.iter().any(|message| {
         matches!(message, AudioToUi::RememberedDefault { node_name, .. } if node_name == name)
@@ -2028,7 +2029,7 @@ fn remembered(messages: &[AudioToUi], name: &str) -> bool {
 fn a_cable_the_user_plays_into_is_a_device_the_lane_plays_to_and_their_default_comes_back_there() {
     // FxSound's driver and VB-Cable; the user plays everything into "CABLE Input", which a
     // streaming program records from "CABLE Output" — and the settings remember "CABLE Input" as
-    // their default from before FxSound, which is what says it is theirs: its being the default
+    // their default from before CrossFX, which is what says it is theirs: its being the default
     // says nothing, Windows giving a cable it has just installed every role by itself.
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
@@ -2051,7 +2052,7 @@ fn a_cable_the_user_plays_into_is_a_device_the_lane_plays_to_and_their_default_c
     );
     assert!(!remembered(&h.messages(), &cable_in.id));
     h.forget();
-    // The app's first word: the default from before FxSound, as the settings keep it.
+    // The app's first word: the default from before CrossFX, as the settings keep it.
     h.send(UiToAudio::SeedRememberedDefaults {
         output: cable_in.id.clone(),
         input: String::new(),
@@ -2090,7 +2091,7 @@ fn a_cable_the_user_plays_into_is_a_device_the_lane_plays_to_and_their_default_c
     assert_eq!(h.defaults(OUT), all_roles(&cable_in.id));
 }
 
-/// VB-Cable installed while FxSound runs, and Windows giving it every role of both directions in
+/// VB-Cable installed while CrossFX runs, and Windows giving it every role of both directions in
 /// the same burst of notifications, as it gives a device just installed the first chance at the
 /// default (module docs, "Whose default it is"); and a moment after.
 fn windows_gives_a_new_cable_every_role(
@@ -2207,7 +2208,7 @@ fn a_cable_windows_makes_the_default_as_it_is_installed_is_no_pick_and_the_micro
 
 #[test]
 fn a_role_windows_moves_from_one_cable_it_installed_to_the_next_is_still_from_the_user_s_device() {
-    // The power is off, so FxSound holds no default and puts nothing back; VB-Cable is installed,
+    // The power is off, so CrossFX holds no default and puts nothing back; VB-Cable is installed,
     // then Cable A, and Windows gives each every role in turn.
     let [cable_in, cable_out] = cable();
     let [a_in, a_out] = cable_a();
@@ -2224,7 +2225,7 @@ fn a_role_windows_moves_from_one_cable_it_installed_to_the_next_is_still_from_th
     windows_gives_a_new_cable_every_role(&mut h, &cable_in, &cable_out);
     windows_gives_a_new_cable_every_role(&mut h, &a_in, &a_out);
     assert_eq!(h.did(), [], "nothing written with the power off");
-    // The power on: the default from before FxSound is the speakers, never a cable.
+    // The power on: the default from before CrossFX is the speakers, never a cable.
     h.forget();
     h.send(UiToAudio::SetAsDefault {
         direction: OUT,
@@ -2310,7 +2311,7 @@ fn a_cable_installed_while_the_microphone_runs_on_another_moves_neither_lane() {
 
 #[test]
 fn defaults_found_on_a_cable_at_the_start_are_windows_and_the_cable_is_the_microphone_s() {
-    // FxSound's driver, and VB-Cable installed before FxSound started, with every default on it:
+    // FxSound's driver, and VB-Cable installed before CrossFX started, with every default on it:
     // what Windows does with a device just installed, and nothing says the user wanted it.
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
@@ -2367,7 +2368,7 @@ fn defaults_found_on_a_cable_at_the_start_are_windows_and_the_cable_is_the_micro
 
 #[test]
 fn a_default_found_on_a_cable_the_start_could_not_list_yet_is_windows_once_it_is_listed() {
-    // VB-Cable had every default before FxSound started, but its endpoints are listed only by the
+    // VB-Cable had every default before CrossFX started, but its endpoints are listed only by the
     // read after the first.
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
@@ -2428,7 +2429,7 @@ fn on_a_machine_with_only_a_cable_a_default_windows_put_on_it_is_given_back_to_t
     assert!(
         h.did_all()
             .contains(&Did::Recorded(Some(cable_in.id.clone()), None)),
-        "FxSound holds them, and a run killed now leaves them for the next start to give back: {:?}",
+        "CrossFX holds them, and a run killed now leaves them for the next start to give back: {:?}",
         h.did_all()
     );
     assert!(!remembered(&h.messages(), &cable_in.id));
@@ -2439,13 +2440,13 @@ fn on_a_machine_with_only_a_cable_a_default_windows_put_on_it_is_given_back_to_t
     assert_eq!(
         h.defaults(OUT),
         all_roles(&speakers().id),
-        "given back to the speakers: no silence once FxSound has quit"
+        "given back to the speakers: no silence once CrossFX has quit"
     );
     assert_eq!(h.fake().record.output, None);
     assert_eq!(
         h.defaults(IN),
         all_roles(&microphone().id),
-        "and the recording roles, which Windows put on the recording side of FxSound's own cable \
+        "and the recording roles, which Windows put on the recording side of CrossFX's own cable \
          — where every recorder records the desktop's sound — are on the microphone again"
     );
 
@@ -2472,13 +2473,13 @@ fn on_a_machine_with_only_a_cable_a_default_windows_put_on_it_is_given_back_to_t
     assert_eq!(
         h.defaults(OUT),
         all_roles(&cable_in.id),
-        "the playback roles are FxSound's, and calls heard through it"
+        "the playback roles are CrossFX's, and calls heard through it"
     );
 }
 
 #[test]
 fn a_cable_s_default_is_the_user_s_once_it_moves_there_after_the_cable_has_arrived() {
-    // VB-Cable installed while FxSound runs, and the playback default moved onto it in the burst
+    // VB-Cable installed while CrossFX runs, and the playback default moved onto it in the burst
     // of its arrival, a moment later, or once the cable has been there a while: only the last is
     // the user making it their default. The speakers' lane follows the system's default.
     let [cable_in, cable_out] = cable();
@@ -2525,7 +2526,7 @@ fn a_cable_s_default_is_the_user_s_once_it_moves_there_after_the_cable_has_arriv
         assert_eq!(
             h.defaults(OUT),
             playback_on(&fxsound().id, &speakers().id),
-            "{after:?}: the playback roles are FxSound's either way"
+            "{after:?}: the playback roles are CrossFX's either way"
         );
         // The microphone mixes itself into no cable the user plays into, and says so; one Windows
         // made the default by itself is its own.
@@ -2660,7 +2661,7 @@ fn the_microphone_leaves_alone_a_cable_the_user_records_from_and_adopts_one_a_ki
         cable_out.clone(),
     ];
     // The user records the desktop from "CABLE Output": they made it their default recording
-    // device while FxSound ran, the cable having long been there.
+    // device while CrossFX ran, the cable having long been there.
     let mut h = harness_with(
         machine.clone(),
         all_roles(&speakers().id),
@@ -2688,7 +2689,7 @@ fn the_microphone_leaves_alone_a_cable_the_user_records_from_and_adopts_one_a_ki
     assert_eq!(h.defaults(IN), all_roles(&cable_out.id));
 
     // The same default found there at the start, with the settings remembering it as theirs from
-    // before FxSound: theirs as much.
+    // before CrossFX: theirs as much.
     let mut h = harness_with(
         machine.clone(),
         all_roles(&speakers().id),
@@ -2711,7 +2712,7 @@ fn the_microphone_leaves_alone_a_cable_the_user_records_from_and_adopts_one_a_ki
         message: AudioError::VirtualInputDeviceInUse.to_string(),
     }));
 
-    // A run of this port was killed holding the microphone's default there: the record says so,
+    // A run of CrossFX was killed holding the microphone's default there: the record says so,
     // and the lane attached at the start adopts it, and gives it back at the end.
     let mut h = harness_recorded(
         machine,
@@ -2744,7 +2745,7 @@ fn the_microphone_leaves_alone_a_cable_the_user_records_from_and_adopts_one_a_ki
 #[test]
 fn a_cable_installed_while_the_speakers_follow_the_system_is_no_device_just_added_to_them() {
     // FxSound's driver for the speakers' lane, which follows the system's default with nothing
-    // picked in FxSound — the state after a fresh install. VB-Cable is installed meanwhile, for the
+    // picked in CrossFX — the state after a fresh install. VB-Cable is installed meanwhile, for the
     // microphone.
     let [cable_in, cable_out] = cable();
     let mut h = harness();
@@ -2818,7 +2819,7 @@ fn a_blind_start_takes_a_real_device_for_the_first_there_is_not_a_cable_listed_b
 #[test]
 fn the_microphone_s_last_resort_is_a_real_microphone_not_a_cable_listed_before_it() {
     // FxSound's driver for the speakers, VB-Cable for the microphone, and Cable A free — listed
-    // first. The user records from their USB microphone, their default, through FxSound.
+    // first. The user records from their USB microphone, their default, through CrossFX.
     let [cable_in, cable_out] = cable();
     let [cable_a_in, cable_a_out] = cable_a();
     let mut h = harness_with(
@@ -2874,7 +2875,7 @@ fn the_microphone_s_last_resort_is_a_real_microphone_not_a_cable_listed_before_i
 }
 
 #[test]
-fn a_cable_the_user_picks_in_fxsound_is_played_to_and_given_the_default_back() {
+fn a_cable_the_user_picks_in_crossfx_is_played_to_and_given_the_default_back() {
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
         vec![
@@ -3027,7 +3028,7 @@ fn the_original_fxsound_moving_the_default_is_no_pick_of_the_user_s() {
 
 #[test]
 fn once_the_original_fxsound_is_gone_a_default_it_was_killed_holding_is_given_back() {
-    // The power is off, and the original holds the default when FxSound starts.
+    // The power is off, and the original holds the default when CrossFX starts.
     let mut h = harness_with(
         vec![speakers(), fxsound(), microphone()],
         all_roles(&fxsound().id),
@@ -3628,7 +3629,7 @@ fn the_rules_own_choice_of_a_cable_never_makes_it_the_user_s() {
 
 #[test]
 fn a_cable_listed_only_after_its_wait_is_windows_once_it_is_listed() {
-    // VB-Cable installed while FxSound runs, Windows' default heard at once and the cable's
+    // VB-Cable installed while CrossFX runs, Windows' default heard at once and the cable's
     // endpoints readable only after PICK_WAIT: no pick was decided, and the default is Windows'.
     // Calls were on the headphones, which the lane's hand-back would not know to go back to.
     let [cable_in, cable_out] = cable();
@@ -3710,7 +3711,7 @@ fn a_cable_listed_only_after_its_wait_is_windows_once_it_is_listed() {
 
 #[test]
 fn a_role_windows_moves_off_a_cable_it_had_put_it_on_never_goes_back_onto_that_cable() {
-    // VB-Cable's defaults found at the start, then Cable A installed while FxSound runs: Windows
+    // VB-Cable's defaults found at the start, then Cable A installed while CrossFX runs: Windows
     // moves the calls' role from one cable to the next. It goes to a real device, never back onto
     // VB-Cable — which would make that cable the user's in use, and the microphone avoid it.
     let [cable_in, cable_out] = cable();
@@ -3774,7 +3775,7 @@ fn a_role_windows_moves_off_a_cable_it_had_put_it_on_never_goes_back_onto_that_c
     assert_eq!(
         h.defaults(OUT),
         playback_on(&fxsound().id, &speakers().id),
-        "FxSound in the playback roles' path: calls off the cable too"
+        "CrossFX in the playback roles' path: calls off the cable too"
     );
     h.forget();
     windows_gives_a_new_cable_every_role(&mut h, &a_in, &a_out);
@@ -3791,8 +3792,8 @@ fn a_role_windows_moves_off_a_cable_it_had_put_it_on_never_goes_back_onto_that_c
 
 #[test]
 fn calls_windows_left_on_a_cable_at_the_start_go_back_once_the_app_has_had_its_say() {
-    // VB-Cable installed before FxSound started, every default on it, the microphone never
-    // picked. The speakers' lane holds its claim: calls in the cable are in FxSound's path.
+    // VB-Cable installed before CrossFX started, every default on it, the microphone never
+    // picked. The speakers' lane holds its claim: calls in the cable are in CrossFX's path.
     let [cable_in, cable_out] = cable();
     let machine = vec![
         speakers(),
@@ -3847,7 +3848,7 @@ fn calls_windows_left_on_a_cable_at_the_start_go_back_once_the_app_has_had_its_s
         [Did::SetDefault(OUT, speakers().id, Role::Communications)]
     );
 
-    // The settings remember "CABLE Input" as the user's default from before FxSound: theirs, and
+    // The settings remember "CABLE Input" as the user's default from before CrossFX: theirs, and
     // their calls stay in it.
     let mut h = harness_with(
         machine,
@@ -3912,9 +3913,9 @@ fn a_claim_that_adopts_windows_roles_tells_the_settings_where_they_were() {
 
 #[test]
 fn a_default_moved_onto_the_cable_the_microphone_stands_on_is_never_the_user_s() {
-    // VB-Cable installed while FxSound runs, its endpoints listed at once, the microphone's lane
+    // VB-Cable installed while CrossFX runs, its endpoints listed at once, the microphone's lane
     // taking it — and Windows' default for it heard only 2.5 s later, past PICK_WAIT. Whoever made
-    // it the default, the cable is FxSound's own now: whatever plays into it goes out with the
+    // it the default, the cable is CrossFX's own now: whatever plays into it goes out with the
     // voice.
     let [cable_in, cable_out] = cable();
     let mut h = harness();
@@ -3947,10 +3948,10 @@ fn a_default_moved_onto_the_cable_the_microphone_stands_on_is_never_the_user_s()
 }
 
 #[test]
-fn a_cable_the_user_made_their_default_while_fxsound_ran_stays_theirs_at_the_next_start() {
+fn a_cable_the_user_made_their_default_while_crossfx_ran_stays_theirs_at_the_next_start() {
     // A ranking decides the speakers' device, as the app's settings have it by default. The
     // cable long installed, the user sends everything into "CABLE Input" for a streaming program:
-    // theirs for the run, and — FxSound's record keeping it — for the next.
+    // theirs for the run, and — CrossFX's record keeping it — for the next.
     let [cable_in, cable_out] = cable();
     let mut h = harness_with(
         vec![
@@ -3999,12 +4000,12 @@ fn a_cable_the_user_made_their_default_while_fxsound_ran_stays_theirs_at_the_nex
             direction: OUT,
             node_name: cable_in.id.clone(),
         }),
-        "the default from before FxSound, which the settings keep: {messages:?}"
+        "the default from before CrossFX, which the settings keep: {messages:?}"
     );
     assert_eq!(
         h.defaults(OUT),
         playback_on(&fxsound().id, &cable_in.id),
-        "the playback roles FxSound's, as at any start; the calls left in the cable"
+        "the playback roles CrossFX's, as at any start; the calls left in the cable"
     );
     h.forget();
     h.send(UiToAudio::SelectDevice {
@@ -4037,7 +4038,7 @@ fn a_cable_the_user_made_their_default_while_fxsound_ran_stays_theirs_at_the_nex
 
 #[test]
 fn a_lane_standing_on_a_cable_just_installed_plays_to_the_device_the_user_had() {
-    // No FxSound driver: VB-Cable, installed while FxSound runs, is the speakers' lane's device,
+    // No FxSound driver: VB-Cable, installed while CrossFX runs, is the speakers' lane's device,
     // and takes the place of the default the user had on the headphones. That default is where
     // the lane plays, and where it is given back.
     let [cable_in, cable_out] = cable();
@@ -4067,7 +4068,7 @@ fn a_lane_standing_on_a_cable_just_installed_plays_to_the_device_the_user_had() 
 fn a_lane_ending_leaves_the_other_lane_s_defaults_to_its_claim() {
     // The speakers' lane plays on FxSound's driver and the microphone's waits on VB-Cable; Cable A
     // has the playback roles, unheard yet, when the microphone's lane is switched off. Its
-    // hand-back puts Windows' defaults in FxSound's path right — the speakers' roles back on
+    // hand-back puts Windows' defaults in CrossFX's path right — the speakers' roles back on
     // FxSound's driver, which still plays, not straight to the speakers past it.
     let [cable_in, cable_out] = cable();
     let [a_in, a_out] = cable_a();

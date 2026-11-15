@@ -5,7 +5,7 @@
 //! detection, or when the `train` feature is enabled they can be collected and used to train new
 //! neural nets.
 
-// fxsound: `Spectrum` and `Fft` (`crate::fft`) in place of `easyfft`'s `DynRealDft` and its
+// crossfx: `Spectrum` and `Fft` (`crate::fft`) in place of `easyfft`'s `DynRealDft` and its
 // thread-local transforms; `Complex` was only needed to build a `DynRealDft`.
 use crate::fft::{Fft, Spectrum};
 use crate::{
@@ -46,7 +46,7 @@ pub struct DenoiseFeatures {
 
     pitch_finder: crate::pitch::PitchFinder,
 
-    // fxsound: the transforms, planned here rather than on the first frame analysed.
+    // crossfx: the transforms, planned here rather than on the first frame analysed.
     fft: Fft,
 }
 
@@ -54,7 +54,7 @@ const fn max(a: usize, b: usize) -> usize {
     if a > b { a } else { b }
 }
 
-// fxsound: `new` is public, so clippy wants `Default` beside it.
+// crossfx: `new` is public, so clippy wants `Default` beside it.
 impl Default for DenoiseFeatures {
     fn default() -> Self {
         Self::new()
@@ -64,7 +64,7 @@ impl Default for DenoiseFeatures {
 impl DenoiseFeatures {
     /// Creates a new, empty, `DenoiseFeatures`.
     pub fn new() -> DenoiseFeatures {
-        // fxsound: build the window and DCT tables now, on the thread constructing this, if
+        // crossfx: build the window and DCT tables now, on the thread constructing this, if
         // nothing has yet. Left to their first use, the first frame would build them in the
         // middle of an audio callback.
         common();
@@ -91,7 +91,7 @@ impl DenoiseFeatures {
         &self.features[..]
     }
 
-    // fxsound: clear every piece of history in place, so that the next frame is computed exactly
+    // crossfx: clear every piece of history in place, so that the next frame is computed exactly
     // as a freshly built `DenoiseFeatures` would compute it, without allocating one.
     /// Forgets everything: the input history, the cepstral memory, the high-pass filter's state,
     /// the overlap-add tail and the pitch tracker. Allocation-free.
@@ -298,7 +298,7 @@ impl DenoiseFeatures {
     }
 
     pub(crate) fn frame_synthesis(&mut self, out: &mut [f32]) {
-        // fxsound: the body moved to `overlap_add` so that `Stft` runs the identical synthesis.
+        // crossfx: the body moved to `overlap_add` so that `Stft` runs the identical synthesis.
         overlap_add(
             &mut self.fft,
             &self.x,
@@ -309,7 +309,7 @@ impl DenoiseFeatures {
     }
 }
 
-// fxsound: the second half of the library's STFT, on its own so that a channel without a network
+// crossfx: the second half of the library's STFT, on its own so that a channel without a network
 // of its own (`crate::Stft`) synthesises exactly as `DenoiseFeatures` does.
 /// Inverse-transforms `x`, windows it and overlap-adds it with the previous frame's tail, writing
 /// `FRAME_SIZE` samples to `out`.
@@ -320,7 +320,7 @@ pub(crate) fn overlap_add(
     synthesis_mem: &mut [f32; FRAME_SIZE],
     out: &mut [f32],
 ) {
-    // fxsound: through the transform planned at construction, not `easyfft`'s thread-local one.
+    // crossfx: through the transform planned at construction, not `easyfft`'s thread-local one.
     fft.inverse(x, window_buf);
     // Not too sure why this scaling factor is introduced
     for x in window_buf.iter_mut() {
@@ -343,7 +343,7 @@ pub(crate) fn overlap_add(
 /// Fourier transforms the input.
 ///
 /// The Fourier transform goes in `x` and the band energies go in `ex`.
-// fxsound: `pub(crate)` so that `Stft` analyses a channel exactly as the network's path does.
+// crossfx: `pub(crate)` so that `Stft` analyses a channel exactly as the network's path does.
 pub(crate) fn transform_input(
     fft: &mut Fft,
     input: &[f32],
@@ -354,7 +354,7 @@ pub(crate) fn transform_input(
 ) {
     let input = &input[input.len().checked_sub(WINDOW_SIZE + lag).unwrap()..];
     crate::apply_window(&mut window_buf[..], input);
-    // fxsound: through the transform planned at construction, not `easyfft`'s thread-local one.
+    // crossfx: through the transform planned at construction, not `easyfft`'s thread-local one.
     fft.forward(window_buf, x);
 
     // In the original RNNoise code, the forward transform is normalized and the inverse

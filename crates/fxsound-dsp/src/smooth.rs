@@ -55,14 +55,14 @@
 //! its stage, applies its parameters and only then processes.
 //!
 //! A stage its owner stops running is not heard either: the equalizer and the leveller while
-//! FxSound is off, and the whole GraphicEq block once the equalizer's switch has faded it out. Only
+//! CrossFX is off, and the whole GraphicEq block once the equalizer's switch has faded it out. Only
 //! running a stage plays its glides, so one begun or waiting while the stage is left out would
 //! wait for it to come back and then play 20 ms of a setting the listener last heard before the
-//! switch — a band moved with FxSound off came back at +12 dB for 20 ms, a Volume Leveling set to
+//! switch — a band moved with CrossFX off came back at +12 dB for 20 ms, a Volume Leveling set to
 //! 0 came back lifting by 13 dB. So the owner tells such a stage it was left out
 //! ([`crate::GraphicEq::sit_out`], [`crate::leveller::VolumeLeveller::sit_out`], and the engine
 //! settles its own gain stage): every glide lands, and until the stage runs again a change lands
-//! at once. The effect chain needs no telling: FxSound off clears it, as the original does.
+//! at once. The effect chain needs no telling: CrossFX off clears it, as the original does.
 //!
 //! # What cannot glide
 //!
@@ -414,7 +414,7 @@ enum DipState {
 
 /// A dip to silence and back, for a switch that cannot glide.
 ///
-/// Some switches have nothing to glide between. Switching FxSound off hands the listener the
+/// Some switches have nothing to glide between. Switching CrossFX off hands the listener the
 /// unprocessed sound a look-ahead earlier than the processed one was playing it, so the two do not
 /// line up; switching the microphone's denoiser on puts twenty milliseconds of delay into the
 /// chain; turning a voice preset's equalizer or high-pass off or on, or moving its gate, puts one
@@ -431,7 +431,7 @@ enum DipState {
 /// the silence a stage that has just started holds for its own delay, and fading in over it would
 /// play the step after all.
 /// Neither side of the switch is ever mixed with the other. The fades are smoothstep curves
-/// ([`dip_gain`]), which start and end with no slope, so the dip has no corner to click at either.
+/// (`dip_gain`), which start and end with no slope, so the dip has no corner to click at either.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dip {
     state: DipState,

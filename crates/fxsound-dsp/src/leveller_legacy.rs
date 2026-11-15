@@ -1,4 +1,4 @@
-//! The Windows build's Volume Leveling, for «Like FxSound for Windows» = Interface and sound.
+//! The original's Volume Leveling, for «Like the original FxSound LLC» = Interface and sound.
 //!
 //! The arithmetic of `applyVolumeLeveling` (`SosProcess.cpp:139-492`) as the port ran it before the
 //! 0.4.0 audit (`0f05ba5`), with audit items #1 to #4 taken back:
@@ -10,7 +10,7 @@
 //! * **#4** — both ends of the step's ramp are clamped to the peak-safe gain, so a transient late
 //!   in a call pulls the gain down on the call's first sample.
 //!
-//! It is not a frozen copy: it runs inside the port's wrappers of today, which are the same at
+//! It is not a frozen copy: it runs inside CrossFX's wrappers of today, which are the same at
 //! every level. Switching the stage off lets the gain down over 20 ms (#11); a stage its owner
 //! left out drops that glide ([`VolumeLeveller::sit_out`]); the detector does no subnormal
 //! arithmetic in silence (#5); a non-finite statistic clears the stage. None of them moves a
@@ -18,7 +18,7 @@
 //! build's: `scripts/windows-parity-bitexact.sh --compat=windows 3596e99` holds it to the engine
 //! before the audit.
 //!
-//! The statistics and the decision are the port's own functions ([`VolumeLeveller::gather`],
+//! The statistics and the decision are CrossFX's own functions ([`VolumeLeveller::gather`],
 //! [`VolumeLeveller::decide`], [`VolumeLeveller::finish_step`]): the audit did not change them,
 //! and a step that is one whole call is exactly the original's buffer. What differs is here: the
 //! peak the safety reads, the start of the ramp, and the gain pass. The tests hold the whole of it
@@ -31,7 +31,7 @@ use super::{
 use crate::biquad::Real;
 
 impl VolumeLeveller {
-    /// One call of the Windows build's stage: a whole step, decided on this call's statistics and
+    /// One call of the original's stage: a whole step, decided on this call's statistics and
     /// ramped across it (`SosProcess.cpp:139-492`).
     pub(super) fn process_windows(
         &mut self,
@@ -40,7 +40,7 @@ impl VolumeLeveller {
         effective_sample_rate: Real,
     ) {
         let frames = buffer.len() / layout.channels;
-        // One step per call (#2 taken back): whatever the port had gathered towards a step of
+        // One step per call (#2 taken back): whatever CrossFX had gathered towards a step of
         // its own clock belongs to no call of this one.
         self.step = StepStats::default();
         let peak = self.gather(buffer, layout);
@@ -85,12 +85,12 @@ impl VolumeLeveller {
         self.finish_step(&decision);
         self.step = StepStats::default();
         // What is being played at the end of the call, for the let-down if the stage is switched
-        // off (#11) and for the port's arithmetic if the level goes back to Off.
+        // off (#11) and for CrossFX's arithmetic if the level goes back to Off.
         self.ramp = GainRamp::hold(gain_end);
     }
 }
 
-/// Pass 2 of the Windows build (`SosProcess.cpp:371-400`): the ramp from `gain_start` to
+/// Pass 2 of the original (`SosProcess.cpp:371-400`): the ramp from `gain_start` to
 /// `gain_end` across the call, the post-gain statistics of the analysed channels, and the hard
 /// clip at the ceiling. The subwoofer is skipped altogether, gain and clip (#3 taken back).
 ///
@@ -223,8 +223,8 @@ mod tests {
     fn at_interface_and_sound_the_state_machine_steps_once_a_call_as_on_windows() {
         // Audit #2 taken back: one step per call, so the speed of every smoothing constant follows
         // the quantum again. Over a second of a quiet tone being lifted the stage decides a
-        // hundred times on the port's clock whatever the quantum (counted once a call, so on
-        // quanta no longer than its step), and as often as it is called on the Windows build's.
+        // hundred times on CrossFX's clock whatever the quantum (counted once a call, so on
+        // quanta no longer than its step), and as often as it is called on the original's.
         for quantum in [96, 240, 480] {
             assert_eq!(
                 decisions(DspCompat::Linux, quantum, 48_000),
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn switching_the_arithmetic_crossfades_the_subwoofer_rather_than_stepping_it() {
-        // Levelled at FxSound for Linux, at unity at Interface and sound: a quiet 5.1 scene
+        // Levelled at CrossFX, at unity at Interface and sound: a quiet 5.1 scene
         // being lifted took its subwoofer from the fronts' gain to x1 between two samples when
         // the level moved, a step of 0.35 on a 50 Hz tone that moves by 0.003 a sample at that
         // gain. It now fades from one to the other over 20 ms, both ways, and then the subwoofer

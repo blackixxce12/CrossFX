@@ -44,14 +44,14 @@
 //! nearly 6 dB at maximum — and Bass from clipping the output, so switching it off with the other
 //! effects would make the chain *less* safe, not more transparent.
 //!
-//! One consequence the port keeps deliberately, because removing it changes what FxSound sounds
+//! One consequence CrossFX keeps deliberately, because removing it changes what CrossFX sounds
 //! like: whenever the master power is on, everything passes through `×0.966051` = **−0.3 dBFS**
 //! (`Maxi32.c:297`, `Play32.c:411`), even with every slider at zero.
 //!
 //! # Where this departs from `Maxi32.c`
 //!
-//! Five changes, each a defect of the original that the 0.4.0 audit of what the port copied found
-//! audible, and each one a reason FxSound for Linux no longer sounds exactly like Windows here:
+//! Five changes, each a defect of the original that the 0.4.0 audit of what CrossFX copied found
+//! audible, and each one a reason CrossFX no longer sounds exactly like Windows here:
 //!
 //! * **#6 — slider 0 boosts nothing.** The anti-pumping floor at `Maxi32.c:288-289` stops the
 //!   back-off at ×1.06 (+0.5 dB) whatever the slider says, so at slider 0 — Flat, and stored values
@@ -62,7 +62,7 @@
 //!   the same as quiet material.
 //! * **#7 — the level is the front pair's.** The estimator heard the left channel alone
 //!   (`Maxi32.c:258-259`); it hears the mean square of left and right now. See
-//!   [`detector_power`].
+//!   `detector_power`.
 //! * **R2 — one envelope for both sides of the stereo pair** (and on surround for every speaker
 //!   either side of the listener, the centre and the subwoofer each on their own), **#8 — the
 //!   attack stops at its peak**, and **R1 — a 20 ms hold before the release**: all three live in
@@ -78,7 +78,7 @@
 //!   cycle and raised the RMS was the distortion — so a kick-heavy mix at sliders 6 to 10 comes
 //!   out 0.6 to 1 dB less loud.
 //!
-//! At «Like FxSound for Windows» = Interface and sound ([`DynamicBoost::set_compat`]) all five
+//! At «Like the original FxSound LLC» = Interface and sound ([`DynamicBoost::set_compat`]) all five
 //! are taken back and the arithmetic is `Maxi32.c`'s again: the flat 1.06 floor, the left
 //! channel's level, an envelope per channel with no hold and an attack that overshoots. The
 //! glide of the static boost (audit #11) stays: it changes nothing once the slider has stopped.
@@ -109,10 +109,10 @@ pub const MAX_OUTPUT: Real = 0.966_051;
 /// `MAXI_LOOK_AHEAD_DELAY` (`c_max.h:49`) — 0.75 ms of look-ahead.
 pub const LOOK_AHEAD_SECONDS: Real = 0.000_75;
 
-/// Look-ahead capacity, in frames, for the highest rate this port supports (192 kHz).
+/// Look-ahead capacity, in frames, for the highest rate CrossFX supports (192 kHz).
 ///
 /// The original reserves `MAXI_MAX_DELAY_LEN = 96` (`c_max.h:47`) because it caps its internal
-/// rate at 48 kHz and decimates anything higher (spec §2). This port runs at the native rate
+/// rate at 48 kHz and decimates anything higher (spec §2). CrossFX runs at the native rate
 /// instead, so the buffer is sized for 192 kHz · 0.75 ms = 144 frames; anything faster is clamped
 /// to this length rather than overrunning, which is the failure the original's fixed 96 would
 /// have had at 176.4 kHz (spec §9.1, risk R6).
@@ -151,10 +151,10 @@ const SQUARE_FLOOR: Real = 1.1e-19;
 
 /// `DFXP_MUSIC_MODE2_DYNAMIC_BOOST_FACTOR` (`dfxpDefs.h:129`), applied at `dfxpComm.cpp:709-717`.
 ///
-/// MUSIC2 is the only mode FxSound 13 ships (`DfxDspPreset.cpp:239-242`: *"As of DFX Version 13,
-/// we only allow music mode 2"*), so the warp is folded into the mapping here rather than being a
-/// separate host-level stage. SPEECH uses the same 1.8 (`dfxpDefs.h:130`); MUSIC1 would be 1.0 and
-/// would make the slider monotonic instead of saturating at 6.
+/// MUSIC2 is the only mode the original's DFX 13 ships (`DfxDspPreset.cpp:239-242`: *"As of DFX
+/// Version 13, we only allow music mode 2"*), so the warp is folded into the mapping here rather
+/// than being a separate host-level stage. SPEECH uses the same 1.8 (`dfxpDefs.h:130`); MUSIC1
+/// would be 1.0 and would make the slider monotonic instead of saturating at 6.
 const MUSIC2_BOOST_FACTOR: Real = 1.8;
 
 /// `PLY_OPTIMIZER_BOOST_MAX_SCALE` (`c_play.h:90`), applied at `dfxpComm.cpp:742`.
@@ -218,10 +218,10 @@ pub struct DynamicBoost {
     /// The side of the room each channel stands on, and for how many, once the owner has said:
     /// what decides which channels the limiter turns down together.
     sides: Option<([ChannelSide; MAX_CHANNELS], usize)>,
-    /// Whose arithmetic runs: the port's, or `Maxi32.c`'s ([`DynamicBoost::set_compat`]).
+    /// Whose arithmetic runs: CrossFX's, or `Maxi32.c`'s ([`DynamicBoost::set_compat`]).
     compat: DspCompat,
-    /// How much of the back-off's floor is the original's flat 1.06 rather than the port's: 1 for
-    /// the Windows arithmetic, 0 for the port's, and a glide between the two when the arithmetic
+    /// How much of the back-off's floor is the original's flat 1.06 rather than CrossFX's: 1 for
+    /// the Windows arithmetic, 0 for CrossFX's, and a glide between the two when the arithmetic
     /// changes, since the floor is the one part of it that would step the gain at once.
     flat_floor: Ramp,
     /// The limiter as it stood when the arithmetic last changed, still limiting in the old design
@@ -310,11 +310,11 @@ impl DynamicBoost {
         self.relink();
     }
 
-    /// Play the port's arithmetic, or the Windows build's (`Maxi32.c`, «Like FxSound for
-    /// Windows» = Interface and sound): the flat 1.06 floor of the back-off (#6 taken back), the
+    /// Play CrossFX's arithmetic, or the original's (`Maxi32.c`, «Like the original FxSound
+    /// LLC» = Interface and sound): the flat 1.06 floor of the back-off (#6 taken back), the
     /// left channel alone as the level (#7), an envelope per channel (R2) with no hold (R1) and an
     /// attack that runs past its peak (#8). The front pair and the sides are remembered and come
-    /// back into use with the port's arithmetic.
+    /// back into use with CrossFX's arithmetic.
     ///
     /// Allocation-free. The static boost and its glide are untouched. The back-off's floor glides
     /// from one to the other over [`crate::smooth::GLIDE_SECONDS`]: at slider 0 under loud
@@ -404,7 +404,7 @@ impl DynamicBoost {
 
     /// The current level estimate as an RMS, `sqrt(s->level)`.
     ///
-    /// Tracks the front pair's power (see [`detector_power`]) with a ~1.59 s time constant.
+    /// Tracks the front pair's power (see `detector_power`) with a ~1.59 s time constant.
     /// Useful for a UI meter that wants to show why the boost is backing off; it is the same
     /// number the loop uses.
     #[must_use]
@@ -1986,7 +1986,8 @@ mod tests {
         }
     }
 
-    // -- «Like FxSound for Windows» = Interface and sound ----------------------------------------
+    // -- «Like the original FxSound LLC» = Interface and sound
+    // ----------------------------------------
 
     /// Dynamic Boost as the port ran it before the 0.4.0 audit (`0f05ba5`), line for line: the
     /// left channel's level, the flat 1.06 floor, and `Maxi32.c`'s limiter
@@ -2045,7 +2046,7 @@ mod tests {
         }
     }
 
-    /// A Dynamic Boost playing the Windows build's arithmetic, at `amount`, its glide landed.
+    /// A Dynamic Boost playing the original's arithmetic, at `amount`, its glide landed.
     fn windows_boost(amount: Real) -> DynamicBoost {
         let mut boost = DynamicBoost::new(FS);
         boost.set_compat(DspCompat::Windows);
@@ -2284,7 +2285,7 @@ mod tests {
     #[test]
     fn back_at_off_the_ports_linking_and_level_come_back_with_the_layout_it_was_given() {
         // The arithmetic is switched, not the layout forgotten: a front pair named while the
-        // Windows arithmetic played is the one the port's estimator hears once it is back, and a
+        // Windows arithmetic played is the one CrossFX's estimator hears once it is back, and a
         // peak on one side turns both down together again.
         let mut boost = windows_boost(0.0);
         boost.set_front_pair(Some((1, 0)));

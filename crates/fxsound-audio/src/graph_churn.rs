@@ -2,7 +2,7 @@
 //!
 //! Everything else in this crate's tests takes a function with no server behind it: the ring, the
 //! quantum arithmetic, the channel map, the pod builders. None of them touches [`supervise`],
-//! [`connect`], `apply_rules` or `build_nodes` — the code that actually decides what FxSound does
+//! [`connect`], `apply_rules` or `build_nodes` — the code that actually decides what CrossFX does
 //! to somebody's audio graph — because those need a server, and pointing them at the developer's
 //! own graph would create nodes in it and take their default device away mid-test. The one
 //! exception, `engine::live_session`, calls them by hand against a daemon of this module's.
@@ -380,7 +380,7 @@ impl PrivateGraph {
         })
     }
 
-    /// Which of FxSound's own nodes are in the graph right now, in [`OUR_NODE_NAMES`] order, each
+    /// Which of CrossFX's own nodes are in the graph right now, in [`OUR_NODE_NAMES`] order, each
     /// with its `object.serial` — which, unlike its id, is never handed to another object, so two
     /// readings with the same serial are the same node and not a rebuilt one.
     fn our_nodes(&self) -> Option<OurNodes> {
@@ -724,7 +724,7 @@ impl PrivateGraph {
     /// what an application records, and not by the test's tone.
     ///
     /// That matters wherever a group the tone is linked into stops and starts again, which is
-    /// every time an application stops and starts recording from FxSound (Input). Driving such a
+    /// every time an application stops and starts recording from CrossFX (Input). Driving such a
     /// group on a machine busy with other work, `audiotestsrc` was seen to run out of buffers
     /// (`spa.audiotestsrc: make_buffer(): out of buffers`, in the daemon's log) and stop the cycle
     /// for good — about one start in five with four test runs side by side, with the nodes all
@@ -1743,7 +1743,7 @@ fn the_engine_connects_to_a_graph_and_reports_what_is_in_it() {
     assert!(names.contains(&"t_71"), "{names:?}");
     assert!(names.contains(&"t_mic"), "{names:?}");
 
-    // FxSound's own nodes must never be offered as somewhere to send audio.
+    // CrossFX's own nodes must never be offered as somewhere to send audio.
     assert!(
         !names.iter().any(|n| n.starts_with(crate::NODE_PREFIX)),
         "the engine offered its own nodes as devices: {names:?}"
@@ -2130,7 +2130,7 @@ fn both_defaults_are_handed_back_when_the_engine_stops() {
     );
 }
 
-/// The defaults the session had before FxSound started are what each lane follows and what it
+/// The defaults the session had before CrossFX started are what each lane follows and what it
 /// remembers when it claims its own — even when the settings file remembers something else.
 ///
 /// The settings file's copy, [`UiToAudio::SeedRememberedDefaults`], names `t_stereo` here, and the
@@ -2258,11 +2258,11 @@ fn the_session_defaults_outrank_the_settings_file_and_are_remembered_per_lane() 
 }
 
 /// Following the system's default (the engine's own start, with no ranking), the desktop picking
-/// as its default the very sink the output lane already plays to hands FxSound the default back, as
+/// as its default the very sink the output lane already plays to hands CrossFX the default back, as
 /// picking any other sink does by moving the lane. The 0.4.0 live check found the default left on
-/// the real device in that one case, and every application playing past FxSound.
+/// the real device in that one case, and every application playing past CrossFX.
 #[test]
-fn a_desktop_that_picks_the_device_a_following_lane_is_on_leaves_fxsound_the_default() {
+fn a_desktop_that_picks_the_device_a_following_lane_is_on_leaves_crossfx_the_default() {
     let Some(graph) = PrivateGraph::start("refollow") else {
         return;
     };
@@ -2283,8 +2283,8 @@ fn a_desktop_that_picks_the_device_a_following_lane_is_on_leaves_fxsound_the_def
         Some(Ok(()))
     );
 
-    // What WirePlumber derives from FxSound's claim, which nothing here does by itself; then what
-    // a desktop's sound settings write when the user picks the speakers FxSound plays to.
+    // What WirePlumber derives from CrossFX's claim, which nothing here does by itself; then what
+    // a desktop's sound settings write when the user picks the speakers CrossFX plays to.
     graph.write_default(
         devices::default_key(DeviceDirection::Output),
         SINK_NODE_NAME,
@@ -2294,7 +2294,7 @@ fn a_desktop_that_picks_the_device_a_following_lane_is_on_leaves_fxsound_the_def
     assert_eq!(
         graph.default_settles_on(DeviceDirection::Output, SINK_NODE_NAME),
         Some(Ok(())),
-        "the default was left on the speakers, past FxSound"
+        "the default was left on the speakers, past CrossFX"
     );
     said.settle(&handle);
     assert_eq!(
@@ -2325,12 +2325,12 @@ fn a_desktop_that_picks_the_device_a_following_lane_is_on_leaves_fxsound_the_def
     handle.shutdown();
 }
 
-/// Following the system's default, with a device once picked in FxSound — the saved device the
+/// Following the system's default, with a device once picked in CrossFX — the saved device the
 /// app announces to the engine as the lane's pick at every start — the desktop picking another
-/// sink as the system's default moves the lane there and hands FxSound the default back, pick after
-/// pick. The 0.4.0 live check found the lane staying on the saved device, the Windows rules'
+/// sink as the system's default moves the lane there and hands CrossFX the default back, pick after
+/// pick. The 0.4.0 live check found the lane staying on the saved device, the original's rules'
 /// explicit choice, and the default left on the device the desktop picked: every application
-/// played past FxSound.
+/// played past CrossFX.
 #[test]
 fn a_saved_pick_does_not_keep_a_following_lane_from_the_sinks_the_desktop_picks() {
     let Some(graph) = PrivateGraph::start("pickfollow") else {
@@ -2366,7 +2366,7 @@ fn a_saved_pick_does_not_keep_a_following_lane_from_the_sinks_the_desktop_picks(
     );
 
     for picked in ["t_stereo", "t_third"] {
-        // What WirePlumber derives from FxSound's claim; then what a desktop's sound settings
+        // What WirePlumber derives from CrossFX's claim; then what a desktop's sound settings
         // write when the user picks a sink, and what WirePlumber derives from that.
         graph.write_default(
             devices::default_key(DeviceDirection::Output),
@@ -2382,7 +2382,7 @@ fn a_saved_pick_does_not_keep_a_following_lane_from_the_sinks_the_desktop_picks(
         assert_eq!(
             graph.default_settles_on(DeviceDirection::Output, SINK_NODE_NAME),
             Some(Ok(())),
-            "the default was left on {picked}, past FxSound"
+            "the default was left on {picked}, past CrossFX"
         );
     }
     handle.shutdown();
@@ -2390,7 +2390,7 @@ fn a_saved_pick_does_not_keep_a_following_lane_from_the_sinks_the_desktop_picks(
 
 /// How long after a power switch a recorder that follows the default source may take to record
 /// where the default went, before it counts as never doing so: time for WirePlumber's move, and
-/// for FxSound to find one that left the recorder linked to nothing and move it again
+/// for CrossFX to find one that left the recorder linked to nothing and move it again
 /// (`crate::stranded`), with room for a slow runner.
 const RELINKED_WITHIN: Duration = Duration::from_secs(4);
 
@@ -2476,16 +2476,16 @@ fn records_from(
     false
 }
 
-/// When the power comes back on, FxSound takes the default source again and WirePlumber moves every
-/// recorder that follows it from the microphone back onto FxSound (Input) — and now and then onto
+/// When the power comes back on, CrossFX takes the default source again and WirePlumber moves every
+/// recorder that follows it from the microphone back onto CrossFX (Input) — and now and then onto
 /// nothing: moving from a mono microphone to a stereo source, the recorder's ports are replaced
 /// while WirePlumber links them, the link names a port that goes, and WirePlumber gives up
 /// (`crate::stranded`). The 0.4.0 live check found such a recorder recording nothing until the
 /// default changed again, on 3 to 6 of 9 quick toggles with something playing to the default sink.
 /// Here with WirePlumber itself, in an environment of the graph's own ([`policy`]): after each of
 /// eight power toggles, every one of four such recorders — three `pw-record` and a PulseAudio
-/// application — is linked from FxSound's source and receiving, at its own volume. Without
-/// FxSound's rescue of stranded streams this failed on the first toggle in every run tried, with
+/// application — is linked from CrossFX's source and receiving, at its own volume. Without
+/// CrossFX's rescue of stranded streams this failed on the first toggle in every run tried, with
 /// WirePlumber 0.5.17 and PipeWire 1.6.9. And since the power switch fades what it moves (D2), the
 /// rescue's link is what ends a stranded recorder's move: a handover that gave its volume back at
 /// the link WirePlumber failed to make would have it start recording at full volume in the middle
@@ -2496,7 +2496,7 @@ fn records_from(
 /// [`RECORDS_AGAIN_WITHIN`] (roadmap 0.5.0 §7, test 1: «≤ 1 s»), a stranded recorder's rescue
 /// included.
 #[test]
-fn a_recorder_that_follows_the_default_source_records_fxsound_after_every_power_toggle() {
+fn a_recorder_that_follows_the_default_source_records_crossfx_after_every_power_toggle() {
     use std::fmt::Write as _;
 
     let Some(mut graph) = policy::PolicyGraph::start("relink") else {
@@ -2558,14 +2558,14 @@ fn a_recorder_that_follows_the_default_source_records_fxsound_after_every_power_
         assert_eq!(
             graph.default_settles_on(direction, our_node_name(direction)),
             Some(Ok(())),
-            "FxSound never became the default {}",
+            "CrossFX never became the default {}",
             direction.key()
         );
     }
     assert_eq!(
         silent_from(&graph, SOURCE_NODE_NAME),
         Vec::<&str>::new(),
-        "these never recorded FxSound"
+        "these never recorded CrossFX"
     );
 
     // Every switch's time for every recorder: (toggle, the power, the recorder, the time).
@@ -2638,7 +2638,7 @@ fn a_recorder_that_follows_the_default_source_records_fxsound_after_every_power_
 /// [`UiToAudio::SeedRememberedDefaults`], is what it knows instead: the output lane attaches to
 /// the remembered sink rather than to whichever is listed first, and a clean exit points both keys
 /// at real devices again. The input lane was on when the run was killed, and its microphone is
-/// plugged in: the default source stays FxSound's from start to finish, rather than going to the
+/// plugged in: the default source stays CrossFX's from start to finish, rather than going to the
 /// microphone before the app has attached the lane and coming back once it has.
 ///
 /// Sent the way the app sends it, straight after the start. The first rules run on the first
@@ -2711,7 +2711,7 @@ fn a_claim_left_behind_by_a_killed_run_is_handed_back_to_the_seeded_devices() {
     assert!(said.attached(&handle, DeviceDirection::Input, Some("t_mic")));
 
     // The input lane stands behind the claim now, and adopts it: the default source stays with
-    // FxSound through the ticks that would have handed it back.
+    // CrossFX through the ticks that would have handed it back.
     let adopted_by = Instant::now() + Duration::from_secs(1);
     while Instant::now() < adopted_by {
         assert_eq!(
@@ -2729,7 +2729,7 @@ fn a_claim_left_behind_by_a_killed_run_is_handed_back_to_the_seeded_devices() {
             AudioToUi::RememberedDefault { node_name, .. }
                 if OUR_NODE_NAMES.contains(&node_name.as_str())
         )),
-        "a stale claim was remembered as the default from before FxSound"
+        "a stale claim was remembered as the default from before CrossFX"
     );
 
     handle.shutdown();
@@ -2748,7 +2748,7 @@ fn a_claim_left_behind_by_a_killed_run_is_handed_back_to_the_seeded_devices() {
 /// The same killed run, and a start with the microphone it had been processing unplugged — so the
 /// app never switches the input lane on, and nothing will build the node the default source still
 /// names. The claim is handed back to that microphone once it is plugged in and the app has seen it
-/// listed, while FxSound runs, rather than left naming nothing for the whole session; and not
+/// listed, while CrossFX runs, rather than left naming nothing for the whole session; and not
 /// before the microphone is there, when handing it
 /// back could only have released it into nothing. The input lane stays detached throughout: the
 /// hand-back is not an attachment. The output lane's claim is its own and is adopted as before.
@@ -2826,7 +2826,7 @@ fn a_claim_left_behind_for_a_lane_that_stays_detached_is_handed_back_while_the_e
                 AudioToUi::RememberedDefault { node_name, .. }
                     if OUR_NODE_NAMES.contains(&node_name.as_str())
             )),
-            "a stale claim was remembered as the default from before FxSound"
+            "a stale claim was remembered as the default from before CrossFX"
         );
 
         handle.shutdown();
@@ -2850,7 +2850,7 @@ fn the_input_lane_builds_nothing_until_a_microphone_is_picked() {
     let handle =
         AudioEngine::start_with_remote(Some(&graph.remote())).expect("the engine should start");
     let mut said = Transcript::default();
-    // The output lane attaches on its own, by the device rules, as the Windows build did.
+    // The output lane attaches on its own, by the device rules, as the original did.
     assert!(
         said.until(&handle, "the output lane attached", |m| matches!(
             m,
@@ -2942,7 +2942,7 @@ fn a_restart_rebuilds_every_lane_that_was_running() {
 /// an application playing; the output stream into the stereo sink.
 ///
 /// Wired one lane at a time and checked in both after each step. The server drives the members of a
-/// `node.link-group` together, and each lane's pair now has a group of its own — `fxsound`,
+/// `node.link-group` together, and each lane's pair now has a group of its own — `crossfx`,
 /// `crossfx-input` — so linking the microphone alone schedules the input pair and nothing else: the
 /// output lane must not so much as report `processing` until something plays into the sink. (With
 /// one group for all four nodes, as an earlier revision of `docs/spec/12-audio-io.md` §29.2 had it,
@@ -3011,12 +3011,12 @@ fn a_tone_driven_through_each_lane_reaches_that_lane_and_no_other() {
             );
         }
 
-        // The microphone alone — and something recording from FxSound (Input), which is what runs
+        // The microphone alone — and something recording from CrossFX (Input), which is what runs
         // the input lane's passive capture stream (U19).
         assert!(graph.link_nodes("t_tone", CAPTURE_NODE_NAME));
         let recording = graph
             .clocked_recorder("t_recorder")
-            .expect("a recorder for FxSound (Input)");
+            .expect("a recorder for CrossFX (Input)");
         assert!(graph.link_nodes(SOURCE_NODE_NAME, &recording.name));
         let heard = meters_until(&mut handle, DeviceDirection::Input, |m| m.input_peak > 0.1);
         assert!(
@@ -3108,7 +3108,7 @@ fn a_mono_sink_that_appears_is_played_to_through_a_stereo_pair_its_adapter_down_
     again_if_a_tone_ran_dry(|| {
         // A Bluetooth headset that has just switched to its call profile, as the output lane meets
         // it: a new output with one channel. Windows refused such a device (`sndDevices.h:32-39`), and
-        // so did this port — the moment the sink's info said "one channel", the next run of the rules
+        // so did CrossFX — the moment the sink's info said "one channel", the next run of the rules
         // tore the lane down and the music went to the speakers for the length of the call.
         let Some(graph) = PrivateGraph::start("mono") else {
             return;
@@ -3298,7 +3298,7 @@ fn a_mono_sink_that_appears_is_played_to_through_a_stereo_pair_its_adapter_down_
         assert_eq!(
             graph.runs_until("t_mono", true).map(drop),
             Ok(()),
-            "the mono sink should run while something plays into FxSound"
+            "the mono sink should run while something plays into CrossFX"
         );
         assert!(
             meters_until(&mut handle, DeviceDirection::Output, |m| {
@@ -3402,7 +3402,7 @@ fn the_speakers_sleep_while_nothing_plays_into_the_sink_and_wake_the_moment_some
 
         // The playback stream is linked to the speakers as soon as the pair is up, as WirePlumber
         // links it, and nothing plays into the sink. In 0.3.0 that was enough to run both nodes and
-        // the speakers for as long as FxSound was open.
+        // the speakers for as long as CrossFX was open.
         assert!(graph.link_nodes(OUTPUT_NODE_NAME, "t_stereo"));
         for node in [OUTPUT_NODE_NAME, SINK_NODE_NAME, "t_stereo"] {
             assert_eq!(
@@ -3540,7 +3540,7 @@ fn a_microphone_being_captured_does_not_keep_the_speakers_awake() {
         assert!(graph.link_nodes("t_tone", CAPTURE_NODE_NAME));
         let recording = graph
             .clocked_recorder("t_recorder")
-            .expect("a recorder for FxSound (Input)");
+            .expect("a recorder for CrossFX (Input)");
         assert!(graph.link_nodes(SOURCE_NODE_NAME, &recording.name));
 
         // The microphone lane runs while something records from it — that is what it is for — and
@@ -3696,7 +3696,7 @@ fn echo_cancellation_puts_the_canceller_in_front_of_the_microphone_and_takes_it_
         (
             AEC_SOURCE_NODE_NAME,
             "node.description",
-            "FxSound echo-cancelled",
+            "CrossFX echo-cancelled",
         ),
         (CAPTURE_NODE_NAME, "node.link-group", INPUT_LINK_GROUP),
     ] {
@@ -3766,7 +3766,7 @@ fn a_canceller_that_cannot_be_loaded_is_reported_and_the_microphone_is_recorded_
     }
     // A library no PipeWire ships: the load fails the way a missing `libspa-aec-webrtc` does,
     // with ENOENT, whether or not the module itself is installed.
-    const MISSING: &str = "aec/libspa-aec-fxsound-no-such-canceller";
+    const MISSING: &str = "aec/libspa-aec-crossfx-no-such-canceller";
     let mut said = Transcript::default();
     let handle = engine_with_both_lanes(&graph, MISSING, "t_mic", &mut said);
     assert_eq!(
@@ -3830,7 +3830,7 @@ fn a_canceller_that_cannot_be_loaded_is_reported_and_the_microphone_is_recorded_
 /// Start an engine with both lanes on `graph` — the output lane on the stereo speakers, the input
 /// lane on a tone called `t_tone` — switch echo cancellation on, and wire the result as a session
 /// manager would: the playback stream to the speakers, the microphone and the speakers' monitor
-/// into the canceller, and the canceller into the capture stream. Nothing records from FxSound
+/// into the canceller, and the canceller into the capture stream. Nothing records from CrossFX
 /// (Input) yet. `None`, having said why, when the canceller, a tool or the tone is missing; `what`
 /// names the check that then goes undone.
 fn engine_with_the_canceller_wired(
@@ -3926,10 +3926,10 @@ fn the_speakers_sleep_again_once_echo_cancellation_is_switched_off() {
     else {
         return;
     };
-    // Something records from FxSound (Input): the passive capture stream runs only then (U19).
+    // Something records from CrossFX (Input): the passive capture stream runs only then (U19).
     let recording = graph
         .clocked_recorder("t_recorder")
-        .expect("a recorder for FxSound (Input)");
+        .expect("a recorder for CrossFX (Input)");
     assert!(graph.link_nodes(SOURCE_NODE_NAME, &recording.name));
     assert_eq!(
         graph.runs_until(CAPTURE_NODE_NAME, true).map(drop),
@@ -3945,7 +3945,7 @@ fn the_speakers_sleep_again_once_echo_cancellation_is_switched_off() {
         "the speakers run while the canceller listens to them"
     );
 
-    // Off. The canceller goes, the capture stream is replaced on the microphone, FxSound's source
+    // Off. The canceller goes, the capture stream is replaced on the microphone, CrossFX's source
     // kept (roadmap 0.5.0 §7, D3), and once it is linked there — the session manager's job, done
     // here by hand — the microphone lane runs on without keeping the speakers awake.
     let mark = said.0.len();
@@ -3980,7 +3980,7 @@ fn the_speakers_sleep_again_once_echo_cancellation_is_switched_off() {
     assert_eq!(
         graph.linked(SOURCE_NODE_NAME, &recording.name),
         Some(true),
-        "the recorder of FxSound (Input) lost its link when the canceller went"
+        "the recorder of CrossFX (Input) lost its link when the canceller went"
     );
     assert_eq!(
         graph.runs_until(CAPTURE_NODE_NAME, true).map(drop),
@@ -4013,7 +4013,7 @@ fn the_speakers_sleep_again_once_echo_cancellation_is_switched_off() {
 /// canceller's `node.group` its monitor stream, the speakers it records and the output pair — for
 /// as long as the microphone lane was on. Now the capture stream is passive (U19), and so are the
 /// canceller's capture and monitor streams (PipeWire's module makes them so), so nothing in that
-/// chain holds any of it: it all runs while something records from FxSound (Input), and sleeps
+/// chain holds any of it: it all runs while something records from CrossFX (Input), and sleeps
 /// with the canceller still loaded when the recording stops.
 #[test]
 fn echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_input() {
@@ -4030,17 +4030,17 @@ fn echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_inpu
         Some(Some("true".to_owned())),
         "the capture stream should be passive on a server that runs a link-group together"
     );
-    // An application that will record from FxSound (Input), running already on its own clock.
+    // An application that will record from CrossFX (Input), running already on its own clock.
     let recorder = graph
         .clocked_recorder("t_recorder")
-        .expect("a recorder for FxSound (Input)");
+        .expect("a recorder for CrossFX (Input)");
 
     // The canceller wired in front of the microphone and listening to the speakers, and nobody
     // recording: nothing runs, the speakers included.
     assert_eq!(
         sleep::none_runs_for_a_while(&graph, &AWAKE_WITH_THE_CANCELLER),
         Ok(()),
-        "echo cancellation held the graph awake with nothing recording from FxSound (Input)"
+        "echo cancellation held the graph awake with nothing recording from CrossFX (Input)"
     );
 
     // A recording runs all of it, as a call would.
@@ -4051,7 +4051,7 @@ fn echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_inpu
         assert_eq!(
             graph.runs_until(node, true).map(drop),
             Ok(()),
-            "{node} should run while something records from FxSound (Input) through the canceller"
+            "{node} should run while something records from CrossFX (Input) through the canceller"
         );
     }
     if graph.a_following_tone_is_heard() {
@@ -4075,7 +4075,7 @@ fn echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_inpu
         assert_eq!(
             graph.runs_until(node, false).map(drop),
             Ok(()),
-            "{node} should stop once nothing records from FxSound (Input)"
+            "{node} should stop once nothing records from CrossFX (Input)"
         );
     }
     assert_eq!(
@@ -4434,7 +4434,7 @@ fn a_headset_between_profiles_keeps_the_output_lane_and_its_sink_is_linked_again
     assert_eq!(graph.linked(OUTPUT_NODE_NAME, HEADSET), Some(true));
     let nodes = graph.our_nodes().expect("pw-dump answered a moment ago");
     let first = serial_of(&nodes, OUTPUT_NODE_NAME).expect("the playback stream is in the graph");
-    let sink = serial_of(&nodes, SINK_NODE_NAME).expect("FxSound's sink is in the graph");
+    let sink = serial_of(&nodes, SINK_NODE_NAME).expect("CrossFX's sink is in the graph");
     let from = said.0.len();
 
     // The headset switches profile: its sink goes, and comes back under the same name a moment
@@ -4477,7 +4477,7 @@ fn a_headset_between_profiles_keeps_the_output_lane_and_its_sink_is_linked_again
     );
 
     // The playback stream is replaced on the node that came back, because the stream WirePlumber
-    // linked once is never linked again — and the new stream is linked. FxSound's sink stays, at
+    // linked once is never linked again — and the new stream is linked. CrossFX's sink stays, at
     // the same format, and with it every application on it (roadmap 0.5.0 §7, D3).
     let rebuilt = graph.nodes_until(|nodes| {
         serial_of(nodes, OUTPUT_NODE_NAME).is_some_and(|serial| serial != first)
@@ -4488,7 +4488,7 @@ fn a_headset_between_profiles_keeps_the_output_lane_and_its_sink_is_linked_again
     assert_eq!(
         serial_of(&rebuilt, SINK_NODE_NAME),
         Some(sink),
-        "FxSound's sink went with the headset's profile switch"
+        "CrossFX's sink went with the headset's profile switch"
     );
     said.settle(&handle);
     assert_eq!(
@@ -5089,8 +5089,8 @@ fn rank(direction: DeviceDirection, names: &[&str]) -> UiToAudio {
 /// One lane through the priority list on a real graph. The user picks `current`; `above`, ranked
 /// above it, is plugged in and takes the lane; `below`, ranked under both, is plugged in and takes
 /// nothing; `above` is unplugged, and the lane goes to the first present by rank, `current` — not
-/// to `below`, the newest. Under the Windows rules the second step would not happen at all, and the
-/// third would move the lane back to the user's pick (rule 4).
+/// to `below`, the newest. Under the original's rules the second step would not happen at all, and
+/// the third would move the lane back to the user's pick (rule 4).
 fn a_lane_follows_its_ranking(
     tag: &str,
     direction: DeviceDirection,
@@ -5212,7 +5212,7 @@ fn an_empty_ranking_hands_the_lane_back_to_the_old_rules() {
     );
     assert!(said.attached(&handle, DeviceDirection::Output, Some("t_high")));
 
-    // …and with the ranking gone, the Windows rules are back: the user's pick that is present
+    // …and with the ranking gone, the original's rules are back: the user's pick that is present
     // outranks the device that arrived since (rule 4).
     let from = said.0.len();
     handle.send(rank(DeviceDirection::Output, &[]));

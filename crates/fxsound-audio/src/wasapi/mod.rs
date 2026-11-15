@@ -23,54 +23,55 @@
 //!                                               recording device ──► apps
 //! ```
 //!
-//! This is `audiopassthru/` (`docs/spec/12-audio-io.md` §1–§16) on the port's engine contract:
+//! This is `audiopassthru/` (`docs/spec/12-audio-io.md` §1–§16) on CrossFX's engine contract:
 //! the same [`EngineHandle`], the same [`UiToAudio`] and [`AudioToUi`] with the meanings the
 //! Linux engine gives them (`crate::engine`), and the same lane DSP, device rules and paths to the
 //! GUI. Only what sits between the chain and the devices is Windows'.
 //!
 //! # The virtual devices
 //!
-//! The port ships no driver. It stands on one that is installed: FxSound's own "FxSound Speakers"
-//! when the original FxSound is (or was) installed, and otherwise a virtual cable — VB-Audio's or
-//! Virtual Audio Cable ([`endpoints`], which says how each is found). The input lane needs a cable
-//! of its own besides. With none for a lane the lane is not half-run: it reports
-//! [`AudioError::NoVirtualDevice`] (the output lane) or [`AudioError::NoVirtualInputDevice`] (the
-//! input lane) — or [`AudioError::VirtualInputDeviceInUse`], when the input lane's cable is there
-//! but the user's — and processes nothing. No endpoint of FxSound's driver, and neither side of a
-//! cable a lane stands on, is ever offered as a device to pick; a cable no lane stands on is offered
-//! like any other device, as every endpoint but its driver's is to the original: a user who picks
-//! one in FxSound has it played to, and the default given back there. The device rules come to such
-//! a cable only where the user chose it, though — picked it, had the settings remember it, or made
-//! it the system's default themselves ([`Engine::device_infos`], "Whose default it is"): a cable
-//! just installed is never "a device just added", nor the "first device there is" of a lane or of a
+//! CrossFX ships no driver. It stands on one that is installed: the original's own
+//! "FxSound Speakers" when the original FxSound is (or was) installed, and otherwise a virtual
+//! cable — VB-Audio's or Virtual Audio Cable ([`endpoints`], which says how each is found). The
+//! input lane needs a cable of its own besides. With none for a lane the lane is not half-run: it
+//! reports [`AudioError::NoVirtualDevice`] (the output lane) or
+//! [`AudioError::NoVirtualInputDevice`] (the input lane) — or
+//! [`AudioError::VirtualInputDeviceInUse`], when the input lane's cable is there but the user's —
+//! and processes nothing. No endpoint of FxSound's driver, and neither side of a cable a lane
+//! stands on, is ever offered as a device to pick; a cable no lane stands on is offered like any
+//! other device, as every endpoint but its driver's is to the original: a user who picks one in
+//! CrossFX has it played to, and the default given back there. The device rules come to such a
+//! cable only where the user chose it, though — picked it, had the settings remember it, or made it
+//! the system's default themselves ([`Engine::device_infos`], "Whose default it is"): a cable just
+//! installed is never "a device just added", nor the "first device there is" of a lane or of a
 //! hand-back, nor the session default Windows gave it, any of which would send the system's sound
 //! into it. The microphone never takes a cable the user has in use, and a default the speakers'
-//! lane finds on its cable already, put there by the user rather than by a run of FxSound's or by
+//! lane finds on its cable already, put there by the user rather than by a run of CrossFX's or by
 //! Windows, stays theirs.
 //!
 //! # Whose default it is
 //!
 //! Windows moves defaults by itself. A device just installed is given the first chance at every
 //! role of its direction — an endpoint that has never been the default is compared first
-//! (Microsoft's "Default Audio Endpoint Selection") — so a virtual cable installed for FxSound's
+//! (Microsoft's "Default Audio Endpoint Selection") — so a virtual cable installed for CrossFX's
 //! microphone can take the speakers' default and the microphone's, and the machine falls silent;
 //! and a device that goes has its roles fall back to another, a cable among them. Neither is the
 //! user's choice, and on a cable neither is a device anyone hears. A cable's being the default is
 //! therefore never taken for the user's choice of it by itself: a default on a cable is the user's
 //! only on evidence that they chose it ([`Engine::windows_default`]), and Windows' otherwise.
 //!
-//! The evidence is that the user picked the cable in FxSound — the saved device the app announces
-//! at the start is such a pick — that the settings remember it as the default from before FxSound
-//! ([`Engine::remembers`]), or that a run of FxSound saw the desktop move that role's default onto
+//! The evidence is that the user picked the cable in CrossFX — the saved device the app announces
+//! at the start is such a pick — that the settings remember it as the default from before CrossFX
+//! ([`Engine::remembers`]), or that a run of CrossFX saw the desktop move that role's default onto
 //! it: from a device still there, onto a cable listed for longer than [`PICK_WAIT`] already and no
-//! lane of FxSound stands on, and not while the original FxSound ran ([`Engine::decide_default`]).
-//! That last is the user's word on one role, which FxSound's record keeps across runs for as long
+//! lane of CrossFX stands on, and not while the original FxSound ran ([`Engine::decide_default`]).
+//! That last is the user's word on one role, which CrossFX's record keeps across runs for as long
 //! as the role stays there ([`record`]). Following the system's default, the lane follows such a
 //! pick of a playback role, and the app saves it as the lane's device; while a ranking decides the
 //! lane's device, the pick is left with the user, on the cable, through the run and after it. A
-//! later start takes the roles its lane takes for FxSound, as it takes any default, and gives them
+//! later start takes the roles its lane takes for CrossFX, as it takes any default, and gives them
 //! back to the lane's own device as it ends; what stays the user's is the cable — remembered as
-//! the default from before FxSound, and left alone by the microphone — and any role FxSound does
+//! the default from before CrossFX, and left alone by the microphone — and any role CrossFX does
 //! not take, left on it. What the rules chose, played to or found the default on by themselves
 //! says nothing: a cable they came to by mistake would otherwise be the user's for good.
 //!
@@ -79,10 +80,10 @@
 //! moved to an endpoint that could not be read in time and turns out to be a cable, are Windows' —
 //! where each role was before kept ([`defaults::Placements`]). A move of Windows' is no pick: no
 //! lane follows it, nothing is saved ([`AudioToUi::DesktopPick`] is never sent for it), and the
-//! cable is free for FxSound's lanes, as any cable nobody uses is. Wherever FxSound is in such a
+//! cable is free for CrossFX's lanes, as any cable nobody uses is. Wherever CrossFX is in such a
 //! default's path — the lane of its direction holds its claim, or the cable is one a lane stands
 //! on, whatever plays into which is recorded with the voice, or whose recording side records the
-//! desktop the speakers' lane sends into it — FxSound puts it back, while the lane runs and as it
+//! desktop the speakers' lane sends into it — CrossFX puts it back, while the lane runs and as it
 //! ends ([`Engine::put_placements_back`]): a role the claim holds is taken back, any other goes back
 //! where it was, and, with nowhere known, where the defaults are given back to; never onto a cable
 //! nobody chose. One found so at the start waits for the app's first word, which may be the
@@ -91,7 +92,7 @@
 //! real device; neither the settings ([`AudioToUi::RememberedDefault`]) nor a hand-back ever names a
 //! cable nobody chose, and where the role was before is the session default the device rules
 //! read. A default Windows put on a cable no lane uses, in a direction whose lane holds nothing, is
-//! left where Windows put it: FxSound is not in that path.
+//! left where Windows put it: CrossFX is not in that path.
 //!
 //! # The default devices
 //!
@@ -117,10 +118,11 @@
 //! default left on a virtual endpoint that no lane stands behind is given back — to the device the
 //! rules remember, the default the settings remembered ([`UiToAudio::SeedRememberedDefaults`])
 //! among them, by the `sndDevicesRestoreDefaultDevice` order — and one a lane does stand behind is
-//! adopted. "Left" is what FxSound's own record says ([`record`]): every claim is written down
-//! before its first write and struck out after its hand-back, so that a default on a cable FxSound
+//! adopted. "Left" is what CrossFX's own record says ([`record`]): every claim is written down
+//! before its first write and struck out after its hand-back, so that a default on a cable CrossFX
 //! never held — the user's, or Windows' — is never taken for one a killed run left. A default on
-//! FxSound's own driver needs no record: nothing plays it while neither FxSound runs.
+//! The original FxSound's own driver needs no record: nothing plays it while neither the original
+//! nor CrossFX runs.
 //!
 //! The desktop picking another default while a lane holds it is the user picking a device, as the
 //! original takes it (`sndDevicesDeviceCallbacks.cpp:95-156`): a lane that follows the system's
@@ -129,7 +131,7 @@
 //! nothing: the pick is where it plays once it is on. A role moved that the lane does not follow —
 //! calls sent to a headset, a cable's recording side made the default for the user's recorders, or
 //! any pick while a ranking decides the lane's device — is left with the user until the claim ends.
-//! FxSound's own writes are told apart from the user's by their echoes ([`defaults::Echoes`]), and
+//! CrossFX's own writes are told apart from the user's by their echoes ([`defaults::Echoes`]), and
 //! the original FxSound's, while it runs, are its own. Every other change is decided against the
 //! endpoints as read after it ([`Engine::decide_default`]): a device plugged in and made the
 //! default arrives in one burst of notifications, and decided against the list from before it, the
@@ -140,14 +142,14 @@
 //!
 //! # The original FxSound
 //!
-//! While FxSound LLC's FxSound runs ([`original`]) it holds the virtual device: the output lane
+//! While the original FxSound runs ([`original`]) it holds the virtual device: the output lane
 //! neither takes the default nor processes, a default it held is left to the original rather than
 //! handed back into a fight, and the user is told ([`crate::ORIGINAL_FXSOUND_RUNNING`]). The lane
 //! picks up once the original has quit. Its moves of the playback default — its claim, its
 //! hand-back — are no picks of the user's, and nothing moved meanwhile is taken for one; but Windows
 //! moves defaults while it runs as at any other time, and where Windows put one is decided on all
 //! the same ("Whose default it is"): a cable installed meanwhile is the microphone's to take, and
-//! the roles Windows gave it are put back once FxSound is in their path. The input lane is not
+//! the roles Windows gave it are put back once CrossFX is in their path. The input lane is not
 //! affected: the original has no microphone path and never touches a cable.
 //!
 //! It is looked for only where it can run, with an endpoint of its driver listed, and without
@@ -446,7 +448,7 @@ pub(crate) fn start(options: StartOptions) -> Result<EngineHandle, AudioError> {
         ready: ready_tx,
     };
     let join = std::thread::Builder::new()
-        .name("fxsound-audio".to_owned())
+        .name("crossfx-audio".to_owned())
         .spawn(move || run(config))
         .map_err(|error| AudioError::WindowsAudioUnavailable(error.to_string()))?;
 
@@ -550,7 +552,7 @@ fn run(config: Config) {
     }
     engine.shutdown();
     drop(engine);
-    log::info!("FxSound audio thread stopped");
+    log::info!("CrossFX audio thread stopped");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -584,8 +586,8 @@ pub(crate) trait System {
     fn claimed(&mut self) -> PerDirection<Option<String>>;
     /// Keep `claimed` as the record, replacing what it held.
     fn keep_claimed(&mut self, claimed: &PerDirection<Option<String>>);
-    /// The defaults the user put on a virtual cable themselves while a run of FxSound watched,
-    /// role by role, as FxSound's record keeps them ([`record`]): what a later start knows to be
+    /// The defaults the user put on a virtual cable themselves while a run of CrossFX watched,
+    /// role by role, as CrossFX's record keeps them ([`record`]): what a later start knows to be
     /// theirs.
     fn users_cables(&mut self) -> PerDirection<Defaults>;
     /// Keep `cables` as the record's word on the user's own cable defaults, replacing what it held.
@@ -700,7 +702,7 @@ impl Windows {
         let policy = com::PolicyConfig::new()
             .map_err(|error| {
                 log::error!(
-                    "the default-device policy is not there ({error}): FxSound cannot make its \
+                    "the default-device policy is not there ({error}): CrossFX cannot make its \
                      virtual device the default"
                 );
             })
@@ -1110,28 +1112,28 @@ pub(crate) struct Engine<S: System> {
     /// long as the role stays there: where a default nobody chose goes back to
     /// ([`Self::put_placements_back`]).
     placed: PerDirection<Placements>,
-    /// Per role, the virtual cable the user made its default themselves while FxSound ran — the
+    /// Per role, the virtual cable the user made its default themselves while CrossFX ran — the
     /// desktop moving it there, from a device still there, onto a cable listed for longer than
     /// [`PICK_WAIT`] that no lane stands on, the original FxSound not running
-    /// ([`Self::decide_default`]) — in this run, or in one before it, as FxSound's record keeps it
+    /// ([`Self::decide_default`]) — in this run, or in one before it, as CrossFX's record keeps it
     /// ([`record`]): what says that default is theirs.
     users_cables: PerDirection<Defaults>,
-    /// The default from before FxSound as the settings file has it: the app's word
+    /// The default from before CrossFX as the settings file has it: the app's word
     /// ([`UiToAudio::SeedRememberedDefaults`]), or what this run has told it since
     /// ([`AudioToUi::RememberedDefault`]), which the app writes there. The settings' word on a
     /// cable is the user's ([`Self::remembers`]).
     settings_default: PerDirection<String>,
     /// Until when a default found on a cable at the start — of Windows' or the user's, with
-    /// nothing yet to tell which — waits for the app's first word before FxSound moves it as
+    /// nothing yet to tell which — waits for the app's first word before CrossFX moves it as
     /// Windows' ([`Self::put_placements_back`]): the settings may remember the cable as the
     /// user's. `None` once the app has spoken, or the wait is up ([`REPAIR_PATIENCE`]).
     waiting_for_app: Option<Instant>,
-    /// Something changed what Windows' defaults on the cables are, or whether FxSound may move
+    /// Something changed what Windows' defaults on the cables are, or whether CrossFX may move
     /// them — a placement decided on, an endpoint listed for the first time, the app's first word:
     /// they are looked at again once the rules have run ([`Self::settle`]).
     placements_due: bool,
     /// When each endpoint listed was first listed in this run — `None` for one listed by the first
-    /// read, there before FxSound — for telling Windows giving a cable just installed the default
+    /// read, there before CrossFX — for telling Windows giving a cable just installed the default
     /// from the user picking one that was there ([`Self::decide_default`]).
     arrived: HashMap<String, Option<Instant>>,
     echoes: PerDirection<Echoes>,
@@ -1170,7 +1172,7 @@ pub(crate) struct Engine<S: System> {
     /// When the repair of a default left on a virtual device is due — at the start, and once the
     /// original FxSound has quit; `None` once made.
     repair_due: Option<Instant>,
-    /// FxSound's record of the endpoint each lane holds its defaults on ([`record`]), as last
+    /// CrossFX's record of the endpoint each lane holds its defaults on ([`record`]), as last
     /// kept: at the start, what the last run left.
     claimed: PerDirection<Option<String>>,
     connection_error: Option<AudioError>,
@@ -1199,7 +1201,7 @@ impl<S: System> Engine<S> {
             log::info!("both lanes start leaving the default devices where they are");
         }
         // `language` names PipeWire nodes, which Windows has none of, and per-target volumes are
-        // FxSound's own nodes' (U10): the volume a Windows lane plays at is its virtual device's.
+        // CrossFX's own nodes' (U10): the volume a Windows lane plays at is its virtual device's.
         let claimed = system.claimed();
         for (direction, endpoint) in claimed.iter() {
             if let Some(endpoint) = endpoint {
@@ -1465,7 +1467,7 @@ impl<S: System> Engine<S> {
     /// Whether the user has chosen `id` as the device of the lane of `direction`, as far as the
     /// engine can tell: picked it, or has the settings remember it ([`Self::remembers`]), or has
     /// made it the system's default device themselves — never Windows by itself (module docs,
-    /// "Whose default it is"), and not a run of FxSound's that FxSound's record says left the
+    /// "Whose default it is"), and not a run of CrossFX's that CrossFX's record says left the
     /// default there ([`record`]).
     fn chosen(&self, direction: DeviceDirection, id: &str) -> bool {
         let defaults = self.defaults.get(direction);
@@ -1476,9 +1478,9 @@ impl<S: System> Engine<S> {
     }
 
     /// Whether the user's own word names `id` as the device, or the default, of the lane of
-    /// `direction`: they picked it — in FxSound's list, the saved device the app announces among
+    /// `direction`: they picked it — in CrossFX's list, the saved device the app announces among
     /// such picks, or as the system's default the lane followed — or the settings remember it as
-    /// the default from before FxSound ([`Self::settings_default`]). What the rules chose, played
+    /// the default from before CrossFX ([`Self::settings_default`]). What the rules chose, played
     /// to or found the default on by themselves is not among it ([`SelectionMemory`]'s other
     /// slots): a cable they came to by mistake would otherwise be the user's for good.
     fn remembers(&self, direction: DeviceDirection, id: &str) -> bool {
@@ -1488,22 +1490,22 @@ impl<S: System> Engine<S> {
     }
 
     /// Whether `role`'s default of `direction`, on `id`, is the user's own on a virtual cable: they
-    /// made it the default themselves while FxSound ran ([`Self::users_cables`]), or chose the cable
-    /// ([`Self::remembers`]).
+    /// made it the default themselves while CrossFX ran ([`Self::users_cables`]), or chose the
+    /// cable ([`Self::remembers`]).
     fn users_cable(&self, direction: DeviceDirection, role: Role, id: &str) -> bool {
         self.users_cables.get(direction).get(role) == Some(id) || self.remembers(direction, id)
     }
 
     /// Whether `role`'s default of `direction`, on `id`, is Windows' rather than the user's (module
     /// docs, "Whose default it is"): `id` is a side of a virtual cable, and nothing says the user
-    /// chose it ([`Self::users_cable`]). A default anywhere else is the user's, or FxSound's own.
+    /// chose it ([`Self::users_cable`]). A default anywhere else is the user's, or CrossFX's own.
     fn windows_default(&self, direction: DeviceDirection, role: Role, id: &str) -> bool {
         self.is_cable(id) && !self.users_cable(direction, role, id)
     }
 
     /// Record what the user made `role`'s default of `direction`, as a decided change of it says
     /// ([`Self::decide_default`]): the cable, when they moved it onto one; nothing when it went
-    /// anywhere else, or by anyone else's hand. Kept in FxSound's record when it changed.
+    /// anywhere else, or by anyone else's hand. Kept in CrossFX's record when it changed.
     fn users_chose(&mut self, direction: DeviceDirection, role: Role, cable: Option<String>) {
         let cables = self.users_cables.get_mut(direction);
         if cables.get(role) == cable.as_deref() {
@@ -1515,8 +1517,8 @@ impl<S: System> Engine<S> {
     }
 
     /// At the first read: forget each role's cable the record says the user chose, when the role
-    /// is on some other endpoint now — moved while no FxSound ran — unless that endpoint is
-    /// FxSound's own, where a run that was killed holding the role left it.
+    /// is on some other endpoint now — moved while no CrossFX ran — unless that endpoint is
+    /// CrossFX's own, where a run that was killed holding the role left it.
     fn forget_users_cables_moved_since(&mut self) {
         let mut cables = self.users_cables.clone();
         for direction in DeviceDirection::ALL {
@@ -1547,8 +1549,8 @@ impl<S: System> Engine<S> {
         }
     }
 
-    /// Whether `id` is a side of a virtual cable one of FxSound's lanes stands on now — plays
-    /// through, or holds its claim on — and so FxSound's own, never a device of the user's: what
+    /// Whether `id` is a side of a virtual cable one of CrossFX's lanes stands on now — plays
+    /// through, or holds its claim on — and so CrossFX's own, never a device of the user's: what
     /// plays into the input lane's cable is recorded with the voice, and the recording side of the
     /// output lane's records the desktop's sound.
     fn stands_on(&self, id: &str) -> bool {
@@ -1567,25 +1569,25 @@ impl<S: System> Engine<S> {
 
     /// Whether a default of `direction` may be given to `id`: a device the rules may choose
     /// ([`Self::device_infos`]) — a real one that is there, or a cable the user chose — and never
-    /// FxSound's own endpoint, nor a cable nobody chose.
+    /// CrossFX's own endpoint, nor a cable nobody chose.
     fn may_hold_default(&self, direction: DeviceDirection, id: &str) -> bool {
         self.device_infos()
             .iter()
             .any(|info| info.direction == direction && info.name == id)
     }
 
-    /// Whether `id` is a side of a virtual cable: listed, and of a cable's kind — never FxSound's
-    /// driver, whose defaults are FxSound's or the original's.
+    /// Whether `id` is a side of a virtual cable: listed, and of a cable's kind — never the
+    /// original FxSound's driver, whose defaults are CrossFX's or the original's.
     fn is_cable(&self, id: &str) -> bool {
         self.endpoints.iter().any(|endpoint| {
             endpoint.id == id && endpoint.virtual_kind().is_some_and(VirtualKind::is_cable)
         })
     }
 
-    /// FxSound's own endpoints, never a device (`endpoints::crossfx_endpoints`): its driver's, and
-    /// both sides of the cable each lane stands on — the output lane's by its plan whether or not
-    /// it is on, because a cable it would capture is never a device to play to, and the one it
-    /// stands on now besides; the input lane's while it is on.
+    /// CrossFX's own endpoints, never a device (`endpoints::crossfx_endpoints`): the
+    /// FxSound driver's, and both sides of the cable each lane stands on — the output lane's by its
+    /// plan whether or not it is on, because a cable it would capture is never a device to play to,
+    /// and the one it stands on now besides; the input lane's while it is on.
     fn crossfx_endpoints(&self) -> Vec<String> {
         let planned = endpoints::plan(&self.endpoints, false, None, |_| false).output;
         let lanes: Vec<&VirtualDevice> = [
@@ -1607,9 +1609,9 @@ impl<S: System> Engine<S> {
         endpoints::crossfx_endpoints(&self.endpoints, &lanes)
     }
 
-    /// Whether `id` is FxSound's, never the user's device nor the default they had before
-    /// FxSound: one of FxSound's own endpoints, the endpoint a lane holds its defaults on — listed
-    /// or not — or the one FxSound's record says a run left them on ([`record`]).
+    /// Whether `id` is CrossFX's, never the user's device nor the default they had before
+    /// CrossFX: one of CrossFX's own endpoints, the endpoint a lane holds its defaults on — listed
+    /// or not — or the one CrossFX's record says a run left them on ([`record`]).
     fn is_virtual(&self, id: &str) -> bool {
         self.crossfx_endpoints().iter().any(|ours| ours == id)
             || self.lanes.iter().any(|(direction, lane)| {
@@ -1635,7 +1637,7 @@ impl<S: System> Engine<S> {
     /// Whether `id` is in the user's own use, so that the input lane takes no cable either side of
     /// which it is (`endpoints::plan`): the real device the output lane plays to — a cable the user
     /// picked for it — or a default of the user's there (module docs, "Whose default it is"),
-    /// which no claim of a lane's and no record of FxSound's put there. A cable Windows made the
+    /// which no claim of a lane's and no record of CrossFX's put there. A cable Windows made the
     /// default by itself, as it was installed, is the microphone's to take.
     fn in_users_use(&self, id: &str) -> bool {
         let played_to =
@@ -1805,7 +1807,7 @@ impl<S: System> Engine<S> {
                 names,
                 new_devices_first,
             } => self.set_device_priority(direction, names, new_devices_first),
-            // FxSound's own nodes' volume per real device (U10) is the Linux engine's: a Windows
+            // CrossFX's own nodes' volume per real device (U10) is the Linux engine's: a Windows
             // lane plays at its virtual device's own volume, which Windows keeps.
             UiToAudio::SeedTargetVolumes(_) => {}
             UiToAudio::SystemSleeping(true) => self.go_to_sleep(now),
@@ -1838,7 +1840,7 @@ impl<S: System> Engine<S> {
         }
     }
 
-    /// The settings file's word on what a lane's default was before FxSound last took it.
+    /// The settings file's word on what a lane's default was before CrossFX last took it.
     ///
     /// It only ever fills a gap, as on Linux: what this run displaced is fresher. With one
     /// exception the Linux engine never meets, because its first pair waits for a round trip to
@@ -1852,7 +1854,7 @@ impl<S: System> Engine<S> {
         let memory = self.memory.get_mut(direction);
         if std::mem::take(&mut lane.blind) {
             log::info!(
-                "{} lane: the settings remember {name} as the default from before FxSound; the \
+                "{} lane: the settings remember {name} as the default from before CrossFX; the \
                  lane's rules start over from it",
                 direction.key()
             );
@@ -2200,11 +2202,11 @@ impl<S: System> Engine<S> {
         }
     }
 
-    /// A default changed: FxSound's own write coming back, the original FxSound's, Windows' own
+    /// A default changed: CrossFX's own write coming back, the original FxSound's, Windows' own
     /// fallback, Windows giving a cable just installed the default, or the user picking a device
     /// (module docs, "The default devices", "Whose default it is").
     ///
-    /// Only FxSound's echoes are told apart here, and the original's moves marked as heard while
+    /// Only CrossFX's echoes are told apart here, and the original's moves marked as heard while
     /// it runs. Everything else is decided once the endpoints have been read again
     /// ([`Self::decide_defaults`]): the notifications arrive in bursts, a device plugged in is a
     /// dozen state changes and then its default, and the list the engine last read may not have
@@ -2305,7 +2307,7 @@ impl<S: System> Engine<S> {
     ///   onto a cable is Windows' placement besides.
     /// * The role went to a cable that arrived with the change, or less than [`PICK_WAIT`] before
     ///   it — Windows giving a device just installed the first chance at the default (module docs,
-    ///   "Whose default it is") — or to a side of a cable one of FxSound's lanes stands on, never a
+    ///   "Whose default it is") — or to a side of a cable one of CrossFX's lanes stands on, never a
     ///   device of the user's whoever moved it there: Windows' placement, not a pick either.
     /// * The original FxSound runs, and the role is a playback role: the original's own claim or
     ///   hand-back, or Windows moving a default meanwhile. Where it went is decided on as above —
@@ -2315,7 +2317,7 @@ impl<S: System> Engine<S> {
     ///   the user's for as long as the claim stands ([`Claim::yield_role`]); and a role moved onto
     ///   a cable makes that cable the user's for it ([`Self::users_cables`]).
     ///
-    /// Windows' placements in FxSound's path are put back once the rules have run
+    /// Windows' placements in CrossFX's path are put back once the rules have run
     /// ([`Self::put_placements_back`]).
     fn decide_default(
         &mut self,
@@ -2414,7 +2416,7 @@ impl<S: System> Engine<S> {
         if windows {
             if ours {
                 log::info!(
-                    "{} lane: the {role:?} default went to {id}, a side of a cable FxSound stands \
+                    "{} lane: the {role:?} default went to {id}, a side of a cable CrossFX stands \
                      on; no pick of the user's",
                     direction.key()
                 );
@@ -2449,12 +2451,12 @@ impl<S: System> Engine<S> {
     }
 
     /// Put every default of `direction` that is Windows' (module docs, "Whose default it is") and
-    /// lies in FxSound's path back on a device the user hears — `ending`, the lane of that
+    /// lies in CrossFX's path back on a device the user hears — `ending`, the lane of that
     /// direction when one is ending: nothing it found is left behind, and nothing goes back to the
     /// claim it is giving up.
     ///
-    /// FxSound is in the path of a default of `direction` while the lane of that direction holds
-    /// its claim — FxSound keeps that direction's defaults right, as it keeps the ones it took —
+    /// CrossFX is in the path of a default of `direction` while the lane of that direction holds
+    /// its claim — CrossFX keeps that direction's defaults right, as it keeps the ones it took —
     /// and whatever the claims, of a default on a cable one of its lanes stands on: what plays into
     /// the input lane's cable is recorded with the voice, and the recording side of the output
     /// lane's records the desktop's sound. A default on the endpoint a claim holds is the claim's,
@@ -2746,7 +2748,7 @@ impl<S: System> Engine<S> {
     }
 
     /// The recording side of the cable the input lane stands on, while it is on and the power is:
-    /// what a recorder of FxSound's microphone records from.
+    /// what a recorder of CrossFX's microphone records from.
     fn input_capture(&self) -> Option<&str> {
         let lane = &self.lanes.input;
         lane.virtual_device
@@ -3161,7 +3163,7 @@ impl<S: System> Engine<S> {
         match self.start_stream(direction, plan, now) {
             Ok(()) => {
                 // Claim before committing, as on Linux: the claim notes the default from before
-                // FxSound, which the commit only fills when it is still empty.
+                // CrossFX, which the commit only fills when it is still empty.
                 self.claim(direction);
                 self.commit(direction, &selection);
                 self.disconnected = false;
@@ -3263,7 +3265,7 @@ impl<S: System> Engine<S> {
                         "{} lane: the default is the original FxSound's now",
                         direction.key()
                     );
-                    // Its to give back, not a killed run's of this port.
+                    // Its to give back, not a killed run's of CrossFX.
                     self.keep_claimed(direction, None);
                 }
             }
@@ -3305,10 +3307,10 @@ impl<S: System> Engine<S> {
         self.placed
             .get_mut(direction)
             .keep_current(&current, |role| deciding.contains(&role));
-        // What a new claim finds on the endpoint is FxSound's to adopt — on its driver, which
-        // nothing plays while neither FxSound runs, where the record says a run left it, or where
-        // Windows put it by itself — and otherwise the user's own: a cable they made their default
-        // (`Claim::finding_theirs`; module docs, "Whose default it is").
+        // What a new claim finds on the endpoint is CrossFX's to adopt — on the FxSound driver,
+        // which nothing plays while neither the original nor CrossFX runs, where the record says a
+        // run left it, or where Windows put it by itself — and otherwise the user's own: a cable
+        // they made their default (`Claim::finding_theirs`; module docs, "Whose default it is").
         let adopts = self.is_driver(&endpoint)
             || self.claimed.get(direction).as_deref() == Some(endpoint.as_str());
         let mut theirs = Defaults::default();
@@ -3353,7 +3355,7 @@ impl<S: System> Engine<S> {
                 && self.windows_default(direction, role, &endpoint)
         }) {
             log::info!(
-                "{} lane: Windows had put the {role:?} default on {endpoint} by itself; FxSound \
+                "{} lane: Windows had put the {role:?} default on {endpoint} by itself; CrossFX \
                  holds it, and gives it back to a real device",
                 direction.key()
             );
@@ -3382,20 +3384,20 @@ impl<S: System> Engine<S> {
                 self.write_default(direction, &endpoint, role);
             }
             log::info!(
-                "{} lane: FxSound's virtual device is the default now",
+                "{} lane: CrossFX's virtual device is the default now",
                 direction.key()
             );
         }
         self.lanes.get_mut(direction).claim = Some(claim);
-        // FxSound is in the path of this direction's defaults now, and stands on this cable.
+        // CrossFX is in the path of this direction's defaults now, and stands on this cable.
         for each in DeviceDirection::ALL {
             self.put_placements_back(each, None);
         }
     }
 
-    /// What a claim of the lane of `direction` remembers as `role`'s default from before FxSound,
+    /// What a claim of the lane of `direction` remembers as `role`'s default from before CrossFX,
     /// that default being `now` (`defaults::claim_roles`): `now` itself, for a device of the
-    /// user's; nothing, for one of FxSound's own; and for one of Windows' on a cable, where the
+    /// user's; nothing, for one of CrossFX's own; and for one of Windows' on a cable, where the
     /// role was before Windows put it there, while that is a device a default may be given to — so
     /// that neither the settings ([`AudioToUi::RememberedDefault`]) nor the hand-back ever name a
     /// cable nobody chose (module docs, "Whose default it is").
@@ -3418,7 +3420,7 @@ impl<S: System> Engine<S> {
     }
 
     /// Give a lane's claim back (module docs, "The default devices"), and with it whatever default
-    /// of Windows' lies in FxSound's path ([`Self::put_placements_back`]): nothing the lane found
+    /// of Windows' lies in CrossFX's path ([`Self::put_placements_back`]): nothing the lane found
     /// on a cable is left there as it ends. A lane holding nothing writes nothing.
     fn release(&mut self, direction: DeviceDirection) {
         if self.lanes.get(direction).claim.is_none() {
@@ -3468,7 +3470,7 @@ impl<S: System> Engine<S> {
 
     /// The device a default of `direction` goes back to when it leaves the endpoints `leaving`
     /// (`devices::restore_default_candidate`): the one the rules remember first — the user's pick,
-    /// the device the lane played to, a default from before FxSound — and with nothing remembered
+    /// the device the lane played to, a default from before CrossFX — and with nothing remembered
     /// here, the device the lane is on, or failing that the first real device. A default left on a
     /// virtual device swallows every sound, which is worse than any real device; and none of these
     /// is ever a cable the user has not chosen ([`Self::device_infos`]), Windows having made it the
@@ -3513,7 +3515,7 @@ impl<S: System> Engine<S> {
                 self.defaults
                     .get_mut(direction)
                     .set(role, Some(id.to_owned()));
-                // FxSound's own write, wherever Windows had put the role before.
+                // CrossFX's own write, wherever Windows had put the role before.
                 self.placed.get_mut(direction).set(role, None);
                 // What Windows is about to report, known now: a change heard before its echo is
                 // a change from here.
@@ -3547,7 +3549,7 @@ impl<S: System> Engine<S> {
             let current = self.system.defaults(direction);
             *self.defaults.get_mut(direction) = current.clone();
             let Some(endpoint) = self.left_behind(direction, &current) else {
-                // Nothing there of FxSound's: a record that says otherwise is out of date.
+                // Nothing there of CrossFX's: a record that says otherwise is out of date.
                 if self.claimed.get(direction).is_some() {
                     self.keep_claimed(direction, None);
                 }
@@ -3562,10 +3564,10 @@ impl<S: System> Engine<S> {
     }
 
     /// The virtual endpoint a run that did not hand back left a default of `direction` on, as
-    /// `current` stands: the one FxSound's record names ([`record`]), or the playback endpoint of
-    /// FxSound's own driver, which nothing plays while neither FxSound runs. A cable the record
-    /// does not name had its default put there by the user, or by Windows, and never by FxSound:
-    /// it is left alone.
+    /// `current` stands: the one CrossFX's record names ([`record`]), or the playback endpoint of
+    /// the original FxSound's own driver, which nothing plays while neither the original nor
+    /// CrossFX runs. A cable the record does not name had its default put there by the user, or by
+    /// Windows, and never by CrossFX: it is left alone.
     fn left_behind(&self, direction: DeviceDirection, current: &Defaults) -> Option<String> {
         let recorded = self
             .claimed

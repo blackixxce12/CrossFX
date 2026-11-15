@@ -1,7 +1,7 @@
 //! Did the shipped presets move when the engine under them changed?
 //!
 //! Every fix to the engine changes what some preset sounds like — the 0.4.0 audit of the Windows
-//! defects the port had copied changed the leveller, Dynamic Boost, its limiter, and the way every
+//! defects CrossFX had copied changed the leveller, Dynamic Boost, its limiter, and the way every
 //! control glides — and whether a preset got *worse* is a question about the preset, not the fix.
 //! It is answered by rendering each preset through both engines on the same material and
 //! comparing what comes out. This file is the measuring half: it renders every shipped preset (the
@@ -34,10 +34,10 @@
 //! render compares two files already on disk; without `PRESET_DRIFT_OUT` the measurement goes to
 //! `target/preset-drift.json`.
 //!
-//! # «Like FxSound for Windows» against Off, in one build
+//! # «Like the original FxSound LLC» against Off, in one build
 //!
-//! `PRESET_DRIFT_COMPAT=windows` renders the output presets as «Like FxSound for Windows» =
-//! Interface and sound plays them: the Windows build's DSP, and its reading of a preset
+//! `PRESET_DRIFT_COMPAT=windows` renders the output presets as «Like the original FxSound LLC» =
+//! Interface and sound plays them: the original's DSP, and its reading of a preset
 //! ([`fxsound_dsp::preset::MusicLevels::with_windows_dsp`]); `linux`, the default, is Off's and
 //! every level below. The voice presets have no Windows original and render the same either way.
 //! The file says which it rendered (`"compat"`), and the comparison prints both, so the two sides
@@ -52,7 +52,7 @@
 //!     cargo test --release -p fxsound-dsp --test preset_drift -- --ignored --nocapture
 //! ```
 //!
-//! What moved there is what the level changes, and a flag says the Windows build plays the preset
+//! What moved there is what the level changes, and a flag says the original plays the preset
 //! otherwise, not that one of the two is wrong. A build older than the Windows DSP takes the
 //! variable and plays its one DSP (`scripts/reference-checkout.sh`).
 //!
@@ -191,7 +191,7 @@ const BEFORE_VAR: &str = "PRESET_DRIFT_BEFORE";
 const AFTER_VAR: &str = "PRESET_DRIFT_AFTER";
 /// Whose DSP renders the output presets: `linux` (Off) or `windows` (Interface and sound).
 const COMPAT_VAR: &str = "PRESET_DRIFT_COMPAT";
-const FORMAT: &str = "fxsound preset drift 1";
+const FORMAT: &str = "crossfx preset drift 1";
 
 /// The pseudo-preset every material's own measurement is filed under. It must come back identical
 /// from both builds, which is what shows the two measured the same thing.
@@ -243,7 +243,7 @@ fn voice_materials() -> Vec<Material> {
 // Presets and rendering
 // ---------------------------------------------------------------------------------------------
 
-/// Whether the output presets render through the Windows build's DSP: `PRESET_DRIFT_COMPAT`.
+/// Whether the output presets render through the original's DSP: `PRESET_DRIFT_COMPAT`.
 fn windows_dsp() -> bool {
     match std::env::var(COMPAT_VAR).as_deref().map(str::trim) {
         Err(_) | Ok("" | "linux") => false,
@@ -1472,8 +1472,8 @@ fn compare(before: &Run, after: &Run) {
     let voice = pairs(&before.voice, &after.voice);
 
     let dsp = |compat: &str| match compat {
-        "windows" => "the Windows build's DSP («Like FxSound for Windows» = Interface and sound)",
-        _ => "FxSound for Linux's DSP (Off)",
+        "windows" => "the original's DSP («Like the original FxSound LLC» = Interface and sound)",
+        _ => "CrossFX's DSP (Off)",
     };
     println!();
     println!("== Before: {}", dsp(&before.compat));
@@ -1657,8 +1657,8 @@ fn a_measurement_without_the_dsp_it_rendered_with_is_offs() {
 #[test]
 fn preset_drift_compat_renders_a_preset_as_interface_and_sound_plays_it() {
     // What the harness hands the engine is the application's snapshot at the level
-    // `PRESET_DRIFT_COMPAT` names: at `windows`, «Like FxSound for Windows» = Interface and
-    // sound's, the Windows DSP and the Windows build's reading of a preset.
+    // `PRESET_DRIFT_COMPAT` names: at `windows`, «Like the original FxSound LLC» = Interface and
+    // sound's, the Windows DSP and the original's reading of a preset.
     let preset = fxsound_preset::load(&repo_root().join("assets/presets/BonusPresets/R&B.fac"))
         .expect("a shipped preset reads");
     let at = |windows: bool| {

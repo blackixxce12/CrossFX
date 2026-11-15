@@ -16,7 +16,7 @@
 //! their numerators cancel at the corner and the sum has a notch exactly where a voice's presence
 //! lives. Cascading each into a fourth-order Linkwitz–Riley makes the sum `(ωc⁴ + ω⁴)/(ωc⁴ + ω⁴)`,
 //! which is unity at every frequency, so a de-esser that is not reducing anything is audibly not
-//! there. That is the property [`the_split_sums_back_to_what_went_in`] measures.
+//! there. That is the property `the_split_sums_back_to_what_went_in` measures.
 //!
 //! **The corner is prewarped here, at the call site.** [`calc_butterworth_highpass`] is a faithful
 //! port and deliberately does not prewarp, which leaves its realised corner a few percent low — a

@@ -198,7 +198,7 @@ pub fn language(code: &str) -> Option<&'static Language> {
 }
 
 /// The code of the table `text` names, whatever way a person or a script writes it: one of
-/// [`LANGUAGES`]' codes in any case (`zh-cn`, `PT-BR`), the ISO code where the Windows build uses
+/// [`LANGUAGES`]' codes in any case (`zh-cn`, `PT-BR`), the ISO code where the original uses
 /// another (`uk` for `ua`, `bs` for `ba`, `nb` and `nn` for `no`), or a POSIX locale
 /// (`ru_RU.UTF-8`, `pt_BR`), as [`language_for_locale`] reads one. `None` for a language with no
 /// table — which `--language` refuses rather than saving a code nothing can show (0.4.0 audit
@@ -430,7 +430,7 @@ pub fn current() -> String {
 
 /// Where a translation says a long word may be broken over two lines: `Эксперимен{-}тальное`.
 ///
-/// Only the port's own tables use it, and only in a caption drawn where two lines fit and one does
+/// Only the port tables use it, and only in a caption drawn where two lines fit and one does
 /// not — the Settings tabs' ([`tr_breakable`]). Everywhere else [`tr`] takes it out. A soft hyphen
 /// (U+00AD) would have been the standard spelling, but egui neither breaks at one nor hides it.
 pub const BREAK: &str = "{-}";
@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn every_language_carries_the_ports_own_strings_too() {
-        // `assets/translations/port/<code>.txt` layers the strings the Windows build never had.
+        // `assets/translations/port/<code>.txt` layers the strings the original never had.
         for language in &LANGUAGES[1..] {
             let table = Catalogue::for_language(language);
             for key in [
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn finnish_says_output_and_input_the_way_its_windows_table_does() {
-        // The original writes `Ulostulo` for output throughout; the port's own pair follows it
+        // The original writes `Ulostulo` for output throughout; CrossFX's own pair follows it
         // rather than setting `Lähtö` beside it in the same tooltip.
         let fi = Catalogue::for_language(language("fi").expect("fi"));
         assert_eq!(fi.get("Output: "), Some("Ulostulo: "));
@@ -884,8 +884,8 @@ mod tests {
         let ru = language("ru").expect("ru");
         let merged = Catalogue::for_language(ru);
         let (original, port) = (ru.original_catalogue(), ru.port_catalogue());
-        // Two layers, each with strings the other has not: the Windows build's, and the port's
-        // own and its repairs. Not which is the longer: the port's own strings outnumber the
+        // Two layers, each with strings the other has not: the original's, and CrossFX's
+        // own and its repairs. Not which is the longer: CrossFX's own strings outnumber the
         // original's since the interface font's and the Windows mode's came.
         assert!(original.keys().any(|key| port.get(key).is_none()));
         assert!(port.keys().any(|key| original.get(key).is_none()));
@@ -945,7 +945,7 @@ mod tests {
             table("pt-br").get(sixteen_k)
         );
         // hr.txt:44 has no opening quote before its translation, so JUCE reads nothing there
-        // either; the port's layer carries the line repaired.
+        // either; the port table carries the line repaired.
         let high_mid = "The high-mid-range. Increase this to get more instrumental harmonics, \
                         reduce it to improve drums that have too much \"clickiness\" or orchestral \
                         instruments that are piercing.";
@@ -1009,7 +1009,7 @@ mod tests {
 
     #[test]
     fn the_effect_tooltips_keys_match_after_the_line_break_fold() {
-        // The C++ passes `"Enhances and elevates high end\r\nfidelity and presence"`; this port
+        // The C++ passes `"Enhances and elevates high end\r\nfidelity and presence"`; CrossFX
         // writes the same key with a bare `\n`, and the fold makes both spellings meet.
         let ru = Catalogue::for_language(language("ru").expect("ru"));
         assert!(
@@ -1208,7 +1208,7 @@ mod tests {
         assert_eq!(canonical_code("ru"), Some("ru"));
         assert_eq!(canonical_code(" zh-cn "), Some("zh-CN"));
         assert_eq!(canonical_code("PT-BR"), Some("pt-br"));
-        // The ISO codes the Windows build spells its own way.
+        // The ISO codes the original spells its own way.
         assert_eq!(canonical_code("uk"), Some("ua"));
         assert_eq!(canonical_code("bs"), Some("ba"));
         assert_eq!(canonical_code("nb"), Some("no"));

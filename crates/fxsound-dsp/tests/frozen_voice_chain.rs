@@ -172,8 +172,8 @@ struct Fixture {
 /// Captured from the 0.3.0 implementation. Do not regenerate these from the current code without
 /// saying why in the commit: the point of the test is that they *cannot* be regenerated.
 ///
-/// Changed on purpose, once: 0.4.0's audit of the Windows defects the port copied (#8, R1, R2)
-/// changed the limiter every chain ends in, which the Windows code and 0.3.0 shared. The windows
+/// Changed on purpose, once: 0.4.0's audit of the Windows defects CrossFX copied (#8, R1, R2)
+/// changed the limiter every chain ends in, which the original's code and 0.3.0 shared. The windows
 /// marked below — the two loudest of each fixture that reaches the ceiling, and nothing else — were
 /// re-measured, and each keeps the 0.3.0 number beside it. The peaks now meet the ceiling instead
 /// of stopping up to 0.1 dB short of it (#8: the attack no longer overshoots); their RMS is up to

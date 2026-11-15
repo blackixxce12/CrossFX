@@ -18,7 +18,7 @@ pub(crate) struct PitchFinder {
 
 impl PitchFinder {
     pub(crate) fn new() -> PitchFinder {
-        // fxsound: a run-time assertion on constants, made a compile-time one.
+        // crossfx: a run-time assertion on constants, made a compile-time one.
         const _: () = assert!(
             PITCH_MAX_PERIOD + 1
                 >= PITCH_FRAME_SIZE / 4 + (PITCH_MAX_PERIOD - 3 * PITCH_MIN_PERIOD) / 4
@@ -38,7 +38,7 @@ impl PitchFinder {
         }
     }
 
-    // fxsound: forget the previous frame's pitch and clear the downsampled history, in place. The
+    // crossfx: forget the previous frame's pitch and clear the downsampled history, in place. The
     // scratch buffers are overwritten before they are read, but zeroing them too keeps a reset
     // state bit-identical to a new one, which is what the reset test asks for.
     pub(crate) fn reset(&mut self) {

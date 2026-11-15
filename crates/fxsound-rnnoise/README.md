@@ -1,7 +1,7 @@
 # fxsound-rnnoise
 
 This is Joe Neeman's [`nnnoiseless`](https://github.com/jneem/nnnoiseless) 0.5.2, a pure-Rust
-port of Xiph's [RNNoise](https://github.com/xiph/rnnoise), vendored into the FxSound tree. It is
+port of Xiph's [RNNoise](https://github.com/xiph/rnnoise), vendored into the CrossFX tree. It is
 BSD-3-Clause, not the workspace's AGPL; its `COPYING` and `AUTHORS` travel with it, byte for byte,
 and so does the model, `src/weights.rnn`.
 
@@ -17,7 +17,7 @@ PipeWire data thread, in the middle of an audio callback. `docs/0.4.0-design.md`
 contract.
 
 The rule for this copy: the source stays as close to upstream as it can, so that a future upstream
-diff still applies, and **every change is marked `// fxsound:` in the source**. Nothing the
+diff still applies, and **every change is marked `// crossfx:` in the source**. Nothing the
 original computed on audio was changed; the tests at the end of this file hold it to that. The
 one arithmetic change is on digital silence, where the input high-pass now comes to rest at zero
 instead of in a subnormal limit cycle (*Changed inside*, `util.rs`).
@@ -35,7 +35,7 @@ below and nothing else, apart from rustfmt collapsing three one-line `if … els
   and `real_ifft_using`, which keep the planner, the plans and their scratch and input-copy buffers
   in a cache private to the calling thread (`easyfft` 0.4.2, `src/dyn_size/realfft.rs` and
   `src/lib.rs`). The first frame a thread analysed therefore planned the 960-point transforms and
-  allocated those buffers on that thread — in FxSound, PipeWire's real-time data thread, the first
+  allocated those buffers on that thread — in CrossFX, PipeWire's real-time data thread, the first
   time noise suppression was switched on, and again on every other data thread the capture stream
   later ran on. Now `DenoiseFeatures` and `Stft` each hold an `Fft`: a forward and an inverse
   `realfft` plan made with `RealFftPlanner` in the constructor, and owned input-copy and scratch
@@ -184,7 +184,7 @@ from the processor's own sticky flags.
 ## Taking a newer upstream
 
 Diff the new upstream against 0.5.2 in the registry, apply that onto `src/`, and keep every
-`// fxsound:` hunk. If upstream's `process_frame` changes, `reference_process_frame` in the
+`// crossfx:` hunk. If upstream's `process_frame` changes, `reference_process_frame` in the
 `denoise.rs` tests must be updated to its new body — it exists to pin the split to upstream's
 arithmetic, so it has to *be* upstream's arithmetic. Then update the version in this file, in
 `Cargo.toml`'s comment and `description`, and in the `lib.rs` module doc.

@@ -192,8 +192,8 @@ impl Chain {
         self.dynamic_boost.set_channel_sides(Some(sides));
     }
 
-    /// Play the port's arithmetic or the Windows build's where the 0.4.0 audit changed it
-    /// («Like FxSound for Windows» = Interface and sound): Dynamic Boost and its limiter
+    /// Play CrossFX's arithmetic or the original's where the 0.4.0 audit changed it
+    /// («Like the original FxSound LLC» = Interface and sound): Dynamic Boost and its limiter
     /// ([`DynamicBoost::set_compat`]) and Ambience's mapping ([`Ambience::set_compat`], audit
     /// report #39). Fidelity, Surround and Bass have one. What glides lands at once until the
     /// chain has been heard, as a new amount does.

@@ -108,7 +108,7 @@ fn feed_silence(mut stdin: std::process::ChildStdin) {
 }
 
 /// Start an engine on `graph` and wait until it has listed the graph's devices: connected, with
-/// the first look at the graph behind it. Its output lane attaches by itself, so FxSound's own
+/// the first look at the graph behind it. Its output lane attaches by itself, so CrossFX's own
 /// playback stream — a player like any other to the graph — is there too, and must never be
 /// reported as an application.
 fn engine_on(graph: &PrivateGraph) -> (EngineHandle, Transcript) {
@@ -252,8 +252,8 @@ fn every_player_and_recorder_is_reported_with_its_key_and_lane_and_gone_once_it_
         }
         assert_eq!(stream.route, None);
     }
-    // FxSound's own playback stream is in the graph and in no list.
-    if let Some(nodes) = unless_skipped(graph.our_nodes(), "pw-dump", "FxSound's own stream") {
+    // CrossFX's own playback stream is in the graph and in no list.
+    if let Some(nodes) = unless_skipped(graph.our_nodes(), "pw-dump", "CrossFX's own stream") {
         assert!(
             nodes.iter().any(|(name, _)| *name == OUTPUT_NODE_NAME),
             "the output lane's playback stream should be there to be left out: {nodes:?}"
@@ -283,7 +283,7 @@ fn every_player_and_recorder_is_reported_with_its_key_and_lane_and_gone_once_it_
 }
 
 #[test]
-fn a_monitor_recorder_is_listed_only_when_it_records_fxsound_and_a_dont_move_stream_is_listed() {
+fn a_monitor_recorder_is_listed_only_when_it_records_crossfx_and_a_dont_move_stream_is_listed() {
     let Some(graph) = PrivateGraph::start("appmon") else {
         return;
     };
@@ -293,8 +293,8 @@ fn a_monitor_recorder_is_listed_only_when_it_records_fxsound_and_a_dont_move_str
     }
     let (handle, mut said) = engine_on(&graph);
 
-    // A visualiser on the speakers' monitor records no microphone and no FxSound: left out. A
-    // screen recorder on FxSound's sink's monitor hears FxSound: listed, as a recorder. A kiosk
+    // A visualiser on the speakers' monitor records no microphone and no CrossFX: left out. A
+    // screen recorder on CrossFX's sink's monitor hears CrossFX: listed, as a recorder. A kiosk
     // player that may never be moved: listed all the same.
     let _visualiser = graph
         .pw_cat(
@@ -351,7 +351,7 @@ fn a_monitor_recorder_is_listed_only_when_it_records_fxsound_and_a_dont_move_str
     handle.shutdown();
 }
 
-/// Applications that were playing and recording before FxSound started are in its first list, all
+/// Applications that were playing and recording before CrossFX started are in its first list, all
 /// of them, each with its whole key — its client's binary included where its stream names none. A
 /// list in instalments would show the Applications page filling in, and a rule would first be
 /// matched against a key with no binary in it. Two things see to it: a stream is reported only

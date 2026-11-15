@@ -13,11 +13,12 @@
 //! The rules must not pick such a node while something else can be heard: ranked first, it would
 //! take the lane and play into an empty jack, and the old rules' last resort — "the first device
 //! there is" — could do the same (`docs/0.4.0-upstream.md` U4; the review's correction to item 4;
-//! upstream issues #104, #582 and #595). WirePlumber draws exactly this line for its own choices:
-//! a node without an available route is neither made the default nor linked to
-//! (`default-nodes/rescan.lua:110-114`, `linking/find-best-target.lua:72`). [`CardRoutes::available`]
-//! is its verdict, `lutils.haveAvailableRoutes` (`lib/linking-utils.lua:356-410` in 0.5.17), step
-//! for step, so FxSound and the session manager never disagree about which of the two a node is.
+//! the original's issues #104, #582 and #595). WirePlumber draws exactly this line for its own
+//! choices: a node without an available route is neither made the default nor linked to
+//! (`default-nodes/rescan.lua:110-114`, `linking/find-best-target.lua:72`).
+//! [`CardRoutes::available`] is its verdict, `lutils.haveAvailableRoutes`
+//! (`lib/linking-utils.lua:356-410` in 0.5.17), step for step, so CrossFX and the session manager
+//! never disagree about which of the two a node is.
 //!
 //! Everything here runs on the main loop, from a card's `param` events; nothing is anywhere near
 //! a process callback.
@@ -89,7 +90,7 @@ pub struct Route {
     /// `SPA_PARAM_ROUTE_index`: the port's index on the card.
     pub index: u32,
     /// `SPA_PARAM_ROUTE_name`: the port's name, such as `analog-output-headphones` — stable across
-    /// restarts, where the index need not be. What FxSound's volume is remembered under beside the
+    /// restarts, where the index need not be. What CrossFX's volume is remembered under beside the
     /// node's name (`crate::volume`, "Per target").
     pub name: Option<String>,
     /// `SPA_PARAM_ROUTE_device`: the device of the card this port is the active one of — a node's

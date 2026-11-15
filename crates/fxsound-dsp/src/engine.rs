@@ -14,16 +14,17 @@
 //! **The master gain and the balance play whatever the power and the equalizer's switch say
 //! (audit report R3, the user's decision of 2026-09-24).** In the original the gain stage lives
 //! inside the GraphicEq block with the filters and the levelling: `sosProcessBuffer`, which
-//! `dfxpProcessReal.cpp:143-157` does not call while the equalizer is off (upstream aad64c1, whose
-//! title only names the leveller; before it the equalizer-off branch ran the levelling alone). With
-//! the power off it calls `GraphicEqProcess_MasterGainOnly` (`:158-169`), the master gain alone and no
-//! balance (`SosProcess.cpp:500-516`), behind the same equalizer test — and on 5.1 or 7.1, where
-//! that test read `(i_eq_on) && a || b || c` until aad64c1 bracketed it, whatever the equalizer
-//! said. So on Windows the level jumped by the master gain whenever the equalizer's switch moved,
-//! and a mix balanced to one side recentred the moment FxSound went off. Here the gain stage is taken out
-//! of the block and runs on every path, so neither switch moves the level by the master gain or
-//! the balance: at −6 dB and a balance of +6 dB each side plays −12/−6 dB powered with the
-//! equalizer on or off, and the same with FxSound off, within Dynamic Boost's 0.3 dB ceiling.
+//! `dfxpProcessReal.cpp:143-157` does not call while the equalizer is off (the original's aad64c1,
+//! whose title only names the leveller; before it the equalizer-off branch ran the levelling
+//! alone). With the power off it calls `GraphicEqProcess_MasterGainOnly` (`:158-169`), the master
+//! gain alone and no balance (`SosProcess.cpp:500-516`), behind the same equalizer test — and on
+//! 5.1 or 7.1, where that test read `(i_eq_on) && a || b || c` until aad64c1 bracketed it, whatever
+//! the equalizer said. So on Windows the level jumped by the master gain whenever the equalizer's
+//! switch moved, and a mix balanced to one side recentred the moment CrossFX went off. Here the
+//! gain stage is taken out of the block and runs on every path, so neither switch moves the level
+//! by the master gain or the balance: at −6 dB and a balance of +6 dB each side plays −12/−6 dB
+//! powered with the equalizer on or off, and the same with CrossFX off, within Dynamic Boost's 0.3
+//! dB ceiling.
 //!
 //! It runs *before* the equalizer rather than between it and the leveller, where the original's
 //! block had it, so that the equalizer's switch can fade the rest of the block in and out against
@@ -40,7 +41,7 @@
 //! The sides come from [`Engine::set_channel_sides`] when the layout is known and are inferred
 //! from the channel count, the front pair and the subwoofer otherwise ([`default_sides`]).
 //!
-//! **At «Like FxSound for Windows» = Interface and sound the gain stage is the Windows build's**
+//! **At «Like the original FxSound LLC» = Interface and sound the gain stage is the original's**
 //! (`DspParams::compat`; audit reports R3 and #44 taken back, #44 as the Windows C code has it):
 //!
 //! ```text
@@ -59,10 +60,10 @@
 //! with the stage in it, a new gain glides, the power switch dips.
 //!
 //! **Moving the level under a playing stream glides too.** The stage leaves one place for the
-//! other over [`crate::smooth::GLIDE_SECONDS`]: the part before the equalizer fades from FxSound
-//! for Linux's factor to unity while the part inside the block makes up the rest, so the two
+//! other over [`crate::smooth::GLIDE_SECONDS`]: the part before the equalizer fades from CrossFX's
+//! factor to unity while the part inside the block makes up the rest, so the two
 //! together go in a straight line from one DSP's factor to the other's on every speaker
-//! ([`Engine::position`]). Moved between two samples, it stepped: with the equalizer off the
+//! (`Engine::position`). Moved between two samples, it stepped: with the equalizer off the
 //! Windows DSP plays no gain stage, and −6 dB went to 0 dB at once, a click at −13.7 dBFS above
 //! 1 kHz; on 5.1 the left-hand rears, which the Windows DSP does not balance, stepped at
 //! −21.6 dBFS. The switch of the power, which dips, puts the stage in its new place in the
@@ -82,13 +83,13 @@
 //! bypass that crossfaded would mix the processed signal, a look-ahead behind, with the dry one
 //! for 20 ms. It used to act between two samples instead, and that was a click: measured through
 //! the release build on a private PipeWire, a 100 Hz tone at −12 dBFS on a stream that stays on
-//! FxSound's sink stepped by up to −5 dBFS, high-passed at 2 kHz. So it dips
+//! CrossFX's sink stepped by up to −5 dBFS, high-passed at 2 kHz. So it dips
 //! ([`crate::smooth::Dip`]): the sound fades out over 10 ms on the old side of the switch, the
 //! switch is made in silence, and the other side fades in over 10 ms — after the look-ahead's
 //! worth of silence the effect chain holds when it starts again, going on. Nothing is mixed, and
 //! the comparison is still 20 ms from the press. Switched back on, the equalizer starts from
 //! rest, as it does when its own switch comes back on and as the effects do (audit report #10):
-//! its sections stood still while FxSound was off, and resuming them played what they held from
+//! its sections stood still while CrossFX was off, and resuming them played what they held from
 //! before into whatever came next. The leveller resumes its gain, as the original's does.
 //!
 //! Everything after construction is allocation-free. [`Engine::process`] is the only method the
@@ -177,7 +178,7 @@ pub fn default_sides(
     sides
 }
 
-/// The complete FxSound processing chain.
+/// The complete processing chain: CrossFX's port of the original FxSound's.
 #[derive(Debug)]
 pub struct Engine {
     eq: GraphicEq,
@@ -191,8 +192,8 @@ pub struct Engine {
     /// The gain stage: the master gain on every channel, with the balance's attenuation folded in
     /// on each side, and the glide to a new setting.
     gains: SideGains,
-    /// Where the gain stage plays: 0 before the equalizer on FxSound for Linux's sides, 1 inside
-    /// the GraphicEq block on the Windows build's («Like FxSound for Windows» = Interface and
+    /// Where the gain stage plays: 0 before the equalizer on CrossFX's sides, 1 inside
+    /// the GraphicEq block on the original's («Like the original FxSound LLC» = Interface and
     /// sound, powered), and a glide between the two when the level moves under a playing stream
     /// ([`Engine::process_part`]).
     position: Ramp,
@@ -426,8 +427,8 @@ impl Engine {
         }
         self.eq.set_enabled(self.eq_block_runs());
         if powering_on {
-            // FxSound back on: the equalizer starts from rest, as it does when its own switch
-            // comes back on (`GraphicEq::set_enabled`, audit report #10). While FxSound was off
+            // CrossFX back on: the equalizer starts from rest, as it does when its own switch
+            // comes back on (`GraphicEq::set_enabled`, audit report #10). While CrossFX was off
             // its sections stood still holding what they heard before, perhaps minutes ago, and
             // resumed from it: with 62.5 Hz at +3 dB under loud bass, silence after switching
             // back on rang at −12.8 dBFS. The effects start from rest for the same reason
@@ -469,7 +470,7 @@ impl Engine {
         self.gains
             .glide_to(left, right, centre, glide_frames(self.sample_rate));
         // The Windows DSP plays its stage inside the GraphicEq block while powered; its bypass,
-        // like FxSound for Linux's stage, plays before it. A level moved under a playing stream
+        // like CrossFX's stage, plays before it. A level moved under a playing stream
         // glides the stage from one place to the other rather than moving it between two samples.
         let inside = params.compat.windows() && params.power;
         self.position.glide_to(
@@ -699,12 +700,12 @@ impl Engine {
     /// a right-hand one the right (see the module documentation). Mono has no sides and takes the
     /// master gain alone. On stereo this is the gain stage the original folds into
     /// `sosProcessBuffer` (`SosProcess.cpp:583`, `:630-631`), and it is what this did before.
-    /// At «Like FxSound for Windows» = Interface and sound, powered, the stage plays inside the
-    /// block instead ([`Engine::apply_gain_stage_inside`]) and nothing plays here.
+    /// At «Like the original FxSound LLC» = Interface and sound, powered, the stage plays inside
+    /// the block instead ([`Engine::apply_gain_stage_inside`]) and nothing plays here.
     ///
     /// While a glide runs each frame takes its own step of it; otherwise the factors are the
     /// constants they always were. The stage moving between its two places glides too: this part
-    /// fades from the whole of FxSound for Linux's factor to unity while the part inside the block
+    /// fades from the whole of CrossFX's factor to unity while the part inside the block
     /// makes up the rest, so that the two together move in a straight line from what one DSP
     /// plays to what the other does, whatever the equalizer between them does.
     fn apply_gain_stage_before(&mut self, buffer: &mut [f32], channels: usize) {
@@ -734,8 +735,8 @@ impl Engine {
 
     /// The gain stage's part inside the GraphicEq block, between the equalizer and the leveller,
     /// where the Windows DSP plays it: channels 0 and 1 of a stereo block take the balance and
-    /// every other channel the master gain alone ([`windows_sides`]). Nothing at FxSound for
-    /// Linux; on the way between the two, what [`Engine::apply_gain_stage_before`] leaves over.
+    /// every other channel the master gain alone ([`windows_sides`]). Nothing at CrossFX's;
+    /// on the way between the two, what [`Engine::apply_gain_stage_before`] leaves over.
     ///
     /// It plays the frames of the stretch [`Engine::process_part`] started from, stepping its own
     /// copy of the glides, since the part before the equalizer has already stepped through them.
@@ -765,8 +766,8 @@ impl Engine {
         }
     }
 
-    /// The side each channel of a `channels`-channel block takes the balance for, as FxSound for
-    /// Linux balances: the layout's sides; a block in a format the engine was not told about
+    /// The side each channel of a `channels`-channel block takes the balance for, as CrossFX
+    /// balances: the layout's sides; a block in a format the engine was not told about
     /// (`process` clamps rather than refuses) is balanced by the count's default layout. Mono has
     /// no sides.
     fn linux_sides(&self, channels: usize) -> [ChannelSide; crate::biquad::MAX_CHANNELS] {
@@ -937,7 +938,7 @@ const fn side_gain(gains: [Real; 3], side: ChannelSide) -> Real {
 }
 
 /// What the part of the gain stage before the equalizer multiplies by, for a channel whose factor
-/// at FxSound for Linux is `linux`, with the stage at `place` on its way inside the block (0
+/// at CrossFX is `linux`, with the stage at `place` on its way inside the block (0
 /// before it, 1 inside): the whole factor at 0, unity at 1, a straight line between.
 #[inline(always)]
 fn share_before(linux: Real, place: Real) -> Real {
@@ -951,7 +952,7 @@ fn share_before(linux: Real, place: Real) -> Real {
 }
 
 /// What the part inside the block multiplies by, so that the two parts together play a straight
-/// line from the channel's factor at FxSound for Linux, `linux`, to the one the Windows DSP gives
+/// line from the channel's factor at CrossFX, `linux`, to the one the Windows DSP gives
 /// it, `windows`.
 #[inline(always)]
 fn share_inside(linux: Real, windows: Real, place: Real) -> Real {
@@ -1091,7 +1092,7 @@ mod tests {
     #[test]
     fn master_gain_survives_a_bypass() {
         // The original keeps the master gain live when the engine is bypassed, so that switching
-        // FxSound off does not jump the volume (`dfxpProcessReal.cpp:158-169`). It now carries the
+        // CrossFX off does not jump the volume (`dfxpProcessReal.cpp:158-169`). It now carries the
         // balance as well (audit report R3), which has tests of its own below; this one pins the
         // half that has not changed.
         let mut engine = Engine::new(48_000.0, 256, 2);
@@ -1427,11 +1428,12 @@ mod tests {
 
     #[test]
     fn turning_the_equalizer_off_takes_the_curve_and_the_leveller_but_not_the_gain_stage() {
-        // Upstream aad64c1, less the gain stage (audit report R3, changed on purpose: this test
-        // was `turning_the_equalizer_off_takes_the_master_gain_the_balance_and_the_leveller_with_it`).
-        // With the equalizer off, an engine whose curve and leveller are set to do a great deal
-        // and one whose curve and leveller are set to do nothing, at the same master gain and
-        // balance, must hand back the same bits.
+        // The original's aad64c1, less the gain stage (audit report R3, changed on purpose: this
+        // test was
+        // `turning_the_equalizer_off_takes_the_master_gain_the_balance_and_the_leveller_with_it`).
+        // With the equalizer off, an engine whose curve and leveller are set to do a great deal and
+        // one whose curve and leveller are set to do nothing, at the same master gain and balance,
+        // must hand back the same bits.
         let busy = render_blocks(&busy_graphic_eq_block(false), 60, 0.05);
         let gains_only = busy_graphic_eq_block(false);
         let plain = render_blocks(
@@ -1546,7 +1548,7 @@ mod tests {
 
     #[test]
     fn the_power_switch_dips_under_a_bass_tone_rather_than_stepping() {
-        // The live check's defect: a 100 Hz tone at -12 dBFS on a stream that stays on FxSound's
+        // The live check's defect: a 100 Hz tone at -12 dBFS on a stream that stays on CrossFX's
         // sink, under the E6 preset (Movies with the 116 Hz band at +9 dB), stepped the speakers
         // by up to -5 dBFS high-passed at 2 kHz on every press of the power button. The processed
         // and the bypassed sound are a look-ahead apart and several decibels, so the switch dips.
@@ -1617,7 +1619,7 @@ mod tests {
         // Changed on purpose: audit report R3. This test was
         // `the_bypass_applies_the_master_gain_without_the_balance`: the original's bypass
         // multiplies by the master gain alone (`SosProcess.cpp:500-516`), so a mix balanced to
-        // the right recentred the moment FxSound was switched off.
+        // the right recentred the moment CrossFX was switched off.
         let params = DspParams {
             power: false,
             master_gain_db: -6.0,
@@ -1641,7 +1643,7 @@ mod tests {
         // Changed on purpose: audit report R3, the user's decision. This test was
         // `the_bypass_passes_the_audio_untouched_while_the_equalizer_is_off`: the powered path
         // used to leave the gain stage out with the equalizer off, so the bypass did too. Both now
-        // play it whatever the equalizer says, so switching FxSound off brings in nothing.
+        // play it whatever the equalizer says, so switching CrossFX off brings in nothing.
         let mut params = busy_graphic_eq_block(false);
         params.power = false;
         params.master_gain_db = 6.0;
@@ -1692,7 +1694,7 @@ mod tests {
     }
 
     #[test]
-    fn switching_fxsound_off_with_the_equalizer_on_keeps_the_level_and_the_balance() {
+    fn switching_crossfx_off_with_the_equalizer_on_keeps_the_level_and_the_balance() {
         // Audit report R3. Powered, the gain stage gives -12 dB left and -6 dB right, and Dynamic
         // Boost's ceiling takes 0.3 dB off both. Switched off, the original kept the master gain
         // alone, -6 dB on both sides, so the left side jumped up 6.3 dB and the mix recentred.
@@ -1704,10 +1706,10 @@ mod tests {
     }
 
     #[test]
-    fn switching_fxsound_off_with_the_equalizer_off_keeps_the_level_and_the_balance() {
+    fn switching_crossfx_off_with_the_equalizer_off_keeps_the_level_and_the_balance() {
         // Audit report R3, the user's decision: the master gain and the balance play powered with
         // the equalizer off as well. Windows plays neither there (0 dB on both sides, less Dynamic
-        // Boost's 0.3 dB), and with FxSound off it plays neither either; the port's first answer
+        // Boost's 0.3 dB), and with CrossFX off it plays neither either; the port's first answer
         // to R3 brought them in on switching off, a step of 11.7 and 5.7 dB. Now both paths play
         // -12 dB on the left and -6 dB on the right, within the ceiling's 0.3 dB of each other.
         let (powered, bypassed) = power_switch_levels(false);
@@ -1718,8 +1720,8 @@ mod tests {
     #[test]
     fn switching_the_equalizer_off_keeps_the_master_gain_and_the_balance() {
         // Audit report R3, the user's decision. On Windows the equalizer's switch took the master
-        // gain and the balance with it (upstream aad64c1), so at -6 dB and +6 dB switching the
-        // equalizer off jumped the left side up 12 dB and the right 6 dB. With a flat curve and
+        // gain and the balance with it (the original's aad64c1), so at -6 dB and +6 dB switching
+        // the equalizer off jumped the left side up 12 dB and the right 6 dB. With a flat curve and
         // no levelling the switch now moves neither side at all.
         let levels = |eq_on| {
             settled_side_levels(&DspParams {
@@ -1744,7 +1746,7 @@ mod tests {
     #[test]
     fn the_power_switch_moves_neither_side_by_more_than_dynamic_boosts_ceiling() {
         // Audit report R3: master gain -6 dB and balance +6 dB. Whatever the equalizer switch
-        // says, switching FxSound off lands each side within Dynamic Boost's 0.3 dB of where it
+        // says, switching CrossFX off lands each side within Dynamic Boost's 0.3 dB of where it
         // played powered, and the difference between the sides, the balance, does not move.
         for eq_on in [true, false] {
             let (powered, bypassed) = power_switch_levels(eq_on);
@@ -2104,7 +2106,7 @@ mod tests {
     const LFE: usize = 3;
 
     /// The failure this prevents is the one a listener notices instantly and cannot attribute to
-    /// FxSound: a device that reports `FL, FC, FR, LFE, SL, SR` — front right at index 2, not 1 —
+    /// CrossFX: a device that reports `FL, FC, FR, LFE, SL, SR` — front right at index 2, not 1 —
     /// had its stereo widener applied across front-left and *centre*, pulling dialogue out of the
     /// centre channel and into a phantom image.
     #[test]
@@ -2755,13 +2757,13 @@ mod tests {
 
     #[test]
     fn levelling_switched_off_while_its_stage_is_left_out_does_not_burst_when_it_comes_back() {
-        // The same −34 dBFS tone lifted by 13 dB; FxSound, or the equalizer, switched off at
+        // The same −34 dBFS tone lifted by 13 dB; CrossFX, or the equalizer, switched off at
         // block 200, Volume Leveling 4 → 0 while it is off or in the snapshot that switches it
         // back on, and the switch back on at block 220. The glide that lets the lift down only
         // plays while the stage runs, so it waited for the switch-on and played the old lift into
         // audio the listener had last heard unlevelled: 0.087, then 0.053, for a steady 0.019.
         // A stage left out now drops the glide and is switched off at once, as before the glides,
-        // so the switch-on plays 0.019. (Switching FxSound off still drops the lift at once, as it
+        // so the switch-on plays 0.019. (Switching CrossFX off still drops the lift at once, as it
         // always has; the equalizer's switch fades it, which the test below measures.)
         for switch_is_power in [true, false] {
             for with_the_switch_on in [false, true] {
@@ -2809,10 +2811,10 @@ mod tests {
     }
 
     #[test]
-    fn a_band_moved_while_fxsound_is_off_does_not_replay_the_old_curve_when_it_comes_back_on() {
-        // A band at 31.25 Hz, +12 dB, under a tone there at 0.05; FxSound switched off at block 20,
+    fn a_band_moved_while_crossfx_is_off_does_not_replay_the_old_curve_when_it_comes_back_on() {
+        // A band at 31.25 Hz, +12 dB, under a tone there at 0.05; CrossFX switched off at block 20,
         // the band set to 0 dB while it is off or in the snapshot that switches it back on, and
-        // FxSound back on at block 40. The equalizer does not run while FxSound is off, so the
+        // CrossFX back on at block 40. The equalizer does not run while CrossFX is off, so the
         // crossfade the change started waited for it and played 20 ms of the +12 dB curve at the
         // switch-on: 0.134, where before the glides it played 0.048. A change made while nobody
         // hears the equalizer now lands at once, and the switch-on plays 0.048 again.
@@ -3031,12 +3033,12 @@ mod tests {
     }
 
     #[test]
-    fn switching_fxsound_back_on_starts_the_equalizer_from_rest() {
+    fn switching_crossfx_back_on_starts_the_equalizer_from_rest() {
         // Audit report #10 through the power button, the switch listeners use most. The
         // equalizer's own switch already starts every band from rest on the way back in; the
-        // power button froze the sections while FxSound was off and resumed them from what they
+        // power button froze the sections while CrossFX was off and resumed them from what they
         // held, perhaps minutes old. 62.5 Hz at +3 dB under a 50 Hz tone at 0.9 for a second,
-        // FxSound off for a second, back on into digital silence: the old state rang out at
+        // CrossFX off for a second, back on into digital silence: the old state rang out at
         // 0.230, −12.8 dBFS. Now it is silence, as through the equalizer's switch.
         let mut on = DspParams::default();
         on.band_boost_db[0] = 3.0;
@@ -3074,9 +3076,9 @@ mod tests {
 
     #[test]
     fn interface_and_sound_reaches_the_volume_leveller_and_dynamic_boost_through_the_snapshot() {
-        // «Like FxSound for Windows» = Interface and sound travels in the snapshot. The leveller
-        // takes it, and so does Dynamic Boost: at slider 0 a loud tone backs the boost off to the
-        // original's flat floor, ×1.06, where the port plays the static boost of nothing.
+        // «Like the original FxSound LLC» = Interface and sound travels in the snapshot. The
+        // leveller takes it, and so does Dynamic Boost: at slider 0 a loud tone backs the boost off
+        // to the original's flat floor, ×1.06, where the port plays the static boost of nothing.
         use fxsound_core::DspCompat;
         for (compat, gain) in [(DspCompat::Linux, 1.0), (DspCompat::Windows, 1.06)] {
             let mut engine = Engine::new(48_000.0, 480, 2);
@@ -3112,7 +3114,7 @@ mod tests {
 
     #[test]
     fn switching_to_the_windows_dsp_and_back_under_a_steady_tone_does_not_click() {
-        // «Like FxSound for Windows» moved between Off and Interface and sound under a steady
+        // «Like the original FxSound LLC» moved between Off and Interface and sound under a steady
         // tone, twice each way, 2 s apart, with the stages the switch reaches at work: Dynamic
         // Boost backing a loud tone off at slider 0 (the floor that goes from the static boost to
         // the original's flat 1.06), at a stored 60 and at the top, driving its limiter, and the
@@ -3165,7 +3167,8 @@ mod tests {
         );
     }
 
-    // --- «Like FxSound for Windows» = Interface and sound: the Windows gain stage (W1c) --------
+    // --- «Like the original FxSound LLC» = Interface and sound: the Windows gain stage (W1c)
+    // --------
     //
     // Audit reports R3 and #44 taken back, the reference for #44 the Windows C code: the master
     // gain and the balance between the equalizer and the leveller, inside the GraphicEq block; with
@@ -3228,7 +3231,7 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_the_equalizer_switch_takes_the_master_gain_and_the_balance_with_it() {
-        // Upstream aad64c1 as the Windows build has it: with the equalizer off, powered, nothing
+        // The original's aad64c1 as the original has it: with the equalizer off, powered, nothing
         // of the block plays, the gain stage included.
         let busy = render_blocks(&windows(busy_graphic_eq_block(false)), 60, 0.05);
         let plain = render_blocks(
@@ -3274,7 +3277,7 @@ mod tests {
     /// `GraphicEqSetMasterGain` and `GraphicEqSetBalance` take it (`SosProcess.cpp:583`,
     /// `:630-631`, `:904`), transcribed with `realtype = float` and compiled as C with glibc's libm
     /// on x86-64 (`scripts/windows-vectors/gain_stage.c`, printed by
-    /// `scripts/windows-vectors/build.sh`). A2 of «Like FxSound for Windows».
+    /// `scripts/windows-vectors/build.sh`). A2 of «Like the original FxSound LLC».
     #[allow(clippy::unreadable_literal)]
     const WINDOWS_GAIN_STAGE: [(usize, &[(u32, u32)]); 3] = [
         (2, &[(0x3dcccccd, 0x3c81d59e), (0x3e2e147b, 0x3dae7e4b)]),
@@ -3381,7 +3384,8 @@ mod tests {
         }
         assert!(steepest < 0.02, "the tone stepped by {steepest}");
     }
-    // --- «Like FxSound for Windows»: moving the level under a playing stream (W1d, A4) ----------
+    // --- «Like the original FxSound LLC»: moving the level under a playing stream (W1d, A4)
+    // ----------
     //
     // The level reaches the engine in the snapshot, and everything it changes moves over
     // `GLIDE_SECONDS` rather than between two samples: the gain stage glides from its place before
@@ -3445,7 +3449,7 @@ mod tests {
         20.0 * peak.max(1e-12).log10()
     }
 
-    /// One scenario: a layout, a tone, the snapshot at FxSound for Linux's DSP, and the most any
+    /// One scenario: a layout, a tone, the snapshot at CrossFX's DSP, and the most any
     /// switch may put above 1 kHz (`None` where the Windows limiter's own distortion of a limited
     /// bass line is part of the sound on one side of the switch).
     struct LevelMove {
@@ -3599,7 +3603,7 @@ mod tests {
             // left of everything at 5 by 3.6 times its tone. The margin is wider for a move
             // back: the stage turning round halfway across Bass and the equalizer steepens the
             // right of everything at 5 to 1.19 times its tone, a bend and not a step, with no
-            // more above 1 kHz than FxSound for Linux's own render (−61.4 dBFS against −61.3).
+            // more above 1 kHz than CrossFX's own render (−61.4 dBFS against −61.3).
             /// When the Windows DSP plays, the blocks a move lands on with what to call it, and
             /// how much steeper than the tone the step may be.
             type Moves = (fn(usize) -> bool, &'static [(usize, &'static str)], f32);
@@ -3651,8 +3655,8 @@ mod tests {
     #[test]
     fn a_move_of_the_gain_stage_lands_in_one_place_and_plays_there_bit_for_bit() {
         // Twenty milliseconds after the level moves, the stage has left its old place: at the
-        // Windows DSP it plays inside the block and nothing before it, and back at FxSound for
-        // Linux's the other way round, each on exactly the factors a stage that never moved
+        // Windows DSP it plays inside the block and nothing before it, and back at CrossFX's
+        // the other way round, each on exactly the factors a stage that never moved
         // multiplies by (`at_interface_and_sound_the_balance_plays_on_stereo_only_as_the_windows_c_
         // code_has_it` holds those to the C).
         for (channels, lfe) in [(2, None), (6, Some(LFE))] {

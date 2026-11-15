@@ -2,24 +2,24 @@
 //! writes application streams' volume through, what it learns there, the clock that wakes it for
 //! a handover's next step, and the journal on disk.
 //!
-//! [`hand_over`] is the primitive, and every move of an application stream FxSound makes goes
+//! [`hand_over`] is the primitive, and every move of an application stream CrossFX makes goes
 //! through it:
 //!
 //! - **the power button**: a default claimed or handed back ([`claim_default`],
 //!   [`release_default_smoothly`]) moves every stream that follows it ([`following`]) — and so does
 //!   a claim taken back after the desktop picked a device while the lane follows the system's
-//!   default device, which moves them off that device and onto FxSound again;
+//!   default device, which moves them off that device and onto CrossFX again;
 //! - **the applications' routes**: the `target.object` keys written and deleted for them, the
 //!   `SetAppRoutes([])` of the power going off among them, and a route that goes only once its
 //!   streams are off it (`route_pairs::reconcile`);
 //! - **the recorder's rescue**: a recorder WirePlumber linked to a port that went (`stranded`) is
-//!   still held at 0 when FxSound links it again, and the rescue's link is what ends its move —
+//!   still held at 0 when CrossFX links it again, and the rescue's link is what ends its move —
 //!   only a link that becomes active counts ([`link_announced`]).
 //!
 //! Everything around it runs whether or not anything moves: the connection, the streams' volumes
 //! read, and the journal put right, so a volume a handover left behind is found by the first run
-//! that can find it. The handover is the same at every level of «Like FxSound for Windows»: a
-//! click is no part of the Windows build's sound.
+//! that can find it. The handover is the same at every level of «Like the original FxSound LLC»: a
+//! click is no part of the original's sound.
 //!
 //! # A third connection
 //!
@@ -398,12 +398,12 @@ pub(super) fn fade_line(
 ///
 /// The link's announcement is not the end of a move. WirePlumber creates the link, and the server
 /// negotiates its format and buffers before anything flows through it — a recorder moved between a
-/// mono microphone and FxSound's stereo source has its ports replaced meanwhile. A volume given back
-/// as the link appears is ramped over what the stream processes before the sound arrives, and the
-/// sound then starts at full volume in the middle of a wave: measured, a recorder moved by the power
-/// switch clicked at −21 to −25 dBFS so. And a link WirePlumber makes to a port that is about to go
-/// (`crate::stranded`) never becomes active at all: the stream's move ends with the link FxSound's
-/// rescue has made instead.
+/// mono microphone and CrossFX's stereo source has its ports replaced meanwhile. A volume given
+/// back as the link appears is ramped over what the stream processes before the sound arrives, and
+/// the sound then starts at full volume in the middle of a wave: measured, a recorder moved by the
+/// power switch clicked at −21 to −25 dBFS so. And a link WirePlumber makes to a port that is about
+/// to go (`crate::stranded`) never becomes active at all: the stream's move ends with the link
+/// CrossFX's rescue has made instead.
 fn link_announced(
     shared: &Rc<RefCell<Shared>>,
     registry: &pw::registry::RegistryRc,
@@ -646,7 +646,7 @@ pub(super) fn client_removed(shared: &mut Shared, id: u32) {
     shared.fades.clients.remove(&id);
 }
 
-/// FxSound's hook in WirePlumber says it holds the stream `id` silent for a move of WirePlumber's
+/// CrossFX's hook in WirePlumber says it holds the stream `id` silent for a move of WirePlumber's
 /// own, or no longer ([`crate::wireplumber_hook::HELD_KEY`] in the `default` metadata): a handover
 /// leaves the stream alone meanwhile ([`Watched::hook_held`]). Only for a stream already watched:
 /// an entry made here for anything else would be one [`Journal::outlived`] waits for.
@@ -659,7 +659,7 @@ pub(super) fn hook_holds(shared: &mut Shared, id: u32, held: bool) {
 /// A `default` metadata object was bound, under the registry id `id`: WirePlumber started, or
 /// started again. Its keys are all there are now; a stream the hook in WirePlumber held under the
 /// object before is held no longer — a WirePlumber that restarted or died in the middle of a move
-/// never cleared its key, and the stream would be moved without a fade of FxSound's for the rest of
+/// never cleared its key, and the stream would be moved without a fade of CrossFX's for the rest of
 /// its life ([`Watched::hook_held`]). A stream the new one holds says so in its own keys, which
 /// arrive after this.
 pub(super) fn default_metadata_bound(shared: &mut Shared, id: u32) {
@@ -1027,7 +1027,7 @@ pub(super) fn attach_clock<'l>(
     });
     let (ask, asked) = crossbeam_channel::unbounded::<Instant>();
     let spawned = std::thread::Builder::new()
-        .name("fxsound-fades".to_owned())
+        .name("crossfx-fades".to_owned())
         .spawn(move || tick_at(&asked, || wake.send(()).is_ok()));
     match spawned {
         Ok(_) => shared.borrow_mut().fades.clock = Some(ask),

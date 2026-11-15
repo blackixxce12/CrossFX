@@ -15,7 +15,7 @@
 //!
 //! # Where this departs from `Maxi32.c`
 //!
-//! Three changes, each one a defect of the original that the 0.4.0 audit of what the port copied
+//! Three changes, each one a defect of the original that the 0.4.0 audit of what CrossFX copied
 //! found audible, and each one shared by both limiters that use this type:
 //!
 //! * **One envelope for both sides of a pair** (audit R2). The original runs an envelope per
@@ -51,7 +51,7 @@
 //! original's arithmetic on a mono stream of finite samples. (The other: an infinity is let go of
 //! once it has left the hold window, where the original's envelope stayed infinite for good.)
 //!
-//! Dynamic Boost takes all three back at «Like FxSound for Windows» = Interface and sound: no
+//! Dynamic Boost takes all three back at «Like the original FxSound LLC» = Interface and sound: no
 //! channel linked, no hold, and the attack left to overshoot ([`LookaheadLimiter::set_overshoot`]),
 //! which is `Maxi32.c`'s arithmetic sample for sample. The voice chain has no Windows original and
 //! keeps them at every level.
@@ -61,7 +61,7 @@
 
 use crate::biquad::{MAX_CHANNELS, Real};
 
-/// Longest look-ahead the arena can hold: 5 ms at the highest rate this port supports.
+/// Longest look-ahead the arena can hold: 5 ms at the highest rate CrossFX supports.
 ///
 /// Sized from the maximum rather than from the current rate, so changing either the rate or the
 /// look-ahead is a recalculation rather than a reallocation on the audio thread.
@@ -368,7 +368,7 @@ impl LookaheadLimiter {
     /// Let the attack ramp run past the peak it is aiming at, as the original's does, or stop it
     /// there (the default, audit #8).
     ///
-    /// For Dynamic Boost at «Like FxSound for Windows» = Interface and sound, which plays
+    /// For Dynamic Boost at «Like the original FxSound LLC» = Interface and sound, which plays
     /// `Maxi32.c`'s arithmetic: a slope kept steep from an earlier retarget carries the envelope
     /// on up until the countdown ends — a decibel of reduction on a steady 50 Hz sine at twice the
     /// ceiling. The wall stands either way: the envelope is still at least every sample leaving.
@@ -1450,7 +1450,8 @@ mod tests {
 
     #[test]
     fn with_no_link_no_hold_and_the_overshoot_the_limiter_is_the_originals_to_the_bit() {
-        // What Dynamic Boost asks for at «Like FxSound for Windows» = Interface and sound: audit
+        // What Dynamic Boost asks for at «Like the original FxSound LLC» = Interface and sound:
+        // audit
         // #8, R1 and R2 taken back. Every sample and every envelope must be `Maxi32.c`'s as the
         // port ran it before the audit, on mono, stereo, 5.1 and 7.1, in blocks of any length,
         // with a peak on one channel alone and a low sine driving the attack past its peak.

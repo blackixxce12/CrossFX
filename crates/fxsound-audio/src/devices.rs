@@ -4,18 +4,18 @@
 //! (`audiopassthru/src/sndDevices/sndDevices_GetAll.cpp:42`), which walked the WASAPI endpoint
 //! enumerator, and `sndDevicesImplementDeviceRules()`
 //! (`audiopassthru/src/sndDevices/sndDevicesImplementDeviceRules.cpp:44`), which decided *which*
-//! endpoint FxSound should render to. The second of those is, in the original's own words, the
+//! endpoint CrossFX should render to. The second of those is, in the original's own words, the
 //! single most behaviour-defining function in the module, so it is reproduced branch for branch
 //! below with only the two substitutions `docs/spec/12-audio-io.md` §19.5 calls for: a "real
 //! device" is any `Audio/Sink` node that is not ours, and "the current default" is
 //! `default.audio.sink` from PipeWire's `default` metadata object.
 //!
-//! The Linux port adds one axis the Windows code never had: **direction**. The same rules run,
-//! unchanged, over `Audio/Source` nodes when FxSound sits behind a microphone
+//! CrossFX on Linux adds one axis the original's code never had: **direction**. The same rules run,
+//! unchanged, over `Audio/Source` nodes when CrossFX sits behind a microphone
 //! (`docs/spec/12-audio-io.md` §28), with "the current default" then read from
 //! `default.audio.source`.
 //!
-//! One branch of the Windows rules is deliberately not ported: the mono guard. Windows refused
+//! One branch of the original's rules is deliberately not ported: the mono guard. Windows refused
 //! mono *playback* devices to work around a bug in its own driver (`sndDevices.h:32-39`,
 //! `SND_DEVICES_MONO_BUG_*`), and PipeWire has no such bug to work around. So no device is refused
 //! for its channel count, in either direction: a lane's pair always runs at least a stereo pair,
@@ -87,7 +87,7 @@ pub const SOURCE_MEDIA_CLASS: &str = "Audio/Source";
 pub const VIRTUAL_SOURCE_MEDIA_CLASS: &str = "Audio/Source/Virtual";
 
 /// Which direction a node's `media.class` puts it in, or `None` for anything that is not a device
-/// FxSound can attach to — streams, devices, monitors, video.
+/// CrossFX can attach to — streams, devices, monitors, video.
 #[must_use]
 pub fn direction_of_media_class(media_class: &str) -> Option<DeviceDirection> {
     match media_class {
@@ -107,7 +107,7 @@ pub const fn default_key(direction: DeviceDirection) -> &'static str {
     }
 }
 
-/// The `default` metadata key that carries the user's choice for a direction — the one FxSound
+/// The `default` metadata key that carries the user's choice for a direction — the one CrossFX
 /// writes when it takes the default, and restores when it hands it back.
 #[must_use]
 pub const fn configured_default_key(direction: DeviceDirection) -> &'static str {
@@ -120,7 +120,7 @@ pub const fn configured_default_key(direction: DeviceDirection) -> &'static str 
 /// How the GUI should picture a device.
 ///
 /// The eleven variants are exactly the eleven strings `sndDevices_GetAll.cpp:198-208` could write
-/// into `deviceFormFactor`, kept 1:1 so the Windows build's icon table ports without a lookup
+/// into `deviceFormFactor`, kept 1:1 so the original's icon table ports without a lookup
 /// change. PipeWire has no single equivalent of `PKEY_AudioEndpoint_FormFactor`, so the mapping in
 /// [`FormFactor::from_props`] reads several properties, in the order `docs/spec/12-audio-io.md`
 /// §19.4 lays out.
@@ -403,7 +403,7 @@ impl Card {
     }
 }
 
-/// The most positioned channels FxSound will ever declare, `SND_DEVICES_MAX_NUM_CHANS`.
+/// The most positioned channels CrossFX will ever declare, `SND_DEVICES_MAX_NUM_CHANS`.
 pub const MAX_POSITIONS: usize = MAX_CHANNELS as usize;
 
 /// A channel layout, as a fixed array of `enum spa_audio_channel` ids.
@@ -456,7 +456,7 @@ impl ChannelMap {
                 continue;
             }
             if len == MAX_POSITIONS {
-                // More channels than FxSound will drive; the caller clamps to 8 anyway.
+                // More channels than CrossFX will drive; the caller clamps to 8 anyway.
                 return None;
             }
             let id = CHANNEL_NAMES
@@ -579,7 +579,7 @@ impl ChannelMap {
     /// The two stereo-by-nature effects run one instance over this pair. Finding it by position
     /// rather than assuming channels 0 and 1 is what stops a device that orders its channels
     /// differently from having its widener applied across, say, front-left and centre — which is
-    /// audible immediately and impossible for the listener to attribute to FxSound.
+    /// audible immediately and impossible for the listener to attribute to CrossFX.
     #[must_use]
     pub fn front_pair(&self) -> Option<(usize, usize)> {
         let left = self
@@ -720,7 +720,7 @@ impl ChannelMap {
     }
 }
 
-/// One device FxSound could attach to — the Linux `SoundDevice`
+/// One device CrossFX could attach to — the Linux `SoundDevice`
 /// (`audiopassthru/include/AudioPassthru.h:32-53`), for either direction.
 ///
 /// The Windows struct's `pwszID` becomes [`DeviceInfo::name`] (`node.name`), which is what gets
@@ -789,7 +789,7 @@ pub struct DeviceInfo {
 
 impl DeviceInfo {
     /// Build a device from a node's property dictionary, or `None` if the node is neither a sink
-    /// nor a source — or is one of FxSound's own nodes ([`is_crossfx_node`]), which must never be
+    /// nor a source — or is one of CrossFX's own nodes ([`is_crossfx_node`]), which must never be
     /// listed as a device to attach to, or one of WirePlumber's internal Bluetooth nodes
     /// ([`BluezFacts::internal`]).
     ///
@@ -1008,7 +1008,7 @@ impl DeviceInfo {
             is_default: default_for_direction == Some(self.name.as_str()),
             direction: self.direction,
             form_factor: self.form_factor.key().to_owned(),
-            // FxSound's own nodes are never offered, and a virtual sink is a device like any other.
+            // CrossFX's own nodes are never offered, and a virtual sink is a device like any other.
             is_virtual: false,
         }
     }
@@ -1030,7 +1030,7 @@ impl DeviceInfo {
         self.channels == 0
     }
 
-    /// The channel count FxSound will actually run, clamped to `2..=8`
+    /// The channel count CrossFX will actually run, clamped to `2..=8`
     /// (`sndDevices.h:190-191`; `docs/spec/12-audio-io.md` §19.3 keeps the clamp).
     ///
     /// For a mono device this is a stereo pair, in either direction: PipeWire's adapter up-mixes
@@ -1050,7 +1050,7 @@ impl DeviceInfo {
     }
 }
 
-/// The five persisted device preferences the Windows rules consult.
+/// The five persisted device preferences the original's rules consult.
 ///
 /// One field per registry value under `HKCU\SOFTWARE\DFX\13\23\devices`
 /// (`sndDevices.h:159-170`), with the same names. An empty string means "not set", which is what
@@ -1065,7 +1065,7 @@ impl DeviceInfo {
 /// [`UiToAudio::SelectDevice`]: fxsound_core::messages::UiToAudio::SelectDevice
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SelectionMemory {
-    /// The session default the very first time FxSound ran.
+    /// The session default the very first time CrossFX ran.
     pub original_default: String,
     /// The most recent default that was not us.
     pub most_recent_default: String,
@@ -1080,7 +1080,7 @@ pub struct SelectionMemory {
 /// The outcome of [`choose_device`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selection {
-    /// `node.name` of the device FxSound should attach to.
+    /// `node.name` of the device CrossFX should attach to.
     pub target: String,
     /// Whether this selection also re-dates the remembered defaults, i.e. the
     /// `WritePreviousDefault` flag of `sndDevicesImplementDeviceRules.cpp:229`, `:248`.
@@ -1094,16 +1094,16 @@ fn find<'a>(devices: &'a [&DeviceInfo], name: &str) -> Option<&'a DeviceInfo> {
     devices.iter().copied().find(|s| s.name == name)
 }
 
-/// How the user wants one direction's device chosen, beside what the Windows rules remember
-/// (U4, `docs/0.4.0-upstream.md`): the device priority list of upstream's Settings ▸ Outputs.
+/// How the user wants one direction's device chosen, beside what the original's rules remember
+/// (U4, `docs/0.4.0-upstream.md`): the device priority list of the original's Settings ▸ Outputs.
 ///
-/// Not a Windows registry slot, so not in [`SelectionMemory`]: upstream 1.2 keeps the list in its
-/// own settings (`DeviceConfig.cpp`), beside and not instead of the rules this crate ports.
+/// Not a Windows registry slot, so not in [`SelectionMemory`]: the original's 1.2 keeps the list in
+/// its own settings (`DeviceConfig.cpp`), beside and not instead of the rules this crate ports.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Preference {
     /// The user's ranking of real devices, as `node.name`s, most preferred first — what
     /// [`UiToAudio::SetDevicePriority`] last sent. Empty means "follow the system": the Windows
-    /// rules decide exactly as they did before there was a ranking (upstream issue #629).
+    /// rules decide exactly as they did before there was a ranking (the original's issue #629).
     ///
     /// [`UiToAudio::SetDevicePriority`]: fxsound_core::messages::UiToAudio::SetDevicePriority
     pub ranking: Vec<String>,
@@ -1113,9 +1113,9 @@ pub struct Preference {
     /// when the rules run has lost to the ranking, and does not take the lane later just for
     /// turning up.
     ///
-    /// With a ranking, this is the one moment the pick outranks the ranking: upstream's menu sets
-    /// the output and leaves the list alone (`FxController::setOutput`), and from then on the pick
-    /// is simply the current device, kept until a better-ranked one arrives or it goes.
+    /// With a ranking, this is the one moment the pick outranks the ranking: the original's menu
+    /// sets the output and leaves the list alone (`FxController::setOutput`), and from then on the
+    /// pick is simply the current device, kept until a better-ranked one arrives or it goes.
     pub fresh_pick: bool,
     /// Where a device the ranking does not name yet stands: before every ranked one when `true`,
     /// after every one when `false` — the app's "prioritize new output devices"
@@ -1126,7 +1126,7 @@ pub struct Preference {
     /// the list again. That list comes after the rules have run on the arrival, and by then the
     /// device is no longer new to them: ranked first, it would never take the lane from the device
     /// it arrived beside. So the rules place it where the app is about to, the moment it arrives.
-    /// Upstream puts it in the list before it chooses the output (`FxController.cpp:2131-2133`,
+    /// The original puts it in the list before it chooses the output (`FxController.cpp:2131-2133`,
     /// then `:1540-1612`), and the new device wins there too.
     ///
     /// [`UiToAudio::SetDevicePriority`]: fxsound_core::messages::UiToAudio::SetDevicePriority
@@ -1137,7 +1137,7 @@ pub struct Preference {
     /// as if the lane had no current device. Any run spends it, and a pair that fails to be built
     /// on its choice gives it back for the retry, as it does [`Self::fresh_pick`].
     ///
-    /// Upstream starts on its preferred output whenever the saved one is absent
+    /// The original starts on its preferred output whenever the saved one is absent
     /// (`FxController.cpp:1516-1532`, `getPreferredOutput`). Without this, a device the Windows
     /// rules chose before the ranking arrived — the session default, most often — would count as
     /// the current one and keep the lane for as long as it is there, the ranking's first device
@@ -1168,7 +1168,7 @@ impl Preference {
 /// is", it would take the lane and play into an empty jack (`docs/0.4.0-upstream.md` U4, and the
 /// review's correction to item 4). With nothing to be heard at all — a desktop whose only output is
 /// a sleeping monitor's — the rules run on what is there rather than end in "no devices": that
-/// would take FxSound's own node away and move every application off it, to come back when the
+/// would take CrossFX's own node away and move every application off it, to come back when the
 /// monitor wakes, where a pair left on the silent port simply plays again. The contract records
 /// this as U4's one exception, for both directions.
 #[must_use]
@@ -1188,7 +1188,7 @@ pub fn candidates<'a>(
 }
 
 /// Pick the real device of one direction, reproducing `sndDevicesImplementDeviceRules()` — or,
-/// when the user has ranked the direction's devices, upstream 1.2's priority list.
+/// when the user has ranked the direction's devices, the original 1.2's priority list.
 ///
 /// `devices` may carry both directions; only those matching `direction` take part, and
 /// `our_node` — `crossfx_sink` or `crossfx_source` — is never a candidate. Nor is a device nothing
@@ -1210,9 +1210,9 @@ pub fn candidates<'a>(
 /// 7. otherwise the first of `most_recent_playback`, `most_recent_default`, `prior_default`,
 ///    `original_default` that is present, else the first device (`:257-284`).
 ///
-/// With a ranking, rules 2 to 7 give way to upstream 1.2's own (`choose_ranked`).
+/// With a ranking, rules 2 to 7 give way to the original 1.2's own (`choose_ranked`).
 ///
-/// The Windows rules then ran a mono guard (`:290-327`) that refused a mono playback device and
+/// The original's rules then ran a mono guard (`:290-327`) that refused a mono playback device and
 /// ended in `-58` or `-57`. It is not ported: it worked around a Windows driver bug, and a mono
 /// device of either direction is attached like any other (module docs).
 ///
@@ -1227,8 +1227,8 @@ pub fn candidates<'a>(
 ///
 /// # Errors
 /// [`AudioError::NoOutputDevices`] / [`AudioError::NoInputDevices`] when the direction has no real
-/// device at all — the one state of the Windows rules that survives the mono guard's removal, plus
-/// its input-side twin.
+/// device at all — the one state of the original's rules that survives the mono guard's removal,
+/// plus its input-side twin.
 pub fn choose_device(
     devices: &[DeviceInfo],
     direction: DeviceDirection,
@@ -1262,7 +1262,7 @@ pub fn choose_device(
     // One deviation: an explicit user choice that is present wins over this rule. Windows never
     // wrote `user_selected` (open question 8), so the two could not conflict there; here the first
     // run of the *input* direction happens precisely because the user picked a microphone, and
-    // adopting the current default source over that pick would attach FxSound to the wrong one.
+    // adopting the current default source over that pick would attach CrossFX to the wrong one.
     if memory.most_recent_default.is_empty()
         && find(&real, &memory.user_selected).is_none()
         && let Some(default_name) = foreign_default
@@ -1285,8 +1285,8 @@ pub fn choose_device(
     // count had grown (`:197`), and so missed it whenever something left in the same batch of
     // registry events: a USB DAC swapped for another, a dock handing its outputs over, a device
     // that changes its node name when it changes profile — an ALSA card going from stereo to 5.1.
-    // Upstream has an open PR for the same miss (#532, `reconnectedDeviceGuid`; Discussion #311).
-    // Here the name sets decide, whatever the counts did, which also drops the off-by-one at
+    // The original has an open PR for the same miss (#532, `reconnectedDeviceGuid`; Discussion
+    // #311). Here the name sets decide, whatever the counts did, which also drops the off-by-one at
     // `:223` (see spec §15). A device that comes back under the name it left with — a Bluetooth
     // headset between profiles — is not new when it comes back within the same run of the rules:
     // the rules below find it again as what it was, the user's pick or the device we last played
@@ -1341,7 +1341,7 @@ pub fn choose_device(
     })
 }
 
-/// [`choose_device`] for a direction the user has ranked: upstream 1.2's `updateOutputs`
+/// [`choose_device`] for a direction the user has ranked: the original 1.2's `updateOutputs`
 /// (`FxController.cpp:1540-1612`), for either direction.
 ///
 /// 1. the device the user has just picked, when it is present ([`Preference::fresh_pick`]);
@@ -1355,10 +1355,10 @@ pub fn choose_device(
 ///    new devices first ([`Preference::new_devices_first`]) — in the graph's order
 ///    (`sortByDeviceConfigPriority`, a stable sort, `:1714-1725`).
 ///
-/// Upstream counted devices to tell that one had been added (`:1559`); that misses a device that
-/// arrives as another leaves, so a newcomer here is a name that was not in `previous_names`, as in
-/// rule 5 of the old rules. Taking one re-dates the remembered defaults, as rule 5 does; the rest
-/// do not.
+/// The original counted devices to tell that one had been added (`:1559`); that misses a device
+/// that arrives as another leaves, so a newcomer here is a name that was not in `previous_names`,
+/// as in rule 5 of the old rules. Taking one re-dates the remembered defaults, as rule 5 does; the
+/// rest do not.
 fn choose_ranked(
     real: &[&DeviceInfo],
     previous_names: &[String],
@@ -1419,7 +1419,7 @@ pub fn commit(memory: &mut SelectionMemory, selection: &Selection) {
     }
 }
 
-/// Which device of `direction` the session default should be handed back to when FxSound stops
+/// Which device of `direction` the session default should be handed back to when CrossFX stops
 /// owning it.
 ///
 /// The order is `sndDevicesRestoreDefaultDevice`'s (`sndDevicesSetupDevices.cpp:617-630`):
@@ -2470,7 +2470,7 @@ mod tests {
         );
         assert_eq!(picked.target, HEADSET_SINK);
 
-        // 5 — it connected, straight into its call profile, while FxSound was the default.
+        // 5 — it connected, straight into its call profile, while CrossFX was the default.
         let speakers_only = [LAPTOP_SPEAKERS.to_owned()];
         let at_our_default = SelectionMemory {
             most_recent_default: LAPTOP_SPEAKERS.into(),
@@ -4014,7 +4014,7 @@ mod tests {
 
     #[test]
     fn with_no_ranking_the_same_arrival_takes_the_lane_as_rule_five_says() {
-        // The Windows rules, untouched when the list is empty: whatever arrives is taken.
+        // The original's rules, untouched when the list is empty: whatever arrives is taken.
         let devices = [sink("usb-dac", 2), sink("speakers", 2)];
         assert_eq!(
             output(
@@ -4383,7 +4383,7 @@ mod tests {
 
     #[test]
     fn with_nothing_heard_at_all_the_rules_run_on_what_is_there() {
-        // A desktop whose only outputs are two sleeping monitors: tearing FxSound's node down for
+        // A desktop whose only outputs are two sleeping monitors: tearing CrossFX's node down for
         // "no devices" would move every application off it until one wakes. The exception U4
         // records in `docs/0.4.0-upstream.md`.
         let devices = [unheard(sink("hdmi-1", 2)), unheard(sink("hdmi-2", 2))];

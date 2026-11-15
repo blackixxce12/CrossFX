@@ -45,12 +45,12 @@ fn links_settle(graph: &PrivateGraph, from: &str, to: &str) -> Vec<u64> {
     }
 }
 
-/// Picking other speakers and another microphone at the same format keeps FxSound's sink and its
+/// Picking other speakers and another microphone at the same format keeps CrossFX's sink and its
 /// source — the same nodes, by their serials — and replaces only the playback stream and the
 /// capture stream, each on the new device. 0.4.0 took both nodes of each lane down and built them
 /// again, and every application on them was moved away and back.
 #[test]
-fn other_speakers_and_another_microphone_at_the_same_format_keep_fxsounds_sink_and_source() {
+fn other_speakers_and_another_microphone_at_the_same_format_keep_crossfx_sink_and_source() {
     let Some(graph) = PrivateGraph::start("keepnode") else {
         return;
     };
@@ -61,7 +61,7 @@ fn other_speakers_and_another_microphone_at_the_same_format_keep_fxsounds_sink_a
         let Some(()) = unless_skipped(
             graph.add_device(name, direction),
             "pw-cli",
-            "whether a move to another device keeps FxSound's own nodes",
+            "whether a move to another device keeps CrossFX's own nodes",
         ) else {
             return;
         };
@@ -82,7 +82,7 @@ fn other_speakers_and_another_microphone_at_the_same_format_keep_fxsounds_sink_a
     let Some(before) = unless_skipped(
         graph.settles_on(&LANE_NODE_NAMES),
         "pw-dump",
-        "which of FxSound's nodes a move to another device replaces",
+        "which of CrossFX's nodes a move to another device replaces",
     ) else {
         handle.shutdown();
         return;
@@ -135,7 +135,7 @@ fn other_speakers_and_another_microphone_at_the_same_format_keep_fxsounds_sink_a
             assert_eq!(
                 settled,
                 Ok(()),
-                "the default {} is no longer FxSound's",
+                "the default {} is no longer CrossFX's",
                 direction.key()
             );
         }
@@ -144,13 +144,13 @@ fn other_speakers_and_another_microphone_at_the_same_format_keep_fxsounds_sink_a
 }
 
 /// A player that follows the default sink and a recorder that follows the default source, both
-/// on FxSound, keep their links while FxSound moves both lanes to the other devices (roadmap §7,
+/// on CrossFX, keep their links while CrossFX moves both lanes to the other devices (roadmap §7,
 /// test 3): the link from the player into `crossfx_sink` and the one from `crossfx_source` into
 /// the recorder are the very links they were — WirePlumber never had them to move — and neither
 /// is ever linked to a device of its own. In 0.4.0 the sink went, WirePlumber moved the player
 /// onto the other speakers unprocessed, and back onto the new sink a moment later.
 #[test]
-fn applications_on_fxsound_keep_their_links_while_it_moves_to_other_devices() {
+fn applications_on_crossfx_keep_their_links_while_it_moves_to_other_devices() {
     let Some(graph) = PolicyGraph::start("keeplink") else {
         return;
     };
@@ -183,14 +183,14 @@ fn applications_on_fxsound_keep_their_links_while_it_moves_to_other_devices() {
         assert_eq!(
             graph.default_settles_on(direction, our_node_name(direction)),
             Some(Ok(())),
-            "FxSound never became the default {}",
+            "CrossFX never became the default {}",
             direction.key()
         );
     }
     let player = links_settle(&graph, "t_player", SINK_NODE_NAME);
     let recorder = links_settle(&graph, SOURCE_NODE_NAME, "t_recorder");
-    assert!(!player.is_empty(), "the player never reached FxSound");
-    assert!(!recorder.is_empty(), "the recorder never reached FxSound");
+    assert!(!player.is_empty(), "the player never reached CrossFX");
+    assert!(!recorder.is_empty(), "the recorder never reached CrossFX");
     let before = graph.our_nodes().expect("pw-dump answered a moment ago");
 
     for (direction, name) in [
@@ -202,7 +202,7 @@ fn applications_on_fxsound_keep_their_links_while_it_moves_to_other_devices() {
             direction,
         });
     }
-    // FxSound's own streams find the new devices; the applications stay where they were.
+    // CrossFX's own streams find the new devices; the applications stay where they were.
     let deadline = Instant::now() + PATIENCE;
     let mut seen_elsewhere = Vec::new();
     loop {
@@ -220,7 +220,7 @@ fn applications_on_fxsound_keep_their_links_while_it_moves_to_other_devices() {
         let there = !links_in(&objects, OUTPUT_NODE_NAME, "t_other").is_empty()
             && !links_in(&objects, "t_mic2", CAPTURE_NODE_NAME).is_empty();
         if there || Instant::now() >= deadline {
-            assert!(there, "FxSound's streams never reached the other devices");
+            assert!(there, "CrossFX's streams never reached the other devices");
             break;
         }
         std::thread::sleep(Duration::from_millis(5));
@@ -229,17 +229,17 @@ fn applications_on_fxsound_keep_their_links_while_it_moves_to_other_devices() {
     std::thread::sleep(Duration::from_millis(500));
     assert!(
         seen_elsewhere.is_empty(),
-        "an application was moved off FxSound meanwhile: {seen_elsewhere:?}"
+        "an application was moved off CrossFX meanwhile: {seen_elsewhere:?}"
     );
     assert_eq!(
         links_between(&graph, "t_player", SINK_NODE_NAME),
         Some(player),
-        "the player's link into FxSound's sink is not the one it had"
+        "the player's link into CrossFX's sink is not the one it had"
     );
     assert_eq!(
         links_between(&graph, SOURCE_NODE_NAME, "t_recorder"),
         Some(recorder),
-        "the recorder's link from FxSound's source is not the one it had"
+        "the recorder's link from CrossFX's source is not the one it had"
     );
     let after = graph.our_nodes().expect("pw-dump answered a moment ago");
     for node in [SINK_NODE_NAME, SOURCE_NODE_NAME] {
@@ -252,11 +252,11 @@ fn applications_on_fxsound_keep_their_links_while_it_moves_to_other_devices() {
     handle.shutdown();
 }
 
-/// The desktop picks the other speakers with FxSound on and following the system's default device
-/// (roadmap §7, test 4): WirePlumber moves the player onto them, FxSound follows with its sink kept
-/// and takes the default back, and the player is on FxSound's same sink again, not on a new one.
+/// The desktop picks the other speakers with CrossFX on and following the system's default device
+/// (roadmap §7, test 4): WirePlumber moves the player onto them, CrossFX follows with its sink kept
+/// and takes the default back, and the player is on CrossFX's same sink again, not on a new one.
 #[test]
-fn a_desktop_pick_with_fxsound_on_is_followed_with_its_sink_kept_and_the_default_taken_back() {
+fn a_desktop_pick_with_crossfx_on_is_followed_with_its_sink_kept_and_the_default_taken_back() {
     let Some(graph) = PolicyGraph::start("keepdesk") else {
         return;
     };
@@ -265,7 +265,7 @@ fn a_desktop_pick_with_fxsound_on_is_followed_with_its_sink_kept_and_the_default
         .find(|tool| !installed(tool))
     {
         skip(&format!(
-            "{missing} is not installed, so a desktop's pick with FxSound on was not checked"
+            "{missing} is not installed, so a desktop's pick with CrossFX on was not checked"
         ));
         return;
     }
@@ -295,26 +295,26 @@ fn a_desktop_pick_with_fxsound_on_is_followed_with_its_sink_kept_and_the_default
     assert_eq!(
         graph.default_settles_on(DeviceDirection::Output, SINK_NODE_NAME),
         Some(Ok(())),
-        "FxSound did not take the default back"
+        "CrossFX did not take the default back"
     );
     assert!(
         !links_settle(&graph, "t_player", SINK_NODE_NAME).is_empty(),
-        "the player is not back on FxSound"
+        "the player is not back on CrossFX"
     );
     assert!(
         !links_settle(&graph, OUTPUT_NODE_NAME, "t_other").is_empty(),
-        "FxSound does not play to the speakers the desktop picked"
+        "CrossFX does not play to the speakers the desktop picked"
     );
     let after = graph.our_nodes().expect("pw-dump answered a moment ago");
     assert_eq!(
         serial_of(&after, SINK_NODE_NAME),
         serial_of(&before, SINK_NODE_NAME),
-        "FxSound's sink was replaced for the desktop's pick"
+        "CrossFX's sink was replaced for the desktop's pick"
     );
     assert_ne!(
         serial_of(&after, OUTPUT_NODE_NAME),
         serial_of(&before, OUTPUT_NODE_NAME),
-        "FxSound's playback stream was not replaced on the new speakers"
+        "CrossFX's playback stream was not replaced on the new speakers"
     );
     handle.shutdown();
 }

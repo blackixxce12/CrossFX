@@ -76,7 +76,7 @@
 //! have no published curve anywhere, which the preset work itself recorded when it revoiced them
 //! from spectral-analysis literature and house style rather than from a source. The other two,
 //! Alternative Rock and Modern Rock, are excluded for a different and more annoying reason: both
-//! published tables have exactly one entry called "Rock", and deciding which of this port's three
+//! published tables have exactly one entry called "Rock", and deciding which of CrossFX's three
 //! rock presets inherits it would be a choice made here rather than by any source. They are all
 //! still *competitors* in every column — the Jazz preset has to beat all eleven others, not just
 //! the four other tested ones — they simply have no column of their own.
@@ -349,9 +349,9 @@ fn the_synthesised_material_has_the_spectrum_it_was_asked_for() {
 ///   between two presets: the Classical preset comes first in both columns, and the Jazz preset is
 ///   second in its own. Whichever way that pair fell, it would not be evidence.
 /// * **Metal and Trap are a substantive disagreement, not a resolution problem.** The cosine
-///   between this port's Metal preset's spectral action and Android's Heavy Metal curve is +0.01,
+///   between CrossFX's Metal preset's spectral action and Android's Heavy Metal curve is +0.01,
 ///   and for Trap against Hip Hop it is +0.03 — orthogonal. Android's Heavy Metal entry asks for a
-///   +9 dB hump at 910 Hz; this port's Metal preset puts its boost at 3.2 kHz instead. One of the
+///   +9 dB hump at 910 Hz; CrossFX's Metal preset puts its boost at 3.2 kHz instead. One of the
 ///   two is wrong about metal and this test cannot say which, because a five-band preset table
 ///   from a phone is not ground truth either.
 ///

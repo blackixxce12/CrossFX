@@ -54,10 +54,11 @@ pub struct DspParams {
     pub effects: [f32; Effect::COUNT],
     /// Whether the equalizer's bands and the volume levelling run, while the power is on. The
     /// original switches the master gain and the balance with them as one block
-    /// (`dfxpProcessReal.cpp:143-157`, upstream aad64c1); this engine applies those two whatever
-    /// this says, powered or not (0.4.0 audit R3), so neither this switch nor the power button
-    /// moves the level by the master gain — except with [`DspCompat::Windows`], where the switch
-    /// takes them with the block again, as the original's does. The effects do not depend on it.
+    /// (`dfxpProcessReal.cpp:143-157`, the original's aad64c1); this engine applies those two
+    /// whatever this says, powered or not (0.4.0 audit R3), so neither this switch nor the power
+    /// button moves the level by the master gain — except with [`DspCompat::Windows`], where the
+    /// switch takes them with the block again, as the original's does. The effects do not depend on
+    /// it.
     pub eq_on: bool,
     /// How many entries of the band arrays are live.
     pub num_bands: u8,
@@ -73,32 +74,32 @@ pub struct DspParams {
     pub balance: f32,
     /// Volume-levelling strength in dB.
     pub volume_leveling_db: f32,
-    /// Which build's DSP the music chain plays: FxSound for Linux's, or the Windows one's that
-    /// «Like FxSound for Windows» brings back at Interface and sound ([`DspCompat`]).
+    /// Which DSP the music chain plays: CrossFX's, or the original's that
+    /// «Like the original FxSound LLC» brings back at Interface and sound ([`DspCompat`]).
     pub compat: DspCompat,
 }
 
 /// Which build's DSP a music chain plays.
 ///
-/// The 0.4.0 audit fixed stages the port had copied from FxSound for Windows, and a preset has
-/// sounded different since. At «Like FxSound for Windows» = Interface and sound
+/// The 0.4.0 audit fixed stages CrossFX had copied from the original FxSound for Windows, and a
+/// preset has sounded different since. At «Like the original FxSound LLC» = Interface and sound
 /// ([`crate::WindowsParity::sound`]) the output lane and the applications' output routes play the
 /// Windows arithmetic again, stage by stage — Volume Leveling, Dynamic Boost and its limiter,
-/// Ambience, the equalizer's design below 20 Hz, the gain stage — inside the port's click-free
+/// Ambience, the equalizer's design below 20 Hz, the gain stage — inside CrossFX's click-free
 /// transitions (`docs/0.5.0-windows-parity.md`, `docs/0.5.0-dsp-inventory.md`); the application
-/// reads a preset for it as the Windows build does (`fxsound_dsp::preset::music_controls`). The
-/// voice chain has no Windows original, and [`InputDspParams`] has no such field.
+/// reads a preset for it as the original does (`fxsound_dsp::preset::music_controls`). The voice
+/// chain has no Windows original, and [`InputDspParams`] has no such field.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum DspCompat {
-    /// FxSound for Linux: the audit's fixes in. The default, and what Off and Interface play.
+    /// CrossFX: the audit's fixes in. The default, and what Off and Interface play.
     #[default]
     Linux,
-    /// The Windows build's arithmetic where the audit changed it; the transitions stay the port's.
+    /// The original's arithmetic where the audit changed it; the transitions stay CrossFX's.
     Windows,
 }
 
 impl DspCompat {
-    /// The DSP a level of «Like FxSound for Windows» plays: the Windows one from Interface and
+    /// The DSP a level of «Like the original FxSound LLC» plays: the original's from Interface and
     /// sound on.
     #[must_use]
     pub const fn for_level(level: crate::WindowsParity) -> Self {
@@ -109,7 +110,7 @@ impl DspCompat {
         }
     }
 
-    /// Whether this is the Windows build's DSP.
+    /// Whether this is the original's DSP.
     #[must_use]
     pub const fn windows(self) -> bool {
         matches!(self, Self::Windows)
@@ -246,7 +247,7 @@ impl Default for DspParams {
 pub struct InputDspParams {
     /// Master bypass. When `false` the chain passes audio through untouched.
     pub power: bool,
-    /// Hand whoever records from FxSound (Input) silence, whatever `power` says. The same flag
+    /// Hand whoever records from CrossFX (Input) silence, whatever `power` says. The same flag
     /// as [`DspParams::mute`], beside the same silence the engine sets itself while the system
     /// sleeps, and applied the same way, after the chain, so the gate, the denoiser and the
     /// calibration counters keep following the microphone.
@@ -640,11 +641,11 @@ impl Default for Meters {
     }
 }
 
-/// The volume of FxSound's own virtual node while it was attached to one real device (U10).
+/// The volume of CrossFX's own virtual node while it was attached to one real device (U10).
 ///
-/// FxSound (Output) is one node whatever it renders to, so a mixer shows one slider for it, and
+/// CrossFX (Output) is one node whatever it renders to, so a mixer shows one slider for it, and
 /// WirePlumber restores one volume for it: a level set for headphones was the level the laptop
-/// speakers got after an unplug — upstream's #615, and a hearing-safety bug rather than a
+/// speakers got after an unplug — the original's #615, and a hearing-safety bug rather than a
 /// preference. Remembering the node's volume *per target* is what lets a new pair come up at the
 /// level the user last chose for that device. The real device's own volume is never touched.
 ///
@@ -667,11 +668,11 @@ pub struct TargetVolume {
     /// One node can be two devices. On most desktops and many laptops (a plain HDA card, not a UCM
     /// one) the speakers and the headphones are two ports of one sink, and plugging headphones in
     /// only switches the port, so a volume kept per `node.name` alone was the speakers' level on
-    /// the headphones — upstream's #615 again, under another name. So the entry is one per target
-    /// *and* port, and the settings keep one per port too. Left out of the file when empty.
+    /// the headphones — the original's #615 again, under another name. So the entry is one per
+    /// target *and* port, and the settings keep one per port too. Left out of the file when empty.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub port: String,
-    /// `channelVolumes` of FxSound's node, linear amplitude, one per channel in its own order.
+    /// `channelVolumes` of CrossFX's node, linear amplitude, one per channel in its own order.
     pub channel_volumes: Vec<f32>,
     /// The node's `mute`.
     pub mute: bool,
@@ -730,7 +731,7 @@ impl TargetVolume {
 /// "Identifying an application").
 ///
 /// A player's playback stream or a recorder's capture stream: a node whose media class is exactly
-/// `Stream/Output/Audio` or `Stream/Input/Audio`, and that is not FxSound's own — not a lane's,
+/// `Stream/Output/Audio` or `Stream/Input/Audio`, and that is not CrossFX's own — not a lane's,
 /// not a route's, not the echo canceller's. Of those, three kinds are not reported:
 ///
 /// - a stream the engine has not finished reading: its own info, or its client's, has not arrived.
@@ -738,16 +739,16 @@ impl TargetVolume {
 ///   rather than first under a key that is about to change.
 /// - a stream that says nothing about who it is — no binary, no name, no Flatpak id, its own or its
 ///   client's. The list could not name it, and no rule could match it.
-/// - a recorder of what a sink plays that does not record FxSound: a visualiser on the speakers'
-///   monitor records no microphone, and nothing of FxSound's either. One that does record FxSound
-///   is reported, as a recorder: one with `stream.capture.sink` that names one of FxSound's nodes
-///   as its target, or names none while FxSound's sink is the default sink; and one without the
-///   flag whose target is a node of FxSound's output lane the session manager links it to —
-///   FxSound's sink or a playback route's, named by `object.serial` or node id, whose monitor it
-///   records, or FxSound's playback stream or a route's, named any way.
+/// - a recorder of what a sink plays that does not record CrossFX: a visualiser on the speakers'
+///   monitor records no microphone, and nothing of CrossFX's either. One that does record CrossFX
+///   is reported, as a recorder: one with `stream.capture.sink` that names one of CrossFX's nodes
+///   as its target, or names none while CrossFX's sink is the default sink; and one without the
+///   flag whose target is a node of CrossFX's output lane the session manager links it to —
+///   CrossFX's sink or a playback route's, named by `object.serial` or node id, whose monitor it
+///   records, or CrossFX's playback stream or a route's, named any way.
 ///
 /// A reported stream is not necessarily one the engine may move: one that says `node.dont-move`,
-/// one whose own properties name a target that is not FxSound's, and a recorder of FxSound are
+/// one whose own properties name a target that is not CrossFX's, and a recorder of CrossFX are
 /// never moved onto a route, and stay on their lane with no [`route`](Self::route).
 ///
 /// Reported in full ([`AudioToUi::AppStreams`]), which is what the Applications list shows as
@@ -857,7 +858,7 @@ pub enum UiToAudio {
     DetachLane(DeviceDirection),
     /// Re-scan the PipeWire graph for devices.
     RescanDevices,
-    /// Make FxSound's virtual device the session default for this lane's direction, or hand it
+    /// Make CrossFX's virtual device the session default for this lane's direction, or hand it
     /// back. Each lane holds its own claim.
     SetAsDefault {
         direction: DeviceDirection,
@@ -868,14 +869,14 @@ pub enum UiToAudio {
     /// Stop the audio engine and let the process exit.
     Shutdown,
     /// Echo cancellation on or off for the input lane: PipeWire's `module-echo-cancel`, loaded
-    /// into FxSound's own context, with the capture stream retargeted to its cancelled source.
+    /// into CrossFX's own context, with the capture stream retargeted to its cancelled source.
     /// Answered with [`AudioToUi::EchoCancel`], which is also how a missing backend is reported.
     SetEchoCancel(bool),
-    /// What the session default was before FxSound last took it, one name per direction.
+    /// What the session default was before CrossFX last took it, one name per direction.
     ///
     /// Sent once at start-up, from the settings file. The audio thread keeps this memory on its
     /// own heap, which is exactly what a `SIGKILL`, an OOM kill or a power cut destroys — and what
-    /// it leaves behind is a session default naming FxSound's node, which no longer exists. No
+    /// it leaves behind is a session default naming CrossFX's node, which no longer exists. No
     /// signal handler covers that case, because none of those three run one.
     SeedRememberedDefaults { output: String, input: String },
     /// The stage ordering the input lane runs, by the name a voice preset gives it: `"voice"`,
@@ -893,7 +894,7 @@ pub enum UiToAudio {
     /// devices come after every ranked one.
     ///
     /// Empty means "follow the system": no ranking, the session default decides — the app's
-    /// `follow_system_default` switch, and upstream's issue #629.
+    /// `follow_system_default` switch, and the original's issue #629.
     ///
     /// `new_devices_first` says where a device the ranking does not name yet goes: before every
     /// ranked device when `true`, after every one when `false` — the app's
@@ -926,7 +927,7 @@ pub enum UiToAudio {
     /// snapshots' `mute` for it. A `true` that is never followed by a `false` is given up on after
     /// a minute of the system being awake.
     SystemSleeping(bool),
-    /// Hold the microphone open while `true`, even with nobody recording from FxSound (Input):
+    /// Hold the microphone open while `true`, even with nobody recording from CrossFX (Input):
     /// the calibration wizard and the microphone meters need a signal that the passive capture
     /// stream would otherwise not have (U9, U19).
     ///
@@ -986,7 +987,7 @@ pub enum AudioToUi {
         direction: Option<DeviceDirection>,
         message: String,
     },
-    /// FxSound has taken the session default for this direction, and this is what it was before.
+    /// CrossFX has taken the session default for this direction, and this is what it was before.
     ///
     /// Written to the settings file so the next start can repair a default that a kill left
     /// pointing at a node that is gone.
@@ -1009,7 +1010,7 @@ pub enum AudioToUi {
     /// when it is not, why: the load error verbatim, so a missing `libspa-aec-webrtc` reads as
     /// `Echo  unavailable` in the strip rather than as a stage that silently did nothing.
     EchoCancel { running: bool, detail: String },
-    /// The volume of FxSound's own node changed while attached to this target (U10). The app
+    /// The volume of CrossFX's own node changed while attached to this target (U10). The app
     /// persists it in `Settings::device_volumes`, replacing the entry for the same direction and
     /// target, so the next pair built for that device starts where the user left it.
     TargetVolume(TargetVolume),

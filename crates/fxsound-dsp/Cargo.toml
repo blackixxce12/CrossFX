@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Real-time-safe port of the FxSound DSP engine"
+description = "CrossFX's real-time-safe port of FxSound's DSP engine"
 
 [dependencies]
 fxsound-core = { workspace = true }

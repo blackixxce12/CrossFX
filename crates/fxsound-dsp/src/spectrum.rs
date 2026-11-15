@@ -135,7 +135,7 @@ const _: () = assert!(HOP_SIZE > 0 && HOP_SIZE <= FFT_SIZE);
 /// original returns `NOT_OKAY` and leaves the meter frozen (`spectrumReset.cpp:55`).
 const MIN_SAMPLE_RATE: Real = 8_000.0;
 /// `SPECTRUM_MAXIMUM_SAMP_FREQ` is 192 kHz (`u_spectrum.h:30`), but that ceiling only existed to
-/// bound the decimation ratio, which this port does not use.
+/// bound the decimation ratio, which CrossFX does not use.
 const MAX_SAMPLE_RATE: Real = 768_000.0;
 
 /// Corner of the DC blocker, low enough to leave band 1 (from 42.17 Hz) untouched.

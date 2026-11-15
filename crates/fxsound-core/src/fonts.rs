@@ -1,7 +1,7 @@
-//! Where FxSound looks for the Gilroy the user licensed, and where it keeps the files they add.
+//! Where CrossFX looks for the Gilroy the user licensed, and where it keeps the files they add.
 //!
-//! FxSound neither ships nor downloads Gilroy ([`crate::InterfaceFont`]). The files the user adds
-//! in Settings ▸ General are copied into FxSound's own data folder
+//! CrossFX neither ships nor downloads Gilroy ([`crate::InterfaceFont`]). The files the user adds
+//! in Settings ▸ General are copied into CrossFX's own data folder
 //! ([`crate::Settings::user_font_dir`]) and read from there at every start; a Gilroy installed on
 //! the system is found in the system's font folders ([`system_font_dirs`]) by the files' names,
 //! and only those files are read. Whether a file really is a Gilroy, and which of its faces, is
@@ -77,7 +77,7 @@ pub fn is_font_file(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf"))
 }
 
-/// The font files under `dir`, to [`MAX_DEPTH`] folders down, whose file name contains `word` in
+/// The font files under `dir`, to `MAX_DEPTH` folders down, whose file name contains `word` in
 /// any case — every one for an empty `word` — each read whole, in the order of their paths.
 ///
 /// A folder that is not there is no files. A file that cannot be read, or is larger than
@@ -214,7 +214,7 @@ mod tests {
             .find(|file| file.path.ends_with("Gilroy-Bold.OTF"))
             .expect("found");
         assert_eq!(bold.bytes, b"bold");
-        // An empty word takes every font file: FxSound's own folder is read whole.
+        // An empty word takes every font file: CrossFX's own folder is read whole.
         assert_eq!(font_files(root.path(), "").len(), 3);
         // A folder that is not there holds nothing.
         assert!(font_files(&root.path().join("nowhere"), "gilroy").is_empty());
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn a_kept_file_lands_under_its_own_name_and_replaces_one_of_that_name() {
         let root = tempfile::tempdir().expect("a scratch folder");
-        let dir = root.path().join("fxsound").join("fonts");
+        let dir = root.path().join("crossfx").join("fonts");
         let kept = keep(&dir, OsStr::new("Gilroy-Regular.ttf"), b"first").expect("kept");
         assert_eq!(kept, dir.join("Gilroy-Regular.ttf"));
         keep(&dir, OsStr::new("Gilroy-Regular.ttf"), b"second").expect("kept again");
@@ -232,7 +232,7 @@ mod tests {
         for name in ["../Gilroy.ttf", "..", "sub/Gilroy.ttf"] {
             assert!(keep(&dir, OsStr::new(name), b"x").is_err(), "{name}");
         }
-        assert!(!root.path().join("fxsound").join("Gilroy.ttf").exists());
+        assert!(!root.path().join("crossfx").join("Gilroy.ttf").exists());
     }
 
     #[test]

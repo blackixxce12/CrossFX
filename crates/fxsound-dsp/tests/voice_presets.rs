@@ -17,7 +17,7 @@
 //!   Clean Voice near-identical, which they are not.
 //!
 //! None of this goes near the `.fac` path: voice presets are TOML, and the byte-exact contract
-//! with the Windows build is untouched.
+//! with the original is untouched.
 
 use fxsound_core::messages::InputDspParams;
 use fxsound_dsp::ChainSpec;

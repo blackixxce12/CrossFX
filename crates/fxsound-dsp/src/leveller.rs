@@ -19,7 +19,7 @@
 //!
 //! # Where the port stops copying
 //!
-//! Five things the original does were defects, not voicing, and the port fixes them. Each is an
+//! Five things the original does were defects, not voicing, and CrossFX fixes them. Each is an
 //! item in the 0.4.0 audit of copied Windows defects, and each changes what a listener hears only
 //! while levelling is on:
 //!
@@ -90,13 +90,13 @@
 //!   those 20 ms came out square: 8 ms of it flattened at the ceiling after a lift of x4.7, where
 //!   dropping the gain at once had clicked but clipped nothing. A transient in the first 2 ms of a
 //!   call is faded over only the frames of the call before it, as in the running stage. A stage
-//!   its owner has stopped running (FxSound or the equalizer switched off:
+//!   its owner has stopped running (CrossFX or the equalizer switched off:
 //!   [`VolumeLeveller::sit_out`]) is heard by nobody, so switched off then it lets go at once, as
 //!   before, and a glide it had started is dropped: played when the stage came back, it would
 //!   lift the level for 20 ms that the listener last heard unlevelled.
 //!
-//! At «Like FxSound for Windows» = Interface and sound ([`VolumeLeveller::set_compat`]) #1 to #4 are
-//! taken back and the stage plays the Windows build's arithmetic inside the same wrappers: #5 and
+//! At «Like the original FxSound LLC» = Interface and sound ([`VolumeLeveller::set_compat`]) #1 to
+//! #4 are taken back and the stage plays the original's arithmetic inside the same wrappers: #5 and
 //! #11 stay, since neither changes what a running stage sounds like
 //! (`crates/fxsound-dsp/src/leveller_legacy.rs`).
 //!
@@ -122,7 +122,7 @@ use crate::biquad::{MAX_CHANNELS, Real};
 use crate::smooth::{Ramp, glide_frames};
 use fxsound_core::DspCompat;
 
-/// The Windows build's arithmetic, for «Like FxSound for Windows» = Interface and sound.
+/// The original's arithmetic, for «Like the original FxSound LLC» = Interface and sound.
 #[path = "leveller_legacy.rs"]
 mod legacy;
 
@@ -159,7 +159,7 @@ pub const TONE_PRESENCE_HZ: Real = 4500.0;
 /// `SosProcess.cpp:50`.
 ///
 /// The name keeps the original's `kVolumeLevelingMinRatioPerBuffer`: the original took one step
-/// per buffer, the port takes one per 10 ms of audio whatever the buffer (audit #2).
+/// per buffer, CrossFX takes one per 10 ms of audio whatever the buffer (audit #2).
 ///
 /// The original spells it `0.8912509381337456f`; every digit past the ninth is lost to `float`, so
 /// this is the shortest literal that names the same `f32`.
@@ -230,7 +230,7 @@ pub const MAX_AMOUNT: Real = 4.0;
 /// Target RMS at `MAX_AMOUNT`. `kVolumeLevelingMaxTargetRms`, `GraphicEqSet.cpp:35`.
 pub const MAX_TARGET_RMS: Real = 0.5;
 
-// Unnamed literals in the original, named here so the port reads as arithmetic rather than magic.
+// Unnamed literals in the original, named here so CrossFX reads as arithmetic rather than magic.
 /// `SosProcess.cpp:244` — the RMS target may not imply a gain above `target / 0.125` (+18 dB at
 /// the maximum target).
 const MAX_GAIN_CAP_DIVISOR: Real = 0.125;
@@ -265,7 +265,8 @@ const SLOW_ALPHA_MIN: Real = 0.0005;
 const SLOW_ALPHA_MAX: Real = 0.05;
 /// `SosProcess.cpp:458` — a floor this close to unity is snapped to unity.
 const QUIET_FLOOR_SNAP: Real = 1.0001;
-/// `SosProcess.cpp:146`, `:303`, `:307`, `:339`, `:358`, `:437` — the original's "not zero" epsilon.
+/// `SosProcess.cpp:146`, `:303`, `:307`, `:339`, `:358`, `:437` — the original's "not zero"
+/// epsilon.
 const TINY: Real = 1e-6;
 /// `SosProcess.cpp:163` — anything at or below this is treated as a missing sample rate.
 const MIN_PLAUSIBLE_SAMPLE_RATE: Real = 1000.0;
@@ -753,13 +754,13 @@ pub struct VolumeLeveller {
     /// ([`VolumeLeveller::sit_out`]): only then is the gain it holds the one being heard, and
     /// only then does switching it off glide.
     heard: bool,
-    /// Whose arithmetic runs: the port's, or the Windows build's ([`VolumeLeveller::set_compat`]).
+    /// Whose arithmetic runs: CrossFX's, or the original's ([`VolumeLeveller::set_compat`]).
     compat: DspCompat,
     /// The subwoofer's crossfade when [`VolumeLeveller::set_compat`] changes what it gets: the
     /// share of the new arithmetic's output, gliding from 0 to 1, still at 1 otherwise.
     subwoofer_fade: Ramp,
     /// What the subwoofer was multiplied by when the switch was made: the gain being played for
-    /// the port's arithmetic, unity for the Windows build's (#3 taken back), and the mix of the
+    /// CrossFX's arithmetic, unity for the original's (#3 taken back), and the mix of the
     /// two a fade had got to when the switch came before it was over.
     subwoofer_from: Real,
     /// The subwoofer's input over the frames of a call that the crossfade covers.
@@ -869,7 +870,7 @@ impl VolumeLeveller {
         }
     }
 
-    /// Play the port's arithmetic, or the Windows build's («Like FxSound for Windows» = Interface
+    /// Play CrossFX's arithmetic, or the original's («Like the original FxSound LLC» = Interface
     /// and sound): the peak safety on the side chain's peak (#1 taken back), a step per call
     /// (#2), the subwoofer neither analysed nor levelled (#3) and both ends of a step's ramp
     /// clamped to the peak-safe gain (#4). The state machine carries on from where it is: a step
@@ -879,7 +880,7 @@ impl VolumeLeveller {
     /// unity there, and switching between them under a quiet scene lifted by 12 dB moved it by
     /// that much between two samples, a click at −20 dBFS. Once audio has gone through it
     /// crossfades from what the old arithmetic made of it to what the new one does, over
-    /// [`crate::smooth::GLIDE_SECONDS`] ([`SUBWOOFER_FADE_FRAMES`] at most). Allocation-free.
+    /// [`crate::smooth::GLIDE_SECONDS`] (`SUBWOOFER_FADE_FRAMES` at most). Allocation-free.
     pub fn set_compat(&mut self, compat: DspCompat) {
         if compat == self.compat {
             return;
@@ -930,14 +931,14 @@ impl VolumeLeveller {
         self.gain
     }
 
-    /// Tell the stage its owner ran a block without it: FxSound or the equalizer's block is
+    /// Tell the stage its owner ran a block without it: CrossFX or the equalizer's block is
     /// switched off, and the stage's state stands still until it is run again, as the original's
     /// does (`dfxpProcessReal.cpp:143-157`).
     ///
     /// Only [`VolumeLeveller::process`] plays the glide that lets the gain down after the stage is
     /// switched off, so a glide started while the stage is left out would wait for it to come
     /// back and then lift 20 ms of audio the listener last heard unlevelled: at Volume Leveling 4
-    /// on a −34 dBFS tone, set to 0 with FxSound off, switching back on played 0.087 for a
+    /// on a −34 dBFS tone, set to 0 with CrossFX off, switching back on played 0.087 for a
     /// steady 0.019, a 13 dB burst. So a stage left out drops any glide it had, and until it is run
     /// again, switching it off clears it at once, as before audit #11.
     pub fn sit_out(&mut self) {
@@ -1076,7 +1077,7 @@ impl VolumeLeveller {
         // The original indexes fixed `[8]` arrays with the raw channel number, so a ninth channel
         // would be a buffer overrun. Here the detector simply ignores anything past
         // `MAX_CHANNELS`; the gain is still applied to those channels so they stay in step with
-        // the rest of the mix. For every format FxSound actually handles (mono, stereo, 5.1, 7.1)
+        // the rest of the mix. For every format CrossFX actually handles (mono, stereo, 5.1, 7.1)
         // this is bit-identical to the original.
         let detector_channels = channels.min(MAX_CHANNELS);
         let analysed_channels = (0..detector_channels)
@@ -3373,7 +3374,7 @@ mod tests {
     #[test]
     fn a_stage_its_owner_leaves_out_is_switched_off_at_once_and_drops_its_let_down() {
         // Audit #11: the let-down that switching the stage off starts is played by `process`
-        // alone, so a stage its owner is not running (FxSound or the equalizer off) must not keep
+        // alone, so a stage its owner is not running (CrossFX or the equalizer off) must not keep
         // one for when it comes back, and switched off while it is left out it is cleared at
         // once, as the original clears it: from then on it is the exact bypass.
         let quiet = |frames: usize| -> Vec<Real> {

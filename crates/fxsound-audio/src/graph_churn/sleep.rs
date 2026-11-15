@@ -1,10 +1,10 @@
 //! Sleep, both kinds, against a private PipeWire: the microphone's while nothing records from
-//! FxSound (Input) (`docs/0.4.0-upstream.md` U19), and FxSound's while the system sleeps (U13).
+//! CrossFX (Input) (`docs/0.4.0-upstream.md` U19), and CrossFX's while the system sleeps (U13).
 //!
 //! What the input lane's passive capture stream does is the server's business, not this crate's —
 //! whether a recorder's link to the virtual source reaches the microphone through the input lane's
 //! link-group is decided by PipeWire's scheduler — so it is watched here rather than assumed: the
-//! nodes' states from `pw-dump`, and what a real `pw-record` on FxSound (Input) is handed. The
+//! nodes' states from `pw-dump`, and what a real `pw-record` on CrossFX (Input) is handed. The
 //! recorders run on a clock of their own, as an application runs on its device's, rather than on
 //! the test's tone ([`PrivateGraph::clocked_recorder`] says why).
 //!
@@ -124,25 +124,25 @@ fn a_microphone_runs_only_while_something_records_from_crossfx_input() {
             Some(Some("true".to_owned())),
             "the capture stream should be passive on a server that runs a link-group together"
         );
-        // An application that will record from FxSound (Input), running already — on its own clock,
+        // An application that will record from CrossFX (Input), running already — on its own clock,
         // as a real one runs on its device's — and not recording from it yet.
         let recorder = graph
             .clocked_recorder("t_recorder")
-            .expect("a recorder for FxSound (Input)");
+            .expect("a recorder for CrossFX (Input)");
 
         // Linked to its microphone, and nobody recording: in 0.3.0 that ran the microphone for as long
-        // as FxSound was open. Now neither it nor the pair runs, and the lane hears nothing.
+        // as CrossFX was open. Now neither it nor the pair runs, and the lane hears nothing.
         assert_eq!(
             none_runs_for_a_while(&graph, &["t_tone", CAPTURE_NODE_NAME, SOURCE_NODE_NAME]),
             Ok(()),
-            "the microphone was held open with nothing recording from FxSound (Input)"
+            "the microphone was held open with nothing recording from CrossFX (Input)"
         );
         assert!(
             handle.meters(DeviceDirection::Input).input_peak < 1e-3,
             "the input lane heard the microphone with nothing recording from it"
         );
 
-        // It records from FxSound (Input): the source runs, the input lane's group runs the capture
+        // It records from CrossFX (Input): the source runs, the input lane's group runs the capture
         // stream with it, and the capture stream's link runs the microphone — and what the application
         // is handed is the processed microphone.
         let from = recorder.written();
@@ -151,7 +151,7 @@ fn a_microphone_runs_only_while_something_records_from_crossfx_input() {
             assert_eq!(
                 graph.runs_until(node, true).map(drop),
                 Ok(()),
-                "{node} should run while something records from FxSound (Input)"
+                "{node} should run while something records from CrossFX (Input)"
             );
         }
         assert!(
@@ -169,7 +169,7 @@ fn a_microphone_runs_only_while_something_records_from_crossfx_input() {
             assert_eq!(
                 graph.runs_until(node, false).map(drop),
                 Ok(()),
-                "{node} should stop once nothing records from FxSound (Input)"
+                "{node} should stop once nothing records from CrossFX (Input)"
             );
         }
         assert_eq!(
@@ -278,7 +278,7 @@ fn holding_the_microphone_awake_runs_it_with_nobody_recording_and_lets_it_sleep_
 
         // Another microphone while it is held: only the capture stream is replaced, on the new
         // microphone, and the source stays, and with it the recorder held on it and its link — as
-        // an application recording from FxSound (Input) keeps its own (roadmap 0.5.0 §7, D3).
+        // an application recording from CrossFX (Input) keeps its own (roadmap 0.5.0 §7, D3).
         let before = graph.our_nodes().expect("pw-dump answered a moment ago");
         handle.send(UiToAudio::SelectDevice {
             node_name: "t_mic".to_owned(),
@@ -497,14 +497,14 @@ fn a_headsets_microphone_held_awake_is_switched_to_its_call_profile_as_a_call_wo
         }
         let (handle, _said) = engine_on_the_microphone(&graph, LOOPBACK);
 
-        // With nothing recording from FxSound (Input), the capture stream is linked to the headset and
-        // does not run it. Before it was passive it did, and the headset stayed in A2DP all the same:
-        // the script passes over a stream in a link-group, and the input lane's microphone recorded
-        // the silence of a loopback with no call profile behind it.
+        // With nothing recording from CrossFX (Input), the capture stream is linked to the headset
+        // and does not run it. Before it was passive it did, and the headset stayed in A2DP all the
+        // same: the script passes over a stream in a link-group, and the input lane's microphone
+        // recorded the silence of a loopback with no call profile behind it.
         assert_eq!(
             none_runs_for_a_while(&graph, &[LOOPBACK]),
             Ok(()),
-            "the headset's microphone was held open with nothing recording from FxSound (Input)"
+            "the headset's microphone was held open with nothing recording from CrossFX (Input)"
         );
         assert_eq!(
             wireplumber_would_switch_to_headset(&graph, LOOPBACK),
@@ -542,18 +542,18 @@ fn a_headsets_microphone_held_awake_is_switched_to_its_call_profile_as_a_call_wo
             "the headset would be kept in its call profile after the meters closed"
         );
 
-        // An application recording from FxSound (Input) is what switched it before the meters did, and
-        // what switches it still: the same walk, through the source's group, finds the headset.
-        // Recording from nothing else, as a call does: the script follows a stream's first link only,
-        // so a recorder that also took a clock's monitor, as the recorders elsewhere here do, would
-        // not be what a call looks like to it.
+        // An application recording from CrossFX (Input) is what switched it before the meters did,
+        // and what switches it still: the same walk, through the source's group, finds the headset.
+        // Recording from nothing else, as a call does: the script follows a stream's first link
+        // only, so a recorder that also took a clock's monitor, as the recorders elsewhere here do,
+        // would not be what a call looks like to it.
         let call = graph
             .record_from(SOURCE_NODE_NAME, "t_call")
-            .expect("a recorder on FxSound (Input)");
+            .expect("a recorder on CrossFX (Input)");
         assert_eq!(
             switch_settles_on(&graph, true),
             Some(true),
-            "a call recording from FxSound (Input) would not switch the headset"
+            "a call recording from CrossFX (Input) would not switch the headset"
         );
         drop(call);
         handle.shutdown();
@@ -592,7 +592,7 @@ fn both_lanes_fall_silent_while_the_system_sleeps_and_are_heard_the_moment_they_
             "the speakers were not given ports and a monitor"
         );
         // The tone plays through the music lane into the speakers, whose monitor is recorded, and is
-        // recorded from FxSound (Input) through the voice lane.
+        // recorded from CrossFX (Input) through the voice lane.
         assert!(graph.link_nodes("t_tone", SINK_NODE_NAME));
         assert!(graph.link_nodes(OUTPUT_NODE_NAME, "t_stereo"));
         let speakers = graph
@@ -600,7 +600,7 @@ fn both_lanes_fall_silent_while_the_system_sleeps_and_are_heard_the_moment_they_
             .expect("a recorder on the speakers' monitor");
         let recording = graph
             .clocked_recorder("t_recorder")
-            .expect("a recorder for FxSound (Input)");
+            .expect("a recorder for CrossFX (Input)");
         assert!(graph.link_nodes(SOURCE_NODE_NAME, &recording.name));
         let both = [&speakers, &recording];
         for recorder in both {

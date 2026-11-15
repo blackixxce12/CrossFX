@@ -12,7 +12,7 @@
 //!   RTKit, so a `malloc`, a mutex or a panic here does not degrade gracefully — it xruns the
 //!   whole graph or aborts the process and takes the user's audio with it.
 //!
-//! The two never share a `RefCell`. The main loop's mutable state lives in [`Shared`], which no
+//! The two never share a `RefCell`. The main loop's mutable state lives in `Shared`, which no
 //! `process()` closure can reach; the data thread's state lives in the streams' user data, and
 //! the only things that cross between them are, per lane, a wait-free ring of `AtomicU32`
 //! samples, a handful of counters, and the lane's own paths to the GUI — the `triple_buffer`
@@ -21,7 +21,7 @@
 //!
 //! # One engine, two lanes
 //!
-//! The engine keeps one [`Lane`] per [`DeviceDirection`] (`docs/0.4.0-design.md` §1.1), and the
+//! The engine keeps one `Lane` per [`DeviceDirection`] (`docs/0.4.0-design.md` §1.1), and the
 //! two run at the same time. In the output lane NODE 1 is the virtual sink and NODE 2 the
 //! playback stream; in the input lane NODE 1 is a capture stream on the chosen microphone and
 //! NODE 2 the virtual source (`crate` docs, "Topology"). Each lane owns everything its pair
@@ -31,8 +31,8 @@
 //! speakers keep playing, and nothing one lane does can be undone by the other.
 //!
 //! Only the node *properties*, the metadata keys and the bookkeeping differ between the lanes:
-//! NODE 1 always runs [`on_sink_process`] (DSP in place, push to the ring) and NODE 2 always runs
-//! [`on_output_process`] (pop the ring), so the real-time code is the same in both lanes and
+//! NODE 1 always runs `on_sink_process` (DSP in place, push to the ring) and NODE 2 always runs
+//! `on_output_process` (pop the ring), so the real-time code is the same in both lanes and
 //! nothing in it knows there is another one.
 //!
 //! # The 200 ms supervisor
@@ -48,7 +48,7 @@
 //! # Idle
 //!
 //! The output lane's NODE 2 is a playback stream linked to the user's real speakers, and a linked
-//! stream keeps its device running — so in 0.3.0, FxSound kept the speakers, the graph and both of
+//! stream keeps its device running — so in 0.3.0, CrossFX kept the speakers, the graph and both of
 //! its own process callbacks running for as long as it was open, playing silence into a device
 //! WirePlumber would otherwise have suspended (`docs/0.4.0-design.md` §12). NODE 2 has nothing to
 //! play unless something plays into NODE 1, so it should run exactly when NODE 1 does, and there
@@ -61,7 +61,7 @@
 //!   run — in the same cycle, with no help from this thread. It is `module-loopback`'s virtual-sink
 //!   recipe, and WirePlumber's own audio-group loopback is built the same way.
 //! * **Older servers** knew the link-group only as a hint to WirePlumber, so a passive NODE 2 would
-//!   never be woken by NODE 1's clients: FxSound would fall silent. There NODE 2 stays an ordinary
+//!   never be woken by NODE 1's clients: CrossFX would fall silent. There NODE 2 stays an ordinary
 //!   stream and the main loop paces it by hand, as `docs/0.4.0-design.md` §1.3 describes —
 //!   `set_active(false)` once NODE 1 has been paused for `SLEEP_AFTER`, `set_active(true)` the
 //!   moment it streams again (`SecondNodePace`). That only works on a server this old: on a newer
@@ -77,14 +77,14 @@
 //! then, the cushion would put the tail of the last sound in front of the next one. So NODE 1's
 //! `Paused` marks the ring stale, and NODE 2's first `pop` after it skips what was left
 //! (`SampleRing::mark_stale`). It also has the next sound fade in from silence, as a new pair's
-//! first sound does (`first_node_went_idle`): a stream moved onto FxSound in the middle of a sound
+//! first sound does (`first_node_went_idle`): a stream moved onto CrossFX in the middle of a sound
 //! — every stream that follows the default, when the power comes back on — would otherwise start
 //! at full level between two samples. The pair is not always told it stopped, and may wake on the
 //! silence the sink mixes before the stream arrives, so NODE 1 also treats the first block with
 //! sound in it after a quarter of a second without one as a new sound
 //! (`woke_after_standing_still`), and NODE 2 drops a cushion it wakes up to
 //! (`SampleRing::skip_all`). What the skip costs is the same block and a half of a player that was
-//! merely paused and resumed — 16 ms at the quantum FxSound asks for — which it resumes that much
+//! merely paused and resumed — 16 ms at the quantum CrossFX asks for — which it resumes that much
 //! further on than it stopped.
 //!
 //! The input lane idles the same way with the two nodes' parts swapped (`docs/0.4.0-upstream.md`
@@ -98,7 +98,7 @@
 //! with nothing recording, the capture stream and the microphone stay idle; with a recorder linked,
 //! both run and the recorder gets the processed microphone; unlinked, both are idle again. So the
 //! microphone — its light, a desktop's "recording" indicator, a Bluetooth headset's call profile —
-//! is held only while something records from FxSound (Input). It is how WirePlumber holds its own
+//! is held only while something records from CrossFX (Input). It is how WirePlumber holds its own
 //! Bluetooth microphone, whose capture half is passive in the same way
 //! (`monitors/bluez/create-loopback-node.lua`). The ring is marked stale when the capture stream
 //! pauses, as above, so a recording started later does not open with the end of the last one.
@@ -107,19 +107,19 @@
 //! ordinary stream that holds the microphone for as long as the lane is on, as it did everywhere
 //! before 0.4.0. Pacing it by hand, the output lane's answer there, would keep it inactive until
 //! the source reported `Streaming`, so every recording would start with the blocks the capture
-//! stream missed while it was being woken; and every distribution FxSound is packaged for ships a
+//! stream missed while it was being woken; and every distribution CrossFX is packaged for ships a
 //! server that does not need it.
 //!
 //! What records from the source is usually an application. While the app holds the microphone
 //! awake ([`UiToAudio::KeepInputAwake`]: the calibration wizard, the microphone meters) it is the
-//! engine itself: a recording stream of its own on the source ([`KeepAwake`]), which runs the pair
+//! engine itself: a recording stream of its own on the source (`KeepAwake`), which runs the pair
 //! and the microphone exactly as an application would. It is also the one thing that wakes a
 //! Bluetooth headset's microphone. WirePlumber 0.5 switches a headset to its call profile only for
 //! a recording stream with no `node.link-group` that reaches the headset's loopback microphone
 //! (`device/autoswitch-bluetooth-profile.lua`, `isBluetoothLoopbackSourceNodeLinkedToStream`),
 //! through filters if need be, and the capture stream carries the input lane's group. The stream of
 //! our own carries none, and is found through the source's group to the capture stream and on to
-//! the headset, the way a call recording from FxSound (Input) is. Taking the group off the capture
+//! the headset, the way a call recording from CrossFX (Input) is. Taking the group off the capture
 //! stream instead would have woken the headset too, but the group is what keeps WirePlumber from
 //! linking the capture stream to our own source (`docs/spec/12-audio-io.md` §28.3), and a pair
 //! would have had to be rebuilt to change it.
@@ -129,7 +129,7 @@
 //! pair run with it (`docs/0.4.0-design.md` §7, and `aec`). But PipeWire's module makes its own
 //! capture and monitor streams passive, and the capture stream that records the canceller's source
 //! is passive as above, so nothing in that chain runs it by itself: it runs while something records
-//! from FxSound (Input), and sleeps, canceller loaded, when the recording stops
+//! from CrossFX (Input), and sleeps, canceller loaded, when the recording stops
 //! (`graph_churn::echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_input`).
 //! Before U19 the capture stream's link to the canceller ran all of it for as long as the lane was
 //! on.
@@ -140,10 +140,10 @@
 //! chain — the part above unity in front of it — and remembered per real device and port
 //! (`crate::volume`, `docs/spec/12-audio-io.md` §19.7.1). The main loop's part is small and lives
 //! in one section below: read every `Props` write in the virtual node's `param_changed`
-//! ([`take_props`]), report the volume once it holds still ([`watch_volume`]), choose the volume a
-//! new pair starts at ([`volume_for_pair`]) — or a pair whose device moved to another port
-//! ([`follow_port`]) — and write it to the node through the session's second connection
-//! ([`publish_volume`]).
+//! (`take_props`), report the volume once it holds still (`watch_volume`), choose the volume a
+//! new pair starts at (`volume_for_pair`) — or a pair whose device moved to another port
+//! (`follow_port`) — and write it to the node through the session's second connection
+//! (`publish_volume`).
 //!
 //! # A device that blinks
 //!
@@ -157,42 +157,41 @@
 //! U8). Now neither does:
 //!
 //! * Each lane's device-facing stream is `node.dont-reconnect`, `node.dont-fallback` and
-//!   `node.linger` ([`stream_props`]): WirePlumber links it to its target once, never moves it,
+//!   `node.linger` (`stream_props`): WirePlumber links it to its target once, never moves it,
 //!   and leaves it unlinked and waiting while the target is gone.
 //! * When a lane's target goes while the card it belongs to — PipeWire's `Device` object — stays,
-//!   the lane's rules wait up to [`RETURN_WAIT`] for it to come back ([`Hold`]) — unless the card
+//!   the lane's rules wait up to `RETURN_WAIT` for it to come back (`Hold`) — unless the card
 //!   adds a node of the lane's direction under another name meanwhile, which is the target renamed
-//!   by the profile switch, and ends the wait ([`Hold::renamed`]).
+//!   by the profile switch, and ends the wait (`Hold::renamed`).
 //! * Any node that goes while its card stays counts as seen by the rules of its direction until
-//!   [`RETURN_WAIT`] is up, whichever lane was on it ([`Departure`]): back under its name, it is no
+//!   `RETURN_WAIT` is up, whichever lane was on it (`Departure`): back under its name, it is no
 //!   device just plugged in, and takes no lane from the device it is on.
 //! * A pair is attached only to the very node it was built on, `object.serial` and all
-//!   ([`is_same_node`]). WirePlumber never links a stream it has linked once, so for a node back
+//!   (`is_same_node`). WirePlumber never links a stream it has linked once, so for a node back
 //!   under its old name the lane replaces its stream on the device, and the new stream is linked
 //!   to it: that stream alone at the same format, the whole pair only at another ("Another device,
 //!   the same virtual node", below).
 //!
 //! A node that goes with its card, or that has no card — a virtual sink — is gone, and the lane
 //! moves at once, as before: on the tick after the node goes, or, when the registry names the node
-//! before its card, on the tick after the card does ([`remove_card`]). So does a lane whose wait
+//! before its card, on the tick after the card does (`remove_card`). So does a lane whose wait
 //! is up.
 //!
 //! # Sleep
 //!
 //! The app tells the engine when logind says the system is about to sleep and when it has woken
-//! ([`UiToAudio::SystemSleeping`], `docs/0.4.0-upstream.md` U13), as upstream's controller mutes
-//! its engine on suspend and unmutes it on resume (`FxController.cpp:2145-2159`). Going to sleep,
-//! both lanes fall silent after their chains — the snapshots' own `mute` path, set from here
-//! rather than by the GUI ([`Lane::system_mute`]) — and no device rules run, so nothing chooses a
+//! ([`UiToAudio::SystemSleeping`], `docs/0.4.0-upstream.md` U13), as the original's controller
+//! mutes its engine on suspend and unmutes it on resume (`FxController.cpp:2145-2159`). Going to
+//! sleep, both lanes fall silent after their chains — the snapshots' own `mute` path, set from here
+//! rather than by the GUI (`Lane::system_mute`) — and no device rules run, so nothing chooses a
 //! device from a graph that is coming apart under the suspend. On waking, both chains' filter
-//! history is cleared, and every per-application route's with them (see "Applications"), and
-//! both lanes' rules run with the wait of "A device that blinks" in front
-//! of them: a lane whose device is not back yet waits up to [`RETURN_WAIT`] for it
-//! ([`Lane::wake_wait`]), card or no card, because a Bluetooth headset reconnects a few seconds
-//! after the system does. A lane is heard again once its rules have attached it, or after
-//! [`WAKE_MUTE`] at the latest. A wake that never comes is given up after [`SLEEP_LIMIT`], so a
-//! lost signal cannot leave FxSound silent. There is no sleep inhibitor, by upstream's decision
-//! (its PR #533).
+//! history is cleared, and every per-application route's with them (see "Applications"), and both
+//! lanes' rules run with the wait of "A device that blinks" in front of them: a lane whose device
+//! is not back yet waits up to `RETURN_WAIT` for it (`Lane::wake_wait`), card or no card,
+//! because a Bluetooth headset reconnects a few seconds after the system does. A lane is heard
+//! again once its rules have attached it, or after `WAKE_MUTE` at the latest. A wake that never
+//! comes is given up after `SLEEP_LIMIT`, so a lost signal cannot leave CrossFX silent. There is
+//! no sleep inhibitor, by the original's decision (its PR #533).
 //!
 //! # Applications
 //!
@@ -200,12 +199,12 @@
 //! engine keeps them for the per-application presets (`docs/0.4.0-apps.md`, `crate::app_streams`):
 //! each player's and recorder's stream, bound for the properties its registry global leaves out —
 //! its binary, its target, whether it may move — and each client, bound for what its streams do
-//! not say about themselves. FxSound's own streams are left out by name. The GUI hears the list on
+//! not say about themselves. CrossFX's own streams are left out by name. The GUI hears the list on
 //! the supervisor's tick, whole, and only when it has changed ([`AudioToUi::AppStreams`]), so an
 //! application that starts is one message however many events announced it.
 //!
 //! An application the app has given a preset of its own ([`UiToAudio::SetAppRoutes`]) is moved
-//! onto a *route*: another pair of FxSound's nodes on its lane's device, running that preset
+//! onto a *route*: another pair of CrossFX's nodes on its lane's device, running that preset
 //! (`route_pairs`, planned by `crate::app_routes`). The move is a `target.object` key in the
 //! `default` metadata, which WirePlumber follows; deleting it moves the application back. Routes
 //! follow their lanes — built beside a lane's pair, rebuilt with it on another device, taken down
@@ -214,9 +213,9 @@
 //!
 //! # Moving an application without a click
 //!
-//! A move of an application's stream — WirePlumber following a default FxSound claims or hands
-//! back, or a key FxSound writes — cuts the stream off one node and links it to the next in the
-//! middle of its sound. So every such move FxSound makes waits for the streams it moves to be faded
+//! A move of an application's stream — WirePlumber following a default CrossFX claims or hands
+//! back, or a key CrossFX writes — cuts the stream off one node and links it to the next in the
+//! middle of its sound. So every such move CrossFX makes waits for the streams it moves to be faded
 //! to silence, and they get their volume back once linked where they went (`fades`,
 //! `crate::stream_handover`): the power button's claims and hand-backs, and the routes' keys. The
 //! ways that take a lane's pair down at once — a lane detached, no device left — and the way out
@@ -225,34 +224,34 @@
 //!
 //! # Another device, the same virtual node
 //!
-//! Until 0.5.0 a lane that moved to another device — picked in FxSound, from `--output`,
+//! Until 0.5.0 a lane that moved to another device — picked in CrossFX, from `--output`,
 //! `--next-output` or `--input`, or followed from the desktop's pick — took both of its nodes down
 //! and built them again there. For as long as `crossfx_sink` was gone, WirePlumber moved every
 //! application on it onto a device of its own, unprocessed, and back onto the new sink a moment
 //! later: two moves in the middle of the sound, measured at −4.9 to −10.3 dBFS on the speakers
 //! (roadmap 0.5.0 §7, D3). Nothing an application is linked to needs to go for that. So when the
 //! new device takes the format the pair already runs at — the channel count and the rate
-//! ([`PairFormat`]) — the virtual node stays, and only the stream on the device is replaced
-//! ([`switch_device`]): the output lane's playback stream, the input lane's capture stream, which
+//! (`PairFormat`) — the virtual node stays, and only the stream on the device is replaced
+//! (`switch_device`): the output lane's playback stream, the input lane's capture stream, which
 //! is also how the capture stream moves onto the echo canceller's source and back. Applications
-//! stay where they are, and the default FxSound holds is never in question. A new format still
+//! stay where they are, and the default CrossFX holds is never in question. A new format still
 //! replaces the whole pair: the virtual node declares it.
 //!
 //! The replaced stream is cut off in the middle of what it plays, and the new one would start the
 //! same way, so the lane's chain falls silent first, the way a mute does over 20 ms
-//! ([`StreamStatus::switch_mute`]), and the stream goes once that silence has been heard on the old
-//! device ([`switch_ready`], [`switch_tail`]) — at once when nothing plays. The main loop is woken
+//! (`StreamStatus::switch_mute`), and the stream goes once that silence has been heard on the old
+//! device (`switch_ready`, `switch_tail`) — at once when nothing plays. The main loop is woken
 //! for it by the handover's clock rather than left for the next supervisor tick
-//! ([`switch_devices_due`]). The chain is heard again, faded in from silence, once the new stream's
-//! link to the device is active and has settled there ([`switch_linked`], [`switch_settle`]): the
+//! (`switch_devices_due`). The chain is heard again, faded in from silence, once the new stream's
+//! link to the device is active and has settled there (`switch_linked`, `switch_settle`): the
 //! new stream runs with the virtual node from the moment it exists, linked or not, and the first
 //! cycles on the new device's clock can leave the ring a block short. Should the link never become
-//! active, the chain is let be heard after [`SWITCH_WATCHDOG`] regardless. What is left is a gap of
+//! active, the chain is let be heard after `SWITCH_WATCHDOG` regardless. What is left is a gap of
 //! about a tenth of a second where there were two clicks.
 //!
 //! After the desktop's pick, WirePlumber has moved every application that follows the default
-//! onto the picked device before FxSound hears of it, and FxSound's move there is made inside its
-//! claim of the default back, once those applications are faded to silence ([`claim_and_switch`]):
+//! onto the picked device before CrossFX hears of it, and CrossFX's move there is made inside its
+//! claim of the default back, once those applications are faded to silence (`claim_and_switch`):
 //! a stream linked to a device in the middle of what plays there changes the quantum under it. The
 //! desktop's own move stays as plain Linux has it (roadmap 0.5.0 §14 #16). A per-application route
 //! still follows its lane by being built again on the new device (`route_pairs`), and the streams
@@ -260,44 +259,44 @@
 //!
 //! # A sound cut off
 //!
-//! A stream that WirePlumber moves off FxSound's virtual node by itself — the desktop picking
+//! A stream that WirePlumber moves off CrossFX's virtual node by itself — the desktop picking
 //! another default device, a mixer moving one application — leaves it between two cycles, in the
 //! middle of its wave, and so does any stream that stops at the end of a cycle's block. NODE 1
 //! goes on running on the silence the node mixes, and NODE 2 still has the last block NODE 1 pushed to play: until
 //! 0.5.0 it played it to its end and stopped there in a step, followed by what the chain made of the
-//! silence, the ring-out of its filters and reverb: on the speakers FxSound had played through,
+//! silence, the ring-out of its filters and reverb: on the speakers CrossFX had played through,
 //! a step as loud as the chain plays the sound. It is half of the click of WirePlumber's move after
-//! the desktop's pick with FxSound on, the other half being the application arriving unprocessed on
-//! the picked device, as it does without FxSound (roadmap 0.5.0 §7, D4; §14 #15, #16).
+//! the desktop's pick with CrossFX on, the other half being the application arriving unprocessed on
+//! the picked device, as it does without CrossFX (roadmap 0.5.0 §7, D4; §14 #15, #16).
 //!
-//! So NODE 1 watches for it ([`CutWatch`]): a block that ends at −40 dBFS or louder in its last
-//! frames ([`CUT_LEVEL`]) followed by one of digital silence, or by PipeWire's empty packet, is a
+//! So NODE 1 watches for it (`CutWatch`): a block that ends at −40 dBFS or louder in its last
+//! frames (`CUT_LEVEL`) followed by one of digital silence, or by PipeWire's empty packet, is a
 //! sound cut off. The end of it that NODE 2 has not played yet fades to silence in the ring over
-//! [`CUT_FADE`] ([`SampleRing::fade_tail`]), and the chain is held silent from that block on, until
+//! `CUT_FADE` (`SampleRing::fade_tail`), and the chain is held silent from that block on, until
 //! the next sound, which fades in from silence as a new pair's first sound does. What is lost is
 //! the last 10 ms of a sound that was cut off anyway, and the ring-out after it. A sound that ends
-//! on its own, or a stream FxSound's own handover fades out, ends quieter than [`CUT_LEVEL`] and is
+//! on its own, or a stream CrossFX's own handover fades out, ends quieter than `CUT_LEVEL` and is
 //! left as it is.
 //!
 //! Only a cut between two blocks is found: a sound cut off inside a block — a player whose last
 //! buffer ends partway through a cycle and is padded with silence — is left as it is, although
 //! roadmap 0.5.0 §7 names it. Its step is in the block the application hands over, which the
 //! chain plays as it plays every block, not in what the ring holds from before; plain Linux plays
-//! the same step, and FxSound adds none of its own, its chain playing on into its ring-out. Fading
+//! the same step, and CrossFX adds none of its own, its chain playing on into its ring-out. Fading
 //! it would mean rewriting the application's block in front of the chain, at a point found by
 //! looking for exact zeros after loud samples, which a sound may hold on its own; the ring's fade
 //! cannot reach it.
 //!
 //! Measured in the click test (`graph_churn::clicks`) on the desktop's picks, the speakers' monitors
-//! read one by one over twelve passes, 144 picks: the speakers FxSound had played through went from
+//! read one by one over twelve passes, 144 picks: the speakers CrossFX had played through went from
 //! a step at the level of the move itself to −88.8 to −105.6 dBFS in 136 of them, and the picked
 //! speakers, where the application arrives unprocessed, stayed at −18.8 to −48.0. In the other 8,
 //! six of them the third pick of the test, the recording skips a few milliseconds of the fade
-//! downstream of FxSound — NODE 2 had played the block before whole and the faded one whole — and
+//! downstream of CrossFX — NODE 2 had played the block before whole and the faded one whole — and
 //! jumps into it at −8.4 to −16.3. So the move's median, switch by switch, went from −11.6…−26.2
 //! dBFS to −18.8…−31.6, plain Linux's −18.8…−25.9; its loudest run, read above the tone, to −17.7 dB
 //! in the five passes with no skip, and stayed at −7.3 to −15.1 in the others (−8.8 to −10.5 before).
-//! The click test gates it since (`left_behind` there): at the speakers FxSound had played through,
+//! The click test gates it since (`left_behind` there): at the speakers CrossFX had played through,
 //! more than a quarter of a pass's picks at −40 dBFS or louder fail it — without the fade, 10 of
 //! 12. `take_block` and `take_empty_packet` are NODE 1's blocks without the stream around them,
 //! and their tests hold the chain from the cut to the next sound.
@@ -419,10 +418,10 @@ const TARGET_FILL_HALF_QUANTA: usize = 3;
 ///
 /// Deliberately **below** a typical ALSA node (the internal analogue sink on the development
 /// machine advertises `1009`). The spec's §20 table suggests `1010`, which would let policy
-/// auto-select FxSound on a machine where the user has never picked a default — and its own open
+/// auto-select CrossFX on a machine where the user has never picked a default — and its own open
 /// question 2 then recommends `500` instead, "never wins implicitly". Given that `CLAUDE.md`
 /// treats silently changing the user's audio routing as the worst failure this subsystem can
-/// have, `500` is the right value: FxSound becomes the default only through the explicit,
+/// have, `500` is the right value: CrossFX becomes the default only through the explicit,
 /// reversible metadata write in [`claim_default`], never through WirePlumber's own ranking.
 const NODE_PRIORITY_SESSION: &str = "500";
 
@@ -467,7 +466,7 @@ pub(crate) const WAKE_MUTE: Duration = Duration::from_secs(2);
 /// between logind's two signals. logind gives a delay inhibitor five seconds by default
 /// (`InhibitDelayMaxSec`) before it suspends, and the signal that the system has woken follows
 /// the wake at once. So this only runs out when that second signal is lost on its way — a suspend
-/// that failed and a bus or an app that missed saying so — and then it is what keeps FxSound from
+/// that failed and a bus or an app that missed saying so — and then it is what keeps CrossFX from
 /// staying silent and its device rules from staying frozen until the next sleep.
 pub(crate) const SLEEP_LIMIT: Duration = Duration::from_secs(60);
 
@@ -650,8 +649,8 @@ impl Hold {
 /// back, it would count as a device just plugged in, and one ranked above the lane's device, or any
 /// device at all when nothing is ranked and nothing picked, takes the lane. A headset switching to
 /// its call profile would take the music from the speakers the user picked, in mono at 16 kHz, on
-/// every call. On Windows the endpoints stay through a profile switch, and upstream never sees an
-/// arrival. So a departed node is counted as seen until [`RETURN_WAIT`] is up
+/// every call. On Windows the endpoints stay through a profile switch, and the original never sees
+/// an arrival. So a departed node is counted as seen until [`RETURN_WAIT`] is up
 /// ([`Self::expected`]); one that stays away longer, and then comes, has arrived.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Departure {
@@ -844,7 +843,7 @@ impl SampleRing {
     /// [`Self::mark_stale`] would have had it skip had the pair been told it stopped. It is not
     /// always told (`woke_after_standing_still`), and when it is not, the first to run when the
     /// pair wakes may be this node rather than NODE 1: nothing in the graph orders the two, the
-    /// ring joining them is FxSound's own. So the consumer drops the cushion itself, in the cycle
+    /// ring joining them is CrossFX's own. So the consumer drops the cushion itself, in the cycle
     /// it wakes in, before it plays a sample of it.
     pub(crate) fn skip_all(&self) {
         let channels = self.channels.load(Ordering::Relaxed).max(1);
@@ -1485,10 +1484,10 @@ struct SecondNode {
     stream: pw::stream::StreamRc,
 }
 
-/// A recording stream of FxSound's own on the input lane's virtual source, made while the app
+/// A recording stream of CrossFX's own on the input lane's virtual source, made while the app
 /// holds the microphone awake ([`UiToAudio::KeepInputAwake`], module docs, "Idle").
 ///
-/// It stands in for an application recording from FxSound (Input), and is built to look like one
+/// It stands in for an application recording from CrossFX (Input), and is built to look like one
 /// to both halves of the graph. To the server: an ordinary, non-passive capture stream whose link
 /// to the source makes the source runnable, and with it the passive capture stream and the
 /// microphone. To WirePlumber: a `Stream/Input/Audio` with no `node.link-group`, not a monitor —
@@ -1782,7 +1781,7 @@ enum State {
 /// in that gap is built without them, and rebuilt a moment later on what they say.
 ///
 /// Worse, a claim on a default is told apart by whether the lane had a pair when the key was read
-/// ([`on_metadata_property`]). A key that names FxSound's node before this connection has built
+/// ([`on_metadata_property`]). A key that names CrossFX's node before this connection has built
 /// it is nobody's pick in this session; one read after may be the user's. A pair built first
 /// would turn the claim a lane that opted out while the connection was down still has to hand
 /// back into the user's own pick, and keep it for the session.
@@ -1806,7 +1805,7 @@ struct DefaultState {
     /// module ever writes.
     configured: Option<String>,
     /// True while the configured key names our node. Kept in step with the metadata events, so it
-    /// is also true when the user picked FxSound by hand in their sound settings.
+    /// is also true when the user picked CrossFX by hand in their sound settings.
     holding: bool,
     /// The configured key names our node, and no lane of ours stands behind that claim: it was
     /// read while the lane was detached, or while it had opted out of the default and had no node
@@ -1840,7 +1839,7 @@ struct DefaultState {
 /// switches the input lane on the first time it is listed, and nothing else ever will. So a claim
 /// on a default that no lane stands behind *yet* — a killed run's, found at the start — can be one
 /// the app is about to stand behind. Handed back before the app has seen the list, it moves every
-/// application recording from the default source onto the microphone, and back onto FxSound's
+/// application recording from the default source onto the microphone, and back onto CrossFX's
 /// source a moment later, when the lane the app attaches claims it again.
 ///
 /// Told apart by the channel itself rather than by a delay: the app reads its notifications once
@@ -1880,9 +1879,9 @@ impl ListDelivery {
 /// value in a different place, so no path through the supervisor can read one lane's error flag,
 /// backoff or status and act on the other's.
 struct Lane {
-    /// Whether the lane should have a pair of nodes. The output lane starts enabled — FxSound in
-    /// front of the speakers is the Windows behaviour — and the input lane only once a microphone
-    /// is picked. A disabled lane never builds nodes, whatever the registry says.
+    /// Whether the lane should have a pair of nodes. The output lane starts enabled — CrossFX in
+    /// front of the speakers is the original's behaviour — and the input lane only once a
+    /// microphone is picked. A disabled lane never builds nodes, whatever the registry says.
     enabled: bool,
     /// The lane's pair, while it has one. Dropped with the session ([`close_session`]).
     nodes: Option<Nodes>,
@@ -1910,7 +1909,7 @@ struct Lane {
     /// `true` unless a caller opted out with [`UiToAudio::SetAsDefault`] with `want: false`.
     want_default: bool,
     /// The connection went while the default of this lane's direction named its node, and the
-    /// lane had opted out of the default — so it named FxSound because the user picked it in
+    /// lane had opted out of the default — so it named CrossFX because the user picked it in
     /// their sound settings, not because this lane claimed it ([`disconnect`]). The reconnect
     /// finds that key before it has rebuilt the pair; this is what tells it the claim is the
     /// user's to keep rather than one to hand back ([`on_metadata_property`]).
@@ -2140,8 +2139,8 @@ struct Shared {
     /// failed because the object had already gone. Dropped once the server has removed them, on the
     /// next supervisor tick ([`AppProbe`] says why not before), and with the session.
     retired_probes: Vec<AppProbe>,
-    /// Every link of the graph and FxSound's own sink and source, to find a stream that follows a
-    /// default FxSound holds and was linked to nothing ([`rescue_stranded_streams`]). Belongs to
+    /// Every link of the graph and CrossFX's own sink and source, to find a stream that follows a
+    /// default CrossFX holds and was linked to nothing ([`rescue_stranded_streams`]). Belongs to
     /// the session, and is emptied with the application streams.
     stranded: Stranded,
     /// The session defaults, one per direction.
@@ -2642,7 +2641,7 @@ pub(crate) fn run(config: Config) {
     fades::restore_before_exit(&shared, mainloop.loop_());
     release_defaults_before_exit(&shared, &mainloop);
     close_session(&mut shared.borrow_mut());
-    log::info!("FxSound audio thread stopped");
+    log::info!("CrossFX audio thread stopped");
 }
 
 /// Hear an output lane's NODE 1 start and stop streaming the moment it does, rather than on the
@@ -2674,7 +2673,7 @@ fn attach_wake<'l>(
     attached
 }
 
-/// The exit hand-back, made to actually arrive: every session default FxSound holds, and every
+/// The exit hand-back, made to actually arrive: every session default CrossFX holds, and every
 /// application stream it moved onto a per-application route ([`route_pairs::move_everything_back`]).
 ///
 /// `Metadata::set_property` does not write to the socket. libpipewire queues the message and only
@@ -2696,7 +2695,7 @@ fn release_defaults_before_exit(
 ) {
     let pending = {
         let mut guard = shared.borrow_mut();
-        // The defaults, and every application stream FxSound moved onto a route: both are
+        // The defaults, and every application stream CrossFX moved onto a route: both are
         // metadata writes, and one `sync` behind them confirms both, before any node goes.
         let released = release_all_defaults(&mut guard);
         let moved_back = route_pairs::move_everything_back(&mut guard);
@@ -2836,13 +2835,13 @@ fn control(shared: &mut Shared, message: UiToAudio) {
             // (`hand_back_disowned_defaults`) — and the app has seen a device list, and so had
             // its chance to attach the lane after all (`ListDelivery`).
             //
-            // What this does not cover, stated plainly: FxSound killed and never started again.
+            // What this does not cover, stated plainly: CrossFX killed and never started again.
             // Nothing inside the process can repair that.
             for (direction, name) in [
                 (DeviceDirection::Output, output),
                 (DeviceDirection::Input, input),
             ] {
-                // One of our own nodes is never the default from before FxSound, whatever a
+                // One of our own nodes is never the default from before CrossFX, whatever a
                 // settings file says: 0.4.0's first cut could remember the echo canceller's
                 // source (`claim_default`), and a file written by it still names that node.
                 if name.is_empty() || is_ours(&name) {
@@ -2922,12 +2921,12 @@ fn canceller_side(lane: &Lane) -> Side<'_> {
 /// again, not to the microphone and not to a reloaded canceller's source, which is a new node under
 /// the old name.
 /// (Without those keys it would be worse: WirePlumber would link it to whatever else it found —
-/// past FxSound's own default source, which `canLink` refuses because the two share
+/// past CrossFX's own default source, which `canLink` refuses because the two share
 /// `crossfx-input`, to the best of the rest, which can be another microphone altogether.)
 ///
 /// The move is a repair of the pair, on the microphone it was already on, so it leaves the
 /// default source as it finds it (`Lane::last_target`): a canceller reloaded because the *speakers*
-/// changed must not take back a default source the user had moved away from FxSound.
+/// changed must not take back a default source the user had moved away from CrossFX.
 ///
 /// Moved after the unload rather than before it, and that is the same thing: the module closes
 /// a connection of its own as it goes, so its source's going reaches the server at once, while
@@ -3060,16 +3059,16 @@ fn repeats_what_the_lane_has(
 /// lane's rules run on it.
 ///
 /// A new ranking moves nothing by itself: the lane's device stays until a better-ranked one arrives
-/// or it goes, as dragging a row of upstream's priority list moves nothing
+/// or it goes, as dragging a row of the original's priority list moves nothing
 /// (`FxOutputPreference.cpp:238-262`). The rules are asked all the same, because an empty ranking
-/// is "follow the system" again, and the Windows rules may well choose otherwise — the session
+/// is "follow the system" again, and the original's rules may well choose otherwise — the session
 /// default, most often.
 ///
 /// The one exception is a ranking coming into force: the lane had none, and its device is not one
-/// the user picked. That device was the Windows rules' choice — the system's default, before the
+/// the user picked. That device was the original's rules' choice — the system's default, before the
 /// ranking reached the engine, or while the app followed the system — and the ranking's own choice
-/// replaces it on the next run ([`Preference::start_over`]), as upstream starts on its preferred
-/// device whenever the saved one is not there.
+/// replaces it on the next run ([`Preference::start_over`]), as the original starts on its
+/// preferred device whenever the saved one is not there.
 fn set_device_priority(
     shared: &mut Shared,
     direction: DeviceDirection,
@@ -3337,7 +3336,7 @@ fn keep_input_awake(shared: &mut Shared, awake: bool) {
             if awake {
                 "holding the microphone awake"
             } else {
-                "letting the microphone sleep while nothing records from FxSound (Input)"
+                "letting the microphone sleep while nothing records from CrossFX (Input)"
             }
         );
     }
@@ -3429,7 +3428,7 @@ fn connect(
             let ramps = ramps_volume(info.version());
             if !ramps {
                 log::info!(
-                    "PipeWire {} does not ramp a stream's volume: streams FxSound moves are moved \
+                    "PipeWire {} does not ramp a stream's volume: streams CrossFX moves are moved \
                      without a fade",
                     info.version()
                 );
@@ -3493,7 +3492,7 @@ fn connect(
             Ok((core, registry, listener)) => (Some(core), Some(registry), Some(listener)),
             Err(error) => {
                 log::warn!(
-                    "could not connect a second time to write FxSound's own volume, so desktops \
+                    "could not connect a second time to write CrossFX's own volume, so desktops \
                      will not see the volume a device starts at: {error}"
                 );
                 (None, None, None)
@@ -3503,7 +3502,7 @@ fn connect(
     let fade_line = fades::fade_line(shared, context, remote_for_fades, volume_ramps_for_fades)
         .inspect_err(|error| {
             log::warn!(
-                "could not connect a third time to fade the streams FxSound moves, so they are \
+                "could not connect a third time to fade the streams CrossFX moves, so they are \
                  moved without a fade: {error}"
             );
         })
@@ -3697,7 +3696,7 @@ fn disconnect(shared: &mut Shared, reason: &str) {
     //
     // Which lanes held theirs is kept, as the one thing the rebuild needs to know: a lane that
     // held the default claims it again with its first pair — the server may have lost the key
-    // with everything else — and a lane whose default the user had moved away from FxSound
+    // with everything else — and a lane whose default the user had moved away from CrossFX
     // rebuilds on the same device as a repair and leaves it where the user put it
     // (`Lane::last_target`). A lane detached or opted out before the reconnect hands back what
     // the reconnect finds instead ([`hand_back_disowned_defaults`]).
@@ -3710,7 +3709,7 @@ fn disconnect(shared: &mut Shared, reason: &str) {
         let lane = shared.lanes.get_mut(direction);
         // A claim still waiting for its streams to fall silent is one the lane made: the
         // reconnect makes it again ([`claim_default`]). A hand-back still waiting is the lane's
-        // word that the default is not to be FxSound's, not the user's pick of FxSound.
+        // word that the default is not to be CrossFX's, not the user's pick of CrossFX.
         if state.holding || state.claiming {
             lane.last_target = None;
         }
@@ -3793,8 +3792,8 @@ fn supervise(shared: &Rc<RefCell<Shared>>, context: &pw::context::ContextRc) {
         //     routes and back, the routes built, moved with their lane, and taken down.
         route_pairs::reconcile(&mut guard, now);
 
-        // 4c. A stream that follows a default FxSound holds and was moved onto nothing is moved
-        //     onto FxSound again.
+        // 4c. A stream that follows a default CrossFX holds and was moved onto nothing is moved
+        //     onto CrossFX again.
         rescue_stranded_streams(&mut guard, now);
 
         // 4d. The handover: its connection, if an application is holding it, and whatever its
@@ -4017,8 +4016,8 @@ fn on_global(
     match global.type_ {
         pw::types::ObjectType::Node => {
             // Every node of ours, by id and serial, and by name for which of them carry what
-            // FxSound plays: what an application's stream that names its target by number is
-            // found to name, and whether a recorder that does records FxSound
+            // CrossFX plays: what an application's stream that names its target by number is
+            // found to name, and whether a recorder that does records CrossFX
             // (`crate::app_streams`).
             let name = props.get(*pw::keys::NODE_NAME).unwrap_or_default();
             if is_crossfx_node(name) {
@@ -4176,7 +4175,7 @@ fn on_global(
             }
         }
         pw::types::ObjectType::Link => {
-            // Which node feeds which: how a stream that follows a default FxSound holds is found
+            // Which node feeds which: how a stream that follows a default CrossFX holds is found
             // linked to nothing ([`rescue_stranded_streams`]). Both are in the global.
             let node = |key: &str| props.get(key).and_then(|id| id.parse::<u32>().ok());
             if let (Some(output), Some(input)) = (node("link.output.node"), node("link.input.node"))
@@ -4868,7 +4867,7 @@ fn refresh_availability(shared: &mut Shared, which: impl Fn(&DeviceInfo) -> bool
 /// its state, as it is suspended and woken, which says nothing new about its format; and a profile
 /// switch on an ALSA card, which really does change the channel count under a running stream.
 /// 0.3.0 took only the first report, which made it immune to the first kind and deaf to the
-/// second: a card switched from stereo to 5.1 stayed stereo to FxSound until it was unplugged. So
+/// second: a card switched from stereo to 5.1 stayed stereo to CrossFX until it was unplugged. So
 /// each report is compared with what is known instead. The same format again is churn and changes
 /// nothing; a different one is the device's new truth.
 fn on_node_info(
@@ -4968,8 +4967,8 @@ fn on_metadata_property(shared: &Rc<RefCell<Shared>>, key: Option<&str>, value: 
         if key == devices::default_key(direction) {
             let current = value.and_then(devices::parse_default_node_name);
             if direction == DeviceDirection::Output {
-                // A recorder of the default sink's monitor records FxSound exactly while this is
-                // FxSound's sink (`crate::app_streams`).
+                // A recorder of the default sink's monitor records CrossFX exactly while this is
+                // CrossFX's sink (`crate::app_streams`).
                 guard.apps.default_sink_is(current.as_deref());
             }
             guard.defaults.get_mut(direction).current = current;
@@ -5025,7 +5024,7 @@ fn on_metadata_property(shared: &Rc<RefCell<Shared>>, key: Option<&str>, value: 
 // The session default
 // ---------------------------------------------------------------------------------------------
 
-/// Whether `node_name` is one of the nodes FxSound makes ([`is_crossfx_node`]): a lane's, the echo
+/// Whether `node_name` is one of the nodes CrossFX makes ([`is_crossfx_node`]): a lane's, the echo
 /// canceller's, a per-application route's. Never a default to remember, nor one to hand back to:
 /// a route's sink is an `Audio/Sink` too, and one WirePlumber fell back to must not be written to
 /// the settings file as the device the user had.
@@ -5034,9 +5033,9 @@ fn is_ours(node_name: &str) -> bool {
 }
 
 /// Become the session default for a lane's direction, politely: remember what was there first
-/// ([`remember_default_before_us`]), and write FxSound's node to the key ([`take_default`]) once
-/// every application stream the claim moves onto FxSound has faded to silence (`fades`) — each
-/// stream that follows the default, and so goes from the device to FxSound's node when the key
+/// ([`remember_default_before_us`]), and write CrossFX's node to the key ([`take_default`]) once
+/// every application stream the claim moves onto CrossFX has faded to silence (`fades`) — each
+/// stream that follows the default, and so goes from the device to CrossFX's node when the key
 /// names it. The streams get their volume back once they are linked there.
 ///
 /// The claim is made only if the lane still stands where it stood when it asked: a power switched
@@ -5080,19 +5079,19 @@ fn claim_default_then(shared: &mut Shared, direction: DeviceDirection, first: fa
     );
 }
 
-/// The application streams a claim of `direction`'s default moves onto FxSound, and fades first:
-/// every one that follows the default ([`fades::following`]) but one still linked to FxSound's own
+/// The application streams a claim of `direction`'s default moves onto CrossFX, and fades first:
+/// every one that follows the default ([`fades::following`]) but one still linked to CrossFX's own
 /// node, which the key naming that node again does not move.
 ///
 /// Such a stream is one WirePlumber has not moved yet after the desktop's pick. It moves the
-/// streams one by one, and with FxSound's hook in WirePlumber ([`crate::wireplumber_hook`]) each
+/// streams one by one, and with CrossFX's hook in WirePlumber ([`crate::wireplumber_hook`]) each
 /// that plays waits for its fade before the next is looked at: a claim after the desktop's pick,
-/// which FxSound makes within milliseconds, then comes while the second stream is still on
-/// FxSound's node. Faded there by the claim, the stream was silent when WirePlumber's move came, so
+/// which CrossFX makes within milliseconds, then comes while the second stream is still on
+/// CrossFX's node. Faded there by the claim, the stream was silent when WirePlumber's move came, so
 /// the hook left it alone, and WirePlumber moved it off and back on under the claim's fade, or
 /// the hook's fade met the claim's: measured, a recorder or a player clicked at −19 to −35 dBFS as
-/// FxSound took the default back, 5 claims of 144 in the click test. Left alone, it is faded by
-/// the hook if WirePlumber still moves it, and stays on FxSound's node if the claim comes first.
+/// CrossFX took the default back, 5 claims of 144 in the click test. Left alone, it is faded by
+/// the hook if WirePlumber still moves it, and stays on CrossFX's node if the claim comes first.
 fn claimed_streams(shared: &Shared, direction: DeviceDirection) -> Vec<u32> {
     fades::following(shared, direction)
         .into_iter()
@@ -5109,12 +5108,12 @@ fn claimed_streams(shared: &Shared, direction: DeviceDirection) -> Vec<u32> {
 fn remember_default_before_us(shared: &mut Shared, direction: DeviceDirection) {
     // Read and persist before writing (`docs/spec/12-audio-io.md` §21.1). The configured key is
     // the user's own choice and is preferred; the current key is what WirePlumber picked when
-    // nobody chose. A stale configured value that already names us — a previous FxSound that was
+    // nobody chose. A stale configured value that already names us — a previous CrossFX that was
     // killed rather than quit, which WirePlumber's state file preserves — is skipped, so the
     // memory never says "the default before us was us". `original_default` is only ever filled
     // once; `most_recent_default` follows the live value.
     //
-    // "Us" is every node FxSound makes, not only this lane's virtual device. The echo canceller's
+    // "Us" is every node CrossFX makes, not only this lane's virtual device. The echo canceller's
     // source is an `Audio/Source` with a session priority of its own, and WirePlumber falls back
     // to it as the current default source whenever the configured one has vanished and nothing
     // else is left — a microphone unplugged while the input lane held the default. Taken here, it
@@ -5143,7 +5142,7 @@ fn remember_default_before_us(shared: &mut Shared, direction: DeviceDirection) {
     }
 }
 
-/// Write FxSound's node of `direction` to the configured key: the claim itself, once
+/// Write CrossFX's node of `direction` to the configured key: the claim itself, once
 /// [`remember_default_before_us`] has noted what it displaces. Whether the key was written.
 fn take_default(shared: &mut Shared, direction: DeviceDirection) -> bool {
     if !write_configured_default(shared, direction, our_node_name(direction)) {
@@ -5152,10 +5151,10 @@ fn take_default(shared: &mut Shared, direction: DeviceDirection) -> bool {
     let state = shared.defaults.get_mut(direction);
     state.holding = true;
     state.handed_back = None;
-    // Every stream that follows this default is about to be moved onto FxSound, and may be
+    // Every stream that follows this default is about to be moved onto CrossFX, and may be
     // moved onto it again should the move leave it linked to nothing.
     shared.stranded.claimed();
-    log::info!("FxSound is now the default {}", noun(direction));
+    log::info!("CrossFX is now the default {}", noun(direction));
     true
 }
 
@@ -5179,21 +5178,21 @@ fn heard_own_write(unconfirmed: &mut VecDeque<String>, value: Option<&str>) -> b
 /// the user picked their system's default device.
 ///
 /// A lane that follows the system's default device — no ranking, *Follow the system's default
-/// device* on (upstream issue #629) — takes a real device picked there as the user's own pick,
-/// as though it had been picked in FxSound: the latest word on where the lane plays. The Windows
-/// rules put an explicit choice above the session default (`devices::choose_device`, rule 4), and
-/// the device the app announces from its settings at every start is one: before this, once a
-/// device had been picked in FxSound, a desktop pick moved the lane nowhere, and left the default
-/// on the device, so every application played past FxSound — found by the 0.4.0 live check. So
-/// the lane moves to the picked device, replacing its stream on the device (the whole pair only
-/// at another format; module docs, "Another device, the same virtual node"), and takes the default
-/// back ([`apply_rules`]), or takes it back at once when it already plays there
+/// device* on (the original's issue #629) — takes a real device picked there as the user's own
+/// pick, as though it had been picked in CrossFX: the latest word on where the lane plays. The
+/// original's rules put an explicit choice above the session default (`devices::choose_device`,
+/// rule 4), and the device the app announces from its settings at every start is one: before
+/// this, once a device had been picked in CrossFX, a desktop pick moved the lane nowhere, and left
+/// the default on the device, so every application played past CrossFX — found by the 0.4.0 live
+/// check. So the lane moves to the picked device, replacing its stream on the device (the whole
+/// pair only at another format; module docs, "Another device, the same virtual node"), and takes
+/// the default back ([`apply_rules`]), or takes it back at once when it already plays there
 /// ([`reclaim_followed_default`]); the power off, it moves and leaves the default where the user
-/// put it. A lane with a ranking leaves both where they are, as the Windows rules do, and so does
-/// a lane that is off.
+/// put it. A lane with a ranking leaves both where they are, as the original's rules do, and so
+/// does a lane that is off.
 ///
 /// Only a change is a pick: not the value read as the connection comes up, before the rules run
-/// ([`Barrier`]); not a node of FxSound's; and not what this engine wrote itself — a claim, or a
+/// ([`Barrier`]); not a node of CrossFX's; and not what this engine wrote itself — a claim, or a
 /// hand-back that may still be on its way when the power comes back on
 /// ([`heard_own_write`]).
 fn desktop_pick(shared: &mut Shared, direction: DeviceDirection) {
@@ -5213,7 +5212,7 @@ fn desktop_pick(shared: &mut Shared, direction: DeviceDirection) {
         );
         memory.user_selected.clone_from(&picked);
         // For the settings file: the next start begins on the device the desktop picked last,
-        // not on the one last picked in FxSound. Only a pick says so; a device that goes, and the
+        // not on the one last picked in CrossFX. Only a pick says so; a device that goes, and the
         // lane falling back to another, leaves the saved one as it is.
         shared.notify(AudioToUi::DesktopPick {
             direction,
@@ -5223,13 +5222,13 @@ fn desktop_pick(shared: &mut Shared, direction: DeviceDirection) {
     shared.mark_lane_for_rules(direction);
 }
 
-/// Move onto FxSound's node, for WirePlumber to link it again, every application stream that
-/// follows a default FxSound holds and has been linked to nothing for a while (`crate::stranded`,
+/// Move onto CrossFX's node, for WirePlumber to link it again, every application stream that
+/// follows a default CrossFX holds and has been linked to nothing for a while (`crate::stranded`,
 /// which says why WirePlumber leaves such a stream so, and how often it is moved); and, for
-/// [`crate::stranded::AFTER_HAND_BACK`] after FxSound handed a default back, every one that
+/// [`crate::stranded::AFTER_HAND_BACK`] after CrossFX handed a default back, every one that
 /// follows it onto the device it went to, which WirePlumber can leave so as well.
 ///
-/// A direction counts while FxSound holds its default and its lane's pair is up with its node in
+/// A direction counts while CrossFX holds its default and its lane's pair is up with its node in
 /// the graph, or for a while after the hand-back while the device the default is on is in the
 /// graph. A stream follows the default when its own properties say it does
 /// ([`AppStreams::followers`]) and the `default` metadata names no target for it: a stream on a
@@ -5278,9 +5277,9 @@ fn rescue_stranded_streams(shared: &mut Shared, now: Instant) {
             continue;
         };
         let onto = if shared.defaults.get(direction).holding {
-            "FxSound".to_owned()
+            "CrossFX".to_owned()
         } else {
-            format!("the {} FxSound handed the default back to", noun(direction))
+            format!("the {} CrossFX handed the default back to", noun(direction))
         };
         log::info!(
             "{}: linked to nothing since it was moved with the default {}, so moved onto {onto} \
@@ -5298,15 +5297,15 @@ fn rescue_stranded_streams(shared: &mut Shared, now: Instant) {
 /// Take the default back when the desktop has picked, as the system's default, the very device a
 /// lane that follows the system's default already plays to.
 ///
-/// With no ranking the lane follows the system's default device (upstream issue #629): picking
-/// another device in the desktop's sound settings moves the lane there, replaces its stream on the
-/// device (the whole pair only at another format; module docs, "Another device, the same virtual
-/// node") and takes the default again, so every application keeps playing through FxSound.
+/// With no ranking the lane follows the system's default device (the original's issue #629):
+/// picking another device in the desktop's sound settings moves the lane there, replaces its stream
+/// on the device (the whole pair only at another format; module docs, "Another device, the same
+/// virtual node") and takes the default again, so every application keeps playing through CrossFX.
 /// Picking the device the lane is already on moved nothing, so nothing took the default back
-/// either, and every application played straight to the device, past FxSound — found by the 0.4.0
-/// live check, where one of three picks in a row left FxSound out of the sound. A lane with a
-/// ranking leaves the default where the user put it, as the Windows rules do, and so does one that
-/// does not want the default (the power off).
+/// either, and every application played straight to the device, past CrossFX — found by the 0.4.0
+/// live check, where one of three picks in a row left CrossFX out of the sound. A lane with a
+/// ranking leaves the default where the user put it, as the original's rules do, and so does one
+/// that does not want the default (the power off).
 fn reclaim_followed_default(shared: &mut Shared, direction: DeviceDirection, target: &str) {
     let wants = shared.lanes.get(direction).want_default;
     let follows = shared.preference.get(direction).ranking.is_empty();
@@ -5318,13 +5317,13 @@ fn reclaim_followed_default(shared: &mut Shared, direction: DeviceDirection, tar
 }
 
 /// Hand one direction's default back, as [`release_default`] does, once every application stream
-/// the hand-back moves off FxSound has faded to silence (`fades`): each stream that follows the
-/// default, on FxSound's node until the key names the device. The streams get their volume back
+/// the hand-back moves off CrossFX has faded to silence (`fades`): each stream that follows the
+/// default, on CrossFX's node until the key names the device. The streams get their volume back
 /// once they are linked to the device. The power button's way of handing the default back (U12);
 /// the ways that take the lane's pair down at once, or leave the process, hand it back at once.
 ///
 /// Made only if the lane still does not want the default when the streams are silent: the power
-/// switched back on meanwhile keeps FxSound where it is, and the streams get their volume back at
+/// switched back on meanwhile keeps CrossFX where it is, and the streams get their volume back at
 /// once.
 fn release_default_smoothly(shared: &mut Shared, direction: DeviceDirection) {
     let state = shared.defaults.get(direction);
@@ -5428,7 +5427,7 @@ fn hand_back_disowned_defaults(shared: &mut Shared) {
             continue;
         }
         log::info!(
-            "the default {} names FxSound, and no lane is claiming it",
+            "the default {} names CrossFX, and no lane is claiming it",
             noun(direction)
         );
         release_default(shared, direction);
@@ -5455,7 +5454,7 @@ fn write_configured_default(
     let Some(metadata) = shared.session.as_ref().and_then(|s| s.metadata.as_ref()) else {
         log::warn!(
             "no `default` metadata object (a bare pipewire with no session manager?); \
-             the user will have to select FxSound in their sound settings"
+             the user will have to select CrossFX in their sound settings"
         );
         return false;
     };
@@ -5842,7 +5841,7 @@ fn apply_rules(shared: &mut Shared, direction: DeviceDirection) {
 /// has made no pair of it — one that waits, one whose pair failed: the user's pick, when it was
 /// still fresh and is what was chosen, stays fresh, so that the next run honours it too; and a
 /// ranking that had just come into force has not had its run until a pair stands on it, so that
-/// the next run chooses by rank again, not the device the Windows rules had.
+/// the next run chooses by rank again, not the device the original's rules had.
 fn give_back_the_choice(
     shared: &mut Shared,
     direction: DeviceDirection,
@@ -5890,8 +5889,8 @@ fn attached(
             },
             match (kept, direction) {
                 (false, _) => "",
-                (true, DeviceDirection::Output) => ", FxSound's sink kept",
-                (true, DeviceDirection::Input) => ", FxSound's source kept",
+                (true, DeviceDirection::Output) => ", CrossFX's sink kept",
+                (true, DeviceDirection::Input) => ", CrossFX's source kept",
             }
         );
     }
@@ -5904,7 +5903,7 @@ fn attached(
     // a format change, or the echo canceller coming or going under the capture stream, which the
     // *other* lane's device can cause — and leaves the default exactly as it found it. Still ours
     // if it was: the claim survives the gap under the same name. The user's if they had moved it
-    // away from FxSound meanwhile, which the lane's own rules respect (the `already` return in
+    // away from CrossFX meanwhile, which the lane's own rules respect (the `already` return in
     // [`apply_rules`]) and a repair must not undo. Only a pair attached to a device claims.
     let repair = lane.last_target.as_deref() == Some(target.name.as_str());
     lane.last_target = Some(target.name.clone());
@@ -5914,17 +5913,17 @@ fn attached(
 }
 
 /// Move the lane of `direction` to the device called `target`, keeping its virtual node, inside a
-/// claim on the default ([`claim_default_then`]): the applications the claim moves onto FxSound are
+/// claim on the default ([`claim_default_then`]): the applications the claim moves onto CrossFX are
 /// faded to silence first, and the lane's stream on the device is replaced as they are
 /// ([`switch_device`]), just before the key is written.
 ///
 /// This is the move after the desktop picked the device (module docs, "Another device, the same
 /// virtual node"): WirePlumber has moved every application that follows the default onto it
-/// already, and they play there unprocessed — or, with FxSound's hook in WirePlumber, is still
-/// moving them one fade at a time, and those still on FxSound's node are no part of the claim
-/// ([`claimed_streams`]). A stream of FxSound's linked to the same device in
+/// already, and they play there unprocessed — or, with CrossFX's hook in WirePlumber, is still
+/// moving them one fade at a time, and those still on CrossFX's node are no part of the claim
+/// ([`claimed_streams`]). A stream of CrossFX's linked to the same device in
 /// the middle of that joins their graph and changes its quantum, and a player or a recorder whose
-/// quantum changes under it can skip a few samples: FxSound's own claim clicked at −23 to −32
+/// quantum changes under it can skip a few samples: CrossFX's own claim clicked at −23 to −32
 /// dBFS in the click test so, 20 to 30 ms after it began, until the stream on the device was
 /// replaced only once the applications were silent.
 ///
@@ -5986,7 +5985,7 @@ fn claim_and_switch(
 /// How long a lane's chain, told to fall silent for a move to another device, takes to be heard
 /// silent on the old one: the mute's fade ([`lane_dsp::MUTE_FADE_SECONDS`]), and three times the
 /// ring's cushion — the block NODE 1 is in when it is told, the cushion itself, and what the
-/// device-facing stream and the device have buffered. 68 ms at the 512-frame quantum FxSound asks
+/// device-facing stream and the device have buffered. 68 ms at the 512-frame quantum CrossFX asks
 /// for, 212 ms at the 2048 a Bluetooth device can force.
 fn switch_tail(lane: &Lane) -> Duration {
     Duration::from_secs_f32(lane_dsp::MUTE_FADE_SECONDS) + 3 * cushion(lane)
@@ -6304,8 +6303,8 @@ fn hear_switched_lanes(shared: &mut Shared, now: Instant) {
 /// front of it converts — which is also how a mono microphone arrives here as the stereo pair the
 /// DSP runs on, and how the output lane's stereo pair reaches a mono headset: NODE 1 stays stereo
 /// ([`DeviceInfo::clamped_channels`]) and the playback stream, which leaves `stream.dont-remix`
-/// off, is down-mixed by its adapter. Nothing is refused for being mono: the Windows rules refused
-/// a mono sink only to dodge a bug in their own driver (`sndDevices.h:32-39`).
+/// off, is down-mixed by its adapter. Nothing is refused for being mono: the original's rules
+/// refused a mono sink only to dodge a bug in their own driver (`sndDevices.h:32-39`).
 ///
 /// `via` is the node the input lane's capture stream records from instead of the microphone — the
 /// echo canceller's source ([`aec::route`]) — or `None` to record the microphone itself. The pair's
@@ -6620,9 +6619,9 @@ fn build_second(
     })
 }
 
-/// The `node.latency` a pair at `rate` asks for: the quantum FxSound runs at, at that rate. Asked of
-/// both nodes and of anything made with the pair ([`KeepAwake`]), so nothing of FxSound's pulls the
-/// graph's quantum below what the pair was built for.
+/// The `node.latency` a pair at `rate` asks for: the quantum CrossFX runs at, at that rate. Asked
+/// of both nodes and of anything made with the pair ([`KeepAwake`]), so nothing of CrossFX's pulls
+/// the graph's quantum below what the pair was built for.
 fn pair_latency(rate: u32) -> String {
     format!(
         "{}/{rate}",
@@ -6650,12 +6649,12 @@ fn idle_plan(
     }
 }
 
-/// The properties of FxSound's virtual device — the sink of the output lane, the source of
+/// The properties of CrossFX's virtual device — the sink of the output lane, the source of
 /// the input lane (`docs/spec/12-audio-io.md` §20 NODE 1, §28.2 NODE 2).
 ///
 /// Property spellings are the verified ones from `docs/api/pipewire-0.10-rust.md` §14 — every key
 /// after the first dot is hyphenated, and `audio.position` has no Rust constant because it has no
-/// `PW_KEY_` either. The description is the localised `"FxSound (<Output|Input>)"`; the name is
+/// `PW_KEY_` either. The description is the localised `"CrossFX (<Output|Input>)"`; the name is
 /// the fixed ASCII one the metadata carries.
 ///
 /// Three keys are about the node's volume (`crate::volume`). `state.restore-props = false` keeps
@@ -6739,7 +6738,7 @@ fn stream_props(
         *pw::keys::MEDIA_TYPE          => "Audio",
         *pw::keys::MEDIA_CATEGORY      => category,
         // Production, not Music/Communication: a Music stream can be corked or ducked by role
-        // policies, and FxSound is the thing everything else is playing (or recording) through.
+        // policies, and CrossFX is the thing everything else is playing (or recording) through.
         *pw::keys::MEDIA_ROLE          => "Production",
         *pw::keys::MEDIA_NAME          => SINK_DESCRIPTION,
         *pw::keys::NODE_NAME           => name,
@@ -6775,10 +6774,10 @@ fn stream_props(
         // WirePlumber keeps one volume per application for its streams, not per device
         // (`node/state-stream.lua`: `formKey` is the media class and `application.id`), stores
         // every `Props` change of a stream under it and restores it onto every new stream with the
-        // same key. This stream's key is FxSound's own, and the capture stream shares it with the
-        // recorder a mixer lists as "FxSound microphone check" ([`keep_awake_props`]). A level or
+        // same key. This stream's key is CrossFX's own, and the capture stream shares it with the
+        // recorder a mixer lists as "CrossFX microphone check" ([`keep_awake_props`]). A level or
         // a mute set there would come back on every pair built after it, on every device, where
-        // nothing in FxSound can see it: a microphone lane muted for good by one click in the
+        // nothing in CrossFX can see it: a microphone lane muted for good by one click in the
         // Recording tab. The stream stays at what PipeWire makes it — unity, unmuted — and the
         // volume anyone means is the virtual node's (`crate::volume`).
         "state.restore-props"          => "false",
@@ -6789,7 +6788,7 @@ fn stream_props(
         // recorder's link makes that run (U19). That is true from PipeWire 0.3.68 on, and only
         // there does the caller ask for it. On an older server the two nodes are not linked in
         // the graph — the ring between them is invisible to it — and nothing would ever wake a
-        // passive stream but its device running for somebody else: FxSound would play, or
+        // passive stream but its device running for somebody else: CrossFX would play, or
         // record, nothing.
         *pw::keys::NODE_PASSIVE        => if passive { "true" } else { "false" },
         *pw::keys::NODE_LATENCY        => latency,
@@ -6867,11 +6866,11 @@ fn on_keep_awake_process(stream: &pw::stream::Stream, _: &mut ()) {
 /// [`ChannelMap::to_spa_position`] never yields a zero in slot 0.
 /// A `SPA_PARAM_ProcessLatency` pod carrying a fixed delay in frames.
 ///
-/// Without this, the only latency FxSound ever declares is the static `node.latency` property,
+/// Without this, the only latency CrossFX ever declares is the static `node.latency` property,
 /// which describes the buffering, not the processing — so a recording application is told the
 /// virtual microphone is instantaneous. Today the figure is small (the limiter's 0.75 ms
 /// look-ahead), but it is the quantity a voice chain grows: a 10 ms denoiser block plus a VAD
-/// grace ring would otherwise make FxSound lie to OBS and Discord by enough to show up as
+/// grace ring would otherwise make CrossFX lie to OBS and Discord by enough to show up as
 /// lip-sync drift the user cannot diagnose.
 fn process_latency_pod(frames: usize) -> Vec<u8> {
     use libspa::pod::{Object, Property, PropertyFlags, Value};
@@ -7175,14 +7174,14 @@ fn volume_on_port(
 }
 
 /// The lane's device changed its port under the pair — headphones plugged into a sink that was
-/// the speakers — and FxSound's volume follows, as it follows a new device, without the pair being
+/// the speakers — and CrossFX's volume follows, as it follows a new device, without the pair being
 /// rebuilt (`crate::volume`, "Per target").
 ///
 /// On a card that is not UCM — a plain HDA card, most desktops and many laptops — the speakers
 /// and the headphones are two ports of one node, and plugging headphones in only switches the
 /// node's active route: the rules find the same target and keep the pair. Keyed by the node's name
 /// alone, the volume stayed where the speakers had it, and the headphones got it at full scale
-/// times whatever level WirePlumber restored for their port — upstream's #615 once more. So the
+/// times whatever level WirePlumber restored for their port — the original's #615 once more. So the
 /// level the lane had is remembered for the port it leaves, the one it goes to is looked up as a
 /// new pair's would be — its own if it has one, never louder than before if not — written to the
 /// virtual node for every slider to show, and faded in from silence.
@@ -7460,7 +7459,7 @@ fn on_sink_param(_stream: &pw::stream::Stream, data: &mut SinkData, id: u32, par
 /// desktop writes: PipeWire 1.0's adapter hands them to the stream when it sets itself up, at
 /// unity and before [`publish_volume`] has written the level the pair starts at.
 /// Taken as a write, it put every new pair at unity and remembered unity for its device — a device
-/// change that turned FxSound all the way up, on Ubuntu 24.04 and every other 1.0 system.
+/// change that turned CrossFX all the way up, on Ubuntu 24.04 and every other 1.0 system.
 ///
 /// Main loop. Only the lane's atomics are written, never the DSP's own state: unlike a format
 /// change, a volume change arrives while the data thread is processing.
@@ -7563,8 +7562,8 @@ fn parse_audio_format(
 /// NODE 1 processes, as a new pair's first sound does (`crate::lane_dsp`, "After the chain").
 ///
 /// The next sound is not always one that starts from silence. An application whose stream is
-/// moved onto FxSound mid-sound — every stream that follows the default, when the power comes
-/// back on and FxSound takes the default again — used to arrive after the ring's priming at full
+/// moved onto CrossFX mid-sound — every stream that follows the default, when the power comes
+/// back on and CrossFX takes the default again — used to arrive after the ring's priming at full
 /// level between two samples: measured through the release build on a private PipeWire, a 100 Hz
 /// tone at −12 dBFS popped at −5 dBFS (high-passed at 2 kHz) on the speakers.
 fn first_node_went_idle(data: &SinkData) {
@@ -7582,7 +7581,7 @@ const STOOD_STILL: Duration = Duration::from_millis(250);
 /// [`first_node_went_idle`] after all, done on the data thread, before the block is pushed.
 ///
 /// A pair does not always hear that it stopped, and a stream does not always start from silence.
-/// When the power goes off, every stream that follows the default is moved off FxSound's sink;
+/// When the power goes off, every stream that follows the default is moved off CrossFX's sink;
 /// when it comes back on they are moved back, in the middle of whatever they play, and NODE 1
 /// first runs on the silence the sink mixes while nothing is linked to it, then on the stream. The
 /// first block with the stream in it was played at full level between two samples: measured in
@@ -7596,12 +7595,12 @@ fn woke_after_standing_still(gap: Duration, frames: usize, rate: u32) -> bool {
 }
 
 /// How long the end of a sound cut off between two blocks fades over, in the ring (module docs,
-/// "A sound cut off"): about the block and a half NODE 2 has not played yet at the quantum FxSound
-/// asks for, and half the 20 ms every gain FxSound moves itself glides over.
+/// "A sound cut off"): about the block and a half NODE 2 has not played yet at the quantum CrossFX
+/// asks for, and half the 20 ms every gain CrossFX moves itself glides over.
 const CUT_FADE: Duration = Duration::from_millis(10);
 
 /// How loud the end of a block has to be for the digital silence after it to be a sound cut off:
-/// −40 dBFS, the gate the click test holds FxSound's own switches to. A step from anything quieter
+/// −40 dBFS, the gate the click test holds CrossFX's own switches to. A step from anything quieter
 /// is a click under it. A sound that ends on its own ends below it, and so does a stream the
 /// smooth handover fades out — its last step, 8 samples of 20 ms, is 1/120 of full scale
 /// (`crate::stream_handover`).
@@ -7696,7 +7695,7 @@ fn holds_sound(bytes: &[u8]) -> bool {
         .any(|sample| u32::from_le_bytes(*sample) & 0x7fff_ffff != 0)
 }
 
-/// NODE 1's `process()`: everything an application rendered into FxSound — or everything the
+/// NODE 1's `process()`: everything an application rendered into CrossFX — or everything the
 /// microphone produced — DSP'd in place and pushed to the ring.
 ///
 /// Runs on PipeWire's data thread under `SCHED_FIFO`. Every rule in
@@ -7971,7 +7970,7 @@ fn publish(shared: &mut Shared) {
 /// events changed it since the last.
 ///
 /// Not while a session's first look at the graph is still coming in ([`Shared::ready`]). The
-/// streams that were there before FxSound connected are announced in one burst and their infos
+/// streams that were there before CrossFX connected are announced in one burst and their infos
 /// just after it, all before the barrier is passed — every bind the dump called for is answered
 /// ahead of its second `sync` — so the GUI hears of them in one list rather than in instalments.
 /// With no session at all, the list is empty, and says so once.
@@ -8061,7 +8060,7 @@ fn publish_attachment(shared: &mut Shared, direction: DeviceDirection) {
 /// in the language in effect.
 ///
 /// Nothing is wrong, so it is not an error, and nothing is refused: it may be exactly what the
-/// user wants for a call. But the moment anything records from FxSound (Input), WirePlumber
+/// user wants for a call. But the moment anything records from CrossFX (Input), WirePlumber
 /// switches the headset to its call profile, and the music lane's sink comes back as one channel
 /// at the call codec's rate — no stereo, and every EQ band above half of it dead
 /// (`docs/0.4.0-upstream.md` U9, the review's risk chain, step 7). Nobody would guess why.
@@ -8109,7 +8108,7 @@ fn warn_of_one_headset_on_both_lanes(shared: &mut Shared) {
     };
     log::info!(
         "{} and {} are one Bluetooth headset: its music drops to call quality while anything \
-         records from FxSound (Input)",
+         records from CrossFX (Input)",
         told.0,
         told.1
     );
@@ -8419,7 +8418,7 @@ mod tests {
             picked(true, DeviceDirection::Output, PICKED).0,
             "alsa_saved"
         );
-        // FxSound's own node is no pick of a device.
+        // CrossFX's own node is no pick of a device.
         assert_eq!(
             picked(false, DeviceDirection::Output, SINK_NODE_NAME).0,
             "alsa_saved"
@@ -9114,7 +9113,7 @@ mod tests {
             Some("false"),
             "a passive recorder would wake nothing"
         );
-        // Recording FxSound (Input) and nothing else, for good.
+        // Recording CrossFX (Input) and nothing else, for good.
         assert_eq!(props.get("target.object"), Some(SOURCE_NODE_NAME));
         assert_eq!(props.get("node.autoconnect"), Some("true"));
         for key in [
@@ -9138,7 +9137,7 @@ mod tests {
             Some(KEEP_AWAKE_STREAM_DESCRIPTION)
         );
         assert_eq!(props.get("media.name"), Some(KEEP_AWAKE_STREAM_DESCRIPTION));
-        assert_eq!(props.get("application.name"), Some("FxSound"));
+        assert_eq!(props.get("application.name"), Some("CrossFX"));
         assert_eq!(props.get("node.latency"), Some("512/48000"));
         assert!(
             is_ours(KEEP_AWAKE_NODE_NAME),
@@ -9201,7 +9200,7 @@ mod tests {
         assert_eq!(sink.get("priority.driver"), Some("0"));
         assert_eq!(sink.get("device.class"), Some("sound"));
         let description = sink.get("node.description").expect("a description");
-        assert!(description.starts_with("FxSound ("), "{description}");
+        assert!(description.starts_with("CrossFX ("), "{description}");
         assert_eq!(sink.get("node.nick"), Some(description));
 
         let source = virtual_node_props(
@@ -9318,7 +9317,7 @@ mod tests {
             assert_eq!(
                 props.get("state.restore-props"),
                 Some("false"),
-                "and WirePlumber's one volume for FxSound's streams is not restored onto it: a \
+                "and WirePlumber's one volume for CrossFX's streams is not restored onto it: a \
                  mute left on the capture stream would silence every microphone after it"
             );
         }
@@ -10330,7 +10329,7 @@ mod tests {
         let shared = shared_for_tests();
         assert!(
             shared.lanes.output.enabled,
-            "FxSound in front of the speakers is the Windows behaviour"
+            "CrossFX in front of the speakers is the original's behaviour"
         );
         assert!(
             !shared.lanes.input.enabled,
@@ -11198,7 +11197,7 @@ mod tests {
         );
     }
 
-    /// A route kept for a stream FxSound does not move after its preset's rule went
+    /// A route kept for a stream CrossFX does not move after its preset's rule went
     /// (`app_routes::Plan::kept`) runs the preset as it is when a rule names it again — its new
     /// parameters, not the ones it was left with.
     #[test]
@@ -11273,7 +11272,7 @@ mod tests {
     }
 
     /// The app's power off (`fxsound-app`'s `refresh_app_routes`): the rules as they were with the
-    /// power off in them, then none. A route kept for a stream FxSound does not move runs switched
+    /// power off in them, then none. A route kept for a stream CrossFX does not move runs switched
     /// off, as its lane does, until that stream leaves — never the preset's effects under a switch
     /// that says `Off` — and the power coming back on runs the preset on it again.
     #[test]
@@ -11823,7 +11822,7 @@ mod tests {
     }
 
     #[test]
-    fn fxsounds_sink_becoming_the_default_lists_the_recorders_of_the_default_monitor() {
+    fn crossfx_sink_becoming_the_default_lists_the_recorders_of_the_default_monitor() {
         let (shared, messages) = shared_with_messages();
         let shared = Rc::new(RefCell::new(shared));
         shared.borrow_mut().apps.stream_appeared(app_stream(
@@ -11835,7 +11834,7 @@ mod tests {
         publish(&mut shared.borrow_mut());
         assert!(
             app_reports(&drained(&messages)).is_empty(),
-            "it records the speakers' monitor, not FxSound"
+            "it records the speakers' monitor, not CrossFX"
         );
 
         on_metadata_property(
@@ -12703,7 +12702,7 @@ mod tests {
             assert!(!guard.defaults.input.holding);
         }
 
-        // The connection is back, and the key still names FxSound's source.
+        // The connection is back, and the key still names CrossFX's source.
         configured_key_names(&shared, DeviceDirection::Input, SOURCE_NODE_NAME);
         let mut guard = shared.borrow_mut();
         assert!(guard.defaults.input.disowned);
@@ -12923,7 +12922,7 @@ mod tests {
     }
 
     #[test]
-    fn a_key_the_user_moved_away_from_fxsound_is_nothing_to_hand_back() {
+    fn a_key_the_user_moved_away_from_crossfx_is_nothing_to_hand_back() {
         let shared = Rc::new(RefCell::new(shared_for_tests()));
         configured_key_names(&shared, DeviceDirection::Input, SOURCE_NODE_NAME);
         configured_key_names(&shared, DeviceDirection::Input, "alsa_input.usb-fifine");
@@ -12933,9 +12932,9 @@ mod tests {
     }
 
     #[test]
-    fn the_echo_cancellers_source_is_never_remembered_as_the_default_from_before_fxsound() {
+    fn the_echo_cancellers_source_is_never_remembered_as_the_default_from_before_crossfx() {
         // The microphone the input lane held the default source on was unplugged: the configured
-        // key still names FxSound's source, and WirePlumber, with nothing else left, fell back to
+        // key still names CrossFX's source, and WirePlumber, with nothing else left, fell back to
         // the echo canceller's. The microphone comes back and its pair claims the default again.
         let (mut shared, messages) = shared_with_messages();
         shared.defaults.input.configured = Some(SOURCE_NODE_NAME.to_owned());
@@ -12944,7 +12943,7 @@ mod tests {
         assert_eq!(
             shared.memory.input,
             SelectionMemory::default(),
-            "one of our own nodes was remembered as the default from before FxSound"
+            "one of our own nodes was remembered as the default from before CrossFX"
         );
         assert!(
             !drained(&messages)
@@ -13505,7 +13504,7 @@ mod tests {
         assert!(shared.preference.input.ranking.is_empty());
         assert!(
             shared.lanes.input.needs_rules,
-            "following the system again: the Windows rules may choose otherwise"
+            "following the system again: the original's rules may choose otherwise"
         );
     }
 
@@ -14472,7 +14471,7 @@ mod tests {
         );
         assert!(!shared.preference.output.start_over, "once");
 
-        // A reorder afterwards moves nothing, as upstream's list does not.
+        // A reorder afterwards moves nothing, as the original's list does not.
         rank_outputs(&mut shared, &[HDMI_MONITOR, USB_DAC], false);
         assert!(!shared.preference.output.start_over);
         assert_eq!(
@@ -14549,7 +14548,7 @@ mod tests {
             HEADPHONE_PORT,
             remembered(DeviceDirection::Output, ANALOG_STEREO, &[0.2, 0.2]),
         )];
-        // The quiet built-in speakers, turned all the way up on FxSound's slider.
+        // The quiet built-in speakers, turned all the way up on CrossFX's slider.
         let speakers = at(&[1.0, 1.0]);
 
         let volume = volume_on_port(
@@ -14838,7 +14837,7 @@ mod tests {
 
     /// The smooth handover fades a stream out in steps of eight samples over 20 ms at 48 kHz
     /// (`crate::stream_handover`): its last step is 1/120 of the sound, under [`CUT_LEVEL`] even
-    /// at full scale, so a stream FxSound faded out is never taken for one cut off.
+    /// at full scale, so a stream CrossFX faded out is never taken for one cut off.
     #[test]
     fn a_stream_the_handover_faded_out_does_not_end_loud() {
         let steps = u32::try_from(48_000 * crate::stream_handover::RAMP_MS / 1000)

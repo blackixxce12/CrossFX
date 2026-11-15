@@ -5,9 +5,9 @@
 //! `float`, so everything here is `f32` except the handful of places the original routes through
 //! `double` (the libm calls and the band-layout maths), which are `f64` for the same reason.
 //!
-//! The point of matching the original bit-for-bit is that FxSound's presets were authored by ear
-//! against *these* coefficients. A textbook RBJ peaking filter would be defensible engineering and
-//! would still sound wrong on a preset someone tuned in 2009.
+//! The point of matching the original bit-for-bit is that the original FxSound's presets were
+//! authored by ear against *these* coefficients. A textbook RBJ peaking filter would be defensible
+//! engineering and would still sound wrong on a preset someone tuned in 2009.
 
 use fxsound_core::DspCompat;
 
@@ -172,7 +172,7 @@ fn butterworth(fs: Real, f0: Real, shape: Shape) -> BiquadCoeffs {
     }
 }
 
-/// `filtCalcParametric` (`FiltCalcBiqd.cpp:109-222`), as FxSound for Linux designs it:
+/// `filtCalcParametric` (`FiltCalcBiqd.cpp:109-222`), as CrossFX designs it:
 /// [`calc_parametric_in`] with [`DspCompat::Linux`].
 #[must_use]
 pub fn calc_parametric(fs: Real, f0: Real, boost_db: Real, q: Real) -> BiquadCoeffs {
@@ -183,9 +183,9 @@ pub fn calc_parametric(fs: Real, f0: Real, boost_db: Real, q: Real) -> BiquadCoe
 ///
 /// `q` is taken by value because the original mutates only its local copy, so the equalizer's
 /// nominal Q survives the design-time limiters below. The two DSPs differ below 20 Hz only
-/// (audit report #12, see the body): at «Like FxSound for Windows» = Interface and sound
+/// (audit report #12, see the body): at «Like the original FxSound LLC» = Interface and sound
 /// ([`DspCompat::Windows`]) the Q cap goes on down the original's line there, negative under
-/// 17.9 Hz, and a band below 20 Hz is the flat gain the Windows build plays.
+/// 17.9 Hz, and a band below 20 Hz is the flat gain the original plays.
 #[must_use]
 pub fn calc_parametric_in(
     fs: Real,
@@ -421,7 +421,7 @@ mod tests {
 
     fn check(fs: Real, f0: Real, boost: Real, q: Real, expect: [Real; 4]) {
         // At 20 Hz and above the two DSPs design alike, so every vector holds both
-        // (A2 of «Like FxSound for Windows»: they pass at Interface and sound too).
+        // (A2 of «Like the original FxSound LLC»: they pass at Interface and sound too).
         assert_eq!(
             calc_parametric_in(fs, f0, boost, q, DspCompat::Windows),
             calc_parametric(fs, f0, boost, q),
@@ -640,7 +640,7 @@ mod tests {
         assert_eq!(wide, narrow);
     }
 
-    /// `filtCalcParametric` below 20 Hz, where the Windows build's Q cap goes negative (audit
+    /// `filtCalcParametric` below 20 Hz, where the original's Q cap goes negative (audit
     /// report #12): `(f0, boost, [b0, b1, b2, a2])` at 48 kHz and the 31-band Q, made as the
     /// vectors of `docs/spec/09-dsp-eq.md` §13 are — `FiltCalcBiqd.cpp` compiled as it is with
     /// `realtype = float` and glibc's libm on x86-64 (`scripts/windows-vectors/build.sh`).
@@ -730,12 +730,12 @@ mod tests {
 
     #[test]
     fn below_20hz_the_windows_dsp_designs_the_windows_builds_sections() {
-        // A2 of «Like FxSound for Windows»: at Interface and sound a band under 20 Hz is designed
-        // as the Windows build designs it, negative Q and all. Judged by the response rather than
-        // coefficient by coefficient: this close to DC, and with a Q near zero at 17.9 Hz, the
-        // design is ill-conditioned, and the port's warp, rounded in `f64` where the C rounds it
-        // to `float` first (as at every frequency and every level), moves a coefficient by up to
-        // 2e-3 and the response from 20 Hz up by under 0.02 dB.
+        // A2 of «Like the original FxSound LLC»: at Interface and sound a band under 20 Hz is
+        // designed as the original designs it, negative Q and all. Judged by the response rather
+        // than coefficient by coefficient: this close to DC, and with a Q near zero at 17.9 Hz, the
+        // design is ill-conditioned, and CrossFX's warp, rounded in `f64` where the C rounds it to
+        // `float` first (as at every frequency and every level), moves a coefficient by up to 2e-3
+        // and the response from 20 Hz up by under 0.02 dB.
         for (f0, boost, expect) in WINDOWS_BELOW_20_HZ {
             let c = calc_parametric_in(48_000.0, f0, boost, 4.333_365_4, DspCompat::Windows);
             assert!(c.on);
@@ -753,10 +753,10 @@ mod tests {
                 let want = 20.0 * magnitude(&windows, hz / 48_000.0).log10();
                 assert!(
                     (got - want).abs() < 0.02,
-                    "{f0} Hz at {boost} dB: {got} dB at {hz} Hz, the Windows build {want} dB"
+                    "{f0} Hz at {boost} dB: {got} dB at {hz} Hz, the original {want} dB"
                 );
             }
-            // FxSound for Linux holds the 20 Hz floor there instead (below).
+            // CrossFX holds the 20 Hz floor there instead (below).
             assert_ne!(
                 c,
                 calc_parametric(48_000.0, f0, boost, 4.333_365_4),
@@ -768,8 +768,8 @@ mod tests {
     #[test]
     fn a_windows_band_at_15hz_lifts_the_whole_spectrum_as_the_windows_build_does() {
         // Audit report #12, the Windows side: Q = -1.375 at 15 Hz is a negative bandwidth, and the
-        // "peak" is a flat +6 dB across the spectrum — what a Windows preset with such a band
-        // plays there, and so at Interface and sound.
+        // "peak" is a flat +6 dB across the spectrum — what a preset of the original's with such a
+        // band plays there, and so at Interface and sound.
         let c = calc_parametric_in(48_000.0, 15.0, 6.0, 4.333_365_4, DspCompat::Windows);
         for hz in [1_000.0, 10_000.0] {
             let db = 20.0 * magnitude(&c, hz / 48_000.0).log10();

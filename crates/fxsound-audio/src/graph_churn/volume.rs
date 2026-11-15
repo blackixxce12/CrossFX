@@ -1,4 +1,4 @@
-//! The volume of FxSound's own nodes, against a private PipeWire (`docs/0.4.0-upstream.md`,
+//! The volume of CrossFX's own nodes, against a private PipeWire (`docs/0.4.0-upstream.md`,
 //! U10 and U11).
 //!
 //! What a desktop's volume slider does to `crossfx_sink` is decided by PipeWire, not by this
@@ -553,7 +553,7 @@ fn reported(
 }
 
 #[test]
-fn a_volume_set_on_fxsounds_sink_is_reported_for_the_device_it_is_attached_to() {
+fn a_volume_set_on_crossfx_sink_is_reported_for_the_device_it_is_attached_to() {
     let Some(graph) = PrivateGraph::start("volreport") else {
         return;
     };
@@ -568,7 +568,7 @@ fn a_volume_set_on_fxsounds_sink_is_reported_for_the_device_it_is_attached_to() 
     assert_eq!(
         graph.node_prop(crate::OUTPUT_NODE_NAME, "state.restore-props"),
         Some(Some("false".to_owned())),
-        "nor its one volume for FxSound's streams onto the stream that plays to the device"
+        "nor its one volume for CrossFX's streams onto the stream that plays to the device"
     );
 
     graph
@@ -779,7 +779,7 @@ fn a_seed_that_arrives_after_the_pair_is_up_still_sets_where_its_device_is() {
 }
 
 #[test]
-fn the_microphone_lanes_volume_is_reported_from_fxsounds_source() {
+fn the_microphone_lanes_volume_is_reported_from_crossfx_source() {
     let Some(graph) = PrivateGraph::start("volsource") else {
         return;
     };

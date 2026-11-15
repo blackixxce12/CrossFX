@@ -12,8 +12,8 @@
 //! trash goes to that filesystem's own trash, as the specification lays it out and file managers
 //! list it: `$topdir/.Trash/$uid` where the administrator made a shared `$topdir/.Trash` (a real
 //! directory with the sticky bit), else `$topdir/.Trash-$uid`, made at once when it is missing,
-//! `$topdir` being where that filesystem is mounted ([`move_to_volume_trash`]). 0.4.0 knew only the
-//! home trash. A preset no trash can take — a volume whose top FxSound may not write to, a trash
+//! `$topdir` being where that filesystem is mounted (`move_to_volume_trash`). 0.4.0 knew only the
+//! home trash. A preset no trash can take — a volume whose top CrossFX may not write to, a trash
 //! directory that is a symbolic link or someone else's — is set aside where it was instead
 //! ([`set_aside`]), under `<file>.1.bak` or the next free number, which the preset list does not
 //! show and a person can rename back. The unnumbered `<file>.bak` is the overwrite's: each

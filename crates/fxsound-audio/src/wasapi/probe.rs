@@ -5,7 +5,7 @@
 //! Read only: endpoints are enumerated and their property stores read, a throw-away audio client
 //! per endpoint is asked for its mix format and released uninitialised, the virtual device's volume
 //! is read, the default-device policy is created and asked one endpoint's mix format — the check
-//! that its class and layout are the ones `super::com` declares — FxSound's record of the defaults
+//! that its class and layout are the ones `super::com` declares — CrossFX's record of the defaults
 //! it holds is read (`super::record`), and the process list is read. No stream is opened, no
 //! default written, nothing registered.
 
@@ -30,7 +30,7 @@ use crate::devices::{self, Preference, SelectionMemory};
 /// [`AudioError::WindowsAudioUnavailable`] when COM or the MMDevice API cannot be reached.
 pub fn probe() -> Result<String, AudioError> {
     std::thread::Builder::new()
-        .name("fxsound-probe".to_owned())
+        .name("crossfx-probe".to_owned())
         .spawn(report)
         .map_err(|error| AudioError::WindowsAudioUnavailable(error.to_string()))?
         .join()
@@ -59,15 +59,15 @@ fn report() -> Result<String, AudioError> {
         enumerator.defaults(DeviceDirection::Input),
     ];
     let mut out = String::new();
-    let _ = writeln!(out, "FxSound WASAPI probe (read only: nothing is changed)");
-    // As though both lanes were on: what each would stand on is FxSound's, every other endpoint a
+    let _ = writeln!(out, "CrossFX WASAPI probe (read only: nothing is changed)");
+    // As though both lanes were on: what each would stand on is CrossFX's, every other endpoint a
     // device — a cable no lane would use among them.
     let plan = endpoints::plan(&all, true, None, |_| false);
     let lanes: Vec<_> = [plan.output.as_ref(), plan.input.as_ref()]
         .into_iter()
         .flatten()
         .collect();
-    let fxsound_ids = endpoints::crossfx_endpoints(&all, &lanes);
+    let crossfx_ids = endpoints::crossfx_endpoints(&all, &lanes);
 
     for (direction, defaults) in DeviceDirection::ALL.into_iter().zip(&defaults) {
         let _ = writeln!(
@@ -82,7 +82,7 @@ fn report() -> Result<String, AudioError> {
             .iter()
             .filter(|endpoint| endpoint.direction == direction)
         {
-            describe(&mut out, &enumerator, endpoint, defaults, &fxsound_ids);
+            describe(&mut out, &enumerator, endpoint, defaults, &crossfx_ids);
         }
         let _ = writeln!(
             out,
@@ -167,7 +167,7 @@ fn report() -> Result<String, AudioError> {
     let infos: Vec<_> = all
         .iter()
         .enumerate()
-        .filter(|(_, endpoint)| endpoints::is_offered(endpoint, &fxsound_ids))
+        .filter(|(_, endpoint)| endpoints::is_offered(endpoint, &crossfx_ids))
         .map(|(index, endpoint)| endpoint.to_device_info(index as u32))
         .collect();
     for (direction, defaults) in DeviceDirection::ALL.into_iter().zip(&defaults) {
@@ -231,7 +231,7 @@ fn report() -> Result<String, AudioError> {
 
     let _ = writeln!(
         out,
-        "\nFxSound's record of the defaults it holds (a run killed leaves it):"
+        "\nCrossFX's record of the defaults it holds (a run killed leaves it):"
     );
     let record = super::record::Record::of_user().read();
     for ((direction, endpoint), defaults) in record.claimed.iter().zip(&defaults) {
@@ -352,7 +352,7 @@ fn describe(
         "      {}",
         match endpoint.virtual_kind() {
             Some(kind) if !endpoints::is_offered(endpoint, ours) => {
-                format!("virtual device ({kind:?}): FxSound's, never offered")
+                format!("virtual device ({kind:?}): CrossFX's, never offered")
             }
             Some(kind) => format!("virtual device ({kind:?}), no lane's: offered as a device"),
             None => format!(

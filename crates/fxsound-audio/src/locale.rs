@@ -349,7 +349,7 @@ mod language_coverage {
             "Entrada"
         );
         assert_eq!(direction_word(DeviceDirection::Output, Some("ua")), "Вивід");
-        // Bulgarian (upstream 1.2.16.0) in the words its own table uses for "Output: ".
+        // Bulgarian (the original's 1.2.16.0) in the words its own table uses for "Output: ".
         assert_eq!(
             node_description(DeviceDirection::Output, Some("bg")),
             "CrossFX (Изход)"

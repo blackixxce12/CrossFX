@@ -1,8 +1,8 @@
-// fxsound: this module is not upstream's. Upstream transformed through `easyfft`'s
+// crossfx: this module is not upstream's. Upstream transformed through `easyfft`'s
 // `real_fft_using` and `real_ifft_using`, which keep the planner, its plans and their scratch and
 // input-copy buffers in a cache private to the calling thread. The first frame analysed on a
 // thread therefore planned the 960-point transforms and allocated those buffers there, and in
-// FxSound that thread is PipeWire's real-time data thread: switching the denoiser on for the first
+// CrossFX that thread is PipeWire's real-time data thread: switching the denoiser on for the first
 // time in a session cost the next audio callback a planner, two plans, their twiddle tables and a
 // round of `malloc`, any of which can wait on a lock the GUI thread holds. It happened again on
 // every other data thread the stream later ran on, since the cache is per thread.

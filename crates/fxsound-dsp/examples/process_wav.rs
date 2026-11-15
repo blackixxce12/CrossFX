@@ -1,4 +1,4 @@
-//! Run a WAV file through the FxSound engine offline.
+//! Run a WAV file through CrossFX's DSP engine offline.
 //!
 //! This exists so the DSP can be listened to and measured without a sound server in the loop — it
 //! is the quickest way to tell whether a change to a filter actually did what you meant. It also
@@ -22,10 +22,10 @@
 //! `--filter-q` — the settings' rather than the preset's. So the blind comparisons of
 //! `scripts/voicing/` hear what the application plays, not the raw values of the file. The
 //! effect flags and `--no-eq` are set over the preset, whatever order they come in.
-//! `--compat windows` (or `--windows-dsp`) plays it as «Like FxSound for Windows» = Interface and
-//! sound does, through the Windows build's DSP ([`fxsound_core::DspCompat`]) and the Windows
-//! build's reading of it — a curve of another count by position, twenty bands on the Windows
-//! ladder, Ambience's slider on its straight line; `--compat linux`, the default, is Off's, and
+//! `--compat windows` (or `--windows-dsp`) plays it as «Like the original FxSound LLC» = Interface
+//! and sound does, through the original's DSP ([`fxsound_core::DspCompat`]) and the Windows build's
+//! reading of it — a curve of another count by position, twenty bands on the Windows ladder,
+//! Ambience's slider on its straight line; `--compat linux`, the default, is Off's, and
 //! `preset_drift.rs` takes the same choice (`PRESET_DRIFT_COMPAT`). A build that has one DSP only
 //! plays that.
 //!

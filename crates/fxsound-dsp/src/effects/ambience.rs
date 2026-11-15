@@ -8,11 +8,11 @@
 //!
 //! Two things about the shipped build decide how this reads:
 //!
-//! * **There is no modulation.** FxSound compiles with `PT_DSP_BUILD == PT_DSP_DFX`, so every
-//!   `#if (PT_DSP_BUILD == PT_DSP_DSPFX)` block is gone (`Lex32.c:399-460, 547-582`). The LFO
-//!   tables are still *built* at init and never read; the two decay diffusers use fixed **integer**
-//!   delays with no interpolation. This port implements what ships and does not allocate the
-//!   16 386 floats of cosine tables that the original leaves dead in its arena.
+//! * **There is no modulation.** The original FxSound compiles with `PT_DSP_BUILD == PT_DSP_DFX`,
+//!   so every `#if (PT_DSP_BUILD == PT_DSP_DSPFX)` block is gone (`Lex32.c:399-460, 547-582`). The
+//!   LFO tables are still *built* at init and never read; the two decay diffusers use fixed
+//!   **integer** delays with no interpolation. CrossFX implements what ships and does not allocate
+//!   the 16 386 floats of cosine tables that the original leaves dead in its arena.
 //! * **The tank is much shorter than a "reverb" suggests.** In the shipping MUSIC2 mode the decay
 //!   coefficient only ever reaches 0.206 (`docs/spec/10-dsp-effects.md` §7.4), so this is a short
 //!   ambience wash, not a hall. A loop gain near 1.0 means a mapping bug, not a lush preset.
@@ -21,7 +21,7 @@
 //! pointer walks forward by each segment's length in turn (`Lex32.c:330-342` and every block
 //! after), which makes each segment's write position advance by exactly one sample per frame and
 //! makes `next_out` — the value about to be overwritten — the *oldest* sample of the *next*
-//! segment. Per-line ring buffers give that for free, so this port uses thirteen rings carved out
+//! segment. Per-line ring buffers give that for free, so CrossFX uses thirteen rings carved out
 //! of one arena: same arithmetic, one allocation, and no pointer games to get wrong.
 
 use super::{Effect, MAX_SAMPLE_RATE, MIN_SAMPLE_RATE};
@@ -90,7 +90,7 @@ const LAT3_COEFF: Real = 0.625;
 /// to the input diffusers, which is what makes them *decay* diffusers.
 const LAT5_COEFF: Real = 0.70;
 /// The pre-delay tap, in samples (`Lex32.c:107`). Yes, one sample: the 100 ms line exists so the
-/// Lexicon plug-in could expose a pre-delay knob, and FxSound never does.
+/// Lexicon plug-in could expose a pre-delay knob, and the original FxSound never does.
 const PRE_DELAY: usize = 1;
 /// Final output scaling, `0.6 * 0.5` (`Lex32.c:667-668`).
 const OUTPUT_SCALE: Real = 0.6 * 0.5;
@@ -122,8 +122,8 @@ const DAMPING_MIDI: usize = 81;
 // The user-facing mapping (`dfxp_CommunicateAmbience`, `dfxpComm.cpp:571-679`).
 // ---------------------------------------------------------------------------------------------
 
-/// `DFXP_MUSIC_MODE2_AMBIENCE_FACTOR` (`dfxpDefs.h:129`). MUSIC2 is the only mode FxSound 13 ships
-/// (`DfxDspPreset.cpp:242`), and the public API has no way to leave it, so the warp is
+/// `DFXP_MUSIC_MODE2_AMBIENCE_FACTOR` (`dfxpDefs.h:129`). MUSIC2 is the only mode the original's
+/// DFX 13 ships (`DfxDspPreset.cpp:242`), and the public API has no way to leave it, so the warp is
 /// unconditional here rather than a mode switch that can only ever hold one value.
 const MUSIC2_AMBIENCE_FACTOR: Real = 0.34;
 /// `DFXP_MIN_EFFECTIVE_MIDI_AMBIENCE` (`dfxpComm.cpp:50`). At or below this *stored* value the
@@ -143,7 +143,7 @@ const MIN_EFFECTIVE_MIDI: i32 = 12;
 /// feeds it the warped value instead, so every stored value from 13 to 38 reaches it at 12 or
 /// less and it runs off the end of its range: wet −0.078 and dry 1.029 at slider position 1,
 /// −0.039 at 2, exactly zero at 3 — a reverb in opposite phase, then none, then the real one from
-/// position 4. Over those stored values this port carries the warp's own intent instead: wet rises
+/// position 4. Over those stored values CrossFX carries the warp's own intent instead: wet rises
 /// in a straight line from zero at the threshold to the value the warp gives at 39, and dry falls
 /// from unity to its value there, so the effect never inverts, never boosts the dry signal and
 /// grows with the slider. Stored 39 and above — every factory preset — are untouched.
@@ -403,17 +403,17 @@ impl Ambience {
         self.front_pair = pair;
     }
 
-    /// Map the amount as FxSound for Linux does, or as the Windows build does («Like FxSound for
-    /// Windows» = Interface and sound; audit report #39, whose reference is the Windows C code,
+    /// Map the amount as CrossFX does, or as the original does («Like the original FxSound
+    /// LLC» = Interface and sound; audit report #39, whose reference is the Windows C code,
     /// `dfxp_CommunicateAmbience`).
     ///
     /// The two differ in the wet/dry pair and nowhere else: the bypass test is on the stored
     /// value either way, as the original's is, and the decay and the diffusers' coefficient come
-    /// from the same quantiser. For the stored values 13 to 38 the Windows build lets the warp run
+    /// from the same quantiser. For the stored values 13 to 38 the original lets the warp run
     /// off the end of its range — wet −0.078 and dry 1.029 at 13, a tail in opposite phase, and
-    /// none at 38 — where FxSound for Linux ramps from the bypass to the warp's pair at 39
-    /// ([`FIRST_WARPED_ABOVE_THRESHOLD_MIDI`]). Above that the Windows arithmetic is taken as the
-    /// C writes it: its constants are `double` products, where this port's are `f32`, and at 23
+    /// none at 38 — where CrossFX ramps from the bypass to the warp's pair at 39
+    /// (`FIRST_WARPED_ABOVE_THRESHOLD_MIDI`). Above that the Windows arithmetic is taken as the
+    /// C writes it: its constants are `double` products, where CrossFX's are `f32`, and at 23
     /// stored values from 6 to 97 the two pairs are a unit in the last place apart.
     ///
     /// Switching glides the pair to its new value as a new amount does; the tank carries on.
@@ -757,7 +757,7 @@ fn warped_wet_dry(warped: i32) -> (Real, Real) {
     (wet, dry)
 }
 
-/// The wet/dry pair of the Windows build for a warped value, as `dfxpComm.cpp:619-632` computes
+/// The wet/dry pair of the original for a warped value, as `dfxpComm.cpp:619-632` computes
 /// it, the `double` constants included: the fixed pair above 40, and below it the warp for every
 /// warped value, off the end of its range too (the stage is bypassed at stored 12 and below, so
 /// that end is only reached from stored 13 to 38).
@@ -1162,7 +1162,7 @@ mod tests {
     #[test]
     fn only_a_slider_at_zero_bypasses_the_reverb() {
         // Changed on purpose: audit report #39. This test was
-        // `the_bottom_three_slider_positions_are_bypassed`, and held the port's own mistake: it
+        // `the_bottom_three_slider_positions_are_bypassed`, and held CrossFX's own mistake: it
         // tested the bypass on the warped value, where the original tests the stored one
         // (`dfxpComm.cpp:1662-1691`), so positions 1 to 3 — stored 13, 25, 38 — did nothing.
         let mut reverb = Ambience::new(48_000.0);
@@ -1825,12 +1825,12 @@ mod tests {
         assert!(!stage.is_active(), "the fade did not end after 20 ms");
     }
 
-    /// The Windows build's Ambience parameters for every stored value 0 to 127 — `(runs, decay,
+    /// The original's Ambience parameters for every stored value 0 to 127 — `(runs, decay,
     /// lat6 coefficient, wet, dry)` — made as `docs/spec/09-dsp-eq.md` §13's vectors are:
     /// `dfxp_CommunicateAmbience` and `dfxp_CommAmbienceBypass` (`dfxpComm.cpp:571-679`,
     /// `:1662-1691`) with the two quantisers they read (`Qntitor.cpp`, `dfxpQnt.cpp:144-184`),
     /// transcribed statement for statement with `realtype = float` and compiled as C with glibc's
-    /// libm on x86-64 (`scripts/windows-vectors/build.sh`). A2 of «Like FxSound for Windows».
+    /// libm on x86-64 (`scripts/windows-vectors/build.sh`). A2 of «Like the original FxSound LLC».
     #[allow(clippy::unreadable_literal, clippy::excessive_precision)]
     const WINDOWS_PARAMETERS: [(bool, Real, Real, Real, Real); 128] = [
         (
@@ -2755,7 +2755,7 @@ mod tests {
     }
 
     #[test]
-    fn fxsound_for_linux_differs_from_the_windows_build_below_39_and_by_rounding_above() {
+    fn crossfx_differs_from_the_original_below_39_and_by_rounding_above() {
         let mut linux = Ambience::new(48_000.0);
         let mut windows = Ambience::new(48_000.0);
         windows.set_compat(DspCompat::Windows);

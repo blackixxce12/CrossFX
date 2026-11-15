@@ -1,6 +1,6 @@
 //! Does the output lane render every shipped preset bit for bit as another build renders it?
 //!
-//! The acceptance test of «Like FxSound for Windows» (`docs/0.5.0-windows-parity.md`, roadmap
+//! The acceptance test of «Like the original FxSound LLC» (`docs/0.5.0-windows-parity.md`, roadmap
 //! 0.5.0 §1 A1 and A3): at "Interface and sound" the output lane must play as the engine before
 //! the 0.4.0 audit's fixes played, and at Off as 0.4.0 plays. Both are the same question about two
 //! builds — the working tree, and a checkout of the commit it is held to — so this file is both
@@ -84,7 +84,7 @@
 //! | variable | default | what it changes |
 //! | --- | --- | --- |
 //! | `FXSOUND_BITEXACT_REFERENCE` | — | the reference build's copy of this test (required) |
-//! | `FXSOUND_BITEXACT_COMPAT` | `linux` | `windows` plays the Windows build's DSP (Interface and sound) |
+//! | `FXSOUND_BITEXACT_COMPAT` | `linux` | `windows` plays the original's DSP (Interface and sound) |
 //! | `FXSOUND_BITEXACT_EXPECT` | `match` | `report` prints what differs and passes |
 //! | `FXSOUND_BITEXACT_LIMIT_DB` | `-120` | the largest difference a case may have, in dBFS |
 //! | `FXSOUND_BITEXACT_BANDS` | `10,20,31` | the band counts |
@@ -218,7 +218,7 @@ fn chosen_level_sets() -> Vec<(&'static str, MusicLevels)> {
     )
 }
 
-/// Whether the working tree plays the Windows build's DSP: `FXSOUND_BITEXACT_COMPAT`.
+/// Whether the working tree plays the original's DSP: `FXSOUND_BITEXACT_COMPAT`.
 fn windows_dsp() -> bool {
     match std::env::var(COMPAT_VAR).as_deref().map(str::trim) {
         Err(_) | Ok("" | "linux") => false,
@@ -252,7 +252,7 @@ struct Request {
     material: u32,
     /// `None` for the cold pass.
     switches: Option<Switches>,
-    /// The Windows build's DSP ([`windows_dsp`]).
+    /// The original's DSP ([`windows_dsp`]).
     windows: bool,
 }
 
@@ -678,7 +678,7 @@ fn compare(
 fn socket_path() -> PathBuf {
     // A socket's path has to fit 108 bytes, which a checkout's target directory need not.
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
-    dir.join(format!("fxsound-bitexact-{}.sock", std::process::id()))
+    dir.join(format!("crossfx-bitexact-{}.sock", std::process::id()))
 }
 
 /// Where the reference build connects, as [`SERVE_VAR`] tells it: the bound socket's path on

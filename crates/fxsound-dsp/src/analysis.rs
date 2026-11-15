@@ -375,7 +375,7 @@ impl LoudnessMeter {
             .max(1);
 
         // BS.1770-4 Table 3: front and centre count 1.0, the surrounds 1.41, LFE not at all. The
-        // layouts this port sees put LFE at index 3 when there is one, which is the assumption
+        // layouts CrossFX sees put LFE at index 3 when there is one, which is the assumption
         // `set_channel_weight` exists to override.
         let mut weights = [0.0f64; MAX_CHANNELS];
         for (i, weight) in weights.iter_mut().enumerate().take(channels) {

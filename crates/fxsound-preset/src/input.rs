@@ -1,6 +1,6 @@
 //! Voice presets, which are TOML and not `.fac`.
 //!
-//! The `.fac` format is a byte-for-byte contract with the Windows build: its line order, its
+//! The `.fac` format is a byte-for-byte contract with the original: its line order, its
 //! spelling and its rounding are all fixed, and it has nowhere to put a gate threshold because the
 //! chain it describes has no gate. Bending it to carry a voice preset would break the one property
 //! that makes a preset file worth having — that the same file means the same thing in both builds.

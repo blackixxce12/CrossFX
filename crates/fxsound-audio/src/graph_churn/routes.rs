@@ -7,7 +7,7 @@
 //! the stream (`linking/find-defined-target.lua`). No WirePlumber runs in a private graph, nothing
 //! links anything, and a `pw-cat` stays where it is, unlinked, whatever the metadata says. So these
 //! tests stop at the key: written with the right subject, value and type, on the right node's
-//! serial, and deleted when it should be — the whole of FxSound's side of the move.
+//! serial, and deleted when it should be — the whole of CrossFX's side of the move.
 
 use super::apps::App;
 use super::*;
@@ -409,7 +409,7 @@ fn a_running_player_with_a_rule_gets_a_route_pair_and_is_moved_onto_it_until_it_
             .all(|stream| stream.route.is_none()),
         "{listed:?}"
     );
-    // And the route is no device of FxSound's.
+    // And the route is no device of CrossFX's.
     said.settle(&handle);
     assert!(
         last_device_list(&said)
@@ -559,7 +559,7 @@ fn every_stream_is_moved_back_before_the_engine_exits() {
     }
 
     // `shutdown` returns once the thread is gone: the keys must be gone by then, not a moment
-    // later, and the applications — still playing — left with no target of FxSound's.
+    // later, and the applications — still playing — left with no target of CrossFX's.
     handle.shutdown();
     if let Some(targets) = unless_skipped(graph.stream_targets(), "pw-metadata", "the keys") {
         assert!(
@@ -573,10 +573,10 @@ fn every_stream_is_moved_back_before_the_engine_exits() {
     assert!(graph.node_id("t_game").is_some() && graph.node_id("t_browser").is_some());
 }
 
-/// Streams FxSound never moves, each with a rule: none is moved, and no route is built for them.
-/// And a screen recorder of FxSound's sink the user points at a route's monitor — which
+/// Streams CrossFX never moves, each with a rule: none is moved, and no route is built for them.
+/// And a screen recorder of CrossFX's sink the user points at a route's monitor — which
 /// `pipewire-pulse` writes as the route sink's serial — keeps that key, on every tick and on the
-/// way out: it records what the route plays, and is on no route of FxSound's.
+/// way out: it records what the route plays, and is on no route of CrossFX's.
 #[test]
 fn a_stream_that_may_not_move_is_left_alone_and_gets_no_route() {
     let Some(graph) = PrivateGraph::start("routepin") else {
@@ -624,7 +624,7 @@ fn a_stream_that_may_not_move_is_left_alone_and_gets_no_route() {
     ) else {
         return;
     };
-    // A screen recorder of FxSound's sink's monitor: it records what FxSound plays, and no
+    // A screen recorder of CrossFX's sink's monitor: it records what CrossFX plays, and no
     // microphone.
     let Some(_screen) = start(
         &graph,
@@ -678,8 +678,8 @@ fn a_stream_that_may_not_move_is_left_alone_and_gets_no_route() {
         assert_eq!(targets, vec![marker.clone()]);
     }
 
-    // The user points the screen recorder at `Monitor of FxSound (Output) · Movies`. Then
-    // WirePlumber restores the strict player onto o1 — a key FxSound deletes, which shows it has
+    // The user points the screen recorder at `Monitor of CrossFX (Output) · Movies`. Then
+    // WirePlumber restores the strict player onto o1 — a key CrossFX deletes, which shows it has
     // looked at the metadata since the recorder's key was written.
     let screen = moved(screen_id, movies);
     let Some(_) = unless_skipped(
@@ -712,7 +712,7 @@ fn a_stream_that_may_not_move_is_left_alone_and_gets_no_route() {
         want.sort();
         assert_eq!(targets, want, "several ticks later");
     }
-    // FxSound's own key goes on the way out; the recorder's stays the user's.
+    // CrossFX's own key goes on the way out; the recorder's stays the user's.
     handle.shutdown();
     if let Some(targets) = unless_skipped(graph.stream_targets(), "pw-metadata", "the keys") {
         assert_eq!(targets, vec![screen]);
@@ -990,8 +990,8 @@ fn a_restarted_connection_rebuilds_the_routes_and_takes_its_own_old_keys_over() 
         return;
     };
 
-    // The connection goes, and every node of FxSound's with it. The server keeps the game's key,
-    // naming a route node that no longer exists: FxSound's own, from before, and taken over.
+    // The connection goes, and every node of CrossFX's with it. The server keeps the game's key,
+    // naming a route node that no longer exists: CrossFX's own, from before, and taken over.
     let from = said.0.len();
     handle.send(UiToAudio::Restart);
     assert!(
@@ -1076,9 +1076,9 @@ fn a_stream_moved_by_hand_is_left_where_the_user_put_it() {
     );
     assert!(
         reported_with(&mut said, &handle, game_id, None).is_some(),
-        "the game is on no route of FxSound's any more"
+        "the game is on no route of CrossFX's any more"
     );
-    // Several ticks later FxSound has not moved it back onto its route.
+    // Several ticks later CrossFX has not moved it back onto its route.
     said.settle(&handle);
     if let Some(targets) = unless_skipped(graph.stream_targets(), "pw-metadata", "the key") {
         assert_eq!(targets, vec![by_hand.clone()]);
@@ -1228,7 +1228,7 @@ fn a_player_restored_onto_a_route_another_preset_now_runs_is_moved_onto_its_own(
 
 /// A game opens a second stream while its first plays — a new level, the next video — and
 /// WirePlumber restores it onto `crossfx_route_o1`, its own route, the moment it appears. The key
-/// is FxSound's: the stream is reported on Gaming, and keeps the route in use once the first
+/// is CrossFX's: the stream is reported on Gaming, and keeps the route in use once the first
 /// stream has gone, for as long as it plays.
 #[test]
 fn a_player_restored_onto_its_own_route_keeps_the_route_in_use() {
@@ -1301,7 +1301,7 @@ fn a_player_restored_onto_its_own_route_keeps_the_route_in_use() {
     handle.shutdown();
 }
 
-/// A tester no rule names asks for a route's node itself, in its own properties. FxSound leaves it
+/// A tester no rule names asks for a route's node itself, in its own properties. CrossFX leaves it
 /// there, and the route is in use while it plays: not idle once the game has gone, and not taken
 /// down when the game's rule goes — until the tester stops, when it goes at once.
 #[test]
@@ -1373,7 +1373,7 @@ fn a_route_an_application_names_as_its_own_target_is_kept_while_it_plays_through
 }
 
 /// A player WirePlumber will not move again once it is linked (`node.dont-reconnect`), restored
-/// onto a route by WirePlumber. FxSound deletes the key — it moves nothing, and left there it is
+/// onto a route by WirePlumber. CrossFX deletes the key — it moves nothing, and left there it is
 /// what WirePlumber would restore the player onto next time — but the player stays linked where
 /// the key put it, and the route is kept in use for as long as it plays.
 #[test]
@@ -1434,8 +1434,8 @@ fn a_stream_that_will_not_be_moved_again_keeps_the_route_it_was_restored_onto() 
     handle.shutdown();
 }
 
-/// Someone deletes the key FxSound wrote — `pw-metadata -d`, a tool that clears a stream's keys —
-/// and WirePlumber would move the game back to the default. FxSound neither goes on saying it is
+/// Someone deletes the key CrossFX wrote — `pw-metadata -d`, a tool that clears a stream's keys —
+/// and WirePlumber would move the game back to the default. CrossFX neither goes on saying it is
 /// on its route nor leaves it off: the key is written again.
 #[test]
 fn a_key_someone_else_deletes_is_written_again() {

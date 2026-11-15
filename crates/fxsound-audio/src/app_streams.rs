@@ -38,30 +38,30 @@
 //!
 //! A node whose `media.class` is exactly `Stream/Output/Audio` (a player: the output lane's) or
 //! `Stream/Input/Audio` (a recorder: the input lane's) — not an `…/Internal` stream of the session
-//! manager's, not a device, not video — and that is not FxSound's own ([`is_crossfx_node`]):
-//! FxSound's playback stream is a player like any other to the graph, and an Applications list
-//! that offered it a preset would offer to run FxSound through itself. Of the rest, two kinds are
+//! manager's, not a device, not video — and that is not CrossFX's own ([`is_crossfx_node`]):
+//! CrossFX's playback stream is a player like any other to the graph, and an Applications list
+//! that offered it a preset would offer to run CrossFX through itself. Of the rest, two kinds are
 //! set apart:
 //!
 //! - **A recorder of what a sink plays** (a screen recorder's desktop audio, a visualiser) records
 //!   no microphone. It is no input-lane application — moved onto a route behind the microphone,
-//!   it would record the microphone — so it is left out, unless what it records is FxSound. Then
-//!   it is listed, because it hears FxSound, and never moved ([`Pin::Monitor`]). A recorder is one
+//!   it would record the microphone — so it is left out, unless what it records is CrossFX. Then
+//!   it is listed, because it hears CrossFX, and never moved ([`Pin::Monitor`]). A recorder is one
 //!   of these two ways:
-//!   - it says `stream.capture.sink = true`, and records a sink's monitor. It records FxSound when
-//!     it names one of FxSound's nodes as its target, or names none while FxSound's sink is the
+//!   - it says `stream.capture.sink = true`, and records a sink's monitor. It records CrossFX when
+//!     it names one of CrossFX's nodes as its target, or names none while CrossFX's sink is the
 //!     default sink it follows.
-//!   - it names, as its own target, a node of FxSound's output lane that WirePlumber links it to
+//!   - it names, as its own target, a node of CrossFX's output lane that WirePlumber links it to
 //!     with no flag at all ([`ExplicitTarget::plays_crossfx_to`]): a sink — `crossfx_sink`, a
 //!     playback route's `crossfx_route_o<N>` — by its serial or id, whose monitor it then records,
 //!     or a playback stream — `crossfx_output`, `crossfx_route_o<N>_play` — whose output it
-//!     records. `pw-record --target <serial of crossfx_sink>` records FxSound.
+//!     records. `pw-record --target <serial of crossfx_sink>` records CrossFX.
 //! - **A stream that may not be moved** is listed like any other, and marked ([`Pin`]): one that
 //!   says `node.dont-move = true`, whose metadata target WirePlumber ignores anyway
 //!   (`linking/find-defined-target.lua`), and one whose own properties name a target that is not
-//!   FxSound. That application chose its device itself, and a route would undo the choice. And two
+//!   CrossFX. That application chose its device itself, and a route would undo the choice. And two
 //!   that a move would put at risk, because of what WirePlumber does with them once their route's
-//!   node goes — which it does whenever FxSound exits, a lane moves to another device, a route
+//!   node goes — which it does whenever CrossFX exits, a lane moves to another device, a route
 //!   fails, or a rule changes: one that says `node.dont-reconnect = true` (what `pipewire-pulse`
 //!   makes of `PA_STREAM_DONT_MOVE`), which WirePlumber never moves once it is linked and never
 //!   links again once its target has gone (`linking/prepare-link.lua`: "dont-reconnect, not
@@ -120,7 +120,7 @@ pub(crate) fn stream_direction(media_class: &str) -> Option<DeviceDirection> {
 
 /// A boolean property read the way WirePlumber reads one (`cutils.parseBool` in
 /// `lib/common-utils.lua`): `true` in any case, or `1`. Anything else, and no value at all, is
-/// `false` — so FxSound and the session manager never disagree about whether a stream may move.
+/// `false` — so CrossFX and the session manager never disagree about whether a stream may move.
 fn parse_bool(value: Option<&str>) -> bool {
     value.is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1")
 }
@@ -169,21 +169,21 @@ fn merged(own: &AppKey, client: Option<&AppKey>) -> AppKey {
     }
 }
 
-/// How one of FxSound's nodes carries what FxSound plays, to a recorder linked to it.
+/// How one of CrossFX's nodes carries what CrossFX plays, to a recorder linked to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Plays {
     /// A sink applications play into — `crossfx_sink`, or a playback route's `crossfx_route_o<N>`
     /// — whose monitor a recorder records.
     Sink,
-    /// A playback stream FxSound plays a chain's output with — `crossfx_output`, or a playback
+    /// A playback stream CrossFX plays a chain's output with — `crossfx_output`, or a playback
     /// route's `crossfx_route_o<N>_play` — whose output a recorder records.
     Player,
 }
 
-/// Whether the node called `node_name` carries what FxSound plays, and how ([`Plays`]): the output
+/// Whether the node called `node_name` carries what CrossFX plays, and how ([`Plays`]): the output
 /// lane's pair and every playback route's pair, and nothing else. The input lane's nodes and the
 /// recording routes' carry a microphone; the echo canceller's are its own business; anybody
-/// else's node is not FxSound's.
+/// else's node is not CrossFX's.
 ///
 /// A route's number is not checked. A node that starts the way a playback route's does is taken
 /// for one: were it not, a recorder that hears it would be offered to the microphone's routes.
@@ -230,7 +230,7 @@ impl ExplicitTarget {
             .or_else(|| value("node.target").map(Self::Node))
     }
 
-    /// The node of FxSound's own it names by number, if the registry lists one: `target.object`
+    /// The node of CrossFX's own it names by number, if the registry lists one: `target.object`
     /// by its `object.serial`, `node.target` by its registry id, the keys WirePlumber looks a
     /// number up by (`linking/find-defined-target.lua`). `-1` — "link me to nothing" — is no
     /// node's, and neither is a number no node of ours carries.
@@ -247,19 +247,19 @@ impl ExplicitTarget {
         }
     }
 
-    /// Whether it names one of FxSound's nodes: by name, or by number ([`Self::own_node`]).
+    /// Whether it names one of CrossFX's nodes: by name, or by number ([`Self::own_node`]).
     fn is_crossfx(&self, own: &[OwnNode]) -> bool {
         is_crossfx_node(self.value()) || self.own_node(own).is_some()
     }
 
-    /// Whether a recorder that names this target records what FxSound plays, as WirePlumber links
+    /// Whether a recorder that names this target records what CrossFX plays, as WirePlumber links
     /// it (`linking/find-defined-target.lua`, `lutils.canLink` in `lib/linking-utils.lua`), with
     /// `capture_sink` its `stream.capture.sink`:
     ///
     /// - by number, whenever the number is one of the output lane's nodes ([`plays`]), flag or no
     ///   flag. A number is looked up with no regard to direction, and `canLink` lets a recorder
     ///   link to a sink — to its monitor — as readily as to a player's output: `pw-record --target
-    ///   <serial of crossfx_sink>` records FxSound, and says nothing of a monitor.
+    ///   <serial of crossfx_sink>` records CrossFX, and says nothing of a monitor.
     /// - by name, only when the node is of the direction the recorder looks in
     ///   (`cutils.getTargetDirection`): a sink with the flag, a player without it. A name in the
     ///   other direction is not found, and the recorder follows its default instead — the default
@@ -309,7 +309,7 @@ pub(crate) struct StreamNode {
     pub(crate) dont_fallback: bool,
     /// `stream.capture.sink = true` on a recorder: it records a sink's monitor, not a microphone.
     /// WirePlumber reads the flag on recorders only (`cutils.getTargetDirection`), and so does this.
-    /// A recorder without it can record what FxSound plays all the same, by naming one of the
+    /// A recorder without it can record what CrossFX plays all the same, by naming one of the
     /// output lane's nodes as its target ([`ExplicitTarget::plays_crossfx_to`]);
     /// [`AppStreams::records_a_sink`] asks both.
     pub(crate) monitor: bool,
@@ -326,7 +326,7 @@ pub(crate) struct StreamNode {
 impl StreamNode {
     /// A stream from a node's registry global, or `None` when the node is not an application's
     /// audio stream: not a player's or a recorder's media class ([`stream_direction`]), or one of
-    /// FxSound's own nodes ([`is_crossfx_node`]).
+    /// CrossFX's own nodes ([`is_crossfx_node`]).
     #[must_use]
     pub(crate) fn from_props<'a>(id: u32, get: &impl Fn(&str) -> Option<&'a str>) -> Option<Self> {
         let direction = stream_direction(get("media.class")?)?;
@@ -389,13 +389,13 @@ pub(crate) enum Pin {
     DontReconnect,
     /// `node.dont-fallback = true`: WirePlumber destroys the stream when the target its metadata
     /// names is not there (`linking/find-defined-target.lua`) — and a route's node goes whenever
-    /// FxSound exits, a lane moves to another device, a route fails, or a rule changes.
+    /// CrossFX exits, a lane moves to another device, a route fails, or a rule changes.
     DontFallback,
     /// It records what a sink plays, not a microphone ([`AppStreams::records_a_sink`]) — what
-    /// FxSound plays, or it would not be listed. Behind the microphone it would record the
+    /// CrossFX plays, or it would not be listed. Behind the microphone it would record the
     /// microphone.
     Monitor,
-    /// Its own properties name a target that is not one of FxSound's nodes — `-1`, "link me to
+    /// Its own properties name a target that is not one of CrossFX's nodes — `-1`, "link me to
     /// nothing", included. The application chose where it goes.
     Target,
 }
@@ -421,7 +421,7 @@ pub(crate) enum Tracked {
     Stream,
     /// A client, whose probe goes with it.
     Client,
-    /// One of FxSound's own nodes, kept only to resolve targets by number; whatever else the
+    /// One of CrossFX's own nodes, kept only to resolve targets by number; whatever else the
     /// registry knows it as — the echo canceller's source — is still to be told.
     Own,
 }
@@ -434,14 +434,14 @@ struct Client {
     complete: bool,
 }
 
-/// One of FxSound's own nodes, as the registry lists it: what a stream naming its target by
+/// One of CrossFX's own nodes, as the registry lists it: what a stream naming its target by
 /// number is compared with, and what it then turns out to have named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct OwnNode {
     id: u32,
     serial: Option<u64>,
-    /// Whether it carries what FxSound plays, from its `node.name` ([`plays`]): a recorder that
-    /// names it by number records FxSound rather than a microphone.
+    /// Whether it carries what CrossFX plays, from its `node.name` ([`plays`]): a recorder that
+    /// names it by number records CrossFX rather than a microphone.
     plays: Option<Plays>,
 }
 
@@ -455,8 +455,8 @@ pub(crate) struct AppStreams {
     streams: Vec<StreamNode>,
     clients: HashMap<u32, Client>,
     own: Vec<OwnNode>,
-    /// FxSound's sink is the session's default sink (`default.audio.sink`), so a recorder of a
-    /// sink's monitor that names no target of its own records FxSound.
+    /// CrossFX's sink is the session's default sink (`default.audio.sink`), so a recorder of a
+    /// sink's monitor that names no target of its own records CrossFX.
     crossfx_default: bool,
     /// Something changed that the next report may differ by.
     changed: bool,
@@ -549,9 +549,9 @@ impl AppStreams {
         }
     }
 
-    /// One of FxSound's own nodes appeared, called `node_name`, with its `object.serial`: a player
-    /// that names it by number as its target is FxSound's to move, and so is a recorder — unless
-    /// it is a node of the output lane's, whose recorder records FxSound, not a microphone.
+    /// One of CrossFX's own nodes appeared, called `node_name`, with its `object.serial`: a player
+    /// that names it by number as its target is CrossFX's to move, and so is a recorder — unless
+    /// it is a node of the output lane's, whose recorder records CrossFX, not a microphone.
     pub(crate) fn own_node_appeared(&mut self, id: u32, serial: Option<u64>, node_name: &str) {
         self.remove(id);
         self.own.push(OwnNode {
@@ -603,11 +603,11 @@ impl AppStreams {
     }
 
     /// The session's default sink is now `node_name` (`default.audio.sink`, the one in effect).
-    /// Whether it is FxSound's decides what a recorder of the default sink's monitor records.
+    /// Whether it is CrossFX's decides what a recorder of the default sink's monitor records.
     pub(crate) fn default_sink_is(&mut self, node_name: Option<&str>) {
-        let fxsound = node_name.is_some_and(is_crossfx_node);
-        if fxsound != self.crossfx_default {
-            self.crossfx_default = fxsound;
+        let crossfx = node_name.is_some_and(is_crossfx_node);
+        if crossfx != self.crossfx_default {
+            self.crossfx_default = crossfx;
             self.changed = true;
         }
     }
@@ -729,7 +729,7 @@ impl AppStreams {
 
     /// Every application stream to tell the app about, outputs first, each direction by id:
     /// complete, with its client's info in, not a recorder of what a sink plays unless it records
-    /// FxSound ([`Self::records_a_sink`]), and with at least one identifier — a stream that says
+    /// CrossFX ([`Self::records_a_sink`]), and with at least one identifier — a stream that says
     /// nothing about who it is can be neither named in the list nor matched by a rule.
     #[must_use]
     pub(crate) fn report(&self) -> Vec<AppStream> {
@@ -771,13 +771,13 @@ impl AppStreams {
 
     /// Whether a stream is a recorder of what a sink plays rather than of a microphone (module
     /// docs, "What an application stream is"): it says `stream.capture.sink`, or it names as its
-    /// target a node of FxSound's output lane that WirePlumber links a recorder to without the
+    /// target a node of CrossFX's output lane that WirePlumber links a recorder to without the
     /// flag ([`ExplicitTarget::plays_crossfx_to`]). Never a player.
     fn records_a_sink(&self, stream: &StreamNode) -> bool {
         stream.monitor || self.plays_crossfx_to(stream)
     }
 
-    /// Whether a recorder names a target of FxSound's output lane that WirePlumber links it to
+    /// Whether a recorder names a target of CrossFX's output lane that WirePlumber links it to
     /// ([`ExplicitTarget::plays_crossfx_to`]).
     fn plays_crossfx_to(&self, stream: &StreamNode) -> bool {
         stream.direction == DeviceDirection::Input
@@ -787,10 +787,10 @@ impl AppStreams {
                 .is_some_and(|target| target.plays_crossfx_to(&self.own, stream.monitor))
     }
 
-    /// Whether a recorder of what a sink plays ([`Self::records_a_sink`]) records FxSound: it
+    /// Whether a recorder of what a sink plays ([`Self::records_a_sink`]) records CrossFX: it
     /// names a node of the output lane WirePlumber links it to, or — with `stream.capture.sink` —
-    /// it names one of FxSound's nodes as its target, or names none and follows the default sink
-    /// while that is FxSound's.
+    /// it names one of CrossFX's nodes as its target, or names none and follows the default sink
+    /// while that is CrossFX's.
     fn records_crossfx(&self, stream: &StreamNode) -> bool {
         self.plays_crossfx_to(stream)
             || stream
@@ -913,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn fxsounds_own_streams_are_never_application_streams() {
+    fn crossfx_own_streams_are_never_application_streams() {
         let mut names: Vec<&str> = OUR_NODE_NAMES.to_vec();
         names.extend([
             "crossfx_route_o1_play",
@@ -925,12 +925,12 @@ mod tests {
                 let pairs = [
                     ("media.class", class),
                     ("node.name", name),
-                    ("application.name", "FxSound"),
+                    ("application.name", "CrossFX"),
                 ];
                 assert_eq!(
                     StreamNode::from_props(9, &props(&pairs)),
                     None,
-                    "{name} as {class} is FxSound's own"
+                    "{name} as {class} is CrossFX's own"
                 );
             }
         }
@@ -938,7 +938,7 @@ mod tests {
         let pairs = [
             ("media.class", PLAYBACK_MEDIA_CLASS),
             ("node.name", "pw-cat"),
-            ("application.name", "FxSound"),
+            ("application.name", "CrossFX"),
         ];
         assert!(StreamNode::from_props(9, &props(&pairs)).is_some());
     }
@@ -1387,7 +1387,7 @@ mod tests {
 
     /// A PulseAudio client that opened its stream with `PA_STREAM_DONT_MOVE`: `pipewire-pulse`
     /// says so with `node.dont-reconnect`, not `node.dont-move`. WirePlumber would ignore a key
-    /// written for it, and FxSound would have said it moved it.
+    /// written for it, and CrossFX would have said it moved it.
     #[test]
     fn a_stream_that_says_dont_reconnect_is_listed_but_pinned() {
         let mut streams = AppStreams::default();
@@ -1483,12 +1483,12 @@ mod tests {
             listed[0].target,
             Some(ExplicitTarget::Object("crossfx_route_o1".to_owned()))
         );
-        assert_eq!(listed[0].pin, None, "a route of FxSound's is FxSound");
+        assert_eq!(listed[0].pin, None, "a route of CrossFX's is CrossFX");
         assert_eq!(listed[1].target, None);
     }
 
     #[test]
-    fn a_stream_is_pinned_by_a_target_of_its_own_that_is_not_fxsound() {
+    fn a_stream_is_pinned_by_a_target_of_its_own_that_is_not_crossfx() {
         let streams = AppStreams::default();
         for (key, value) in [
             ("target.object", "alsa_output.usb-headset"),
@@ -1511,16 +1511,16 @@ mod tests {
                 assert_eq!(
                     streams.pin(&stream),
                     Some(Pin::Target),
-                    "{key} = {value} is somewhere else than FxSound, for {class}"
+                    "{key} = {value} is somewhere else than CrossFX, for {class}"
                 );
             }
         }
     }
 
     #[test]
-    fn a_player_naming_fxsound_as_its_target_is_left_movable() {
+    fn a_player_naming_crossfx_as_its_target_is_left_movable() {
         let mut streams = AppStreams::default();
-        // FxSound's sink as the registry lists it: id 70, serial 700.
+        // CrossFX's sink as the registry lists it: id 70, serial 700.
         streams.own_node_appeared(70, Some(700), SINK_NODE_NAME);
         for (key, value) in [
             ("target.object", SINK_NODE_NAME),
@@ -1537,7 +1537,7 @@ mod tests {
                     (key, value),
                 ],
             );
-            assert_eq!(streams.pin(&stream), None, "{key} = {value} is FxSound");
+            assert_eq!(streams.pin(&stream), None, "{key} = {value} is CrossFX");
         }
         // The serial and the id are not interchangeable: `target.object` = 70 is a serial.
         let by_id_as_serial = stream(
@@ -1549,7 +1549,7 @@ mod tests {
         );
         assert_eq!(streams.pin(&by_id_as_serial), Some(Pin::Target));
 
-        // Once FxSound's node is gone, a number that named it names nothing of ours.
+        // Once CrossFX's node is gone, a number that named it names nothing of ours.
         streams.remove(70);
         let by_serial = stream(
             11,
@@ -1637,7 +1637,7 @@ mod tests {
     }
 
     #[test]
-    fn a_recorder_of_fxsounds_monitor_is_listed_and_pinned() {
+    fn a_recorder_of_crossfx_monitor_is_listed_and_pinned() {
         let mut streams = AppStreams::default();
         streams.own_node_appeared(70, Some(700), SINK_NODE_NAME);
         for (id, target) in [(16, SINK_NODE_NAME), (17, "700")] {
@@ -1662,7 +1662,7 @@ mod tests {
         );
     }
 
-    /// FxSound's output lane as the registry lists it — its pair, and a playback route's — and
+    /// CrossFX's output lane as the registry lists it — its pair, and a playback route's — and
     /// the input lane's source and a recording route's source beside them, each `(id, serial,
     /// node.name)`.
     const OWN: [(u32, u64, &str); 6] = [
@@ -1683,7 +1683,7 @@ mod tests {
     }
 
     #[test]
-    fn a_recorder_naming_fxsounds_sink_by_number_records_fxsound_without_the_flag() {
+    fn a_recorder_naming_crossfx_sink_by_number_records_crossfx_without_the_flag() {
         // `pw-record --target <serial of crossfx_sink>`: WirePlumber looks the number up with no
         // regard to direction, and links the recorder to the sink's monitor. No
         // `stream.capture.sink` is needed, and none is set.
@@ -1707,7 +1707,7 @@ mod tests {
             assert_eq!(
                 streams.pin(recorder),
                 Some(Pin::Monitor),
-                "{key} = {value} records what FxSound plays: never onto a microphone's route"
+                "{key} = {value} records what CrossFX plays: never onto a microphone's route"
             );
             assert!(
                 streams
@@ -1726,13 +1726,13 @@ mod tests {
                 (22, DeviceDirection::Input),
                 (23, DeviceDirection::Input),
             ],
-            "listed, because they hear FxSound"
+            "listed, because they hear CrossFX"
         );
     }
 
     #[test]
-    fn a_recorder_naming_fxsounds_playback_stream_records_fxsound_by_name_or_number() {
-        // A recorder looks for a node that plays when it has no flag, and FxSound's playback
+    fn a_recorder_naming_crossfx_playback_stream_records_crossfx_by_name_or_number() {
+        // A recorder looks for a node that plays when it has no flag, and CrossFX's playback
         // streams play: WirePlumber finds them by name as well as by number, and links the
         // recorder to what they play.
         let streams = with_own_nodes();
@@ -1754,10 +1754,10 @@ mod tests {
             assert_eq!(
                 streams.pin(&recorder),
                 Some(Pin::Monitor),
-                "a recorder with {key} = {value} records FxSound"
+                "a recorder with {key} = {value} records CrossFX"
             );
             // A player naming the same node hears nothing of it: two players do not link, and a
-            // player that names FxSound is FxSound's to move.
+            // player that names CrossFX is CrossFX's to move.
             let player = stream(
                 25,
                 &[
@@ -1774,7 +1774,7 @@ mod tests {
     fn a_name_is_found_only_in_the_direction_the_recorder_looks() {
         let streams = with_own_nodes();
         // Without the flag a recorder looks for something that plays, so a sink named by name is
-        // not found, and it records the default source: a microphone, FxSound's to move.
+        // not found, and it records the default source: a microphone, CrossFX's to move.
         for (key, value) in [
             ("target.object", SINK_NODE_NAME),
             ("node.target", "crossfx_route_o2"),
@@ -1803,7 +1803,7 @@ mod tests {
 
     #[test]
     fn a_recorder_naming_the_input_lanes_nodes_records_a_microphone_and_may_be_moved() {
-        // FxSound's source and a recording route's carry the microphone, by name or by number:
+        // CrossFX's source and a recording route's carry the microphone, by name or by number:
         // a recorder of them is an input-lane application like any other.
         let mut streams = with_own_nodes();
         for (id, key, value) in [
@@ -1827,7 +1827,7 @@ mod tests {
     }
 
     #[test]
-    fn a_number_names_fxsound_only_while_fxsounds_node_is_in_the_registry() {
+    fn a_number_names_crossfx_only_while_crossfx_node_is_in_the_registry() {
         let mut streams = with_own_nodes();
         streams.stream_appeared(stream(
             34,
@@ -1840,20 +1840,20 @@ mod tests {
         let pin = |streams: &AppStreams| streams.pin(streams.stream(34).expect("tracked"));
         assert_eq!(pin(&streams), Some(Pin::Monitor));
 
-        // FxSound's sink goes. The number names nothing now, and the recorder, which asked for a
+        // CrossFX's sink goes. The number names nothing now, and the recorder, which asked for a
         // place of its own, stays where WirePlumber puts it.
         assert_eq!(streams.remove(70), Some(Tracked::Own));
         assert_eq!(pin(&streams), Some(Pin::Target));
         assert_eq!(listed(&streams).len(), 1);
 
-        // FxSound's sink comes back as a new node. The server never hands a serial on, so the old
-        // number still names nothing of FxSound's.
+        // CrossFX's sink comes back as a new node. The server never hands a serial on, so the old
+        // number still names nothing of CrossFX's.
         streams.own_node_appeared(76, Some(760), SINK_NODE_NAME);
         assert_eq!(pin(&streams), Some(Pin::Target));
     }
 
     #[test]
-    fn the_output_lanes_nodes_and_no_others_carry_what_fxsound_plays() {
+    fn the_output_lanes_nodes_and_no_others_carry_what_crossfx_plays() {
         for (name, meant) in [
             (SINK_NODE_NAME, Some(Plays::Sink)),
             (OUTPUT_NODE_NAME, Some(Plays::Player)),
@@ -1878,7 +1878,7 @@ mod tests {
     }
 
     #[test]
-    fn a_recorder_of_the_default_sinks_monitor_is_listed_exactly_while_fxsound_is_the_default() {
+    fn a_recorder_of_the_default_sinks_monitor_is_listed_exactly_while_crossfx_is_the_default() {
         let mut streams = AppStreams::default();
         streams.stream_appeared(stream(
             18,
@@ -1888,10 +1888,10 @@ mod tests {
                 ("stream.capture.sink", "true"),
             ],
         ));
-        assert_eq!(streams.news(), None, "it records the speakers, not FxSound");
+        assert_eq!(streams.news(), None, "it records the speakers, not CrossFX");
 
         streams.default_sink_is(Some(SINK_NODE_NAME));
-        let news = streams.news().expect("now it records FxSound");
+        let news = streams.news().expect("now it records CrossFX");
         assert_eq!(news.len(), 1);
         assert_eq!(news[0].direction, DeviceDirection::Input);
 
@@ -1905,8 +1905,8 @@ mod tests {
     }
 
     #[test]
-    fn fxsounds_own_streams_are_left_out_with_the_media_class_each_really_has() {
-        // Every stream FxSound makes, or has the canceller make, with its real class and the
+    fn crossfx_own_streams_are_left_out_with_the_media_class_each_really_has() {
+        // Every stream CrossFX makes, or has the canceller make, with its real class and the
         // application properties a process of ours carries: a player's or a recorder's stream to
         // the graph, and never an application's to the list.
         for (name, class) in [
@@ -1921,8 +1921,8 @@ mod tests {
             let pairs = [
                 ("media.class", class),
                 ("node.name", name),
-                ("application.name", "fxsound"),
-                ("application.process.binary", "fxsound"),
+                ("application.name", "crossfx"),
+                ("application.process.binary", "crossfx"),
             ];
             assert_eq!(StreamNode::from_props(1, &props(&pairs)), None, "{name}");
         }

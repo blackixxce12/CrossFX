@@ -339,7 +339,7 @@ fn an_output_pair_runs_at_the_rate_the_graph_is_forced_to_and_follows_its_releas
             )
             .map(drop)
     };
-    // Forced before FxSound connects, as a session running a pro-audio application would be.
+    // Forced before CrossFX connects, as a session running a pro-audio application would be.
     if unless_skipped(force(&graph, "44100"), "pw-metadata", "a forced graph rate").is_none() {
         return;
     }
@@ -803,7 +803,7 @@ fn configured_of(shared: &Shared, direction: DeviceDirection) -> Option<&str> {
 
 impl Harness {
     /// Attach the input lane to `t_mic`, as picking it does, and wait until the server says the
-    /// default source is FxSound's.
+    /// default source is CrossFX's.
     fn attach_the_microphone(&self) {
         {
             let mut shared = self.shared.borrow_mut();
@@ -858,7 +858,7 @@ impl Harness {
 /// speakers' monitor — and the input lane's capture stream is moved off its source onto the
 /// microphone, then back onto the new canceller's source a tick or two later. Both moves rebuild
 /// the input lane's pair on the microphone it was already on. Neither is the input lane attaching
-/// to anything, and neither may take back a default source the user had moved away from FxSound —
+/// to anything, and neither may take back a default source the user had moved away from CrossFX —
 /// which is what they did in 0.4.0's first cut, from a click on the *speakers*.
 #[test]
 fn a_capture_stream_the_echo_canceller_moves_leaves_the_users_default_source_alone() {
@@ -950,7 +950,7 @@ fn a_capture_stream_the_echo_canceller_moves_leaves_the_users_default_source_alo
 }
 
 /// A pair that fails is rebuilt on the same device after its backoff, and that rebuild is a repair
-/// of the pair, not a claim on the default: a default the user moved away from FxSound while the
+/// of the pair, not a claim on the default: a default the user moved away from CrossFX while the
 /// pair was up stays where they put it.
 #[test]
 fn a_pair_rebuilt_on_its_own_device_after_a_failure_leaves_the_users_default_alone() {
@@ -996,7 +996,7 @@ fn a_pair_rebuilt_on_its_own_device_after_a_failure_leaves_the_users_default_alo
 
 /// A lane detached while the connection is down cannot hand its default back then — the
 /// connection is gone, and with it what was known about the defaults — and the key still names
-/// FxSound's source when the connection returns. The reconnect's supervisor hands it back to the
+/// CrossFX's source when the connection returns. The reconnect's supervisor hands it back to the
 /// microphone, once the device list has gone to the GUI, rather than adopting a claim no lane
 /// stands behind for the rest of the session.
 #[test]
@@ -1149,7 +1149,7 @@ fn an_opt_out_sent_while_the_connection_was_down_survives_a_tick_before_the_defa
     assert!(!shared.defaults.input.holding);
 }
 
-/// An attached lane that has opted out of the default, and a user who made FxSound's source the
+/// An attached lane that has opted out of the default, and a user who made CrossFX's source the
 /// default in their sound settings all the same. The connection goes and comes back. The reconnect
 /// reads the key before the pair is rebuilt, when there is no node of ours for anyone to have
 /// picked — and it is still the user's pick, and stays theirs however many ticks go by.
@@ -1178,7 +1178,7 @@ fn a_default_the_user_gave_an_opted_out_lane_by_hand_survives_a_reconnect() {
         "opting out never handed the default source back"
     );
 
-    // In their sound settings, the user picks FxSound's source anyway.
+    // In their sound settings, the user picks CrossFX's source anyway.
     let written = harness.meanwhile(|graph| {
         graph.write_default(
             devices::configured_default_key(DeviceDirection::Input),

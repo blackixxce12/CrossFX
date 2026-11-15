@@ -388,7 +388,7 @@ impl Stream {
         let thread_plan = plan.clone();
         let thread_shared = Arc::clone(&shared);
         let spawned = std::thread::Builder::new()
-            .name(format!("fxsound-{}", plan.direction.key()))
+            .name(format!("crossfx-{}", plan.direction.key()))
             .spawn(move || {
                 let _done = done_tx;
                 run(&thread_plan, &dsp_rx, &thread_shared, &ready_tx, &events)
@@ -489,7 +489,7 @@ fn finish(
     };
     if !ended {
         log::error!(
-            "an FxSound audio thread is stuck in WASAPI; leaving it to end on its own, the lane's \
+            "a CrossFX audio thread is stuck in WASAPI; leaving it to end on its own, the lane's \
              DSP with it until it does"
         );
         let mut ended = Ended::with(None, Outcome::Failed(AudioError::DeviceUnavailable));
@@ -505,7 +505,7 @@ fn finish(
 /// What a thread that has ended handed back.
 fn joined(join: JoinHandle<Ended>) -> Ended {
     join.join().unwrap_or_else(|_| {
-        log::error!("an FxSound audio thread panicked");
+        log::error!("a CrossFX audio thread panicked");
         Ended::with(None, Outcome::Failed(AudioError::DeviceUnavailable))
     })
 }

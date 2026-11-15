@@ -1,4 +1,4 @@
-// fxsound: this module is not in the registry crate. It is the library's own transform pair —
+// crossfx: this module is not in the registry crate. It is the library's own transform pair —
 // the high-pass filter, the Vorbis window, the 960-point real FFT and the overlap-add — with
 // nothing between analysis and synthesis but a set of band gains handed in from outside. A
 // linked-stereo denoiser runs one network on a downmix and applies its gains to each channel

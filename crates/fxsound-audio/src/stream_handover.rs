@@ -6,9 +6,9 @@
 //! WirePlumber moves a stream by unlinking it from one node and linking it to the next
 //! (`linking/prepare-link.lua`, `linking/link-target.lua`), in the middle of a wave, with nothing
 //! to smooth the cut: measured on PipeWire 1.6.9 and WirePlumber 0.5.17, every stream that follows
-//! the default clicked at −18.8…−31.1 dBFS when FxSound's power went off or on and the default
-//! moved with it. FxSound's own nodes fade what comes into them in (`lane_dsp`), so only the side a
-//! stream leaves is heard, and FxSound cannot reach it — it is the application's audio, on the
+//! the default clicked at −18.8…−31.1 dBFS when CrossFX's power went off or on and the default
+//! moved with it. CrossFX's own nodes fade what comes into them in (`lane_dsp`), so only the side a
+//! stream leaves is heard, and CrossFX cannot reach it — it is the application's audio, on the
 //! application's node.
 //!
 //! What can reach it is the ramp PipeWire itself puts on a stream's master volume. The audio
@@ -79,14 +79,14 @@
 //!
 //! # The journal
 //!
-//! A stream left at 0 is not only silent until FxSound puts its volume back. WirePlumber keeps a
+//! A stream left at 0 is not only silent until CrossFX puts its volume back. WirePlumber keeps a
 //! stream's master volume in its state (`node/state-stream.lua`, `store_stream_props_hook`) and
 //! gives it back to the application's next stream (`restore_stream_hook`): a `pipewire-pulse`
 //! client left at 0 for 2.5 s was saved at `"volume":0.0` and, started again, played silence while
 //! `pactl` showed 100 % — nothing a user could see or undo. So before a stream is faded its volume
-//! goes into `$XDG_STATE_HOME/fxsound/handover.toml` under the key WirePlumber stores it under
+//! goes into `$XDG_STATE_HOME/crossfx/handover.toml` under the key WirePlumber stores it under
 //! ([`state_key`]), and it comes out again once the volume is back. A line still there when the
-//! engine meets a stream of that application again — after FxSound was killed in the middle of a
+//! engine meets a stream of that application again — after CrossFX was killed in the middle of a
 //! handover, or the application closed during one — is put back if the stream is at 0
 //! ([`Journal::repair`]). The line is dropped once the application plays at a volume of its own and
 //! none of its streams can still be the one left at 0: every stream the engine has bound is known,
@@ -120,7 +120,7 @@ pub(crate) const RAMP_MS: i32 = 20;
 /// between plays at the new volume, and the ramp then starts from the old one: before a fade in,
 /// a whole quantum at full level, then silence, then the ramp. Measured so in the click test: a
 /// PulseAudio recorder given its volume back after the power switch played 512 frames at −17.7
-/// dBFS, now and then. Without FxSound, on a private graph, a `parec` stream faded out and in over
+/// dBFS, now and then. Without CrossFX, on a private graph, a `parec` stream faded out and in over
 /// 50 ms with `pw-cli`: at one sample a step — 2400 steps to build — 21 writes in 2400 did it; at
 /// 8 samples 1 in 1600, at 4 and at 16 none in 800. Fewer steps make it rarer and do not end it:
 /// the race is PipeWire's. Eight samples make a fade 120 steps and a fade in 300, each moving the
@@ -136,7 +136,7 @@ pub(crate) const RAMP_DONE: Duration = Duration::from_millis(30);
 /// stream comes back to may be a chain that has heard nothing for a while. A stream moved onto an
 /// application's own route — a chain that has never heard it — came back at −40.6 to −43.8 dBFS
 /// over 20 ms, the levelling and the limiter taking its onset at full level, and at −47 over 50
-/// ms; FxSound's own sink, at the power button, the same or better. At −20 dB within the first
+/// ms; CrossFX's own sink, at the power button, the same or better. At −20 dB within the first
 /// 5 ms of it, it lengthens the gap in the sound by next to nothing.
 pub(crate) const RAMP_IN_MS: i32 = 50;
 
@@ -186,7 +186,7 @@ pub(crate) const ECHO_WAIT: Duration = Duration::from_millis(300);
 /// WirePlumber compares volumes to four decimals (`numbersEqualRounded` in `state-stream.lua`).
 const SAME: f32 = 1e-4;
 
-/// The journal's file name, under `$XDG_STATE_HOME/fxsound`.
+/// The journal's file name, under `$XDG_STATE_HOME/crossfx`.
 pub(crate) const JOURNAL_FILE: &str = "handover.toml";
 
 /// The most lines the journal keeps. Each is an application met at 0 after a handover it never
@@ -225,7 +225,7 @@ pub(crate) struct Watched {
     /// Whether the stream's audio converter ramps a volume, as its client's libpipewire says;
     /// `None` when that is not known, and the server's word is taken ([`Handover::set_ramps`]).
     pub(crate) converter_ramps: Option<bool>,
-    /// FxSound's hook in WirePlumber holds the stream silent for a move of WirePlumber's own
+    /// CrossFX's hook in WirePlumber holds the stream silent for a move of WirePlumber's own
     /// (`crate::wireplumber_hook`, [`crate::wireplumber_hook::HELD_KEY`]): the volume it reports
     /// may be a point of the hook's fade, and is not the stream's to note, fade or give back.
     pub(crate) hook_held: bool,
@@ -233,8 +233,8 @@ pub(crate) struct Watched {
 
 impl Watched {
     /// Whether a handover fades this stream: it plays, it has a volume to ramp and may have it
-    /// changed, it is not silent already, and FxSound's hook in WirePlumber is not holding it
-    /// silent — as a stream silent already, the hook's is moved without a fade of FxSound's, and
+    /// changed, it is not silent already, and CrossFX's hook in WirePlumber is not holding it
+    /// silent — as a stream silent already, the hook's is moved without a fade of CrossFX's, and
     /// the hook gives it its volume back.
     #[must_use]
     pub(crate) fn fades(&self) -> bool {
@@ -798,7 +798,7 @@ impl Journal {
             }
             Err(error) => {
                 log::warn!(
-                    "{} is not a journal FxSound can read: {error}",
+                    "{} is not a journal CrossFX can read: {error}",
                     path.display()
                 );
                 Self::default()

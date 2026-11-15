@@ -1,7 +1,7 @@
-//! FxSound's hook in WirePlumber (roadmap 0.5.0 §7, D5; `crate::wireplumber_hook`) on a private
+//! CrossFX's hook in WirePlumber (roadmap 0.5.0 §7, D5; `crate::wireplumber_hook`) on a private
 //! graph's WirePlumber, installed as Settings ▸ Experimental installs it: that WirePlumber loads it
 //! and it fades a stream WirePlumber moves; that one which cannot load leaves WirePlumber running;
-//! and that it and FxSound's own handover never leave a stream at 0 between them. What the moves
+//! and that it and CrossFX's own handover never leave a stream at 0 between them. What the moves
 //! sound like with it is [`clicks`](super::clicks)'.
 
 use super::policy::PolicyGraph;
@@ -22,7 +22,7 @@ fn following_player(graph: &PolicyGraph) -> Option<apps::App> {
         .find(|tool| !installed(tool))
     {
         skip(&format!(
-            "{missing} is not installed, so FxSound's hook in WirePlumber was not checked"
+            "{missing} is not installed, so CrossFX's hook in WirePlumber was not checked"
         ));
         return None;
     }
@@ -183,7 +183,7 @@ fn desktop_picks(graph: &PolicyGraph, sink: &str) {
 /// Installed where the graph's WirePlumber reads it, the hook is loaded, fades a playing stream
 /// WirePlumber moves to another sink and back, and gives it its volume back each time.
 #[test]
-fn wireplumber_loads_fxsounds_hook_and_it_gives_a_stream_it_faded_its_volume_back() {
+fn wireplumber_loads_crossfx_hook_and_it_gives_a_stream_it_faded_its_volume_back() {
     let Some(mut graph) = PolicyGraph::start_with_the_hook("wphook") else {
         return;
     };
@@ -235,8 +235,8 @@ fn a_stream_the_hook_faded_comes_back_to_its_own_volume() {
 /// (`node/state-stream.lua`), and a 0 kept there would play every later stream of the application
 /// silent while the desktop's mixer, which shows the channel volumes only, says 100 %. The
 /// longest hold, and so the one a player is likeliest to be closed in — stopped, or a browser's
-/// tab closed: a move off one of FxSound's nodes, after which the hook waits a quarter of a second
-/// for FxSound to take the default back. A sink named as FxSound's stands in for it here, and
+/// tab closed: a move off one of CrossFX's nodes, after which the hook waits a quarter of a second
+/// for CrossFX to take the default back. A sink named as CrossFX's stands in for it here, and
 /// nothing takes the default back. A PulseAudio application, as most of a desktop's are: `pw-cat`
 /// sets its own volume once it plays, over what WirePlumber gave it, and would hide what
 /// WirePlumber kept.
@@ -270,7 +270,7 @@ fn a_player_closed_while_the_hook_holds_it_silent_starts_again_at_its_own_volume
                 ),
             )
             .is_some(),
-        "the stand-in for FxSound's sink was not made"
+        "the stand-in for CrossFX's sink was not made"
     );
     desktop_picks(&graph, STAND_IN);
     let player = graph.pulse_player(PLAYER, None).expect("pacat should play");
@@ -290,7 +290,7 @@ fn a_player_closed_while_the_hook_holds_it_silent_starts_again_at_its_own_volume
         std::thread::sleep(Duration::from_millis(2));
     }
     let faded = Instant::now();
-    // The hook says it holds the player: FxSound's handover leaves it alone meanwhile.
+    // The hook says it holds the player: CrossFX's handover leaves it alone meanwhile.
     assert_eq!(
         hook_holds_any(&graph),
         Some(true),
@@ -457,12 +457,12 @@ fn a_hook_that_cannot_load_leaves_wireplumber_running_and_linking() {
     }
 }
 
-/// FxSound's own handover and the hook, on the same stream: the power off and on, which FxSound
+/// CrossFX's own handover and the hook, on the same stream: the power off and on, which CrossFX
 /// fades itself and the hook then finds silent and leaves alone; and the desktop's pick, which the
-/// hook fades and after which FxSound takes the default back. However the two meet, the stream
+/// hook fades and after which CrossFX takes the default back. However the two meet, the stream
 /// ends at its volume and the journal empty.
 #[test]
-fn fxsounds_handover_and_the_hook_never_leave_a_stream_at_zero_between_them() {
+fn crossfx_handover_and_the_hook_never_leave_a_stream_at_zero_between_them() {
     let Some(graph) = PolicyGraph::start_with_the_hook("wpboth") else {
         return;
     };
@@ -478,7 +478,7 @@ fn fxsounds_handover_and_the_hook_never_leave_a_stream_at_zero_between_them() {
     assert_eq!(
         graph.default_settles_on(DeviceDirection::Output, SINK_NODE_NAME),
         Some(Ok(())),
-        "FxSound never became the default sink"
+        "CrossFX never became the default sink"
     );
     assert!(links(&graph, "t_player", SINK_NODE_NAME));
     assert!(volume_settles_on(&graph, "t_player", 1.0));
@@ -507,7 +507,7 @@ fn fxsounds_handover_and_the_hook_never_leave_a_stream_at_zero_between_them() {
         assert_eq!(
             graph.default_settles_on(DeviceDirection::Output, SINK_NODE_NAME),
             Some(Ok(())),
-            "FxSound did not take the default back after the desktop's pick of {sink}"
+            "CrossFX did not take the default back after the desktop's pick of {sink}"
         );
         assert!(links(&graph, "t_player", SINK_NODE_NAME));
         assert!(volume_settles_on(&graph, "t_player", 1.0), "pick {sink}");

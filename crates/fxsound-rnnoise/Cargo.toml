@@ -5,7 +5,7 @@ edition = "2024"
 rust-version.workspace = true
 # BSD-3-Clause, not the workspace's AGPL: this is Joe Neeman's `nnnoiseless` 0.5.2 (itself a port
 # of Xiph's RNNoise), vendored with its `COPYING` and `AUTHORS`. See README.md for what was
-# changed and why; every change is marked `// fxsound:` in the source.
+# changed and why; every change is marked `// crossfx:` in the source.
 license = "BSD-3-Clause"
 repository.workspace = true
 description = "RNNoise as a pure-Rust port (vendored nnnoiseless 0.5.2), with an in-place reset and a split analysis/synthesis path"

@@ -1,8 +1,8 @@
 #![deny(missing_docs)]
-// fxsound: the vendored source is kept as close to upstream as it can be, so that a future
+// crossfx: the vendored source is kept as close to upstream as it can be, so that a future
 // upstream diff still applies. These lints are matters of style with no bearing on what the code
 // computes, and rewriting two thousand lines to satisfy them would bury the changes that matter
-// (every one of which is marked `// fxsound:`). Nothing here allows a correctness lint.
+// (every one of which is marked `// crossfx:`). Nothing here allows a correctness lint.
 #![allow(
     clippy::chunks_exact_to_as_chunks,
     clippy::needless_range_loop,
@@ -21,9 +21,9 @@
 //! # This copy
 //!
 //! This is Joe Neeman's `nnnoiseless` 0.5.2 (BSD-3-Clause, see `COPYING`), vendored into the
-//! FxSound tree as `fxsound-rnnoise`. The command-line tool, the training tools, the C API and the
+//! CrossFX tree as `fxsound-rnnoise`. The command-line tool, the training tools, the C API and the
 //! `dasp` adaptor are not carried; the model weights are. Three things were added, each marked
-//! `// fxsound:` in the source: [`DenoiseState::reset`], an in-place reset that allocates nothing;
+//! `// crossfx:` in the source: [`DenoiseState::reset`], an in-place reset that allocates nothing;
 //! [`DenoiseState::analyse`] and [`DenoiseState::synthesise`], the two halves of
 //! [`DenoiseState::process_frame`] with the band gains exposed between them; and [`Stft`], the
 //! library's transform pair without the network, for applying one set of gains to another
@@ -39,13 +39,14 @@
 
 use once_cell::sync::OnceCell;
 
-// fxsound: the `capi`, `train` and `dasp` features and their modules (`capi.rs`, `training.rs`,
+// crossfx: the `capi`, `train` and `dasp` features and their modules (`capi.rs`, `training.rs`,
 // `signal.rs`) are not vendored; `util` is always private.
 mod util;
 
 mod denoise;
 mod features;
-// fxsound: the transform pair each state plans for itself, in place of `easyfft`'s per-thread cache.
+// crossfx: the transform pair each state plans for itself, in place of `easyfft`'s per-thread
+// cache.
 mod fft;
 mod pitch;
 mod rnn;
@@ -81,7 +82,7 @@ pub const EBAND_5MS: [usize; 22] = [
     // 0  200 400 600 800  1k 1.2 1.4 1.6  2k 2.4 2.8 3.2  4k 4.8 5.6 6.8  8k 9.6 12k 15.6 20k*/
     0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 34, 40, 48, 60, 78, 100,
 ];
-// fxsound: `realfft`'s re-export of the same `num_complex` type `easyfft` re-exported.
+// crossfx: `realfft`'s re-export of the same `num_complex` type `easyfft` re-exported.
 type Complex = realfft::num_complex::Complex32;
 
 /// Computes the correlation between two frequency-domain signals, and aggregates the correlation
@@ -131,7 +132,7 @@ struct CommonState {
 static COMMON: OnceCell<CommonState> = OnceCell::new();
 
 fn common() -> &'static CommonState {
-    // fxsound: `get_or_init` in place of a `get().is_none()` probe followed by `get().unwrap()`;
+    // crossfx: `get_or_init` in place of a `get().is_none()` probe followed by `get().unwrap()`;
     // the same table, built once, without an unwrap on the audio path.
     COMMON.get_or_init(|| {
         let pi = std::f64::consts::PI;

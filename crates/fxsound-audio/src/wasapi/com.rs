@@ -1053,10 +1053,10 @@ const RENDER_BUFFER_HNS: i64 = 1_000_000;
 
 /// The session flag every stream of a lane is opened with: its session is left out of the volume
 /// mixer, as the original left its own out (`sndDevicesSetupDevices.cpp:169-173`, `:444-448`).
-/// Listed, FxSound's render session would be a second slider beside the speakers' own, and one the
+/// Listed, CrossFX's render session would be a second slider beside the speakers' own, and one the
 /// user muted there — which Windows then keeps for the application, run after run — would silence
-/// everything FxSound plays with no FxSound control to say why. The volume the user hears through
-/// FxSound is the virtual device's, the one the volume keys move.
+/// everything CrossFX plays with no CrossFX control to say why. The volume the user hears through
+/// CrossFX is the virtual device's, the one the volume keys move.
 const HIDDEN: u32 = AUDCLNT_SESSIONFLAGS_DISPLAY_HIDE;
 
 /// What a capture stream records.

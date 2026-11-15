@@ -11,23 +11,23 @@
 //! ([`lane_dsp::route`]) — its own ring and counters, and its own parameter buffer, whose writing
 //! half this module keeps and writes a preset's new parameters through ([`set_rules`]).
 //!
-//! - **Output.** `crossfx_route_o<N>`, an `Audio/Sink` described `FxSound (Output) · <preset>`,
+//! - **Output.** `crossfx_route_o<N>`, an `Audio/Sink` described `CrossFX (Output) · <preset>`,
 //!   and `crossfx_route_o<N>_play`, a playback stream to the device the output lane plays to —
 //!   passive where the server runs a link-group together, like the lane's own (module docs of
 //!   `engine`, "Idle") — both in `crossfx-route-o<N>`.
 //! - **Input.** `crossfx_route_i<N>_capture`, a capture stream on the input lane's microphone —
 //!   or on the echo canceller's source while echo cancellation runs for it, as the lane's own
 //!   capture stream is — and `crossfx_route_i<N>`, an `Audio/Source` described
-//!   `FxSound (Input) · <preset>`, both in `crossfx-route-i<N>`.
+//!   `CrossFX (Input) · <preset>`, both in `crossfx-route-i<N>`.
 //!
 //! A route plays at its lane's volume: its chain reads the lane's [`LaneVolume`] and the lane's
 //! silence while the system sleeps, and has its history cleared with the lane's when the system
 //! wakes ([`wake_up`]); and its own virtual node's adapter keeps whatever a mixer sets
 //! on it at unity, as the lane's does ([`virtual_node_props`]) — so the volume keys, which move
-//! FxSound's own sink, move a routed game with everything else. Nothing a mixer sets on the route's
+//! CrossFX's own sink, move a routed game with everything else. Nothing a mixer sets on the route's
 //! node is applied. Its `priority.session` is below anything else's
-//! ([`app_routes::ROUTE_PRIORITY_SESSION`]), and no metadata write of FxSound's ever names it as
-//! a default, so it never becomes one; and its name is FxSound's ([`crate::is_crossfx_node`]), so
+//! ([`app_routes::ROUTE_PRIORITY_SESSION`]), and no metadata write of CrossFX's ever names it as
+//! a default, so it never becomes one; and its name is CrossFX's ([`crate::is_crossfx_node`]), so
 //! it is never offered as a device nor listed as an application.
 //!
 //! A route follows its lane. It is built beside the lane's pair, on the same device and at the same
@@ -48,10 +48,10 @@
 //! and on the way out the deletes ride on the confirmed exit hand-back
 //! ([`release_defaults_before_exit`]).
 //!
-//! A stream FxSound does not move can still be on a route: its own properties may name the route's
+//! A stream CrossFX does not move can still be on a route: its own properties may name the route's
 //! node, WirePlumber may have restored it onto one and will not move it again
 //! (`node.dont-reconnect`, [`Moves::anchor`]), or it may be a recorder the user pointed at a
-//! playback route's monitor, by a key FxSound leaves as it is ([`Moves::monitored`]). Such a
+//! playback route's monitor, by a key CrossFX leaves as it is ([`Moves::monitored`]). Such a
 //! stream keeps its route in use ([`Candidate::on_route`]).
 //!
 //! # What a private graph can show
@@ -82,7 +82,7 @@ pub(super) struct Routes {
     rules: Rules,
     /// Which routes each lane runs, under which numbers, since when unused.
     table: RouteTable,
-    /// What the `default` metadata says about each stream's target, and what of it is FxSound's.
+    /// What the `default` metadata says about each stream's target, and what of it is CrossFX's.
     moves: Moves,
     /// Which applications the window has been told could not get a route.
     warnings: OverflowWarnings,
@@ -393,7 +393,7 @@ pub(super) fn set_rules(shared: &mut Shared, asked: Vec<AppRoute>) {
             ""
         }
     );
-    // A preset named again while its route was kept for a stream FxSound could not move off it
+    // A preset named again while its route was kept for a stream CrossFX could not move off it
     // (`Plan::kept`): the route runs the preset as it is now, parameters and chain.
     let renamed: Vec<RoutePreset> = changes
         .added
@@ -604,12 +604,12 @@ pub(super) fn reconcile(shared: &mut Shared, now: Instant) {
     let deletes = note(shared, deletes);
     let writes = note(shared, writes);
 
-    // 2. The routes that go; and those kept only for a stream FxSound does not move, said once.
+    // 2. The routes that go; and those kept only for a stream CrossFX does not move, said once.
     //    Each one goes once its streams have been moved off it.
     for (slot, preset) in &plan.kept {
         log::info!(
             "route {} ({preset}) is kept though no rule names its preset any more: an application \
-             FxSound does not move plays or records through it; it goes once that one has left",
+             CrossFX does not move plays or records through it; it goes once that one has left",
             slot.node_name()
         );
     }
@@ -692,7 +692,7 @@ pub(super) fn reconcile(shared: &mut Shared, now: Instant) {
     }
 }
 
-/// The route a stream sits on by something no plan of FxSound's changes ([`Candidate::on_route`]),
+/// The route a stream sits on by something no plan of CrossFX's changes ([`Candidate::on_route`]),
 /// among `nodes` — each route's slot, its virtual node's registry id and its serial:
 ///
 /// - a stream WirePlumber will not move again once it is linked (`node.dont-reconnect`), on the
@@ -1264,7 +1264,7 @@ fn route_stream_props(
 // The registry and the metadata
 // ---------------------------------------------------------------------------------------------
 
-/// A node of FxSound's appeared in the registry. A route's virtual node gives its route the serial
+/// A node of CrossFX's appeared in the registry. A route's virtual node gives its route the serial
 /// moved streams are written with; the next [`reconcile`] writes them.
 pub(super) fn node_appeared(shared: &mut Shared, id: u32, serial: Option<u64>, node_name: &str) {
     let Some(slot) = RouteSlot::of_node(node_name) else {
@@ -1288,7 +1288,7 @@ pub(super) fn node_appeared(shared: &mut Shared, id: u32, serial: Option<u64>, n
     }
 }
 
-/// A node of FxSound's left the registry. A route whose virtual node it was has none until its
+/// A node of CrossFX's left the registry. A route whose virtual node it was has none until its
 /// next pair's is announced.
 pub(super) fn node_removed(shared: &mut Shared, id: u32) {
     for route in &mut shared.routes.live {
@@ -1299,13 +1299,13 @@ pub(super) fn node_removed(shared: &mut Shared, id: u32) {
 }
 
 /// Whether the `default` metadata names a target for the stream `id`, or is about to name one of
-/// FxSound's: then the stream does not follow its lane's default.
+/// CrossFX's: then the stream does not follow its lane's default.
 pub(super) fn has_target(shared: &Shared, id: u32) -> bool {
     shared.routes.moves.has_key(id)
 }
 
-/// Move the stream `subject`, which follows a default FxSound holds and was linked to nothing, onto
-/// FxSound's node with `serial` and back to following the default at once: a write and a delete of
+/// Move the stream `subject`, which follows a default CrossFX holds and was linked to nothing, onto
+/// CrossFX's node with `serial` and back to following the default at once: a write and a delete of
 /// its key, each of which has WirePlumber rescan the graph and link it (`crate::stranded`). Sent
 /// and noted as this engine's own, like a route's moves, so neither report is taken for a mixer's.
 pub(super) fn nudge(shared: &mut Shared, subject: u32, serial: u64) {
@@ -1335,7 +1335,7 @@ pub(super) fn stream_removed(shared: &mut Shared, id: u32) {
     shared.routes.moves.stream_gone(id);
 }
 
-/// The engine is going: every stream FxSound moved goes back, and every key that puts a stream
+/// The engine is going: every stream CrossFX moved goes back, and every key that puts a stream
 /// onto one of its routes' nodes is deleted, whoever wrote it ([`Moves::everything_back`]). Returns whether
 /// anything was written, and so whether there is a write for the exit's `sync` to confirm
 /// ([`release_defaults_before_exit`]). The routes' nodes go afterwards, with the session.
@@ -1403,8 +1403,8 @@ mod tests {
         }
     }
 
-    /// A screen recorder of FxSound's sink the user points at o1's monitor records what o1 plays,
-    /// by a key FxSound leaves as it is: it sits on o1, and keeps it in use.
+    /// A screen recorder of CrossFX's sink the user points at o1's monitor records what o1 plays,
+    /// by a key CrossFX leaves as it is: it sits on o1, and keeps it in use.
     #[test]
     fn a_recorder_whose_key_names_a_playback_routes_sink_rests_on_that_route() {
         let mut moves = Moves::default();
@@ -1422,7 +1422,7 @@ mod tests {
             Some(RouteSlot::new(OUT, 1))
         );
 
-        // The same whatever keeps FxSound from moving it, or none: one that will not be moved
+        // The same whatever keeps CrossFX from moving it, or none: one that will not be moved
         // again, and a microphone's recorder the user has pointed there by hand.
         for pin in [Some(Pin::DontReconnect), Some(Pin::DontFallback), None] {
             let recorder = listed(91, IN, pin);
@@ -1449,7 +1449,7 @@ mod tests {
         assert_eq!(resting_on(&mut moves, &kiosk, &NODES), None);
     }
 
-    /// A key naming a route that puts the stream onto it is FxSound's to delete or rewrite, and
+    /// A key naming a route that puts the stream onto it is CrossFX's to delete or rewrite, and
     /// no reason by itself for the stream to sit there — but for one WirePlumber will not move
     /// again, which is anchored where it was put.
     #[test]

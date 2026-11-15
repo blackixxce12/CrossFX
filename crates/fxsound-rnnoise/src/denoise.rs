@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use crate::{FRAME_SIZE, FREQ_SIZE, NB_BANDS, RnnModel};
 
-// fxsound: the result of `DenoiseState::analyse`. The registry crate kept the band gains as a
+// crossfx: the result of `DenoiseState::analyse`. The registry crate kept the band gains as a
 // stack local inside `process_frame`; a linked-stereo mask needs them, and a control surface
 // needs to edit them before they are applied.
 /// What one frame's analysis found: the network's opinion, before anything is applied.
@@ -57,7 +57,7 @@ pub struct DenoiseState<'model> {
     lastg: [f32; crate::NB_BANDS],
     rnn: crate::rnn::RnnState<'model>,
     feat: crate::features::DenoiseFeatures,
-    // fxsound: whether the last `analyse` found silence, so that `synthesise` leaves such a frame
+    // crossfx: whether the last `analyse` found silence, so that `synthesise` leaves such a frame
     // untouched exactly as the original `process_frame` did.
     silent: bool,
 }
@@ -103,7 +103,7 @@ impl<'model> DenoiseState<'model> {
         }
     }
 
-    // fxsound: an in-place reset. The registry crate had none, so starting afresh meant building
+    // crossfx: an in-place reset. The registry crate had none, so starting afresh meant building
     // a new state — several heap allocations — which a real-time caller cannot afford.
     /// Forgets everything the state has heard: the GRU states, the feature history, the pitch
     /// memory, the overlap-add tail and the gain floor. Afterwards the next frame is processed
@@ -115,7 +115,7 @@ impl<'model> DenoiseState<'model> {
         self.silent = false;
     }
 
-    // fxsound: the first half of `process_frame`, returning what it found.
+    // crossfx: the first half of `process_frame`, returning what it found.
     /// Analyses one frame: shifts it into the input history through the high-pass filter,
     /// computes the features, runs the network and the pitch filter, and returns the voice
     /// probability and the band gains the library would apply.
@@ -152,7 +152,7 @@ impl<'model> DenoiseState<'model> {
         }
     }
 
-    // fxsound: the second half of `process_frame`, taking the gains from outside.
+    // crossfx: the second half of `process_frame`, taking the gains from outside.
     /// Applies `gains` — the ones [`DenoiseState::analyse`] returned, or an edited copy — to the
     /// frame that call analysed, and overlap-adds the result into `output`, which has the length
     /// and range [`DenoiseState::process_frame`] documents.
@@ -194,7 +194,7 @@ mod tests {
     use super::*;
     use crate::Stft;
 
-    // fxsound: the registry crate asserted this with `static_assertions`, which is not vendored.
+    // crossfx: the registry crate asserted this with `static_assertions`, which is not vendored.
     fn assert_send_sync<T: Send + Sync>() {}
 
     #[test]

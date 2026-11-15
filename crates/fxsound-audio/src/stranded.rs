@@ -1,10 +1,10 @@
-//! Application streams the session manager failed to link to FxSound when FxSound took the default.
+//! Application streams the session manager failed to link to CrossFX when CrossFX took the default.
 //!
-//! When the power comes back on, FxSound takes both defaults again, and WirePlumber moves every
-//! stream that follows the default device from the real device back onto FxSound's sink or
+//! When the power comes back on, CrossFX takes both defaults again, and WirePlumber moves every
+//! stream that follows the default device from the real device back onto CrossFX's sink or
 //! source. Now and then a recorder is moved onto nothing. WirePlumber 0.5.17 links a stream's ports
 //! to its target's, and a stream that does not remix takes its target's channels: a recorder moved
-//! from a mono microphone onto FxSound (Input), which is stereo, has its one port replaced with two
+//! from a mono microphone onto CrossFX (Input), which is stereo, has its one port replaced with two
 //! while the move is made. When WirePlumber creates the link before the replacement lands, the link
 //! names the port that is about to go ("create pw link: … FL -> … MONO"), goes with it, and
 //! WirePlumber gives up on the move ("link failed: 1 of 1 PipeWire links failed to activate"). The
@@ -14,27 +14,27 @@
 //! microphones never did it: nothing about its ports has to change.
 //!
 //! WirePlumber tries such a link again at its next rescan of the graph, which only something else
-//! causes. So FxSound looks after the streams it took over: while it holds a direction's default,
+//! causes. So CrossFX looks after the streams it took over: while it holds a direction's default,
 //! a stream that follows that default and has no link at all for [`STRANDED_AFTER`] is moved onto
-//! FxSound's node by its `target.object` in the `default` metadata, and the key is deleted again at
-//! once. Each change has WirePlumber rescan and link the stream to FxSound, where it belongs anyway;
-//! the delete leaves it following the default as before, and leaves WirePlumber's own memory of the
-//! application's target (`node/state-stream.lua`) empty, as it was for a stream that followed the
-//! default. At most [`NUDGES`] times for each stream each time FxSound takes the default, so a
-//! stream WirePlumber will not link for reasons of its own is not moved for ever.
+//! CrossFX's node by its `target.object` in the `default` metadata, and the key is deleted again at
+//! once. Each change has WirePlumber rescan and link the stream to CrossFX, where it belongs
+//! anyway; the delete leaves it following the default as before, and leaves WirePlumber's own
+//! memory of the application's target (`node/state-stream.lua`) empty, as it was for a stream that
+//! followed the default. At most [`NUDGES`] times for each stream each time CrossFX takes the
+//! default, so a stream WirePlumber will not link for reasons of its own is not moved for ever.
 //!
-//! The same happens the other way, when the power goes off and FxSound hands the default back: a
-//! recorder moved from FxSound's stereo source onto a mono microphone has its two ports replaced
+//! The same happens the other way, when the power goes off and CrossFX hands the default back: a
+//! recorder moved from CrossFX's stereo source onto a mono microphone has its two ports replaced
 //! with one, and WirePlumber 0.5.17 left one of four such recorders linked to nothing on about one
 //! power off in fifteen, found by 0.5.0's test of how soon they record again
-//! (`graph_churn::a_recorder_that_follows_the_default_source_records_fxsound_after_every_power_toggle`)
+//! (`graph_churn::a_recorder_that_follows_the_default_source_records_crossfx_after_every_power_toggle`)
 //! — and before 0.5.0's fades as well. So for [`AFTER_HAND_BACK`] after a hand-back, a stream that
 //! follows the default and has no link for [`STRANDED_AFTER`] is moved onto the device the default
-//! went to, the same way. After that the default is the desktop's, and its moves are
-//! WirePlumber's own business.
+//! went to, the same way. After that the default is the desktop's, and its moves are WirePlumber's
+//! own business.
 //!
 //! What this module keeps is plain data the main loop feeds from the registry: every link, and the
-//! registry id and serial of FxSound's own sink and source.
+//! registry id and serial of CrossFX's own sink and source.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -43,7 +43,7 @@ use fxsound_core::DeviceDirection;
 
 use crate::per_direction::PerDirection;
 
-/// How long a stream that follows the default may have no link while FxSound holds it before it
+/// How long a stream that follows the default may have no link while CrossFX holds it before it
 /// is taken for stranded. A move WirePlumber makes unlinks the stream and links it again within a
 /// few milliseconds — within 3 to 12, measured with WirePlumber 0.5.17 on a private graph; a
 /// stranded one stays unlinked until the default changes again. A quarter of a second, and not
@@ -53,11 +53,11 @@ use crate::per_direction::PerDirection;
 /// goes ([`Stranded::removed`]), and the supervisor's tick, every 200 ms, finds it due.
 pub(crate) const STRANDED_AFTER: Duration = Duration::from_millis(250);
 
-/// How many times a stranded stream is moved onto FxSound each time FxSound takes the default, or
-/// onto the device each time FxSound hands it back.
+/// How many times a stranded stream is moved onto CrossFX each time CrossFX takes the default, or
+/// onto the device each time CrossFX hands it back.
 pub(crate) const NUDGES: u8 = 2;
 
-/// How long after FxSound handed a default back it still moves a stream the hand-back left linked
+/// How long after CrossFX handed a default back it still moves a stream the hand-back left linked
 /// to nothing onto the device the default went to: the fade, the move, [`STRANDED_AFTER`], a
 /// second nudge after as long again, and room for a slow server.
 pub(crate) const AFTER_HAND_BACK: Duration = Duration::from_secs(3);
@@ -69,16 +69,16 @@ struct Link {
     input: u32,
 }
 
-/// The links of the graph, FxSound's own sink and source, and which streams have gone unlinked
+/// The links of the graph, CrossFX's own sink and source, and which streams have gone unlinked
 /// since when (module docs). Belongs to the session: emptied when it closes.
 #[derive(Debug, Default)]
 pub(crate) struct Stranded {
     links: HashMap<u32, Link>,
-    /// FxSound's own node of each direction — the sink, the source — as `(id, object.serial)`.
+    /// CrossFX's own node of each direction — the sink, the source — as `(id, object.serial)`.
     ours: PerDirection<Option<(u32, u64)>>,
-    /// Each stream that follows a default FxSound holds and was last seen with no link: since when.
+    /// Each stream that follows a default CrossFX holds and was last seen with no link: since when.
     since: HashMap<u32, Instant>,
-    /// How often each stream has been moved onto FxSound since FxSound last took the default.
+    /// How often each stream has been moved onto CrossFX since CrossFX last took the default.
     nudged: HashMap<u32, u8>,
 }
 
@@ -88,12 +88,12 @@ impl Stranded {
         self.links.insert(id, Link { output, input });
     }
 
-    /// FxSound's sink (`Output`) or source (`Input`) appeared under `id`, with `serial`.
+    /// CrossFX's sink (`Output`) or source (`Input`) appeared under `id`, with `serial`.
     pub(crate) fn own_node_appeared(&mut self, direction: DeviceDirection, id: u32, serial: u64) {
         *self.ours.get_mut(direction) = Some((id, serial));
     }
 
-    /// Something left the registry: a link, a stream, one of FxSound's nodes, or none of them.
+    /// Something left the registry: a link, a stream, one of CrossFX's nodes, or none of them.
     /// Whether it was a link: the engine then looks for streams it left with none at once
     /// ([`Self::due`]), so that a stream's wait starts when it lost its last link, not at the
     /// supervisor's next tick.
@@ -110,12 +110,12 @@ impl Stranded {
         link
     }
 
-    /// The `object.serial` of FxSound's node of `direction`, while it is in the graph.
+    /// The `object.serial` of CrossFX's node of `direction`, while it is in the graph.
     pub(crate) fn our_serial(&self, direction: DeviceDirection) -> Option<u64> {
         (*self.ours.get(direction)).map(|(_, serial)| serial)
     }
 
-    /// FxSound has just taken a default, or handed it back: every stream may be moved where it went
+    /// CrossFX has just taken a default, or handed it back: every stream may be moved where it went
     /// [`NUDGES`] times again.
     pub(crate) fn claimed(&mut self) {
         self.nudged.clear();
@@ -130,8 +130,8 @@ impl Stranded {
         })
     }
 
-    /// Whether the stream `id`, of `direction`, is linked to FxSound's own node of that direction:
-    /// a player into FxSound's sink, a recorder out of FxSound's source.
+    /// Whether the stream `id`, of `direction`, is linked to CrossFX's own node of that direction:
+    /// a player into CrossFX's sink, a recorder out of CrossFX's source.
     pub(crate) fn linked_to_ours(&self, id: u32, direction: DeviceDirection) -> bool {
         let Some((own, _)) = *self.ours.get(direction) else {
             return false;
@@ -142,11 +142,11 @@ impl Stranded {
         })
     }
 
-    /// Which of `followers` — streams that follow a default FxSound holds, with the direction of
-    /// each — are stranded as of `now`, and are to be moved onto FxSound's node now. Each one
+    /// Which of `followers` — streams that follow a default CrossFX holds, with the direction of
+    /// each — are stranded as of `now`, and are to be moved onto CrossFX's node now. Each one
     /// returned is counted, and waits [`STRANDED_AFTER`] again before it is returned again. A
     /// stream not among `followers` is forgotten: it went, took a target of its own, or its
-    /// default is not FxSound's any more.
+    /// default is not CrossFX's any more.
     pub(crate) fn due(
         &mut self,
         followers: &[(u32, DeviceDirection)],
@@ -210,7 +210,7 @@ mod tests {
         stranded.link_appeared(100, 63, 78);
         stranded.own_node_appeared(IN, 63, 1_055);
         assert!(!stranded.removed(78), "a stream is no link");
-        assert!(!stranded.removed(63), "nor FxSound's own node");
+        assert!(!stranded.removed(63), "nor CrossFX's own node");
         assert!(stranded.removed(100));
         assert!(!stranded.removed(100), "and a link goes once");
     }
@@ -229,12 +229,12 @@ mod tests {
     }
 
     #[test]
-    fn a_player_is_on_fxsound_linked_into_its_sink_and_a_recorder_linked_out_of_its_source() {
+    fn a_player_is_on_crossfx_linked_into_its_sink_and_a_recorder_linked_out_of_its_source() {
         let mut stranded = Stranded::default();
         stranded.own_node_appeared(OUT, 60, 1_050);
         stranded.own_node_appeared(IN, 63, 1_055);
-        // The player 77 plays into FxSound's sink, the player 79 into a device; the recorder 78
-        // records FxSound's source, the recorder 80 a microphone.
+        // The player 77 plays into CrossFX's sink, the player 79 into a device; the recorder 78
+        // records CrossFX's source, the recorder 80 a microphone.
         stranded.link_appeared(1, 77, 60);
         stranded.link_appeared(2, 79, 90);
         stranded.link_appeared(3, 63, 78);
@@ -243,7 +243,7 @@ mod tests {
         assert!(!stranded.linked_to_ours(79, OUT));
         assert!(stranded.linked_to_ours(78, IN));
         assert!(!stranded.linked_to_ours(80, IN));
-        // Each in its own direction only, and not once the link, or FxSound's node, has gone.
+        // Each in its own direction only, and not once the link, or CrossFX's node, has gone.
         assert!(!stranded.linked_to_ours(78, OUT));
         assert!(stranded.removed(1));
         assert!(!stranded.linked_to_ours(77, OUT));
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stranded_stream_is_moved_twice_at_most_until_fxsound_takes_the_default_again() {
+    fn a_stranded_stream_is_moved_twice_at_most_until_crossfx_takes_the_default_again() {
         let mut stranded = Stranded::default();
         let start = Instant::now();
         let step = STRANDED_AFTER;
@@ -274,14 +274,14 @@ mod tests {
         let start = Instant::now();
         let step = STRANDED_AFTER;
         assert!(stranded.due(&[(78, IN)], start).is_empty());
-        // The default is not FxSound's for a while: nobody follows it.
+        // The default is not CrossFX's for a while: nobody follows it.
         assert!(stranded.due(&[], start + step).is_empty());
         assert!(stranded.due(&[(78, IN)], start + step * 3).is_empty());
         assert_eq!(stranded.due(&[(78, IN)], start + step * 4), [(78, IN)]);
     }
 
     #[test]
-    fn fxsounds_own_nodes_are_known_by_serial_until_they_go() {
+    fn crossfx_own_nodes_are_known_by_serial_until_they_go() {
         let mut stranded = Stranded::default();
         stranded.own_node_appeared(IN, 63, 1_055);
         stranded.own_node_appeared(OUT, 60, 1_050);

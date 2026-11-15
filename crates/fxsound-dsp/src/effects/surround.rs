@@ -1,7 +1,7 @@
 //! Surround — a mid/side gain widener.
 //!
-//! Ports `dsp/ptechDsp/wide/Wide32/Wide32.c:214-250`, which theremino rewrote for FxSound 2.0.3.
-//! The whole algorithm is four multiplies per frame:
+//! Ports `dsp/ptechDsp/wide/Wide32/Wide32.c:214-250`, which theremino rewrote for the
+//! original FxSound 2.0.3. The whole algorithm is four multiplies per frame:
 //!
 //! ```text
 //! M  = (L + R) / 2

@@ -1,4 +1,4 @@
-//! The volume of FxSound's own virtual nodes: remembered per target, and applied after the chain
+//! The volume of CrossFX's own virtual nodes: remembered per target, and applied after the chain
 //! (`docs/0.4.0-upstream.md`, U10 and U11).
 //!
 //! # Whose volume
@@ -9,14 +9,14 @@
 //!
 //! # Per target
 //!
-//! FxSound (Output) is one node whatever it renders to, and WirePlumber remembers one volume per
+//! CrossFX (Output) is one node whatever it renders to, and WirePlumber remembers one volume per
 //! node (`node/state-stream.lua`, keyed by `application.id`), so a level set for headphones was the
-//! level the laptop's speakers got after an unplug — upstream's #615, a hearing-safety bug. Each
-//! virtual node is therefore declared `state.restore-props = false`, which takes WirePlumber out of
-//! it, and the engine keeps the memory instead, one [`TargetVolume`] per real device and direction:
-//! reported to the app when the node's volume changes, handed back when the engine starts
-//! (`crate::StartOptions::target_volumes`), and replayed onto a new pair ([`for_new_pair`]). A
-//! target never seen before gets the lower of what a new node has and what the lane was just
+//! level the laptop's speakers got after an unplug — the original's #615, a hearing-safety bug.
+//! Each virtual node is therefore declared `state.restore-props = false`, which takes WirePlumber
+//! out of it, and the engine keeps the memory instead, one [`TargetVolume`] per real device and
+//! direction: reported to the app when the node's volume changes, handed back when the engine
+//! starts (`crate::StartOptions::target_volumes`), and replayed onto a new pair ([`for_new_pair`]).
+//! A target never seen before gets the lower of what a new node has and what the lane was just
 //! playing at — the volume never goes *up* because a device changed.
 //!
 //! A real device is a node *and the port it is on*. On a card that is not UCM — a plain HDA card,
@@ -227,11 +227,11 @@ fn clamp_volume(volume: f32) -> f32 {
 /// The volume a new pair starts at, on a target with the lane's history behind it (U10).
 ///
 /// * A target the user has a remembered volume for gets it — upward too: that is the level they
-///   chose for that device, and upstream's 1.2.16 does the same (PR #620).
+///   chose for that device, and the original's 1.2.16 does the same (PR #620).
 /// * A target never seen gets, channel by channel, the lower of what a node PipeWire has just made
 ///   carries — unity — and `last`: what the lane was playing at before, or failing that the
 ///   quietest level remembered for any device of this direction. A mute carries over. The volume
-///   never goes up because a device changed (upstream #606/#607, 4a74ba3).
+///   never goes up because a device changed (the original's #606/#607, 4a74ba3).
 /// * A target remembered with no level at all — an entry with no `channel_volumes`, which only a
 ///   hand edit writes and [`TargetVolume::sanitised`] keeps as a remembered mute — is a target
 ///   never seen that keeps its mute. Replayed as a level it would be the unity of an empty list.

@@ -1,4 +1,4 @@
-//! The FxSound DSP engine, ported to Rust.
+//! The original FxSound's DSP engine, ported to Rust for CrossFX.
 //!
 //! Nothing in this crate allocates, locks or blocks once constructed: every buffer it needs is
 //! sized at construction time from the maximum format it will be asked to handle. That is the

@@ -1,11 +1,11 @@
 //! Per-application presets: who an application is, and which preset the user chose for it.
 //!
 //! One chain cannot run two presets at once, so an application with a preset of its own is moved
-//! onto a *route* — an extra pair of FxSound nodes running that preset — attached to the same
+//! onto a *route* — an extra pair of CrossFX nodes running that preset — attached to the same
 //! real device as its lane (`docs/0.4.0-apps.md`). This module holds the two halves of that
 //! feature that are plain data: [`AppKey`], how an application is recognised from its stream's
 //! properties from one run of it to the next, and [`AppRules`], the local store of what the user
-//! chose, `~/.config/fxsound/apps.toml`.
+//! chose, `~/.config/crossfx/apps.toml`.
 //!
 //! The store is its own file rather than a table in `settings.toml` because it grows with every
 //! application that ever played a sound, and a settings file that the window rewrites on every
@@ -264,7 +264,7 @@ fn eq_ignoring_case(a: &str, b: &str) -> bool {
         .eq(b.chars().flat_map(char::to_lowercase))
 }
 
-/// What the user chose for one application: a preset per direction, or "follow FxSound's".
+/// What the user chose for one application: a preset per direction, or "follow CrossFX's".
 ///
 /// Written as one `[[app]]` table of `apps.toml`, the key's three fields beside the rest:
 ///
@@ -358,7 +358,7 @@ pub struct AppRules {
 }
 
 impl AppRules {
-    /// `~/.config/fxsound/apps.toml` (or `$XDG_CONFIG_HOME/fxsound/apps.toml`), beside
+    /// `~/.config/crossfx/apps.toml` (or `$XDG_CONFIG_HOME/crossfx/apps.toml`), beside
     /// `settings.toml`.
     #[must_use]
     pub fn config_path() -> PathBuf {
@@ -959,7 +959,7 @@ mod tests {
 binary = \"bf6.exe\"
 name = \"Battlefield 6\"
 flatpak = \"\"
-output_preset = \"Gaming\"      # absent = follow FxSound's output preset
+output_preset = \"Gaming\"      # absent = follow CrossFX's output preset
 input_preset = \"\"             # absent/empty = follow
 last_seen = 1790000000
 ";
@@ -1927,7 +1927,7 @@ last_seen = 40
 
     #[test]
     fn the_clock_reads_seconds_since_the_epoch() {
-        // 2020-09-13, well before any build of this port; and not milliseconds, which would be
+        // 2020-09-13, well before any build of CrossFX; and not milliseconds, which would be
         // a thousand times larger than anything a TOML reader expects here.
         let now = unix_now();
         assert!(now > 1_600_000_000, "{now}");

@@ -45,7 +45,7 @@ fn sane_rate(sample_rate: Real) -> Real {
     }
 }
 
-/// The corner to ask the port's Butterworth design for, so that the realised corner lands on `hz`.
+/// The corner to ask CrossFX's Butterworth design for, so that the realised corner lands on `hz`.
 ///
 /// [`crate::biquad::calc_butterworth_highpass`] is a faithful port and deliberately does not
 /// prewarp, which puts its realised corner at `(fs/π)·arctan(π·f/fs)` — a few percent low at a

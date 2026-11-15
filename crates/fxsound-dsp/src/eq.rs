@@ -96,8 +96,8 @@ pub fn band_table(num_bands: usize) -> Option<(&'static [Real], Real, Real)> {
     }
 }
 
-/// [`band_table`] in the DSP `compat` plays: at «Like FxSound for Windows» = Interface and sound
-/// ([`DspCompat::Windows`]) twenty bands are the Windows build's ladder again,
+/// [`band_table`] in the DSP `compat` plays: at «Like the original FxSound LLC» = Interface and
+/// sound ([`DspCompat::Windows`]) twenty bands are the original's ladder again,
 /// [`WINDOWS_TWENTY_BAND_CENTRES_HZ`] (audit report R4), with the same edges and so the same Q.
 /// Every other count has one ladder.
 ///
@@ -144,7 +144,7 @@ pub fn derive_q(min_hz: f64, max_hz: f64, num_bands: usize, q_multiplier: Real) 
     q
 }
 
-/// The half-step geometric edges the Windows GUI uses as each band's frequency slider range
+/// The half-step geometric edges the original's GUI uses as each band's frequency slider range
 /// (`GraphicEqGet.cpp:105-168`), including the asymmetric `+1` / `+10` nudge on the low edge.
 ///
 /// The Windows range, which a `.fac` for Windows is held to. The window's wheels reach half a band
@@ -192,7 +192,7 @@ pub fn standard_centres(count: usize) -> Vec<Real> {
 /// centres.
 ///
 /// **Changed on purpose (audit report #13).** The original remaps by *position*
-/// (`GraphicEqSet.cpp:200-245`, upstream 182a329, which this function used to port line for
+/// (`GraphicEqSet.cpp:200-245`, the original's 182a329, which this function used to port line for
 /// line): band *i* of the new ladder takes band `i·(old−1)/(new−1)` of the old one, whatever
 /// either is tuned to. Across ladders with different edges that moves the curve in frequency — a
 /// ten-band preset's +6 dB at 62.5 Hz landed on thirty-one bands as +6 dB at 20 Hz and nothing at
@@ -325,8 +325,8 @@ pub fn fit_preset_gains(
 
 /// [`fit_preset_gains`] in the DSP `compat` plays.
 ///
-/// At «Like FxSound for Windows» = Interface and sound ([`DspCompat::Windows`]) a curve of
-/// another count is read **by position**, as the Windows build reads it (audit report #13 taken
+/// At «Like the original FxSound LLC» = Interface and sound ([`DspCompat::Windows`]) a curve of
+/// another count is read **by position**, as the original reads it (audit report #13 taken
 /// back, [`remap_band_gains_by_position`]): its centres are not looked at, and live band *i*
 /// takes the preset's band `i·(old−1)/(new−1)`. An equal count copies the gains and no
 /// equalizer is a flat curve, at either level.
@@ -345,16 +345,16 @@ pub fn fit_preset_gains_in(
     }
 }
 
-/// Carry a curve to another band count **by position**, as the Windows build does
-/// (`GraphicEqSet.cpp:200-245`, upstream 182a329): the remap this port used before audit report
-/// #13, taken from `0f05ba5` as it was, for «Like FxSound for Windows» = Interface and sound
+/// Carry a curve to another band count **by position**, as the original does
+/// (`GraphicEqSet.cpp:200-245`, the original's 182a329): the remap CrossFX used before audit report
+/// #13, taken from `0f05ba5` as it was, for «Like the original FxSound LLC» = Interface and sound
 /// ([`fit_preset_gains_in`]).
 ///
 /// Band *i* of `new_count` (counted from 1) reads position `1 + (i−1)·(old−1)/(new−1)` of the old
 /// curve: onto fewer bands the nearest old band, rounded half up; onto more, the straight line
 /// between the two old bands either side. Where each band sits in frequency plays no part, so a
-/// ten-band +6 dB at 62.5 Hz lands on thirty-one bands at 20 Hz — the Windows build's reading,
-/// which #13 changed for FxSound for Linux. An equal count copies, no old bands is a flat
+/// ten-band +6 dB at 62.5 Hz lands on thirty-one bands at 20 Hz — the original's reading,
+/// which #13 changed for CrossFX. An equal count copies, no old bands is a flat
 /// curve, one old band is a flat curve at its gain, and a curve taken to one band is its first.
 #[must_use]
 pub fn remap_band_gains_by_position(old: &[Real], new_count: usize) -> Vec<Real> {
@@ -838,7 +838,7 @@ impl GraphicEq {
 
     /// Lay out a new band count, every band flat, and hand the sections over to it.
     ///
-    /// The original, and this port before audit #11, cleared every section here, so a preset
+    /// The original, and CrossFX before audit #11, cleared every section here, so a preset
     /// change from a ten-band curve to a 31-band one, or the user changing the band count, dropped
     /// the old curve in one sample and brought the new one in from rest in the next: ten bands
     /// with 62.5 Hz at +6 dB changed to 31 with 63 Hz at +6 dB under a 50 Hz tone at 0.3 moved the
@@ -932,7 +932,7 @@ impl GraphicEq {
     /// The original resets the whole frequency table here, discarding preset-supplied band
     /// frequencies and forcing the sample rate back to 44100 until the next buffer corrects it
     /// (`GraphicEqSet.cpp:115` into `GraphicEqInitSections.cpp:43-52`). The spec flags that as a
-    /// bug; this port keeps the layout and only redesigns the coefficients.
+    /// bug; CrossFX keeps the layout and only redesigns the coefficients.
     pub fn set_q_multiplier(&mut self, multiplier: Real) {
         let multiplier = multiplier.clamp(MIN_Q_MULTIPLIER, MAX_Q_MULTIPLIER);
         if multiplier == self.q_multiplier {
@@ -943,8 +943,8 @@ impl GraphicEq {
         self.redesign_all();
     }
 
-    /// Design the bands as FxSound for Linux does, or as the Windows build does («Like FxSound
-    /// for Windows» = Interface and sound). The two differ below 20 Hz only, where the Windows
+    /// Design the bands as CrossFX does, or as the original does («Like the original
+    /// FxSound LLC» = Interface and sound). The two differ below 20 Hz only, where the Windows
     /// design's Q goes negative (audit report #12, [`calc_parametric_in`]); a band there is
     /// redesigned and crossfades to its new design as a moved band does.
     pub fn set_compat(&mut self, compat: DspCompat) {
@@ -1083,14 +1083,14 @@ impl GraphicEq {
         self.heard = false;
     }
 
-    /// Tell the equalizer its owner ran a block without it: FxSound is switched off, and the
+    /// Tell the equalizer its owner ran a block without it: CrossFX is switched off, and the
     /// sections stand still until it comes back, as the original's do
     /// (`dfxpProcessReal.cpp:143-157`).
     ///
     /// Only [`GraphicEq::process`] plays a crossfade, so one that started, or was waiting, while
     /// the equalizer was left out would play when it came back: 20 ms of a curve the listener
     /// last heard before switching off. With 31.25 Hz at +12 dB under a tone there at 0.05, the
-    /// band set to 0 dB with FxSound off, switching back on played 0.134 for a steady 0.048. So
+    /// band set to 0 dB with CrossFX off, switching back on played 0.134 for a steady 0.048. So
     /// every band lands on its newest design, a ladder being replaced stops playing, and until
     /// audio goes through again a change lands at once, as it does before the first block. The
     /// filters keep their history, as they do across the switch.
@@ -2754,7 +2754,7 @@ mod tests {
         assert!(!eq.ladder_fade.is_gliding());
     }
 
-    // «Like FxSound for Windows» = Interface and sound (W1c of 0.5.0).
+    // «Like the original FxSound LLC» = Interface and sound (W1c of 0.5.0).
 
     #[test]
     fn at_interface_and_sound_twenty_bands_are_the_windows_ladder_with_the_same_edges() {
@@ -2778,7 +2778,7 @@ mod tests {
     #[test]
     fn at_interface_and_sound_a_curve_of_another_count_is_read_by_position_as_on_windows() {
         // Audit report #13 taken back: a ten-band +6 dB at 62.5 Hz lands on thirty-one bands at
-        // 20 Hz, where the Windows build puts it, and on its own band count it is copied.
+        // 20 Hz, where the original puts it, and on its own band count it is copied.
         let ten = ladder(10);
         let mut bass = vec![0.0; 10];
         bass[0] = 6.0;
@@ -2803,7 +2803,7 @@ mod tests {
 
     #[test]
     fn the_windows_remap_by_position_is_0f05ba5s() {
-        // `0f05ba5`'s `remap_band_gains`, whose values these are (upstream 182a329).
+        // `0f05ba5`'s `remap_band_gains`, whose values these are (the original's 182a329).
         let five = [1.0, 2.0, 3.0, 4.0, 5.0];
         assert_eq!(
             remap_band_gains_by_position(&five, 9),
@@ -2825,7 +2825,7 @@ mod tests {
     #[test]
     fn at_interface_and_sound_a_band_below_20hz_is_the_windows_builds_flat_gain() {
         // Audit report #12 taken back: a +6 dB band at 15 Hz lifts 1 kHz by the full 6 dB, as
-        // the Windows build's does; FxSound for Linux keeps it in the sub-bass. Switching the
+        // the original's does; CrossFX keeps it in the sub-bass. Switching the
         // design redesigns that band and no other.
         let mut centres = ladder(31);
         centres[0] = 15.0;

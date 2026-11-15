@@ -91,7 +91,7 @@ pub fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-/// As [`write`], but first copies any existing file to `<path>.bak`.
+/// As [`write()`], but first copies any existing file to `<path>.bak`.
 ///
 /// For files a user authored and cannot regenerate. The copy is not itself atomic — it is a
 /// convenience for someone who overwrote the wrong preset, not a guarantee.
@@ -245,7 +245,7 @@ pub(crate) mod tests {
     /// A new directory of the test's own, removed with the handle — also when the test panics.
     fn temp_dir(name: &str) -> tempfile::TempDir {
         tempfile::Builder::new()
-            .prefix(&format!("fxsound-atomic-{name}-"))
+            .prefix(&format!("crossfx-atomic-{name}-"))
             .tempdir()
             .expect("create the test directory")
     }

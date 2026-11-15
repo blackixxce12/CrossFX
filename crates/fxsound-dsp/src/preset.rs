@@ -4,7 +4,7 @@
 //! The application reads a preset into its window's controls ([`music_controls`]) and maps the
 //! controls onto the chain ([`write_music_params`]); an application's playback route does the
 //! same in one step ([`preset_params`]). Everything else that renders a preset — the bit-exactness
-//! harness of «Like FxSound for Windows» (`tests/windows_parity_bitexact.rs`), the drift
+//! harness of «Like the original FxSound LLC» (`tests/windows_parity_bitexact.rs`), the drift
 //! measurement (`tests/preset_drift.rs`) and `examples/process_wav.rs`, which the blind
 //! listening comparison of `scripts/voicing` renders with — goes through [`preset_params`] too, so
 //! what they measure and play is what the application plays, not the raw values of the file.
@@ -25,9 +25,9 @@
 //!
 //! The levels every music chain shares — the filter width, the master gain, the balance and the
 //! volume leveller — are the settings', not the preset's ([`MusicLevels`]), and so is whose DSP
-//! plays them: FxSound for Linux's, or at «Like FxSound for Windows» = Interface and sound the
+//! plays them: CrossFX's, or at «Like the original FxSound LLC» = Interface and sound the
 //! Windows build's ([`DspCompat`]). The same `.fac` is read at either, and the Windows DSP reads
-//! it as the Windows build does: Ambience's slider on its straight line again (audit #39), a curve
+//! it as the original does: Ambience's slider on its straight line again (audit #39), a curve
 //! of another count by position (#13), and twenty bands on the Windows ladder, a curve on the
 //! half-octave one moved onto it band for band (R4) — so a preset taken there and back is the
 //! preset it was (A12).
@@ -36,15 +36,15 @@ use fxsound_core::messages::DspParams;
 use fxsound_core::{DspCompat, Effect, EqBand, Preset, Settings, scale};
 
 /// The engine's band ladder for `count` bands: the original's hard-coded table where it has
-/// one, else the geometric ladder [`crate::GraphicEq`] builds. FxSound for Linux's:
+/// one, else the geometric ladder [`crate::GraphicEq`] builds. CrossFX's:
 /// [`ladder_in`] with [`DspCompat::Linux`].
 #[must_use]
 pub fn ladder(count: usize) -> Vec<f32> {
     ladder_in(count, DspCompat::Linux)
 }
 
-/// [`ladder`] in the DSP `compat` plays: at «Like FxSound for Windows» = Interface and sound
-/// twenty bands are the Windows build's ladder ([`crate::eq::band_table_in`], audit report R4).
+/// [`ladder`] in the DSP `compat` plays: at «Like the original FxSound LLC» = Interface and sound
+/// twenty bands are the original's ladder ([`crate::eq::band_table_in`], audit report R4).
 #[must_use]
 pub fn ladder_in(count: usize, compat: DspCompat) -> Vec<f32> {
     crate::eq::band_table_in(count, compat).map_or_else(
@@ -87,15 +87,15 @@ pub struct MusicControls {
 /// The effects land where the slider shows them, which is where they sound: a Dynamic Boost past
 /// the slider's dead top is read as the top ([`scale::value_to_slider_in`]). The curve is the
 /// preset's own when it has as many bands as the ladder, fitted onto the ladder when it has
-/// another count ([`crate::eq::fit_preset_gains_in`]: by frequency, audit #13, or at «Like
-/// FxSound for Windows» = Interface and sound by position, as the Windows build fits it), and
+/// another count ([`crate::eq::fit_preset_gains_in`]: by frequency, audit #13, or at «Like the
+/// original FxSound LLC» = Interface and sound by position, as the original fits it), and
 /// flat with the equalizer on when it has none, the original's "old preset".
 ///
 /// A twenty-band curve on the other DSP's twenty-band ladder is read on this one's, band for band
-/// (0.4.0 audit R4, [`fxsound_core::eq::move_to_the_twenty_band_ladder_of`]): a Windows preset,
-/// or one saved before 0.4.0, on the half-octave ladder, so it plays without the paired ladder's
-/// ripple and is saved on the new one the next time it is saved; and at Interface and sound a
-/// preset saved on the half-octave ladder on the Windows one, as the Windows build tunes twenty
+/// (0.4.0 audit R4, [`fxsound_core::eq::move_to_the_twenty_band_ladder_of`]): a preset of the
+/// original's, or one saved before 0.4.0, on the half-octave ladder, so it plays without the paired
+/// ladder's ripple and is saved on the new one the next time it is saved; and at Interface and
+/// sound a preset saved on the half-octave ladder on the Windows one, as the original tunes twenty
 /// bands.
 #[must_use]
 pub fn music_controls(preset: &Preset, ladder: &[f32], compat: DspCompat) -> MusicControls {
@@ -127,14 +127,14 @@ pub struct MusicLevels {
     pub master_gain_db: f32,
     pub balance_db: f32,
     pub volume_leveling: f32,
-    /// Whose DSP plays the chain: the Windows build's from «Like FxSound for Windows» =
+    /// Whose DSP plays the chain: the original's from «Like the original FxSound LLC» =
     /// Interface and sound on ([`DspCompat::for_level`]).
     pub compat: DspCompat,
 }
 
 impl MusicLevels {
     /// The levels the settings file holds, which are the speakers' whichever lane the window
-    /// edits, and the DSP the level of «Like FxSound for Windows» in force plays (Everything,
+    /// edits, and the DSP the level of «Like the original FxSound LLC» in force plays (Everything,
     /// which this version does not offer, runs as Interface and sound).
     #[must_use]
     pub const fn of(settings: &Settings) -> Self {
@@ -171,7 +171,7 @@ impl MusicLevels {
         scale::value_to_slider_in(self.compat, effect, value)
     }
 
-    /// The same levels played by the Windows build's DSP, or by FxSound for Linux's.
+    /// The same levels played by the original's DSP, or by CrossFX's.
     ///
     /// A `bool` rather than a [`DspCompat`] for the two-build comparisons
     /// (`tests/windows_parity_bitexact.rs`), whose copy in an older build must compile where there

@@ -70,9 +70,9 @@ pub trait PresetFile: Clone {
     /// The error for a name whose file, `file`, is already the listed preset `existing`'s.
     fn shared_file(name: &str, existing: &str, file: &str) -> Self::Error;
     /// The preset as it is written for someone else to open: an export. The same preset unless
-    /// the format has a reader elsewhere that expects something of it — the `.fac` a Windows
-    /// FxSound reads puts a twenty-band curve back on the Windows ladder (0.4.0 audit R4), and its
-    /// end bands as `end_bands` says.
+    /// the format has a reader elsewhere that expects something of it — the `.fac` the original
+    /// FxSound for Windows reads puts a twenty-band curve back on the original's ladder (0.4.0
+    /// audit R4), and its end bands as `end_bands` says.
     #[must_use]
     fn exported(&self, _end_bands: EndBands) -> Self {
         self.clone()
@@ -82,8 +82,8 @@ pub trait PresetFile: Clone {
 /// Where an exported `.fac` puts its first and last band (0.4.0 audit R6).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum EndBands {
-    /// Back inside the range the Windows build tunes them in, as 0.4.0 exports them: the default,
-    /// and the only choice below «Like FxSound for Windows» = Interface and sound
+    /// Back inside the range the original tunes them in, as 0.4.0 exports them: the default,
+    /// and the only choice below «Like the original FxSound LLC» = Interface and sound
     /// ([`fxsound_core::eq::move_end_bands_back_inside_the_ladder`]).
     #[default]
     Shifted,
@@ -134,11 +134,11 @@ impl PresetFile for Preset {
     }
 
     /// A twenty-band curve on the half-octave ladder is exported on the Windows one, band for
-    /// band, which is what the Windows build tunes twenty bands to; this port moves it back when
+    /// band, which is what the original tunes twenty bands to; CrossFX moves it back when
     /// it reads it ([`fxsound_core::eq::move_off_the_windows_twenty_band_ladder`]).
     ///
     /// Then, [`EndBands::Shifted`], the first and last band go back inside the ladder's edges
-    /// (0.4.0 audit R6): here they can be tuned half a band past them, where the Windows build's
+    /// (0.4.0 audit R6): here they can be tuned half a band past them, where the original's
     /// wheels cannot follow, so a first band at 46 Hz is exported at 62.5 Hz. Nothing else moves,
     /// so a preset Windows made goes back out as it came. [`EndBands::AsTheyAre`] leaves them where
     /// they are, inside the equalizer's own 10 Hz–21 kHz. Importing takes a file as it is, wider
@@ -232,7 +232,7 @@ impl<F: PresetFile> Store<F> {
         &self.user_dir
     }
 
-    /// Where factory presets are looked for, in search order — what `fxsound --self-test` reads
+    /// Where factory presets are looked for, in search order — what `crossfx --self-test` reads
     /// back, so it checks the directories this store will actually use rather than a copy of the
     /// list that could drift from it.
     #[must_use]
@@ -662,9 +662,9 @@ impl<F: PresetFile> Store<F> {
     ///
     /// Returns the imported preset's name, which is the file's stem: a file someone chose to
     /// import is a file they know by its name on disk. The stem is a new name, so it is made one
-    /// every FxSound can read ([`new_preset_name`]), and that is the name written inside the
-    /// copy too (0.4.0 audit #15): a file called `a:b.fac` used to be imported as `ab.fac` with
-    /// `a:b` inside it, a name the Windows build could never file.
+    /// the original and CrossFX alike can read ([`new_preset_name`]), and that is the name written
+    /// inside the copy too (0.4.0 audit #15): a file called `a:b.fac` used to be imported as
+    /// `ab.fac` with `a:b` inside it, a name the original could never file.
     ///
     /// An import adds a preset and never replaces one of the user's: a name a user preset already
     /// has, or a file already in the user directory — which on a filesystem that folds case is
@@ -706,8 +706,8 @@ impl<F: PresetFile> Store<F> {
     ///
     /// What is exported is the preset as last **saved**, never its autosave: an export is a file
     /// someone hands on under the preset's name, and unsaved edits are not what that name says
-    /// (upstream PR #155, `FxController.cpp:1411`, which exports `preset.path`). Save first to
-    /// export the edits.
+    /// (the original's PR #155, `FxController.cpp:1411`, which exports `preset.path`). Save first
+    /// to export the edits.
     ///
     /// A file the volume finds in `dir` under the name but keeps under another (`alias_of`) — on
     /// Windows `ROCKCO~1.fac` once NTFS has given `Rock Concert Live.fac` that 8.3 short name — is
@@ -1357,7 +1357,7 @@ mod tests {
     fn a_name_becomes_a_filename_through_the_one_sanitiser() {
         // 0.3.0 had two sanitisers: the command line stripped nine characters while this store
         // replaced three with underscores, so a name with a `:` typed in the window became a
-        // file the Windows build could not open. Both routes now go through
+        // file the original could not open. Both routes now go through
         // `sanitise_preset_name`; the name inside the file stays what was typed.
         let tmp = tempdir("sanitise");
         let mut store = PresetStore::with_dirs(Vec::new(), tmp.join("user"));
@@ -1427,7 +1427,7 @@ mod tests {
 
     #[test]
     fn an_export_writes_the_saved_preset_and_never_its_unsaved_edits() {
-        // Upstream PR #155: the export went through the autosave-preferring load, so a preset
+        // The original's PR #155: the export went through the autosave-preferring load, so a preset
         // with unsaved edits was handed on under its name carrying edits nobody had saved.
         let tmp = tempdir("export-saved");
         let mut store = store_in(&tmp);
@@ -2408,7 +2408,7 @@ mod tests {
 
     #[test]
     fn a_name_with_a_line_break_is_saved_as_a_preset_the_list_still_shows() {
-        // `fxsound --save_preset="$(xclip -o)"` with a multi-line selection: the file was
+        // `crossfx --save_preset="$(xclip -o)"` with a multi-line selection: the file was
         // written with the break in its name line, did not parse, and the preset vanished.
         let tmp = tempdir("line-break");
         let mut store = PresetStore::with_dirs(Vec::new(), tmp.join("user"));
@@ -2856,8 +2856,8 @@ mod tests {
 
     #[test]
     fn a_twenty_band_curve_is_exported_on_the_windows_ladder_band_for_band() {
-        // 0.4.0 audit R4: the port's twenty bands sit every half octave; a `.fac` for a Windows
-        // FxSound carries the ladder it tunes twenty bands to.
+        // 0.4.0 audit R4: CrossFX's twenty bands sit every half octave; a `.fac` for the original
+        // FxSound for Windows carries the ladder it tunes twenty bands to.
         let tmp = tempdir("export-twenty");
         let mut store = PresetStore::with_dirs(Vec::new(), tmp.join("user"));
         let preset = twenty_band_preset("Twenty", &fxsound_core::eq::TWENTY_BAND_CENTRES_HZ);
@@ -2865,7 +2865,7 @@ mod tests {
         assert_eq!(
             crate::load(&saved).expect("load").eq_bands,
             preset.eq_bands,
-            "the user's own file keeps the port's ladder"
+            "the user's own file keeps CrossFX's ladder"
         );
 
         let out = tmp.join("out");
@@ -2921,8 +2921,8 @@ mod tests {
 
     #[test]
     fn end_bands_exported_as_they_are_keep_where_they_were_tuned() {
-        // «Like FxSound for Windows» = Interface and sound, the export window's choice (roadmap
-        // §14 #56): the end bands stay where they are, and only the equalizer's own window
+        // «Like the original FxSound LLC» = Interface and sound, the export window's choice
+        // (roadmap §14 #56): the end bands stay where they are, and only the equalizer's own window
         // limits a centre.
         let tmp = tempdir("export-as-they-are");
         let mut store = PresetStore::with_dirs(Vec::new(), tmp.join("user"));
@@ -2967,7 +2967,7 @@ mod tests {
 
     #[test]
     fn a_twenty_band_curve_exported_as_it_is_still_goes_onto_the_windows_ladder() {
-        // The end bands are the choice; the twenty-band ladder is what the Windows build tunes
+        // The end bands are the choice; the twenty-band ladder is what the original tunes
         // twenty bands to either way (audit report R4).
         let tmp = tempdir("export-twenty-as-they-are");
         let mut store = PresetStore::with_dirs(Vec::new(), tmp.join("user"));
@@ -3017,8 +3017,8 @@ mod tests {
 
     #[test]
     fn a_shipped_preset_is_exported_as_it_came_unless_its_first_band_is_below_the_ladder() {
-        // Every preset the Windows build ships starts at 62.5 Hz and ends at or below 16 kHz, where
-        // its wheels stop, and goes back out exactly as it came. Two this port revoiced reach
+        // Every preset the original ships starts at 62.5 Hz and ends at or below 16 kHz, where
+        // its wheels stop, and goes back out exactly as it came. Two CrossFX revoiced reach
         // lower, and a `.fac` for Windows carries their first band at 62.5 Hz (0.4.0 audit R6).
         let tmp = tempdir("export-shipped");
         let store = store_in(&tmp);

@@ -1,5 +1,5 @@
 //! What the workspace's tests share, and nothing else does: built with the `test-support`
-//! feature, which only the crates' dev-dependencies turn on, so none of it is in FxSound itself.
+//! feature, which only the crates' dev-dependencies turn on, so none of it is in CrossFX itself.
 //!
 //! Two kinds of leftover used to outlive the tests that made them. Scratch directories under
 //! `/tmp`, removed on a test's last line — which a failed assertion never reaches — piled up by
@@ -25,7 +25,7 @@ use std::sync::{OnceLock, mpsc};
 pub struct ScratchDir(tempfile::TempDir);
 
 impl ScratchDir {
-    /// A new directory in the temporary directory, called `fxsound-<tag>-` and a random suffix.
+    /// A new directory in the temporary directory, called `crossfx-<tag>-` and a random suffix.
     #[must_use]
     pub fn new(tag: &str) -> Self {
         Self::within(&std::env::temp_dir(), tag)
@@ -38,8 +38,8 @@ impl ScratchDir {
     #[must_use]
     pub fn for_sockets(tag: &str) -> Self {
         let parent = std::env::temp_dir();
-        // `fxsound-`, the tag, `-` and the six random characters.
-        let length = parent.as_os_str().len() + "/fxsound--XXXXXX".len() + tag.len();
+        // `crossfx-`, the tag, `-` and the six random characters.
+        let length = parent.as_os_str().len() + "/crossfx--XXXXXX".len() + tag.len();
         if length <= 48 {
             Self::within(&parent, tag)
         } else {
@@ -57,7 +57,7 @@ impl ScratchDir {
 
     fn within(parent: &Path, tag: &str) -> Self {
         let made = tempfile::Builder::new()
-            .prefix(&format!("fxsound-{tag}-"))
+            .prefix(&format!("crossfx-{tag}-"))
             .tempdir_in(parent)
             .unwrap_or_else(|error| {
                 panic!(
@@ -365,7 +365,7 @@ fn spawned_by_the_keeper(command: Command) -> io::Result<Child> {
     let keeper = KEEPER.get_or_init(|| {
         let (requests, incoming) = mpsc::channel::<Request>();
         std::thread::Builder::new()
-            .name("fxsound-test-children".to_owned())
+            .name("crossfx-test-children".to_owned())
             .spawn(move || {
                 for (mut command, reply) in incoming {
                     let _ = reply.send(command.spawn());
@@ -388,7 +388,7 @@ fn watchdog(pid: u32) -> io::Result<Child> {
     Command::new("sh")
         .arg("-c")
         .arg("read -r line; kill -KILL \"$1\" 2>/dev/null")
-        .arg("fxsound-test-watchdog")
+        .arg("crossfx-test-watchdog")
         .arg(pid.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -562,11 +562,11 @@ mod tests {
 
     #[test]
     fn a_program_that_is_not_installed_fails_to_start_as_not_found() {
-        let error = spawn(command("fxsound-no-such-program-for-tests"))
+        let error = spawn(command("crossfx-no-such-program-for-tests"))
             .err()
             .expect("nothing to start");
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
-        let error = spawn(command_writing_at_most("fxsound-no-such-program", 1024))
+        let error = spawn(command_writing_at_most("crossfx-no-such-program", 1024))
             .err()
             .expect("nothing to start");
         assert_eq!(error.kind(), io::ErrorKind::NotFound);

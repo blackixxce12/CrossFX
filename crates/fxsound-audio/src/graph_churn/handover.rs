@@ -1,7 +1,7 @@
 //! The smooth handover as the power button uses it, with WirePlumber moving the streams (roadmap
 //! 0.5.0 §7, D2): what the engine leaves of an application's volume when the handover is cut
 //! short — by a kill, by the way out — and what it does not touch when the desktop moves a stream
-//! with FxSound out of the sound. What the moves sound like is [`clicks`](super::clicks)'.
+//! with CrossFX out of the sound. What the moves sound like is [`clicks`](super::clicks)'.
 
 use super::policy::PolicyGraph;
 use super::*;
@@ -118,17 +118,17 @@ fn following_player(graph: &PolicyGraph) -> Option<apps::App> {
     )
 }
 
-/// An engine on `graph` that has taken the default sink, with the player linked to FxSound's sink.
+/// An engine on `graph` that has taken the default sink, with the player linked to CrossFX's sink.
 fn engine_with_the_default(graph: &PolicyGraph, journal: PathBuf) -> EngineHandle {
     let handle = AudioEngine::start_with_journal(Some(&graph.remote()), journal.clone())
         .expect("the engine should start");
     assert_eq!(
         graph.default_settles_on(DeviceDirection::Output, SINK_NODE_NAME),
         Some(Ok(())),
-        "FxSound never became the default sink"
+        "CrossFX never became the default sink"
     );
     assert!(links(graph, "t_player", SINK_NODE_NAME));
-    // The claim moved the player onto FxSound, faded: over once its line is out of the journal.
+    // The claim moved the player onto CrossFX, faded: over once its line is out of the journal.
     assert!(
         gone(&journal),
         "the claim's handover never gave the player its volume back"
@@ -309,11 +309,11 @@ fn the_engine_half_of_a_killed_run_turns_the_power_off_when_asked() {
 }
 
 /// Roadmap §7, test 5: with the power off, the desktop picking another sink is WirePlumber's move
-/// alone. The player goes to the sink picked, FxSound writes nothing to its volume and does not
+/// alone. The player goes to the sink picked, CrossFX writes nothing to its volume and does not
 /// take the default back; the lane, which follows the system's default device, goes there too,
 /// and the app is told, for the next start (0.4.0 deferred).
 #[test]
-fn a_desktop_pick_with_the_power_off_moves_the_stream_without_fxsound() {
+fn a_desktop_pick_with_the_power_off_moves_the_stream_without_crossfx() {
     let Some(graph) = PolicyGraph::start("hooff") else {
         return;
     };
@@ -365,22 +365,22 @@ fn a_desktop_pick_with_the_power_off_moves_the_stream_without_fxsound() {
     assert_eq!(
         graph.configured_default(DeviceDirection::Output).as_deref(),
         Some("t_other"),
-        "FxSound took the default back with its power off"
+        "CrossFX took the default back with its power off"
     );
     assert_eq!(
         volume_of(&graph, "t_player"),
         Some(1.0),
-        "FxSound touched the volume of a stream it did not move"
+        "CrossFX touched the volume of a stream it did not move"
     );
-    assert!(!journal.exists(), "FxSound faded a stream it did not move");
+    assert!(!journal.exists(), "CrossFX faded a stream it did not move");
     handle.shutdown();
 }
 
-/// The power switched off and straight back on, before the hand-back's turn came: FxSound keeps
+/// The power switched off and straight back on, before the hand-back's turn came: CrossFX keeps
 /// the default, and the player, faded for a move that is not made, gets its volume back at once —
 /// not after a second of waiting for a new link that is not coming.
 #[test]
-fn a_power_switched_back_on_before_its_hand_back_keeps_fxsound_the_default_and_the_volume() {
+fn a_power_switched_back_on_before_its_hand_back_keeps_crossfx_the_default_and_the_volume() {
     let Some(graph) = PolicyGraph::start("hoback") else {
         return;
     };
@@ -428,10 +428,10 @@ fn a_power_switched_back_on_before_its_hand_back_keeps_fxsound_the_default_and_t
 }
 
 /// Following the system's default device, the desktop picks another sink with the power on: the
-/// lane moves there and FxSound takes the default back, moving the player off that sink and onto
-/// FxSound again — a move of FxSound's own, faded like the power button's. The power going off
+/// lane moves there and CrossFX takes the default back, moving the player off that sink and onto
+/// CrossFX again — a move of CrossFX's own, faded like the power button's. The power going off
 /// then hands the default to the sink the desktop picked, where the lane plays, and not to the one
-/// FxSound displaced when it first took the default (roadmap §7, D2: where the default goes back to
+/// CrossFX displaced when it first took the default (roadmap §7, D2: where the default goes back to
 /// in this mode).
 #[test]
 fn after_a_desktop_pick_the_power_off_hands_the_default_to_the_device_picked() {
@@ -460,7 +460,7 @@ fn after_a_desktop_pick_the_power_off_hands_the_default_to_the_device_picked() {
     assert_eq!(
         graph.default_settles_on(DeviceDirection::Output, SINK_NODE_NAME),
         Some(Ok(())),
-        "FxSound did not take the default back after the desktop's pick"
+        "CrossFX did not take the default back after the desktop's pick"
     );
     assert!(links(&graph, "t_player", SINK_NODE_NAME));
     assert!(volume_settles_on(&graph, "t_player", 1.0));

@@ -3,7 +3,7 @@
 //! Despite the extension the format is plain text, one `value: description` line at a time, written
 //! by `valsSave()` and read by `valsRead()` in `dsp/ptutil/Vals/Valsfile.cpp`. The grammar is
 //! documented in `docs/spec/11-preset-format.md`; this module implements it faithfully enough to
-//! round-trip every file FxSound ships.
+//! round-trip every file the original FxSound ships.
 //!
 //! Three quirks of the original are reproduced deliberately:
 //!
@@ -19,7 +19,7 @@
 //! is saved as a current one (0.4.0 audit #46).
 //!
 //! Line endings are accepted as LF or CRLF, with or without a final terminator, because the files
-//! in the FxSound tree are a mix of all three.
+//! in the original FxSound's tree are a mix of all three.
 
 #![forbid(unsafe_code)]
 
@@ -134,7 +134,7 @@ pub const MAX_PRESET_NAME_LEN: usize = 64;
 ///
 /// The one sanitiser for every route a name takes to disk. 0.3.0 had two — the command line
 /// stripped nine characters and the store replaced three with underscores — and a name typed
-/// with a `:` in the window became a file the Windows build could not open. Step 3, the
+/// with a `:` in the window became a file the original could not open. Step 3, the
 /// case-insensitive collision check against the existing names (`FxModel.cpp:142-153`), needs the
 /// preset list and so belongs to the controller. The order matters and is why
 /// `--save_preset="Mu:sic"` is a no-op when a preset named `Music` exists: stripping the `:`
@@ -169,11 +169,12 @@ pub fn sanitise_preset_name(name: &str) -> String {
 pub const MAX_NAME_BYTES: usize = 126;
 
 /// A name for a preset about to be **created** — Save New Preset, Rename Preset, `--save_preset`,
-/// an import, the calibration wizard's — made safe for every FxSound to read (0.4.0 audit #15):
-/// [`sanitise_preset_name`], then cut to [`MAX_NAME_BYTES`] on a character boundary.
+/// an import, the calibration wizard's — made safe for the original and CrossFX alike to read
+/// (0.4.0 audit #15): [`sanitise_preset_name`], then cut to [`MAX_NAME_BYTES`] on a character
+/// boundary.
 ///
 /// Sixty-four characters is what the original's editor allows, but its file reader counts bytes:
-/// sixty-four Cyrillic letters are 128 bytes, and the Windows build read a preset with such a
+/// sixty-four Cyrillic letters are 128 bytes, and the original read a preset with such a
 /// name back shifted by a line. Only new names are cut. A preset already on disk keeps its name
 /// and its files — the autosave and export paths come from [`sanitise_preset_name`], which is
 /// unchanged — so nothing that exists is orphaned.
@@ -442,7 +443,7 @@ pub fn parse(bytes: &[u8]) -> Result<Preset, PresetError> {
 /// Serialise a preset back to `.fac` text with LF line endings.
 ///
 /// Byte-identical to what the original writes for any preset it produced, apart from the line
-/// ending: the Windows build opens the file in text mode so it emits CRLF. Files in the FxSound
+/// ending: the original opens the file in text mode so it emits CRLF. Files in the original
 /// tree use both, and the reader accepts either.
 ///
 /// Always as the current version, [`VALS_FILE_VERSION`], whatever `preset.version` says, and so
@@ -711,7 +712,7 @@ fn scan_f32(line: &str) -> Option<f32> {
     // but an overflowing magnitude can: `1e40` parses cleanly to `+inf`. That value rides into
     // the preset, and the moment the application autosaves it, `format_g` writes it back as C's
     // `%g` spelling of infinity, which this scanner then refuses. One bad import makes the
-    // preset permanently unreadable, by this port and by the Windows original alike. Refusing it
+    // preset permanently unreadable, by CrossFX and by the original alike. Refusing it
     // here turns it into an error the user is told about at import time instead.
     s[..end]
         .parse::<f32>()
