@@ -100,13 +100,19 @@ mod tests {
                 .find(&start)
                 .unwrap_or_else(|| panic!("build.rs declares no {name}"))
                 + start.len();
-            script[at..].split('"').next().unwrap_or_default().to_owned()
+            script[at..]
+                .split('"')
+                .next()
+                .unwrap_or_default()
+                .to_owned()
         };
         assert_eq!(constant("BINARY"), BINARY);
         assert_eq!(constant("PRODUCT"), PRODUCT);
         assert_eq!(constant("COMPANY"), format!("{PRODUCT} contributors"));
         assert!(
-            script.contains(&format!("Copyright \\u{{a9}} {PRODUCT} contributors, portions")),
+            script.contains(&format!(
+                "Copyright \\u{{a9}} {PRODUCT} contributors, portions"
+            )),
             "the copyright line names CrossFX's contributors"
         );
     }

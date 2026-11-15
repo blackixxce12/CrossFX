@@ -1,15 +1,15 @@
 //! Settings ▸ General ▸ "Interface font", the application's side: what is chosen, the Gilroy the
 //! user has, the files they add, and the designer's store.
 //!
-//! FxSound sets its window in Manrope, which it ships, or in Gilroy, the original FxSound's face,
+//! CrossFX sets its window in Manrope, which it ships, or in Gilroy, the original FxSound's face,
 //! which it neither ships nor downloads (`fxsound_ui::typeface`). A Gilroy is looked for at start
 //! and whenever the option moves to it: first among the files the user added, which "Add Gilroy
-//! files…" copies into FxSound's own data folder (`Settings::user_font_dir`), then — unless those
+//! files…" copies into CrossFX's own data folder (`Settings::user_font_dir`), then — unless those
 //! are a whole Gilroy already — on the system (`fxsound_core::fonts::system_font_dirs`). What is
 //! found goes to the window's typeface, which the window installs from the next frame it draws
 //! (`fxsound_ui::typeface::sync`) — or keeps Manrope while it is not all there.
 //!
-//! The window's thread reads one thing here, FxSound's own folder at start, which a window set in
+//! The window's thread reads one thing here, CrossFX's own folder at start, which a window set in
 //! the user's Gilroy needs before it opens. The system's font folders — thousands of files on
 //! Linux, read from a cold disk at login — are listed on a thread of their own, at start and when
 //! Gilroy is chosen; the file picker runs on one too, as the import window's folder picker does,
@@ -68,9 +68,9 @@ static LOOKING: Mutex<()> = Mutex::new(());
 /// Where [`find`] looks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Folders {
-    /// FxSound's own folder only: what "Add Gilroy files…" put there.
+    /// CrossFX's own folder only: what "Add Gilroy files…" put there.
     Own,
-    /// FxSound's own folder, then the system's unless the own folder is a whole Gilroy.
+    /// CrossFX's own folder, then the system's unless the own folder is a whole Gilroy.
     All,
 }
 
@@ -78,7 +78,7 @@ enum Folders {
 /// a thread of this module has found something.
 ///
 /// The files the user added are read at once, so that a window set in them opens in them. The
-/// system's font folders are listed on a thread of their own, and only when FxSound's own folder
+/// system's font folders are listed on a thread of their own, and only when CrossFX's own folder
 /// is not a whole Gilroy: `/usr/share/fonts` can be thousands of files, read from a cold disk at
 /// login. A Gilroy found there shows on the frame its thread wakes the window for.
 pub fn install(settings: &Settings, waker: &Waker) {
@@ -97,7 +97,7 @@ pub fn act(action: &FontAction, settings: &mut Settings, state: &mut SettingsSta
             state.settings.interface_font = *font;
             typeface::set_choice(*font);
             pane().message = None;
-            // A Gilroy installed since FxSound started is found the moment it is chosen — on a
+            // A Gilroy installed since CrossFX started is found the moment it is chosen — on a
             // thread, as at start, so that neither a cold font folder nor the look at start, still
             // reading one, holds up the window the click came from.
             if *font == InterfaceFont::Gilroy {
@@ -134,7 +134,7 @@ pub fn refresh(state: &mut SettingsState) {
 /// Look for Gilroy in `folders`, hand what was found to the window's typeface, and tell the pane
 /// how much of it there is.
 ///
-/// FxSound's own folder is read whole: every `.ttf` and `.otf` file there, which is every file
+/// CrossFX's own folder is read whole: every `.ttf` and `.otf` file there, which is every file
 /// "Add Gilroy files…" keeps (`fxsound_core::fonts::keep` gives a face that came without either
 /// one of them). The system's are read for files whose names say Gilroy, and only when the own
 /// folder is not a whole Gilroy: the first face found for each weight is the one kept, and the
@@ -194,7 +194,7 @@ fn gilroy_faces(files: Vec<FontFile>) -> Vec<(GilroyFace, Vec<u8>)> {
 /// the folders after whatever asked for it. The thread is not joined; it ends with its look.
 fn look_on_a_thread() {
     let spawned = std::thread::Builder::new()
-        .name("fxsound-fonts".into())
+        .name("crossfx-fonts".into())
         .spawn(|| {
             find(Folders::All);
             wake();
@@ -214,7 +214,7 @@ fn wake() {
 }
 
 /// The files the user picked: each that is a Gilroy face the window uses is copied into
-/// FxSound's own folder, the others are named back, and Gilroy is looked for again. On the
+/// CrossFX's own folder, the others are named back, and Gilroy is looked for again. On the
 /// picker's thread: the files are read whole and each copy is synced to the disk.
 fn add(files: &[PathBuf]) {
     let folder = Settings::user_font_dir();
@@ -281,7 +281,7 @@ fn start_picker() {
     let title = tr(PICKER_TITLE);
     let start = dirs::download_dir().or_else(dirs::home_dir);
     let spawned = std::thread::Builder::new()
-        .name("fxsound-font-picker".into())
+        .name("crossfx-font-picker".into())
         .spawn(move || {
             // Dropped as the thread ends, which is what `picking` looks for.
             let _running = running;

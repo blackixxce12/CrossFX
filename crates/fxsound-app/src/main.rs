@@ -1,4 +1,4 @@
-//! The FxSound binary: parse the command line, be the single instance, run the window.
+//! The CrossFX binary: parse the command line, be the single instance, run the window.
 //!
 //! Everything interesting lives in the library next door. This file is the shell that wires the
 //! controller to eframe, the tray, the control socket and the D-Bus service, and it is
@@ -10,20 +10,20 @@
 //!    take a lock, open a socket, show a window or write a setting (0.4.0 design §13).
 //! 2. Try to become the single instance. If another one is already running, forward the command
 //!    line to it over the control socket, print whatever it says and exit — which is what makes
-//!    `fxsound --next-preset` usable as a compositor keybind. `--watch` subscribes instead and
+//!    `crossfx --next-preset` usable as a compositor keybind. `--watch` subscribes instead and
 //!    prints the running instance's events until it quits. `--quit`, `--status` and `--watch`
-//!    with nobody to forward to report that FxSound is not running and stop right here, before
+//!    with nobody to forward to report that CrossFX is not running and stop right here, before
 //!    step 3 could claim the session default sink, and so do `--next-output` and `--next-input`;
 //!    `--list-apps` is answered from the store on disk and stops here too.
 //! 3. Start the audio engine. A missing or broken PipeWire is **not** fatal: the window still
-//!    opens and says so. The Windows build quits hard when its driver is missing; on Linux the
+//!    opens and says so. The original quits hard when its driver is missing; on Linux the
 //!    same conditions are routine and recoverable (`docs/spec/00-architecture.md` §10, open
 //!    question 6).
-//! 4. Apply the cold-start options — every option that sets something, where the Windows build
+//! 4. Apply the cold-start options — every option that sets something, where the original
 //!    drops the band lists, the effects and the preset management at a start — register the
 //!    tray, then alternate between the two states below until something asks to quit. A line
-//!    that only sets something — `fxsound --preset=Gaming` from a keybinding — starts in the
-//!    tray, as a running FxSound leaves its window alone for it (0.4.0 audit R11); with no tray
+//!    that only sets something — `crossfx --preset=Gaming` from a keybinding — starts in the
+//!    tray, as a running CrossFX leaves its window alone for it (0.4.0 audit R11); with no tray
 //!    icon after a few seconds the window comes up minimised instead ([`TRAY_WAIT`]), and so it
 //!    does for a start the remembered tray state put in the tray ([`waits_for_a_tray`]).
 //!    `--next-output` and `--next-input` have no device to step from at a start: step 2 refuses
@@ -54,9 +54,9 @@
 //! tray too while a tray icon is there to come back from — a Wayland compositor such as Hyprland
 //! or sway has no minimised state to put a window in — and minimises the window as the original
 //! does when there is none (0.4.0 audit #43), so that it cannot vanish on a GNOME session without
-//! the AppIndicator extension. ✕ hides either way: FxSound processes the whole session's sound,
+//! the AppIndicator extension. ✕ hides either way: CrossFX processes the whole session's sound,
 //! and a close that quit would stop it; with no tray the one-time notice says how to get the
-//! window back (`fxsound --show`, or launching FxSound again). Either brings a minimised window
+//! window back (`crossfx --show`, or launching CrossFX again). Either brings a minimised window
 //! back too: out of the minimised state on X11, and on Wayland, where a client cannot do that,
 //! as a fresh window in its place ([`show_action`]). On Wayland
 //! a client cannot unmap and later remap its toplevel through winit —
@@ -68,7 +68,7 @@
 //! [`eframe::run_native`] may be called again and again in one process. To hide, the shell
 //! sends `ViewportCommand::Close`; the window is destroyed and `run_native` returns. To show, a
 //! fresh window is run. In between, [`Runtime::run_headless`] pumps the engine, the control
-//! socket and the tray as they wake it — audio never stops, `fxsound --show` and the tray still
+//! socket and the tray as they wake it — audio never stops, `crossfx --show` and the tray still
 //! work. What the window showed that is not the controller's — an open pane, the face the effect
 //! column was turned to — is kept for the next window ([`Panes`]), so hiding and showing it again
 //! looks the way hiding a window does.
@@ -89,18 +89,18 @@
 //! The same shell, over `fxsound_app::win`'s stand-ins: the control pipe for the socket, the
 //! notification area for the StatusNotifierItem, no D-Bus service, and the power notification for
 //! logind. A release build is a GUI program, so that no console window opens with it; it takes
-//! the console of the terminal it was started from, if any, so that `fxsound --status` still
-//! prints there, and what was redirected, `fxsound --status > status.txt`, stays where it was
-//! sent. The running FxSound gives the console back before its engine starts
+//! the console of the terminal it was started from, if any, so that `crossfx --status` still
+//! prints there, and what was redirected, `crossfx --status > status.txt`, stays where it was
+//! sent. The running CrossFX gives the console back before its engine starts
 //! (`fxsound_app::platform::release_terminal`), borrowing it again only when the options it was
 //! started with have something to report on a stream that was the terminal's, and only for the
 //! moment it takes to print that (`fxsound_app::platform::on_the_terminal`). The tray-only state
 //! pumps the GUI thread's window messages while it waits ([`wait_for_any`]): eframe's event loop
 //! keeps a hidden window on this thread between two windows, and a thread that does not answer
 //! its windows' messages holds up the end of the session. Ctrl+C and the console closing (a
-//! console of FxSound's own, the debug build's), log-off, shutdown and a `taskkill` without `/F`
+//! console of CrossFX's own, the debug build's), log-off, shutdown and a `taskkill` without `/F`
 //! are the tray's Exit, as the signals are on Linux (`fxsound_app::win::session`). The window
-//! carries FxSound's icon, which Windows takes from the window rather than from the app id
+//! carries CrossFX's icon, which Windows takes from the window rather than from the app id
 //! ([`native_options`]).
 
 #![forbid(unsafe_code)]
@@ -126,7 +126,7 @@ use fxsound_app::{
     tray::{self, TrayCommand, TrayHandle},
     wake::{Waker, WakingSender},
 };
-use fxsound_core::{ThemeMode, ViewMode, i18n::tr};
+use fxsound_core::{ThemeMode, ViewMode, i18n::tr, identity};
 use fxsound_ui::{
     FxColor, Palette, UiAction,
     dialogs::{
@@ -146,7 +146,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-/// What ends FxSound from outside, as the tray's Exit: the signal thread's handle on Linux, the
+/// What ends CrossFX from outside, as the tray's Exit: the signal thread's handle on Linux, the
 /// console and session watcher on Windows. Closed last on the way out ([`Runtime::shutdown`]).
 #[cfg(target_os = "linux")]
 type Signals = signal_hook::iterator::Handle;
@@ -166,11 +166,11 @@ const CONTROL_CHANNEL: &str = if cfg!(windows) {
 /// Everything that hands the GUI thread work wakes it (see the module docs), so this is only for
 /// what nothing announces: sound starting or stopping on a device that was running already, which
 /// the tray's icon and the window's logo show. Once a second costs nothing measurable; the 10 Hz
-/// poll it replaces kept an idle FxSound on the CPU for as long as it ran.
+/// poll it replaces kept an idle CrossFX on the CPU for as long as it ran.
 const KEEPALIVE: Duration = Duration::from_secs(1);
 
-/// The changelog Settings ▸ Help shows; bundled, since this fork never sends the user to the
-/// upstream website.
+/// The changelog Settings ▸ Help shows; bundled, since CrossFX never sends the user to the
+/// original's website.
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
 
 /// How far the fitted zoom may drift from the one in effect before it is re-applied — a set on
@@ -194,7 +194,7 @@ fn main() -> eframe::Result<()> {
     let cli = Cli::parse();
 
     // Step 1½: the self-test belongs to this process, not to an instance. It runs beside a
-    // running FxSound and in a container with no session, and it leaves no trace in either.
+    // running CrossFX and in a container with no session, and it leaves no trace in either.
     if cli.self_test {
         let report = selftest::run(&selftest::Environment::detect());
         println!("{}", report.render(cli.json));
@@ -207,9 +207,9 @@ fn main() -> eframe::Result<()> {
         Ok(Instance::Secondary(client)) => {
             // Started by the bus or the user unit for an instance that turned out to be running
             // already: it is the one the bus was waiting for, and nothing is forwarded — least of
-            // all the `--hide` a plain `fxsound --hide` would send to a window just opened.
+            // all the `--hide` a plain `crossfx --hide` would send to a window just opened.
             if cli.activated {
-                log::info!("FxSound is running already; nothing to activate");
+                log::info!("CrossFX is running already; nothing to activate");
                 std::process::exit(0);
             }
             // A stream, not one answer: print events until the running instance quits. Decided by
@@ -249,13 +249,13 @@ fn main() -> eframe::Result<()> {
         }
     };
 
-    // Holding the lock means no FxSound is running. `--status`, `--watch` and `--quit` address
+    // Holding the lock means no CrossFX is running. `--status`, `--watch` and `--quit` address
     // one (`docs/spec/00-architecture.md` §4.7): say so and leave before step 3 claims the
-    // session default sink — starting FxSound to answer would be the opposite of what was asked.
+    // session default sink — starting CrossFX to answer would be the opposite of what was asked.
     // `--list-apps` is answered from the store on disk instead, which is the way to look up a
-    // name for `--app-preset` before FxSound runs, and a `--forget-device` on its own is done to
+    // name for `--app-preset` before CrossFX runs, and a `--forget-device` on its own is done to
     // the settings file, so the script that ran it gets its exit status rather than becoming
-    // FxSound. `--next-output` and `--next-input` have no device to step from until FxSound has
+    // CrossFX. `--next-output` and `--next-input` have no device to step from until CrossFX has
     // started and attached its lanes, so a line with one is refused and starts nothing. Which of
     // them a line is, the same `commands()` decides that a running instance runs, so `--watch
     // --list-apps` lists here as it does there (`commands::answer_without_an_instance`). Dropping
@@ -275,7 +275,7 @@ fn main() -> eframe::Result<()> {
         std::process::exit(i32::from(answer.failed));
     }
 
-    // A `--forget-device` beside options that start FxSound: done to the settings file before
+    // A `--forget-device` beside options that start CrossFX: done to the settings file before
     // they are read, as it is on a line of its own above. At a cold start there is no device list
     // to wait for yet, and nothing is attached to the device it names (0.4.0 audit #34), so
     // `Command::honoured_at_cold_start` leaves it out of step 4. Reported, and the start goes on.
@@ -286,7 +286,7 @@ fn main() -> eframe::Result<()> {
     if !forgotten.stderr.is_empty() {
         eprintln!("{}", forgotten.stderr);
     }
-    // This process is the running FxSound, and what remains to be said waits for the engine: a
+    // This process is the running CrossFX, and what remains to be said waits for the engine: a
     // release build on Windows gives back the terminal it borrowed before the engine starts, and
     // runs on as a program of its own. Held, a Ctrl+C typed there or the terminal closing would
     // end it halfway through taking over the default device.
@@ -317,7 +317,7 @@ fn main() -> eframe::Result<()> {
     // anything is drawn, on the presets `App::new` has read. No application stream
     // has been reported yet, so a preset named for an application the store does not know is held
     // until the engine has said which applications play and record: the game that was started
-    // before FxSound is then reached by its own streams, as a running FxSound would reach it.
+    // before CrossFX is then reached by its own streams, as a running CrossFX would reach it.
     app.hold_app_presets();
     let cold = commands::run(&mut app, &cli.cold_start_commands());
     // Said where the line was typed, and the start carries on whatever it says: the device list
@@ -330,9 +330,10 @@ fn main() -> eframe::Result<()> {
     // no such thing as a hidden window here (see the module docs). An explicit `--show` overrides
     // the preference, as `--hide` overrides it the other way (`Cli::cold_start_commands`), and so
     // does `--toggle-window`, since the window it toggles is not up yet. A line that only sets
-    // something starts in the tray too (`cold_start_visibility`), except at «Как в Windows» =
-    // Interface and above one with an option the Windows build has, whose start shows its window
-    // (0.4.0 audit R11, `Cli::only_sets_things_at`) — at the level the line itself may have set.
+    // something starts in the tray too (`cold_start_visibility`), except at «Как в оригинальном
+    // FxSound LLC» = Interface and above one with an option the original has, whose start shows its
+    // window (0.4.0 audit R11, `Cli::only_sets_things_at`) — at the level the line itself may have
+    // set.
     let quiet = cli.only_sets_things_at(app.windows_parity());
     let mut visibility = cold_start_visibility(
         cold.window.hide,
@@ -401,7 +402,7 @@ fn main() -> eframe::Result<()> {
 
     // Step 6: suspend and resume (U13). logind's `PrepareForSleep` reaches the pump over a
     // channel, and the controller tells the engine, which silences both lanes on the way down and
-    // starts them clean on the way up. Nothing holds the suspend up (upstream PR #533).
+    // starts them clean on the way up. Nothing holds the suspend up (the original's PR #533).
     let (sleep_tx, sleep_rx) = crossbeam_channel::unbounded();
     let sleep = SleepWatch::start(WakingSender::new(sleep_tx, waker.clone()));
 
@@ -472,7 +473,7 @@ enum WindowExit {
     /// click, or the compositor's close request. The engine keeps running.
     #[default]
     Hidden,
-    /// Leave: the tray's Exit item or `fxsound --quit`.
+    /// Leave: the tray's Exit item or `crossfx --quit`.
     Quit,
     /// Close and map a fresh window at once: `--show` for a window the minimise button minimised,
     /// which a Wayland client cannot bring back itself ([`show_action`]). Not a hide: no tray tip,
@@ -491,8 +492,8 @@ enum HeadlessExit {
 
 /// How long a start in the tray waits for a tray icon to come up before it brings the window up
 /// minimised instead ([`waits_for_a_tray`]) — on GNOME without the AppIndicator extension there
-/// is none, and FxSound would run with nothing on screen to reach it by. A panel
-/// that is there registers the icon well within it; one that starts later still finds FxSound in
+/// is none, and CrossFX would run with nothing on screen to reach it by. A panel
+/// that is there registers the icon well within it; one that starts later still finds CrossFX in
 /// the tray.
 const TRAY_WAIT: Duration = Duration::from_secs(3);
 
@@ -500,7 +501,7 @@ const TRAY_WAIT: Duration = Duration::from_secs(3);
 /// the window up minimised: every start in the tray but one `--hide` or `--activated` asked for.
 ///
 /// That is a line that only sets something (0.4.0 audit R11, review FA), and a start the
-/// remembered tray state put there: FxSound quit in the tray on a desktop that had one and
+/// remembered tray state put there: CrossFX quit in the tray on a desktop that had one and
 /// launched again on one that has none (GNOME without an AppIndicator extension), where it would
 /// otherwise run with nothing on screen to reach it by. The autostart entry's `--hide` and the
 /// bus's and the user unit's `--activated` asked for no window, and get none.
@@ -510,8 +511,8 @@ const fn waits_for_a_tray(visibility: WindowVisibility, hide: bool) -> bool {
 
 /// Where a cold start begins (0.4.0 audit R11, review FA): in the tray for `--hide`, for the
 /// remembered `run_minimized` unless `--show` overrides it, and for a line that only sets
-/// something — `fxsound --preset=Gaming` from a keybinding in a fullscreen game, which a running
-/// FxSound answers without raising its window; with the window otherwise.
+/// something — `crossfx --preset=Gaming` from a keybinding in a fullscreen game, which a running
+/// CrossFX answers without raising its window; with the window otherwise.
 const fn cold_start_visibility(
     hide: bool,
     show: bool,
@@ -575,9 +576,9 @@ struct Runtime {
     start_minimised: bool,
     /// The window closing now is being opened again ([`WindowExit::Reopen`]): not news.
     reopening: bool,
-    /// The window being opened is only the one «Like FxSound for Windows» raises for a forwarded
-    /// line that sets something ([`commands::WindowRequest::raised_like_windows`]): if it cannot
-    /// be opened, FxSound runs on without it ([`Runtime::window_failed`]).
+    /// The window being opened is only the one «Like the original FxSound LLC» raises for a
+    /// forwarded line that sets something ([`commands::WindowRequest::raised_like_windows`]): if it
+    /// cannot be opened, CrossFX runs on without it ([`Runtime::window_failed`]).
     only_raised_like_windows: bool,
 }
 
@@ -614,7 +615,7 @@ impl Runtime {
             .chain(arrived)
             .collect();
         for (forwarded, until) in lines {
-            // Its caller was told FxSound did not answer in time and has gone: carried out now,
+            // Its caller was told CrossFX did not answer in time and has gone: carried out now,
             // a burst of them held up by a busy GUI thread would all land at once.
             if forwarded.is_abandoned() {
                 log::info!("not running a command whose caller stopped waiting for it");
@@ -704,7 +705,7 @@ impl Runtime {
         self.app.assets.clear();
         let mut options = native_options(self.app.state.view);
         if self.start_minimised {
-            // Not taken from the game that started FxSound, where the compositor lets a client
+            // Not taken from the game that started CrossFX, where the compositor lets a client
             // say so.
             options.viewport = options.viewport.with_active(false);
         }
@@ -718,7 +719,7 @@ impl Runtime {
         self.app.remember_window_hidden(false);
         let runtime = &mut *self;
         let run = eframe::run_native(
-            "FxSound",
+            identity::PRODUCT,
             options,
             Box::new(move |cc| {
                 let palette = runtime.app.palette();
@@ -753,7 +754,7 @@ impl Runtime {
     /// icon that is there, since a start in the tray is what the setting promises
     /// ([`App::remember_window_hidden`]) — and the `window visible=false` event. A quit is
     /// announced by [`Runtime::shutdown`], as `quit`, and leaves the setting as the window found
-    /// it: a window still showing when FxSound was told to quit.
+    /// it: a window still showing when CrossFX was told to quit.
     fn window_closed(&mut self, tray_visible: bool) -> WindowExit {
         // The wizard is a pane of the window that just went: a run it was in the middle of stops,
         // and the microphone is let go rather than held for a window that is not there.
@@ -767,7 +768,7 @@ impl Runtime {
         self.exit
     }
 
-    /// What happens when a window could not be created or run. Returns whether FxSound stays in
+    /// What happens when a window could not be created or run. Returns whether CrossFX stays in
     /// the tray; `false` leaves it to the caller to quit.
     ///
     /// With a tray icon on screen, it stays: the audio, the tray, the control socket and the bus
@@ -779,21 +780,21 @@ impl Runtime {
     /// logged, a notification says the window could not be opened, and the window's coming is
     /// announced undone: `window visible=false`. `run_minimized` stays the `false`
     /// [`Runtime::run_window`] wrote, since the window was asked for: the notification tells the
-    /// user to quit from the tray and start FxSound again, and that start, a bare `fxsound` from a
+    /// user to quit from the tray and start CrossFX again, and that start, a bare `crossfx` from a
     /// launcher, opens the window. The bus's `--activated` start stays in the tray whatever the
     /// setting says (`Cli::window_command`), so this brings back no failing start. With no tray
     /// icon there is nothing to fall back to, and it quits as before.
     ///
-    /// A window nobody asked for — the one «Like FxSound for Windows» raises for a forwarded line
-    /// that sets something, `fxsound --power=off` from a keybind — is no reason to quit, tray or
-    /// not: the line did what it said, and quitting over it would stop the sound of an instance
-    /// that has no display to open a window on at every such line. It is logged, and FxSound runs
+    /// A window nobody asked for — the one «Like the original FxSound LLC» raises for a forwarded
+    /// line that sets something, `crossfx --power=off` from a keybind — is no reason to quit, tray
+    /// or not: the line did what it said, and quitting over it would stop the sound of an instance
+    /// that has no display to open a window on at every such line. It is logged, and CrossFX runs
     /// on as it was, with no notification: the next such line would bring another.
     fn window_failed(&mut self, err: &dyn std::fmt::Display, tray_visible: bool) -> bool {
         if std::mem::take(&mut self.only_raised_like_windows) {
             log::warn!(
-                "the window «Like FxSound for Windows» raises for a command line could not be \
-                 opened: {err}; FxSound keeps running without it"
+                "the window «Like the original FxSound LLC» raises for a command line could not be \
+                 opened: {err}; CrossFX keeps running without it"
             );
             self.announce(&AppEvent::Window { visible: false });
             self.app.remember_window_hidden(tray_visible);
@@ -807,12 +808,12 @@ impl Runtime {
         }
         #[cfg(target_os = "linux")]
         log::error!(
-            "the window could not be run: {err}; FxSound keeps running in the system tray (is \
+            "the window could not be run: {err}; CrossFX keeps running in the system tray (is \
              WAYLAND_DISPLAY or DISPLAY set in its environment?)"
         );
         #[cfg(windows)]
         log::error!(
-            "the window could not be run: {err}; FxSound keeps running in the notification area"
+            "the window could not be run: {err}; CrossFX keeps running in the notification area"
         );
         self.app.cancel_calibration();
         self.announce(&AppEvent::Window { visible: false });
@@ -833,7 +834,7 @@ impl Runtime {
     /// The tray-only state: pump until something asks for the window or for the exit, blocking
     /// in between until something arrives ([`Runtime::wait`]).
     fn run_headless(&mut self) -> HeadlessExit {
-        log::info!("window hidden; FxSound keeps running in the system tray");
+        log::info!("window hidden; CrossFX keeps running in the system tray");
         loop {
             // Before the tick, so that a wake-up that comes during it is still pending after it.
             self.waker.clear();
@@ -959,7 +960,7 @@ fn wake_on_signals(waker: &Waker) -> Option<signal_hook::iterator::Handle> {
     let handle = signals.handle();
     let waker = waker.clone();
     let spawned = std::thread::Builder::new()
-        .name("fxsound-signals".to_owned())
+        .name("crossfx-signals".to_owned())
         .spawn(move || {
             for _ in signals.forever() {
                 waker.wake();
@@ -1045,14 +1046,16 @@ fn wait_for_any(channels: &[&dyn Watched], waker: &Waker, deadline: Instant) -> 
 /// The window eframe is asked for, sized for the current view.
 fn native_options(view: ViewMode) -> eframe::NativeOptions {
     let viewport = egui::ViewportBuilder::default()
-        .with_title("FxSound")
-        // Must match packaging/fxsound.desktop's filename stem, or the compositor cannot
-        // associate the window with its icon and rules.
-        .with_app_id("com.fxsound.FxSound")
+        // The title is CrossFX's at every level of «Как в оригинальном FxSound LLC», never the
+        // title of the original FxSound's window, which whatever looks for that one would find.
+        .with_title(identity::PRODUCT)
+        // Must match the desktop file's name, io.github.blackixxce12.CrossFX.desktop, or the
+        // compositor cannot associate the window with its icon and rules.
+        .with_app_id(identity::APP_ID)
         .with_inner_size(fxsound_ui::window_size(view))
         .with_min_inner_size(layout::lite::WINDOW_SIZE)
         .with_resizable(false)
-        // FxSound draws its own title bar, so no server-side decorations.
+        // CrossFX draws its own title bar, so no server-side decorations.
         .with_decorations(false)
         // Needed for the 21 px rounded corners not to be filled in black.
         .with_transparent(true);
@@ -1071,7 +1074,7 @@ fn native_options(view: ViewMode) -> eframe::NativeOptions {
     }
 }
 
-/// FxSound's icon on the window, for its taskbar button and Alt+Tab. A desktop on Linux finds the
+/// CrossFX's icon on the window, for its taskbar button and Alt+Tab. A desktop on Linux finds the
 /// icon through the app id above; Windows takes it from the window itself, and eframe puts egui's
 /// own logo there when it is given none. The same picture the Linux packages install as the
 /// application icon, at 256 px, which eframe scales to the sizes Windows asks for.
@@ -1081,7 +1084,7 @@ fn with_windows_icon(viewport: egui::ViewportBuilder) -> egui::ViewportBuilder {
     match eframe::icon_data::from_png_bytes(ICON_PNG) {
         Ok(icon) => viewport.with_icon(Arc::new(icon)),
         Err(err) => {
-            log::warn!("the window keeps eframe's icon: FxSound's could not be read ({err})");
+            log::warn!("the window keeps eframe's icon: CrossFX's could not be read ({err})");
             viewport
         }
     }
@@ -1124,7 +1127,7 @@ struct Shell<'a> {
     /// The size the viewport was last told to be, so a resize is sent only on a real change.
     applied_size: Option<egui::Vec2>,
     /// The palette the fonts and visuals were installed for: its theme and whether it is the
-    /// Windows build's ([`Palette::windows`]), whose edges the visuals' strokes carry too.
+    /// original's ([`Palette::windows`]), whose edges the visuals' strokes carry too.
     applied_palette: Palette,
     /// The hamburger menu.
     menu: Menu,
@@ -1159,7 +1162,7 @@ struct Shell<'a> {
     /// not at the one asked for ([`fit_zoom`]).
     compositor_sized: bool,
     /// A question the window is asking before it does something that cannot be taken back from
-    /// inside FxSound: deleting a preset, discarding every unsaved change.
+    /// inside CrossFX: deleting a preset, discarding every unsaved change.
     confirm: Option<Confirm>,
     /// The window asked the compositor to minimise it — the minimise button with no tray icon
     /// there (0.4.0 audit #43), or a start in the tray that found none — and has not had the
@@ -1185,7 +1188,7 @@ enum ShowAction {
 /// and the original's `showMainWindow` restores it). winit 0.30's `focus_window` returns early for
 /// an iconic X11 window (`x11/window.rs:1773`) and does nothing at all on Wayland
 /// (`wayland/window/mod.rs:629`), so a Focus alone left a minimised window where it was and
-/// `fxsound --show` exited 0. On X11 the window is asked out of the minimised state first; on
+/// `crossfx --show` exited 0. On X11 the window is asked out of the minimised state first; on
 /// Wayland, where nothing can do that from the client side, it is replaced by a fresh toplevel —
 /// the path hiding to the tray and showing again takes already.
 const fn show_action(minimised: bool, wayland: bool) -> ShowAction {
@@ -1197,7 +1200,7 @@ const fn show_action(minimised: bool, wayland: bool) -> ShowAction {
 }
 
 /// Whether winit runs on Wayland here: its own rule (`platform_impl/linux/mod.rs:736-766`), a
-/// non-empty `WAYLAND_DISPLAY` or `WAYLAND_SOCKET`, since FxSound forces no backend.
+/// non-empty `WAYLAND_DISPLAY` or `WAYLAND_SOCKET`, since CrossFX forces no backend.
 #[cfg(target_os = "linux")]
 fn wayland_session(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
     ["WAYLAND_DISPLAY", "WAYLAND_SOCKET"]
@@ -1395,7 +1398,7 @@ impl<'a> Shell<'a> {
             .is_some_and(|asked| asked.elapsed() < RESIZE_SETTLE)
     }
 
-    /// Re-install fonts and visuals after a change of theme or of «Like FxSound for Windows»:
+    /// Re-install fonts and visuals after a change of theme or of «Like the original FxSound LLC»:
     /// the level decides the edges of every popup and tooltip too ([`Palette::windows`]).
     fn sync_theme(&mut self, ctx: &egui::Context) {
         let palette = self.rt.app.palette();
@@ -1537,8 +1540,9 @@ impl<'a> Shell<'a> {
         // The enablement predicates of `FxMainWindow.cpp:536-543`: the preset items are the
         // controller's one rule, which the command line and D-Bus are refused by too, with the
         // power on or off (0.4.0 audit R7); Export and Import are offered whether or not the
-        // preset has unsaved changes (audit #18), except at «Как в Windows» = Interface and
-        // above, where changes grey them out as on Windows ([`App::preset_menu`]).
+        // preset has unsaved changes (audit #18), except at «Как в оригинальном FxSound LLC» =
+        // Interface and above, where changes grey them out as in the original
+        // ([`App::preset_menu`]).
         let preset = app.state.preset();
         let PresetMenu {
             save_new: can_save_new,
@@ -1601,7 +1605,7 @@ impl<'a> Shell<'a> {
         let mut committed: Option<(EditorPurpose, String)> = None;
         let mut close = false;
 
-        let area = egui::Area::new(egui::Id::unique("fxsound.menu"))
+        let area = egui::Area::new(egui::Id::unique("crossfx.menu"))
             .fixed_pos(egui::pos2(anchor.left(), top))
             // It fits where it is by construction ([`MENU_MAX_WIDTH`], `room`); egui would move it
             // up to the window's top on the frame it opens, before it knows the menu's size.
@@ -1835,7 +1839,7 @@ impl<'a> Shell<'a> {
 
     /// Draw the Settings pane, if it is open.
     ///
-    /// The Windows build gives Settings its own window, and so did this port at first — but
+    /// The original gives Settings its own window, and so did CrossFX at first — but
     /// eframe 0.36's glow multi-viewport path creates the child toplevel and its GL surface on
     /// Wayland and then never composites anything into it (verified here on Hyprland 0.56 with
     /// NVIDIA: the window appears in `hyprctl clients` at the right size, and even a solid fill
@@ -1917,7 +1921,7 @@ impl<'a> Shell<'a> {
             ctx,
             palette,
             &mut self.rt.app.assets,
-            "fxsound.confirm",
+            "crossfx.confirm",
         ) {
             self.answer(choice);
         }
@@ -2033,7 +2037,7 @@ impl<'a> Shell<'a> {
         let Some(mut state) = self.export.take() else {
             return;
         };
-        // «Like FxSound for Windows» and the end-band choice may have moved since the window
+        // «Like the original FxSound LLC» and the end-band choice may have moved since the window
         // opened (a keybind, D-Bus): shown as they are now, and exported as shown.
         self.rt.app.refresh_export_state(&mut state);
         dim_backdrop(ui, window, "export");
@@ -2065,7 +2069,7 @@ impl<'a> Shell<'a> {
         // The answer wakes the window, or the headless pump if the window was hidden meanwhile.
         let waker = self.rt.waker.clone();
         let spawned = std::thread::Builder::new()
-            .name("fxsound-folder-picker".into())
+            .name("crossfx-folder-picker".into())
             .spawn(move || {
                 let mut dialog = rfd::FileDialog::new().set_title(title);
                 if let Some(start) = start {
@@ -2279,8 +2283,8 @@ enum MinimiseAction {
 /// The minimise button's action (0.4.0 audit #43): into the tray while a tray icon is on screen,
 /// since Hyprland, sway and the other tiling compositors ignore a minimise request and would leave
 /// the window where it is; a real minimise while none is, where hiding would leave nothing on
-/// screen to come back through — the port hid the window on GNOME without AppIndicator, and the
-/// user saw FxSound vanish with only `fxsound --show` to bring it back.
+/// screen to come back through — CrossFX hid the window on GNOME without AppIndicator, and the
+/// user saw CrossFX vanish with only `crossfx --show` to bring it back.
 const fn minimise_action(tray_visible: bool) -> MinimiseAction {
     if tray_visible {
         MinimiseAction::HideToTray
@@ -2358,7 +2362,7 @@ fn compositor_sized(surface: egui::Vec2, asked: Option<egui::Vec2>, in_flight: b
 /// afterwards sits on top of the backdrop and gets the pointer as before.
 fn dim_backdrop(ui: &egui::Ui, window: egui::Rect, pane: &str) {
     // One per pane: the changelog and the wizard open over Settings, each over its own backdrop.
-    let id = egui::Id::unique(("fxsound.pane.backdrop", pane));
+    let id = egui::Id::unique(("crossfx.pane.backdrop", pane));
     ui.interact(window, id, egui::Sense::click_and_drag());
     ui.painter().rect_filled(
         window,
@@ -2682,7 +2686,7 @@ fn name_editor_hint_font(ctx: &egui::Context, hint: &str, menu_width: f32) -> eg
 /// A 200 × 30 field with a 2 px outline: `ValidTextBorder` while the typed name is unique and
 /// non-empty, `InvalidTextBorder` otherwise — so it starts red and turns blue once a usable name
 /// is in it (§11.3, §11.4). Input is filtered through [`FORBIDDEN_PRESET_NAME_CHARS`] and capped
-/// at [`MAX_PRESET_NAME_CHARS`] and at the bytes a Windows FxSound reads a name in
+/// at [`MAX_PRESET_NAME_CHARS`] and at the bytes the original FxSound for Windows reads a name in
 /// ([`fxsound_preset::MAX_NAME_BYTES`], 0.4.0 audit #15). Renaming, the preset's own name is not
 /// taken, so its letter case can change (audit #19). Returns the name on Enter when it is valid
 /// (§11.5); Escape is the menu's business.
@@ -2721,7 +2725,7 @@ fn name_editor(
     let response = ui.place(
         inner,
         egui::TextEdit::singleline(&mut editor.text)
-            .id(egui::Id::unique("fxsound.menu.name_editor"))
+            .id(egui::Id::unique("crossfx.menu.name_editor"))
             .font(theme::semibold(NAME_EDITOR_FONT))
             .text_color(palette.color(FxColor::DefaultText))
             .hint_text(
@@ -2781,7 +2785,7 @@ fn name_editor(
 
 /// Cut a name being typed to [`fxsound_preset::MAX_NAME_BYTES`] on a character boundary, as the
 /// sixty-four characters are cut by the field itself: sixty-four Cyrillic letters are two bytes
-/// more than a Windows FxSound reads (0.4.0 audit #15).
+/// more than the original FxSound for Windows reads (0.4.0 audit #15).
 fn cap_name_bytes(text: &mut String) {
     if text.len() > fxsound_preset::MAX_NAME_BYTES {
         let mut end = fxsound_preset::MAX_NAME_BYTES;
@@ -2856,12 +2860,12 @@ mod runtime_tests {
         }
     }
 
-    /// `fxsound --watch` with `args`, on a thread: its lines, and its exit code once the stream
+    /// `crossfx --watch` with `args`, on a thread: its lines, and its exit code once the stream
     /// ends.
     fn watch(socket: &Path, args: &[&str]) -> (Receiver<String>, std::thread::JoinHandle<i32>) {
         let (tx, rx) = crossbeam_channel::unbounded();
         let socket = socket.to_path_buf();
-        let argv: Vec<String> = std::iter::once("fxsound")
+        let argv: Vec<String> = std::iter::once("crossfx")
             .chain(args.iter().copied())
             .map(str::to_owned)
             .collect();
@@ -2935,7 +2939,7 @@ mod runtime_tests {
         let forwarded = std::thread::spawn(move || {
             ipc::forward_to(
                 &socket,
-                &["fxsound".to_owned(), "--power=off".to_owned()],
+                &["crossfx".to_owned(), "--power=off".to_owned()],
                 Path::new("/"),
                 Duration::from_secs(5),
             )
@@ -3002,7 +3006,7 @@ mod runtime_tests {
         assert_eq!(runtime.window_closed(true), WindowExit::Hidden);
         assert!(
             runtime.app.settings_run_minimized(),
-            "quit from the tray now, FxSound starts in the tray"
+            "quit from the tray now, CrossFX starts in the tray"
         );
         assert!(
             runtime.app.tray_tip_shown(),
@@ -3029,7 +3033,7 @@ mod runtime_tests {
     #[test]
     fn a_start_in_the_tray_waits_for_a_tray_icon_unless_hide_or_activated_asked_for_it() {
         use WindowVisibility::{Hidden, Shown};
-        // A line that only sets something, and the remembered tray state of a bare `fxsound`
+        // A line that only sets something, and the remembered tray state of a bare `crossfx`
         // from a launcher: both hidden with no `--hide`, and both would otherwise run with
         // nothing on screen on a desktop with no tray icon.
         let quiet = cold_start_visibility(false, false, false, true);
@@ -3059,7 +3063,7 @@ mod runtime_tests {
     #[test]
     fn a_window_the_compositor_closed_with_no_tray_icon_is_not_remembered_as_hidden() {
         // GNOME without an AppIndicator extension: a start "in the tray" would be a start with
-        // nothing on screen at all. The notice that names `fxsound --show` still goes out.
+        // nothing on screen at all. The notice that names `crossfx --show` still goes out.
         let dir = tempfile::tempdir().expect("temp dir");
         let mut runtime = runtime(dir.path());
         assert!(
@@ -3074,7 +3078,7 @@ mod runtime_tests {
     }
 
     #[test]
-    fn a_window_that_cannot_be_opened_leaves_fxsound_in_the_tray_rather_than_quitting() {
+    fn a_window_that_cannot_be_opened_leaves_crossfx_in_the_tray_rather_than_quitting() {
         // An instance the session bus started through the systemd user unit, with no
         // WAYLAND_DISPLAY in its environment: quitting would drop the sound, and the unit's
         // `Restart=on-failure` would start it hidden again, the same way every time the window
@@ -3113,7 +3117,7 @@ mod runtime_tests {
     }
 
     #[test]
-    fn a_window_that_cannot_be_opened_with_no_tray_icon_ends_fxsound_as_before() {
+    fn a_window_that_cannot_be_opened_with_no_tray_icon_ends_crossfx_as_before() {
         let dir = tempfile::tempdir().expect("temp dir");
         let mut runtime = runtime(dir.path());
         with_a_window_up(&mut runtime);
@@ -3126,9 +3130,9 @@ mod runtime_tests {
     }
 
     #[test]
-    fn a_window_raised_like_windows_that_cannot_be_opened_leaves_fxsound_running_with_no_tray() {
-        // The 0.5.0 live check (W5-live): at Interface and sound a forwarded `fxsound --power=off`
-        // raises the window, as the Windows build does. An instance with no display and no tray
+    fn a_window_raised_like_windows_that_cannot_be_opened_leaves_crossfx_running_with_no_tray() {
+        // The 0.5.0 live check (W5-live): at Interface and sound a forwarded `crossfx --power=off`
+        // raises the window, as the original does. An instance with no display and no tray
         // icon took the failed window for a reason to quit, and the sound went with it.
         use fxsound_core::WindowsParity;
         let dir = tempfile::tempdir().expect("temp dir");
@@ -3140,7 +3144,7 @@ mod runtime_tests {
         let socket = runtime.server.path().to_path_buf();
         let line = |args: &[&str]| {
             let socket = socket.clone();
-            let argv: Vec<String> = std::iter::once("fxsound")
+            let argv: Vec<String> = std::iter::once("crossfx")
                 .chain(args.iter().copied())
                 .map(str::to_owned)
                 .collect();
@@ -3153,7 +3157,7 @@ mod runtime_tests {
         assert_eq!(
             runtime.run_headless(),
             HeadlessExit::Show,
-            "raised as on Windows"
+            "raised as in the original"
         );
         assert!(runtime.only_raised_like_windows);
         let why = "neither WAYLAND_DISPLAY nor WAYLAND_SOCKET nor DISPLAY is set.";
@@ -3166,7 +3170,7 @@ mod runtime_tests {
         assert!(!runtime.app.state.power, "and the line did what it said");
 
         // A window asked for itself, on the same line or not, is not a raise: with no tray and
-        // no display that still ends FxSound, as before.
+        // no display that still ends CrossFX, as before.
         let show = line(&["--show", "--power=on"]);
         assert_eq!(runtime.run_headless(), HeadlessExit::Show);
         assert!(!runtime.only_raised_like_windows, "--show asked for it");
@@ -3205,7 +3209,7 @@ mod runtime_tests {
 
     #[test]
     fn a_window_closed_for_a_quit_leaves_the_start_up_preference_as_the_window_found_it() {
-        // The window was showing when FxSound was told to quit, so the next start shows it; and a
+        // The window was showing when CrossFX was told to quit, so the next start shows it; and a
         // quit is no hide, so no tray tip and no `window visible=false` either.
         let dir = tempfile::tempdir().expect("temp dir");
         let mut runtime = runtime(dir.path());
@@ -3329,7 +3333,7 @@ mod runtime_tests {
         let forwarded = std::thread::spawn(move || {
             ipc::forward_to(
                 &socket,
-                &["fxsound".to_owned(), "--power=off".to_owned()],
+                &["crossfx".to_owned(), "--power=off".to_owned()],
                 Path::new("/"),
                 Duration::from_secs(5),
             )
@@ -3767,7 +3771,7 @@ mod minimise_tests {
 
     #[test]
     fn minimise_hides_to_the_tray_only_while_a_tray_icon_is_there() {
-        // 0.4.0 audit #43: with no tray the window used to vanish, and only `fxsound --show` could
+        // 0.4.0 audit #43: with no tray the window used to vanish, and only `crossfx --show` could
         // bring it back; the original minimises (`FxMainWindow.cpp:579-585`).
         assert_eq!(minimise_action(true), MinimiseAction::HideToTray);
         assert_eq!(minimise_action(false), MinimiseAction::Minimise);
@@ -3804,7 +3808,7 @@ mod minimise_tests {
 
     #[test]
     fn a_cold_start_from_a_line_that_only_sets_something_begins_in_the_tray() {
-        // FA: R11 kept a running instance's window down for `fxsound --preset=Gaming`; a cold
+        // FA: R11 kept a running instance's window down for `crossfx --preset=Gaming`; a cold
         // start from the same keybinding opened and focused the window over the game.
         use WindowVisibility::{Hidden, Shown};
         // (hide, show, run_minimized, only_sets_things)
@@ -3814,7 +3818,7 @@ mod minimise_tests {
         assert_eq!(cold_start_visibility(false, true, true, false), Shown);
         assert_eq!(cold_start_visibility(true, false, false, false), Hidden);
         let line = |args: &[&str]| {
-            Cli::try_parse_from(std::iter::once("fxsound").chain(args.iter().copied()))
+            Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
                 .expect("parses")
                 .only_sets_things()
         };
@@ -3836,13 +3840,13 @@ mod minimise_tests {
 
     #[test]
     fn at_interface_a_cold_start_from_an_option_windows_has_shows_the_window_as_there() {
-        // 0.4.0 audit R11 at «Как в Windows» = Interface: the Windows build's start shows its
-        // window whatever its line set, unless it was last quit hidden; a keybind's option, which
-        // stands in for a Windows hotkey, still starts in the tray.
+        // 0.4.0 audit R11 at «Как в оригинальном FxSound LLC» = Interface: the original's start
+        // shows its window whatever its line set, unless it was last quit hidden; a keybind's
+        // option, which stands in for one of the original's hotkeys, still starts in the tray.
         use WindowVisibility::{Hidden, Shown};
         use fxsound_core::WindowsParity;
         let quiet = |args: &[&str], level: WindowsParity| {
-            Cli::try_parse_from(std::iter::once("fxsound").chain(args.iter().copied()))
+            Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
                 .expect("parses")
                 .only_sets_things_at(level)
         };
@@ -3991,7 +3995,7 @@ mod confirmation_tests {
             "Rock Ballad Extended Night".to_owned(),
             "Rock Ballad Extended Night Mix For The Living Room Speakers 2026".to_owned(),
             // The widest a name can be: sixty-four capital Ws, and the 126 bytes of Cyrillic and
-            // of CJK a Windows FxSound reads a name in.
+            // of CJK the original FxSound for Windows reads a name in.
             "W".repeat(64),
             "Ш".repeat(63),
             "音".repeat(42),
@@ -4250,7 +4254,7 @@ mod name_editor_tests {
 
     #[test]
     fn an_editor_opened_for_one_lane_closes_when_the_window_moves_to_the_other() {
-        // Save New Preset typed on the speakers, then `fxsound --edit=input` from a keybind: the
+        // Save New Preset typed on the speakers, then `crossfx --edit=input` from a keybind: the
         // name was for the speakers' controls and list, and must not save the microphone's.
         let editor = NameEditor::new(EditorPurpose::SaveNew, Output, Some("A"));
         assert!(editor.still_applies(Output, Some("A"), true, true));
@@ -4285,8 +4289,8 @@ mod name_editor_tests {
 #[cfg(test)]
 mod forget_device_tests {
     //! A `--forget-device` (or D-Bus `ForgetDevice`, which travels the same channel) that reaches
-    //! an instance PipeWire has not listed the devices to yet: bus activation starts FxSound for
-    //! the call, and a script may run it right after `fxsound &` (0.4.0 audit #34, finisher F8).
+    //! an instance PipeWire has not listed the devices to yet: bus activation starts CrossFX for
+    //! the call, and a script may run it right after `crossfx &` (0.4.0 audit #34, finisher F8).
     use super::*;
     use fxsound_app::audio_link::FakeEngine;
     use fxsound_core::messages::AudioToUi;
@@ -4368,10 +4372,10 @@ mod forget_device_tests {
         }
     }
 
-    /// `fxsound <args>` forwarded to `runtime`, on a thread: its answer.
+    /// `crossfx <args>` forwarded to `runtime`, on a thread: its answer.
     fn forward(runtime: &Runtime, args: &[&str]) -> JoinHandle<std::io::Result<ipc::Response>> {
         let socket = runtime.server.path().to_path_buf();
-        let argv: Vec<String> = std::iter::once("fxsound")
+        let argv: Vec<String> = std::iter::once("crossfx")
             .chain(args.iter().copied())
             .map(str::to_owned)
             .collect();
@@ -4542,7 +4546,7 @@ mod forget_device_tests {
     }
 
     #[test]
-    fn a_line_waiting_for_the_device_list_hears_that_fxsound_is_shutting_down() {
+    fn a_line_waiting_for_the_device_list_hears_that_crossfx_is_shutting_down() {
         let dir = tempfile::tempdir().expect("temp dir");
         let (mut runtime, _engine) = young_runtime(dir.path());
         let client = forward(&runtime, &["--forget-device=USB Dock"]);
@@ -4961,7 +4965,7 @@ mod theme_tests {
         assert_eq!(windows.color, light.windows(true).divider());
         assert_ne!(
             windows.color, ours.color,
-            "the Windows edge is another colour"
+            "the original's edge is another colour"
         );
 
         shell
@@ -5014,6 +5018,18 @@ mod vsync_tests {
             "vsync stays off where it hangs and on where it paces"
         );
     }
+
+    /// The window is CrossFX's in every list that names one — the taskbar, Alt+Tab, a
+    /// compositor's rules — and on Linux the desktop file's name ties it to its icon.
+    #[test]
+    fn the_window_is_titled_crossfx_and_carries_the_application_id() {
+        let options = native_options(ViewMode::Lite);
+        assert_eq!(options.viewport.title.as_deref(), Some("CrossFX"));
+        assert_eq!(
+            options.viewport.app_id.as_deref(),
+            Some("io.github.blackixxce12.CrossFX")
+        );
+    }
 }
 
 #[cfg(all(test, windows))]
@@ -5021,9 +5037,9 @@ mod windows_icon_tests {
     use super::*;
 
     #[test]
-    fn the_window_carries_fxsounds_own_icon_rather_than_eframes() {
+    fn the_window_carries_crossfx_own_icon_rather_than_eframes() {
         let options = native_options(ViewMode::Pro);
-        let icon = options.viewport.icon.expect("an icon of FxSound's own");
+        let icon = options.viewport.icon.expect("an icon of CrossFX's own");
         assert_eq!((icon.width, icon.height), (256, 256));
         assert_eq!(icon.rgba.len(), 256 * 256 * 4);
         assert!(

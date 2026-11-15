@@ -12,43 +12,45 @@
 //! `_NET_SYSTEM_TRAY_S<n>`) works by the panel *reparenting* the client's X window into the tray
 //! container, and Wayland has no cross-client window embedding at all; modern Wayland panels
 //! (waybar, Plasma 6, GNOME Shell) implement only the D-Bus StatusNotifierItem protocol. SNI is
-//! also the better fit: it carries a structured menu model (DBusMenu), so the port declares the
+//! also the better fit: it carries a structured menu model (DBusMenu), so CrossFX declares the
 //! menu instead of drawing and positioning a popup by hand the way `showContextMenu` does
 //! (`docs/spec/07-startup-tray.md` §5.8).
 //!
 //! # Deliberate departures
 //!
-//! 1. **Three icons, not four.** Windows picks between a red and a blue "processing" icon
+//! 1. **Three icons, not four.** The original picks between a red and a blue "processing" icon
 //!    depending on its own theme (`FxSystemTrayView.cpp:90-111`). A panel owns its own background
 //!    and recolours symbolic icons itself, so keying tray artwork off *our* theme is wrong here;
-//!    the four states collapse onto `com.fxsound.FxSound-{off,on,processing}`
+//!    the four states collapse onto `io.github.blackixxce12.CrossFX-{off,on,processing}`
 //!    (`docs/spec/07-startup-tray.md` §5.8): the five bars in grey, white and blue.
 //! 2. **The status stays `Active`.** §5.8 suggests carrying "processing" as
 //!    `Status::NeedsAttention`, but that is the state a panel flashes or highlights, and audio
 //!    playing is not an alert — it would blink for as long as music runs. `Status::Passive` is
 //!    worse still: it asks panels to *hide* the item, and with the window hidden the tray is the
 //!    only way back into the app.
-//! 3. **The devices are always a submenu, one per direction.** Windows inlines them behind a
+//! 3. **The devices are always a submenu, one per direction.** The original inlines them behind a
 //!    section header when there are five or fewer (`:339-348`); DBusMenu has no section header,
 //!    and the special case only existed because a Win32 menu is cheap to build (§5.8). The
 //!    playback devices keep the original's `Playback Device Select ▸`; the microphones have a
 //!    `Recording Device Select ▸` of their own beside it (0.4.0 audit #32), where 0.4.0's first
 //!    cut listed them under the playback item, where nobody looks for a microphone. Each submenu
 //!    is a radio group that starts with `Off`, as each of the window's two combos does. Every
-//!    device is selectable: a mono output is a valid target (upstream review U7), so the
-//!    original's greying of devices with fewer than two channels (`:356-359`) is gone.
-//! 6. **Longer device names, cut in the middle.** Windows cuts a name after 30 characters
+//!    device is selectable: a mono output is a valid target (U7 of the review of the original's
+//!    changes), so the original's greying of devices with fewer than two channels (`:356-359`) is
+//!    gone.
+//! 6. **Longer device names, cut in the middle.** The original cuts a name after 30 characters
 //!    (`getTruncatedText`, `:422-432`), and PipeWire's descriptions share their first thirty
 //!    characters more often than not — "Family 17h/19h/1ah HD Audio Controller Analog Stereo" and
 //!    "… Digital Stereo" both read "Family 17h/19h/1ah HD Audio...". Here a name keeps up to
 //!    [`MENU_LABEL_MAX`] characters and loses its middle beyond that, where the card's name ends
 //!    and before the profile or the port that tells two of its devices apart (0.4.0 audit #31).
-//!    At «Как в Windows» = Interface and above the playback devices are cut after 30 again, as
-//!    there ([`WINDOWS_LABEL_MAX`]).
+//!    At «Как в оригинальном FxSound LLC» = Interface and above the playback devices are cut after
+//!    30 again, as there ([`WINDOWS_LABEL_MAX`]).
 //! 4. **Two preset submenus.** One per lane, each listing that lane's presets — the music presets
 //!    and the voice presets — so the microphone's can be changed from the tray without the
 //!    window, and without making the microphone the lane the window edits.
-//! 5. **No Always On Top.** Windows ticks it off the window (`:275-278`, `:320`); winit's Wayland
+//! 5. **No Always On Top.** The original ticks it off the window (`:275-278`, `:320`); winit's
+//!    Wayland
 //!    backend ignores window levels, so the item would tick and change nothing. The hamburger
 //!    menu dropped it for the same reason.
 //!
@@ -93,17 +95,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 pub use crate::win::tray::{TrayHandle, spawn};
 
-/// The D-Bus / desktop identity of the application (`docs/spec/07-startup-tray.md` §1.5). It has
-/// to match the `.desktop` file's basename and the Wayland `app_id` for shells to associate the
-/// tray item with the window.
-pub const APP_ID: &str = "com.fxsound.FxSound";
+/// The D-Bus / desktop identity of the application (`docs/spec/07-startup-tray.md` §1.5),
+/// [`fxsound_core::identity::APP_ID`]. It has to match the `.desktop` file's basename and the
+/// Wayland `app_id` for shells to associate the tray item with the window.
+pub const APP_ID: &str = fxsound_core::identity::APP_ID;
 
-/// Tray icon for "audio processing is off" — the Windows `IDI_LOGO_GRAY`, `#6f6f6f`.
-pub const ICON_OFF: &str = "com.fxsound.FxSound-off";
-/// Tray icon for "on but idle" — the Windows `IDI_LOGO_WHITE`.
-pub const ICON_ON: &str = "com.fxsound.FxSound-on";
-/// Tray icon for "on and audio is flowing" — the Windows `IDI_LOGO_BLUE`/`IDI_LOGO_RED`, `#23b6eb`.
-pub const ICON_PROCESSING: &str = "com.fxsound.FxSound-processing";
+/// Tray icon for "audio processing is off" — the original's `IDI_LOGO_GRAY`, `#6f6f6f`. The three
+/// names are [`APP_ID`] and a state, as the packages install the icons.
+pub const ICON_OFF: &str = "io.github.blackixxce12.CrossFX-off";
+/// Tray icon for "on but idle" — the original's `IDI_LOGO_WHITE`.
+pub const ICON_ON: &str = "io.github.blackixxce12.CrossFX-on";
+/// Tray icon for "on and audio is flowing" — the original's `IDI_LOGO_BLUE`/`IDI_LOGO_RED`,
+/// `#23b6eb`.
+pub const ICON_PROCESSING: &str = "io.github.blackixxce12.CrossFX-processing";
 
 /// The three icons as the packages install them, compiled in to be drawn where no icon theme has
 /// them: the Linux tray's pixmaps (`TrayPixmaps::rasterised`), the Windows notification area and
@@ -123,10 +127,10 @@ pub const PIXMAP_SIZES: [u32; 6] = [16, 22, 24, 32, 48, 64];
 /// descriptions start to differ.
 pub const MENU_LABEL_MAX: usize = 60;
 
-/// What the Windows build cuts a playback device's name to: its first 27 characters and `...`
+/// What the original cuts a playback device's name to: its first 27 characters and `...`
 /// (`getTruncatedText(name, 30)`, `FxSystemTrayView.cpp:353`, `:422-432`). The tray does so again
-/// at «Как в Windows» = Interface and above ([`TrayState::windows_parity`]); the recording
-/// submenu, which only this port has, keeps [`MENU_LABEL_MAX`].
+/// at «Как в оригинальном FxSound LLC» = Interface and above ([`TrayState::windows_parity`]); the
+/// recording submenu, which only CrossFX has, keeps [`MENU_LABEL_MAX`].
 pub const WINDOWS_LABEL_MAX: usize = 30;
 
 /// Which of the three icons the item is showing.
@@ -327,8 +331,8 @@ pub struct TrayState {
     pub devices: Vec<TrayDevice>,
     /// The UI language the labels were built in, so a switch re-sends the menu.
     pub language: String,
-    /// The level of «Как в Windows» in force: from Interface on, the playback devices' rows are
-    /// cut as the Windows build cuts them ([`WINDOWS_LABEL_MAX`], 0.4.0 audit #31).
+    /// The level of «Как в оригинальном FxSound LLC» in force: from Interface on, the playback
+    /// devices' rows are cut as the original cuts them ([`WINDOWS_LABEL_MAX`], 0.4.0 audit #31).
     pub windows_parity: WindowsParity,
 }
 
@@ -378,7 +382,7 @@ impl TrayState {
     /// for a lane that has none (`docs/spec/12-audio-io.md` §28).
     #[must_use]
     pub fn device_line(&self, direction: DeviceDirection) -> String {
-        // `"Output: "` is the original's key, trailing space and all; `"Input: "` is this port's.
+        // `"Output: "` is the original's key, trailing space and all; `"Input: "` is CrossFX's.
         let key = match direction {
             DeviceDirection::Output => "Output: ",
             DeviceDirection::Input => "Input: ",
@@ -404,22 +408,23 @@ impl TrayState {
         )
     }
 
-    /// The tooltip as `setStatus` composes it (`FxSystemTrayView.cpp:78-84`): `"FxSound is on."`,
-    /// a blank line, then `"Output: "` and the device — and under it, for the lane Windows never
-    /// had, `"Input: "` and the microphone.
+    /// The tooltip as the original's `setStatus` composes it (`FxSystemTrayView.cpp:78-84`):
+    /// `"CrossFX is on."`, a blank line, then `"Output: "` and the device — and under it, for the
+    /// lane the original never had, `"Input: "` and the microphone.
     ///
-    /// Windows builds this with `swprintf_s` over a *translated* format string, which makes a bad
-    /// translation a memory-safety bug (`:79`); Rust's formatting cannot be induced to do that.
+    /// The original builds this with `swprintf_s` over a *translated* format string, which makes a
+    /// bad translation a memory-safety bug (`:79`); Rust's formatting cannot be induced to do that.
     #[must_use]
     pub fn tooltip(&self) -> String {
         format!("{}\n\n{}", self.status_line(), self.device_lines())
     }
 
-    /// `TRANS("FxSound is %s.")` with `on`/`off` (`FxSystemTrayView.cpp:76-79`).
+    /// `CrossFX is %s.` with `on`/`off`: the original's status line (`FxSystemTrayView.cpp:76-79`),
+    /// whose translations are read under CrossFX's key (`fxsound_core::i18n::RENAMED_ORIGINALS`).
     #[must_use]
     pub fn status_line(&self) -> String {
         tr_args(
-            "FxSound is %s.",
+            "CrossFX is %s.",
             &[&tr(if self.power { "on" } else { "off" })],
         )
     }
@@ -454,12 +459,12 @@ pub enum TrayCommand {
     },
     /// A lane's `Off` row: detach it.
     Detach(DeviceDirection),
-    /// Menu ▸ Settings. The Windows handler runs a modal loop here (`:261-265`); this one must
+    /// Menu ▸ Settings. The original's handler runs a modal loop here (`:261-265`); this one must
     /// return at once and let the GUI thread open the pane.
     OpenSettings,
     /// Menu ▸ Theme ▸ Dark | Light (`:267-273`).
     SetTheme(ThemeMode),
-    /// Menu ▸ Exit. The only way to quit from the UI on Windows (`:285-287`).
+    /// Menu ▸ Exit. The only way to quit from the UI in the original (`:285-287`).
     Exit,
 }
 
@@ -542,8 +547,8 @@ impl FxTray {
     /// `Preset Select ▸`, once per lane. The original drops it while the power is off
     /// (`FxSystemTrayView.cpp:313-316`); here it stays, as the window's preset list and the
     /// command line do, so a preset can be picked before switching on (0.4.0 audit R7) — except
-    /// at «Как в Windows» = Interface and above, where both go with the power as there
-    /// ([`WindowsLook::PresetsNeedPower`]). A lane with no presets has no submenu.
+    /// at «Как в оригинальном FxSound LLC» = Interface and above, where both go with the power as
+    /// there ([`WindowsLook::PresetsNeedPower`]). A lane with no presets has no submenu.
     fn preset_menus(&self) -> Vec<MenuItem<Self>> {
         if !self.state.power
             && self
@@ -568,8 +573,8 @@ impl FxTray {
         if let Some(group) = self.preset_group(direction, true) {
             submenu.push(group);
         }
-        // The separator Windows inserts where `preset.type` changes (`:238-242`). It has to sit
-        // *between* two radio groups because DBusMenu radio state is per group.
+        // The separator the original inserts where `preset.type` changes (`:238-242`). It has to
+        // sit *between* two radio groups because DBusMenu radio state is per group.
         if submenu.len() == 1 && lane.presets.iter().any(|preset| !preset.factory) {
             submenu.push(MenuItem::Separator);
         }
@@ -654,9 +659,9 @@ impl FxTray {
             .collect()
     }
 
-    /// A device's row: cut after [`WINDOWS_LABEL_MAX`] characters as on Windows for a playback
-    /// device at «Как в Windows» = Interface and above, in its middle past [`MENU_LABEL_MAX`]
-    /// otherwise (0.4.0 audit #31).
+    /// A device's row: cut after [`WINDOWS_LABEL_MAX`] characters as in the original for a playback
+    /// device at «Как в оригинальном FxSound LLC» = Interface and above, in its middle past
+    /// [`MENU_LABEL_MAX`] otherwise (0.4.0 audit #31).
     fn device_label(&self, direction: DeviceDirection, name: &str) -> String {
         device_row_label(&self.state, direction, name)
     }
@@ -768,7 +773,7 @@ impl Tray for FxTray {
     }
 
     fn title(&self) -> String {
-        "FxSound".to_owned()
+        fxsound_core::identity::PRODUCT.to_owned()
     }
 
     /// The item represents the application, not a piece of hardware, which is what
@@ -806,8 +811,9 @@ impl Tray for FxTray {
         self.send(TrayCommand::ToggleWindow);
     }
 
-    /// Windows binds neither a middle click nor a double click (`FxSystemTrayView.cpp:434-478`),
-    /// and inventing one here would be a behaviour no user of the original expects.
+    /// The original binds neither a middle click nor a double click
+    /// (`FxSystemTrayView.cpp:434-478`), and inventing one here would be a behaviour no user of the
+    /// original expects.
     fn secondary_activate(&mut self, _x: i32, _y: i32) {}
 
     fn scroll(&mut self, _delta: i32, _orientation: ksni::Orientation) {}
@@ -822,9 +828,9 @@ impl Tray for FxTray {
             }
             .into(),
             StandardItem {
-                // `power ? "Turn Off" : "Turn On"` (`:300-303`). Windows greys it out in a remote
-                // session (`:302`); Linux has no such lock (`docs/spec/05-controller-model.md`
-                // §18.6), so it is always usable.
+                // `power ? "Turn Off" : "Turn On"` (`:300-303`). The original greys it out in a
+                // remote session (`:302`); Linux has no such lock
+                // (`docs/spec/05-controller-model.md` §18.6), so it is always usable.
                 label: if self.state.power {
                     tr("Turn Off")
                 } else {
@@ -841,7 +847,7 @@ impl Tray for FxTray {
         menu.extend(self.preset_menus());
         let devices = self.device_menus();
         if !devices.is_empty() {
-            // The separator that wraps the device section on Windows (`:344-347`, `:380`).
+            // The separator that wraps the device section in the original (`:344-347`, `:380`).
             menu.push(MenuItem::Separator);
             menu.extend(devices);
             menu.push(MenuItem::Separator);
@@ -982,9 +988,9 @@ pub fn spawn(
     Ok(TrayHandle { handle, watcher })
 }
 
-/// A device's row in `state`'s tray: cut after [`WINDOWS_LABEL_MAX`] characters as on Windows for
-/// a playback device at «Как в Windows» = Interface and above, in its middle past
-/// [`MENU_LABEL_MAX`] otherwise (0.4.0 audit #31). The one rule for both systems' trays.
+/// A device's row in `state`'s tray: cut after [`WINDOWS_LABEL_MAX`] characters as in the original
+/// for a playback device at «Как в оригинальном FxSound LLC» = Interface and above, in its middle
+/// past [`MENU_LABEL_MAX`] otherwise (0.4.0 audit #31). The one rule for both systems' trays.
 pub(crate) fn device_row_label(
     state: &TrayState,
     direction: DeviceDirection,
@@ -1041,7 +1047,7 @@ fn truncate_label(text: &str) -> String {
     format!("{}…{}", head.trim_end(), tail.trim_start())
 }
 
-/// A playback device's name as the Windows build's tray shows it: whole up to
+/// A playback device's name as the original's tray shows it: whole up to
 /// [`WINDOWS_LABEL_MAX`] characters, and beyond that its first `WINDOWS_LABEL_MAX - 3` and `...`
 /// (`FxSystemTrayView::getTruncatedText`, `FxSystemTrayView.cpp:422-432`).
 fn truncate_label_as_windows(text: &str) -> String {
@@ -1231,7 +1237,7 @@ mod tests {
 
     #[test]
     fn the_preset_submenus_stay_while_the_power_is_off() {
-        // `FxSystemTrayView.cpp:313-316` drops them with the power off; the port keeps them, as
+        // `FxSystemTrayView.cpp:313-316` drops them with the power off; CrossFX keeps them, as
         // the window's list and the command line do (0.4.0 audit R7).
         let (on, _rx) = with_state(populated());
         let (tray, _rx) = with_state(TrayState {
@@ -1251,7 +1257,8 @@ mod tests {
 
     #[test]
     fn at_interface_the_preset_submenus_go_with_the_power_as_on_windows() {
-        // `FxSystemTrayView.cpp:313-316`, at «Как в Windows» = Interface (R7 set back).
+        // `FxSystemTrayView.cpp:313-316`, at «Как в оригинальном FxSound LLC» = Interface (R7 set
+        // back).
         for level in [WindowsParity::Interface, WindowsParity::Sound] {
             let (on, _rx) = with_state(TrayState {
                 windows_parity: level,
@@ -1284,8 +1291,8 @@ mod tests {
 
     #[test]
     fn the_power_item_is_always_usable_as_linux_has_no_remote_session_lock() {
-        // Windows greys it out in a remote session (`FxSystemTrayView.cpp:302`); the field that
-        // carried that hook here never did anything (0.4.0 audit #36).
+        // The original greys it out in a remote session (`FxSystemTrayView.cpp:302`); the field
+        // that carried that hook here never did anything (0.4.0 audit #36).
         for power in [true, false] {
             let (tray, _rx) = with_state(TrayState {
                 power,
@@ -1663,7 +1670,7 @@ mod tests {
         tray.secondary_activate(0, 0);
         assert!(
             rx.try_recv().is_err(),
-            "Windows binds no middle click (`:434-478`)"
+            "the original binds no middle click (`:434-478`)"
         );
     }
 
@@ -1673,11 +1680,11 @@ mod tests {
         assert_eq!(TrayIcon::of(false, true), TrayIcon::Off);
         assert_eq!(TrayIcon::of(true, false), TrayIcon::On);
         assert_eq!(TrayIcon::of(true, true), TrayIcon::Processing);
-        assert_eq!(TrayIcon::Off.name(), "com.fxsound.FxSound-off");
-        assert_eq!(TrayIcon::On.name(), "com.fxsound.FxSound-on");
+        assert_eq!(TrayIcon::Off.name(), "io.github.blackixxce12.CrossFX-off");
+        assert_eq!(TrayIcon::On.name(), "io.github.blackixxce12.CrossFX-on");
         assert_eq!(
             TrayIcon::Processing.name(),
-            "com.fxsound.FxSound-processing"
+            "io.github.blackixxce12.CrossFX-processing"
         );
 
         let (tray, _rx) = with_state(TrayState {
@@ -1686,17 +1693,17 @@ mod tests {
         });
         assert_eq!(tray.icon_name(), ICON_PROCESSING);
         assert_eq!(tray.id(), APP_ID);
-        assert_eq!(tray.title(), "FxSound");
+        assert_eq!(tray.title(), "CrossFX");
     }
 
     #[test]
     fn the_tooltip_reads_like_the_windows_one_with_a_line_for_the_microphone() {
         // `FxSystemTrayView.cpp:78-84` — status line, blank line, "Output: " and the device —
-        // and the lane Windows never had under it.
+        // and the lane the original never had under it.
         let state = both_lanes();
         assert_eq!(
             state.tooltip(),
-            "FxSound is on.\n\nOutput: Built-in Audio Analogue Stereo\n\
+            "CrossFX is on.\n\nOutput: Built-in Audio Analogue Stereo\n\
              Input: fifine Microphone Analogue Stereo"
         );
         let off = TrayState {
@@ -1705,13 +1712,13 @@ mod tests {
         };
         assert_eq!(
             off.tooltip(),
-            "FxSound is off.\n\nOutput: Built-in Audio Analogue Stereo\n\
+            "CrossFX is off.\n\nOutput: Built-in Audio Analogue Stereo\n\
              Input: fifine Microphone Analogue Stereo"
         );
 
         let (tray, _rx) = with_state(state);
         let tip = tray.tool_tip();
-        assert_eq!(tip.title, "FxSound is on.");
+        assert_eq!(tip.title, "CrossFX is on.");
         assert_eq!(
             tip.description,
             "Output: Built-in Audio Analogue Stereo\nInput: fifine Microphone Analogue Stereo"
@@ -1852,8 +1859,8 @@ mod tests {
 
     #[test]
     fn at_interface_a_playback_device_is_cut_after_thirty_characters_as_on_windows() {
-        // 0.4.0 audit #31 at «Как в Windows» = Interface: `getTruncatedText(name, 30)`
-        // (`FxSystemTrayView.cpp:422-432`) keeps the first 27 characters and "...". At Off the
+        // 0.4.0 audit #31 at «Как в оригинальном FxSound LLC» = Interface: `getTruncatedText(name,
+        // 30)` (`FxSystemTrayView.cpp:422-432`) keeps the first 27 characters and "...". At Off the
         // same name loses its middle past 60 (above).
         assert_eq!(truncate_label_as_windows("Speakers"), "Speakers");
         let at_the_limit = "a".repeat(WINDOWS_LABEL_MAX);
@@ -1897,7 +1904,7 @@ mod tests {
             assert_eq!(
                 inputs[2],
                 truncate_label(long_mic),
-                "{level:?}: the recording submenu is the port's own and keeps its cut"
+                "{level:?}: the recording submenu is CrossFX's own and keeps its cut"
             );
         }
     }
@@ -1911,7 +1918,7 @@ mod tests {
 
     #[test]
     fn a_registration_that_ksni_reports_nothing_about_counts_as_shown() {
-        // A tray that was running before FxSound: ksni registers and says nothing. 0.4.0 started
+        // A tray that was running before CrossFX: ksni registers and says nothing. 0.4.0 started
         // the flag at `false` and took it for no tray at all.
         let (tray, _rx) = with_state(TrayState::default());
         let tray = tray.expecting_a_watcher();
@@ -2100,5 +2107,25 @@ mod tests {
             == 1));
         tray.shutdown();
         println!("tray child ran");
+    }
+}
+
+// The names, on every system: the Windows notification area and the toasts draw the same icons.
+#[cfg(test)]
+mod name_tests {
+    use super::{APP_ID, ICON_OFF, ICON_ON, ICON_PROCESSING};
+
+    /// The tray goes by CrossFX's names: the item's id is the application id, and each status
+    /// icon is that id and its state, as `assets/icons/status/` and the packages name the files.
+    #[test]
+    fn the_tray_item_and_its_icons_are_named_after_the_application_id() {
+        assert_eq!(APP_ID, fxsound_core::identity::APP_ID);
+        for (icon, state) in [
+            (ICON_OFF, "off"),
+            (ICON_ON, "on"),
+            (ICON_PROCESSING, "processing"),
+        ] {
+            assert_eq!(icon, format!("{APP_ID}-{state}"));
+        }
     }
 }

@@ -335,7 +335,7 @@ mod tests {
         let (ctx, repaints) = counted();
         waker.attach(&ctx);
         let (tx, source) = unbounded();
-        let carried = forward("fxsound-test-carrier", source, waker.clone());
+        let carried = forward("crossfx-test-carrier", source, waker.clone());
         for n in 0..5 {
             tx.send(n).expect("the carrier is listening");
         }

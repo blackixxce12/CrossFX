@@ -33,7 +33,7 @@
 //!
 //! 0.4.0 sent everything at `Urgency::Low`, and GNOME Shell never shows a banner for that
 //! (`messageTray.js`, `_onNotificationRequestBanner`: `if (notification.urgency === Urgency.LOW)
-//! return;`), so on GNOME not even "FxSound is still running, but this session has no tray icon"
+//! return;`), so on GNOME not even "CrossFX is still running, but this session has no tray icon"
 //! was seen. Each message now has a [`Weight`]:
 //!
 //! | Message | Weight |
@@ -53,8 +53,8 @@
 //! `notify_rust::Notification::show()` opens a D-Bus connection per notification and closes it
 //! with the handle, which for a message with no link was at once, so GNOME removed the notice
 //! about 7 ms after showing it. `DesktopSink` sends every notification over one connection that
-//! stays open while FxSound runs, so a notice stays in the message list until it is dismissed or
-//! FxSound quits.
+//! stays open while CrossFX runs, so a notice stays in the message list until it is dismissed or
+//! CrossFX quits.
 //!
 //! # Threading
 //!
@@ -71,7 +71,7 @@
 //! to, and a daemon that takes `Notify` and does not answer — stopped, or hung — kept the worker
 //! waiting for as long as it did not, and the way out with it: the notifier waited for the worker
 //! on the GUI thread, after the window and the tray had gone but before the control socket and the
-//! instance lock had, so the process stayed and turned every new `fxsound` away as "shutting
+//! instance lock had, so the process stayed and turned every new `crossfx` away as "shutting
 //! down". Connecting gives up after `CONNECT_TIMEOUT` and `Notify` after `NOTIFY_TIMEOUT`, each at
 //! the cost of the notice it was for, and dropping the [`Notifier`] waits `SHUTDOWN_GRACE` at most
 //! for what is still queued.
@@ -108,21 +108,21 @@ use fxsound_core::i18n::{tr, tr_args};
 
 /// `szInfoTitle` of the shell balloon (`fxsound/Source/GUI/FxSystemTrayView.cpp:413`), and the
 /// `app_name` we introduce ourselves to the daemon with.
-pub const APP_NAME: &str = "FxSound";
+pub const APP_NAME: &str = fxsound_core::identity::PRODUCT;
 
 /// Auto-hide for a message with no link (`fxsound/Source/GUI/FxNotification.cpp:185-188`).
 pub const TIMEOUT_MS: u32 = 7000;
 /// Auto-hide for a message that carries a link (`FxNotification.cpp:189-192`).
 pub const TIMEOUT_WITH_LINK_MS: u32 = 8000;
 
-/// How long after the first hide-to-tray of a session the "FxSound in system tray" tip appears
+/// How long after the first hide-to-tray of a session the "CrossFX in system tray" tip appears
 /// (`Timer::callAfterDelay(2000, …)`, `FxController.cpp:920-926`). The scheduling and the
 /// once-per-session flag (`minimize_tip_`, `:130`, `:922`) belong to the controller; the constant
 /// lives here with the message it delays.
 pub const TRAY_HINT_DELAY: Duration = Duration::from_millis(2000);
 
-/// The clickable half of a message. On Windows it is an `FxHyperlink` drawn inside the toast; here
-/// it becomes the notification's default action, so clicking the body follows it
+/// The clickable half of a message. In the original it is an `FxHyperlink` drawn inside the toast;
+/// here it becomes the notification's default action, so clicking the body follows it
 /// (`docs/spec/07-startup-tray.md` §6.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
@@ -223,13 +223,14 @@ impl Message {
     }
 
     // ---- the catalogue ---------------------------------------------------------------------
-    // Every `pushMessage` call site in the Windows tree, in the order `docs/spec/07-startup-tray.md`
-    // §6.4 tabulates them, but two. The English `TRANS` keys are reproduced verbatim;
-    // `Resources/Strings/` is empty in this checkout, so they are the only authoritative strings
-    // there are. Not ported: the "what's new" link to the upstream website after an update
-    // (`FxController.cpp:719`) and the survey on the upstream developers' form
-    // (`FxController.cpp:938-960`). This fork gathers nothing for upstream and sends nobody to
-    // its site; the changelog is the bundled one, in Settings ▸ Help.
+    // Every `pushMessage` call site in the original's tree, in the order
+    // `docs/spec/07-startup-tray.md` §6.4 tabulates them, but two. The English `TRANS` keys are
+    // reproduced verbatim, and the ones that name the program are read under CrossFX's keys
+    // (`fxsound_core::i18n::RENAMED_ORIGINALS`); `Resources/Strings/` is empty in this checkout, so
+    // they are the only authoritative strings there are. Not ported: the "what's new" link to the
+    // original's website after an update (`FxController.cpp:719`) and the survey on its
+    // developers' form (`FxController.cpp:938-960`). CrossFX gathers nothing for the original and
+    // sends nobody to its site; the changelog is the bundled one, in Settings ▸ Help.
 
     /// First hide-to-tray of the session (`FxController.cpp:920-926`), after [`TRAY_HINT_DELAY`].
     ///
@@ -238,7 +239,7 @@ impl Message {
     /// app entirely (§6.5).
     #[must_use]
     pub fn minimised_to_tray() -> Self {
-        Self::alert(tr("FxSound in system tray\nClick FxSound icon to reopen"))
+        Self::alert(tr("CrossFX in system tray\nClick CrossFX icon to reopen"))
     }
 
     /// The same moment, on a session that has no tray to hide into.
@@ -248,28 +249,28 @@ impl Message {
     /// nothing said about either. The user's audio keeps being processed by something they can
     /// neither see nor reach.
     ///
-    /// English key, like every other string this port added: `tr` falls back to the key, so an
+    /// English key, like every other string CrossFX added: `tr` falls back to the key, so an
     /// untranslated build reads correctly.
     #[must_use]
     pub fn hidden_with_no_tray() -> Self {
         Self::alert(tr(
-            "FxSound is still running, but this session has no tray icon.\nRun 'fxsound --show' \
+            "CrossFX is still running, but this session has no tray icon.\nRun 'crossfx --show' \
              to bring the window back.",
         ))
     }
 
-    /// The window was asked for and could not be opened, and FxSound stays in the tray instead of
+    /// The window was asked for and could not be opened, and CrossFX stays in the tray instead of
     /// quitting: an instance the session bus started through the systemd user unit, on a desktop
     /// that never gave the systemd user manager its `WAYLAND_DISPLAY` or `DISPLAY`. The audio keeps
     /// being processed; only the window is out of reach, and a notification is the one way left to
     /// say so. It stays out of reach for as long as this instance runs — a process gets one try at
     /// its display connection (winit's event loop) — so the way back is a fresh start from the
-    /// desktop. A port addition.
+    /// desktop. A CrossFX addition.
     #[must_use]
     pub fn window_unavailable() -> Self {
         Self::alert(tr(
-            "FxSound could not open its window and keeps running in the system tray.\nQuit it \
-             from the tray and start FxSound again to open the window.",
+            "CrossFX could not open its window and keeps running in the system tray.\nQuit it \
+             from the tray and start CrossFX again to open the window.",
         ))
     }
 
@@ -334,11 +335,11 @@ impl Message {
 
     /// Power toggled from a hotkey rather than the tray or the window
     /// (`FxController.cpp:1933`) — on Linux, from a compositor keybinding running
-    /// `fxsound --toggle-power`.
+    /// `crossfx --toggle-power`.
     #[must_use]
     pub fn power_toggled(on: bool) -> Self {
         Self::alert(tr_args(
-            "FxSound is %s.",
+            "CrossFX is %s.",
             &[&tr(if on { "on" } else { "off" })],
         ))
     }
@@ -347,7 +348,7 @@ impl Message {
 /// Build the `org.freedesktop.Notifications` call for a message.
 ///
 /// Pure, so it can be checked without a daemon on the bus. The hint set is
-/// `docs/spec/07-startup-tray.md` §6.5's, and each hint has a Windows ancestor:
+/// `docs/spec/07-startup-tray.md` §6.5's, and each hint has an ancestor in the original:
 /// `suppress-sound` is `NIIF_NOSOUND` (`FxSystemTrayView.cpp:411`), and `desktop-entry` is what
 /// lets a shell attribute the notification to our window. The urgency is the message's
 /// [`Weight`].
@@ -648,7 +649,7 @@ impl Sink for DesktopSink {
     }
 }
 
-/// The notifications go with the connection, on GNOME, when FxSound quits: they would otherwise
+/// The notifications go with the connection, on GNOME, when CrossFX quits: they would otherwise
 /// offer to open an application that is not running.
 #[cfg(target_os = "linux")]
 impl Drop for DesktopSink {
@@ -689,7 +690,7 @@ fn follow_links(
     };
     let driven = Arc::clone(runtime);
     let spawned = thread::Builder::new()
-        .name("fxsound-notify-links".to_owned())
+        .name("crossfx-notify-links".to_owned())
         .spawn(move || {
             driven.block_on(async move {
                 while let Some(signal) = next_signal(&mut signals).await {
@@ -742,9 +743,9 @@ async fn next_signal(stream: &mut zbus::MessageStream) -> Option<zbus::Result<zb
 /// instance's exit comes first and closes its connection. On Windows nothing bounds it: showing a
 /// toast is a call to the notification platform that waits for as long as the platform takes to
 /// answer (`crate::win::toast`), and a worker still in one when the instance exits ends with the
-/// process. Without this bound a quitting FxSound waited for as long as the delivery took — on
+/// process. Without this bound a quitting CrossFX waited for as long as the delivery took — on
 /// Linux, for as long as a daemon that had taken `Notify` did not answer — and held the instance
-/// lock meanwhile, which turns every new `fxsound` away as "shutting down".
+/// lock meanwhile, which turns every new `crossfx` away as "shutting down".
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// The GUI thread's end of the notification path.
@@ -782,7 +783,7 @@ impl Notifier {
         let (tx, rx) = unbounded();
         let (finished, done) = unbounded();
         let worker = thread::Builder::new()
-            .name("fxsound-notify".to_owned())
+            .name("crossfx-notify".to_owned())
             .spawn(move || {
                 // Dropped last, once the sink has gone and closed its connection.
                 let _finished = finished;
@@ -850,7 +851,7 @@ impl std::fmt::Debug for Notifier {
 }
 
 /// The one-slot loop: every message replaces the previous one's id, so the daemon shows a single
-/// FxSound notification that updates in place.
+/// CrossFX notification that updates in place.
 fn deliver_loop(rx: &Receiver<Message>, mut sink: impl Sink) {
     let mut slot: Option<u32> = None;
     while let Ok(message) = rx.recv() {
@@ -862,8 +863,8 @@ fn deliver_loop(rx: &Receiver<Message>, mut sink: impl Sink) {
 
 /// Open a link a notification was clicked for, with `xdg-open` ([`crate::platform::open_url`]).
 ///
-/// Spawned directly, never through a shell: `URL::launchInDefaultBrowser()`
-/// (`FxSystemTrayView.cpp:280-283`) hands the string to the shell on Windows, and doing the
+/// Spawned directly, never through a shell: the original's `URL::launchInDefaultBrowser()`
+/// (`FxSystemTrayView.cpp:280-283`) hands the string to the shell, and doing the
 /// equivalent here would make any URL that reaches this function a command-injection path. The
 /// scheme is checked for the same reason — every caller in the catalogue passes a constant, but
 /// [`Message::with_link`] is public.
@@ -949,7 +950,7 @@ mod tests {
         let notification = build(&Message::minimised_to_tray(), None);
         assert_eq!(
             notification.body,
-            "FxSound in system tray\nClick FxSound icon to reopen"
+            "CrossFX in system tray\nClick CrossFX icon to reopen"
         );
         assert!(!notification.body.contains('\r'));
         // The original's own texts break lines with `\r\n`, which the daemon would show as is.
@@ -1000,15 +1001,15 @@ mod tests {
             Message::presets_restored().body,
             "Unsaved preset changes discarded"
         );
-        assert_eq!(Message::power_toggled(true).body, "FxSound is on.");
-        assert_eq!(Message::power_toggled(false).body, "FxSound is off.");
+        assert_eq!(Message::power_toggled(true).body, "CrossFX is on.");
+        assert_eq!(Message::power_toggled(false).body, "CrossFX is off.");
     }
 
     #[test]
     fn no_message_sends_anyone_to_the_upstream_website_or_its_survey() {
-        // The original's "what's new" link and its survey went to the upstream developers' site
-        // and form. This fork gathers nothing for upstream, so no message in the catalogue carries
-        // a link, and this file names neither address (upstream review §8).
+        // The original's "what's new" link and its survey went to its developers' site and form.
+        // CrossFX gathers nothing for the original, so no message in the catalogue carries a
+        // link, and this file names neither address (the review of the original's changes, §8).
         for message in [
             Message::minimised_to_tray(),
             Message::hidden_with_no_tray(),
@@ -1357,7 +1358,7 @@ mod tests {
     }
 
     /// A notification daemon that answers the first `Notify` it is sent and none after it: one
-    /// that has stopped, or hung, while FxSound's connection is kept.
+    /// that has stopped, or hung, while CrossFX's connection is kept.
     struct Stops {
         calls: Sender<u32>,
         answered: std::sync::atomic::AtomicBool,

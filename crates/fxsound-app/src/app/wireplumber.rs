@@ -1,8 +1,8 @@
-//! Settings ▸ Experimental ▸ "Smooth moves in WirePlumber" (roadmap 0.5.0 §7, D5): FxSound's hook
+//! Settings ▸ Experimental ▸ "Smooth moves in WirePlumber" (roadmap 0.5.0 §7, D5): CrossFX's hook
 //! in the user's WirePlumber (`fxsound_audio::wireplumber_hook`), ticked, unticked and restarted
 //! from the pane.
 //!
-//! Not a setting of FxSound's: the tick is whether the hook's files are where WirePlumber reads
+//! Not a setting of CrossFX's: the tick is whether the hook's files are where WirePlumber reads
 //! them, as "Launch on system startup" is whether the autostart entry is there. So a user who takes
 //! the files away by hand finds the box unticked, and nothing in `settings.toml` can say otherwise.
 //!
@@ -269,7 +269,7 @@ impl WirePlumberHost {
         outcome.map_or_else(|| self.state(), |outcome| self.settle(outcome))
     }
 
-    /// At start-up: bring a hook an earlier run installed up to this build — a newer FxSound's
+    /// At start-up: bring a hook an earlier run installed up to this build — a newer CrossFX's
     /// script over an older one's — and take it away from under a WirePlumber older than 0.5,
     /// which cannot run it. Nothing when it is not installed, or when no WirePlumber answers.
     pub(crate) fn bring_up_to_date(&self) {
@@ -283,19 +283,19 @@ impl WirePlumberHost {
         match (self.version)() {
             Some(version) if !wireplumber_hook::supported(version) => {
                 log::warn!(
-                    "WirePlumber {}.{}.{} cannot run FxSound's hook; taking it away",
+                    "WirePlumber {}.{}.{} cannot run CrossFX's hook; taking it away",
                     version.0,
                     version.1,
                     version.2
                 );
                 if let Err(error) = place.remove() {
-                    log::warn!("FxSound's hook in WirePlumber could not be taken away: {error}");
+                    log::warn!("CrossFX's hook in WirePlumber could not be taken away: {error}");
                 }
             }
             Some(_) if installed == Installed::Stale => {
-                log::info!("bringing FxSound's hook in WirePlumber up to this version");
+                log::info!("bringing CrossFX's hook in WirePlumber up to this version");
                 if let Err(error) = place.install() {
-                    log::warn!("FxSound's hook in WirePlumber could not be written: {error}");
+                    log::warn!("CrossFX's hook in WirePlumber could not be written: {error}");
                 }
             }
             _ => {}

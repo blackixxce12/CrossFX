@@ -1,4 +1,4 @@
-//! What `fxsound --watch` prints: one line per thing that changed in the running instance
+//! What `crossfx --watch` prints: one line per thing that changed in the running instance
 //! (0.4.0 design §10).
 //!
 //! Two spellings of the same event. JSON, one object per line, with a fixed envelope in front of
@@ -99,7 +99,7 @@ pub enum AppEvent {
         direction: DeviceDirection,
         preset: Option<String>,
     },
-    /// «Как в Windows» / "Like FxSound for Windows" moved to another level.
+    /// «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC" moved to another level.
     WindowsParity { level: WindowsParity },
     /// The window was opened or hidden to the tray.
     Window { visible: bool },
@@ -393,7 +393,7 @@ pub struct Published {
     audio: [(LaneState, u32, u16); 2],
     /// Asked for, running, and the audio thread's reason.
     echo_cancel: (bool, bool, String),
-    /// The level of «Как в Windows».
+    /// The level of «Как в оригинальном FxSound LLC».
     windows_parity: WindowsParity,
 }
 
@@ -449,7 +449,7 @@ impl Published {
         said
     }
 
-    /// The level of «Как в Windows».
+    /// The level of «Как в оригинальном FxSound LLC».
     #[must_use = "the event is what tells the stream"]
     pub(crate) fn windows_parity(&mut self, level: WindowsParity) -> Option<AppEvent> {
         (self.windows_parity != level).then(|| {
@@ -766,7 +766,7 @@ mod tests {
             DeviceDirection::Output,
         )];
         app.state.selected_output = Some(0);
-        // What the default status source parses: `fxsound --status --json`'s own text.
+        // What the default status source parses: `crossfx --status --json`'s own text.
         let document: Value =
             serde_json::from_str(&crate::commands::status_json(&app)).expect("status json");
         let event = AppEvent::Status(document);
@@ -1205,7 +1205,7 @@ mod tests {
     fn command_line(app: &mut App, argv: &[&str]) -> crate::commands::Outcome {
         use crate::cli::Cli;
         use clap::Parser as _;
-        let cli = Cli::try_parse_from(std::iter::once("fxsound").chain(argv.iter().copied()))
+        let cli = Cli::try_parse_from(std::iter::once("crossfx").chain(argv.iter().copied()))
             .expect("a valid command line");
         crate::commands::run(app, &cli.commands())
     }
@@ -1581,7 +1581,7 @@ mod tests {
         use fxsound_core::Effect;
         let run = |line: &'static str| -> Step {
             Box::new(move |app, _| {
-                let argv = std::iter::once("fxsound").chain(line.split(' '));
+                let argv = std::iter::once("crossfx").chain(line.split(' '));
                 let cli = Cli::try_parse_from(argv).expect("a valid command line");
                 let _ = crate::commands::run(app, &cli.commands());
             })
