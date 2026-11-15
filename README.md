@@ -1,20 +1,20 @@
-# FxSound for Linux
+# CrossFX
 
-A native Linux port of [FxSound](https://www.fxsound.com) — the system-wide audio enhancer — written
-in Rust with [egui](https://github.com/emilk/egui), rendering natively on Wayland and processing
-audio through PipeWire.
+CrossFX is a native port of [FxSound](https://www.fxsound.com), FxSound LLC's system-wide audio
+enhancer, written in Rust with [egui](https://github.com/emilk/egui). It runs on Linux, rendering
+natively on Wayland and processing audio through PipeWire, and on Windows, through WASAPI.
 
-This is a **fork**, not a wrapper: the Windows application is C++/JUCE talking to a proprietary
-virtual audio driver through WASAPI and COM, none of which exists here. Every layer has been
-re-implemented, but the DSP is ported from the original C rather than reinvented. Since 0.4.0 it
-also fixes defects that came across with it, so a preset voiced on Windows sounds close to, but not
-exactly, the same here; [the deliberate differences](#deliberate-differences-from-the-windows-build)
-say what changed. A mode that restores the original behaviour, «Like FxSound for Windows» in
-Settings ▸ Experimental (`--windows-parity=off|interface|sound`), comes with 0.5.0: `interface`
-brings back the Windows build's window, command line and tray without changing the sound, and
-`sound` also plays Volume Leveling, Dynamic Boost, Ambience, the equalizer, the master gain and the
-balance as the Windows build does and reads a preset as it does; moving between the levels while
-something plays does not click
+This is a **fork**, not a wrapper: the original FxSound for Windows is C++/JUCE talking to a
+proprietary virtual audio driver through WASAPI and COM, none of which exists here. Every layer has
+been re-implemented, but the DSP is ported from the original C rather than reinvented. Since 0.4.0
+it also fixes defects that came across with it, so a preset voiced in the original sounds close to,
+but not exactly, the same here; [the deliberate
+differences](#deliberate-differences-from-the-original-fxsound) say what changed. A mode that
+restores the original behaviour, «Like the original FxSound LLC» in Settings ▸ Experimental
+(`--windows-parity=off|interface|sound`), comes with 0.5.0: `interface` brings back the original's
+window, command line and tray without changing the sound, and `sound` also plays Volume Leveling,
+Dynamic Boost, Ambience, the equalizer, the master gain and the balance as the original does and
+reads a preset as it does; moving between the levels while something plays does not click
 ([`docs/0.5.0-windows-parity.md`](docs/0.5.0-windows-parity.md)). Its fourth level, Everything,
 comes in a later version; 0.5.0 refuses `full`, and runs a `settings.toml` that says `full` as
 `sound` while keeping `full` in the file for that version.
@@ -24,22 +24,22 @@ own, with its own device and preset, and an application can have a preset of its
 A running instance answers on the command line, over D-Bus and to compositor keybindings, and
 streams its changes to a status bar.
 
-FxSound for Linux is an independent community project. It is not affiliated with, endorsed by or
-supported by FxSound LLC; please report problems with this port here, not to them.
+CrossFX is an independent community project. It is not affiliated with, endorsed by or
+supported by FxSound LLC; please report problems with CrossFX here, not to them.
 
 > Status: it builds, runs and passes 2,930 tests. The audio path has been verified end to end
 > against a live PipeWire session — the virtual sink appears and becomes the session default,
 > applications play through it, processed audio reaches the chosen output device, and a microphone
 > feeds a virtual source through [a voice chain of its own](#the-microphone-chain). Both lanes at
 > once, the per-application routes and echo cancellation are tested against a private PipeWire
-> daemon. The interface speaks the desktop's language, using the Windows build's own translation
+> daemon. The interface speaks the desktop's language, using the original's own translation
 > tables. See [Implementation status](#implementation-status).
 
 ---
 
 ## Why a rewrite rather than a port of the existing code
 
-| Windows FxSound | Why it cannot come across | What replaces it |
+| The original FxSound for Windows | Why it cannot come across | What replaces it |
 |---|---|---|
 | JUCE 6.1.6 GUI | AGPL framework built around its own event loop, `LookAndFeel` painting and HWND-backed windows | egui 0.36 with custom painters, one per JUCE `LookAndFeel` override |
 | FxSound Audio Enhancer virtual driver | A signed Windows kernel driver, not in this source tree and not buildable for Linux | A PipeWire virtual sink the application owns, plus a capture/render pair |
@@ -47,10 +47,10 @@ supported by FxSound LLC; please report problems with this port here, not to the
 | `RegisterHotKey` global shortcuts | A Wayland client cannot grab global shortcuts, by design | Compositor keybinds that call the CLI, forwarded over a control socket |
 | Registry persistence | — | TOML under `$XDG_CONFIG_HOME`, with the original's key names kept |
 
-The DSP is the exception. `dsp/` in the upstream tree is real C source, and it is ported
+The DSP is the exception. `dsp/` in the original's tree is real C source, and it is ported
 line-by-line: the filter designs, the effect algorithms and their coefficient mappings come from
 the original, and where the original is defective 0.4.0 fixes it rather than copying it (see
-[the deliberate differences](#deliberate-differences-from-the-windows-build)).
+[the deliberate differences](#deliberate-differences-from-the-original-fxsound)).
 
 ## Requirements
 
@@ -65,10 +65,10 @@ the original, and where the original is defective 0.4.0 fixes it rather than cop
   `clang` — `pipewire-sys` runs bindgen in its build script and fails without libclang.
 
 ```bash
-cargo build --release --bin fxsound
+cargo build --release --bin crossfx
 ```
 
-The binary lands at `target/release/fxsound` and can be run straight from there.
+The binary lands at `target/release/crossfx` and can be run straight from there.
 
 ## Installing
 
@@ -83,12 +83,12 @@ From the working tree you already have:
 ```bash
 cd packaging
 makepkg -f
-sudo pacman -U fxsound-linux-0.5.0-1-x86_64.pkg.tar.zst
+sudo pacman -U crossfx-0.5.0-1-x86_64.pkg.tar.zst
 ```
 
 `makepkg` runs the whole test suite as part of the build; pass `--nocheck` to skip it.
 
-For the AUR there is one recipe, **`fxsound-linux-bin`** (`packaging/aur/fxsound-linux-bin/`): it
+For the AUR there is one recipe, **`crossfx-bin`** (`packaging/aur/crossfx-bin/`): it
 installs the prebuilt release tarball and needs no Rust toolchain. To build from source, use
 `packaging/PKGBUILD` above.
 
@@ -100,7 +100,7 @@ tree, so copy it there first:
 ```bash
 cp -a packaging/debian debian
 dpkg-buildpackage -us -uc -b
-sudo apt install ../fxsound-linux_0.5.0-1_amd64.deb
+sudo apt install ../crossfx_0.5.0-1_amd64.deb
 ```
 
 The `.deb` lands beside the source tree, not inside it. Use `apt` rather than `dpkg -i` so the
@@ -116,8 +116,8 @@ and why lowering the floor is not the fix, is at the top of
 ### Fedora
 
 ```bash
-rpmbuild -ba packaging/fedora/fxsound.spec
-sudo dnf install ~/rpmbuild/RPMS/x86_64/fxsound-linux-0.5.0-1.*.x86_64.rpm
+rpmbuild -ba packaging/fedora/crossfx.spec
+sudo dnf install ~/rpmbuild/RPMS/x86_64/crossfx-0.5.0-1.*.x86_64.rpm
 ```
 
 The spec needs a vendored-dependency tarball beside it;
@@ -130,8 +130,8 @@ For anything else, or for anyone who would rather no package manager were involv
 
 ```bash
 packaging/build-tarball.sh
-tar xf dist/fxsound-linux-0.5.0-x86_64.tar.gz
-sudo ./fxsound-linux-0.5.0-x86_64/install.sh        # /usr/local unless you name another prefix
+tar xf dist/crossfx-0.5.0-x86_64.tar.gz
+sudo ./crossfx-0.5.0-x86_64/install.sh        # /usr/local unless you name another prefix
 ```
 
 `/usr/local` is searched for presets alongside `/usr`, and first by a binary installed there, so
@@ -142,45 +142,45 @@ the build is current), and refuses to pack one whose `--version` is not the vers
 `Cargo.toml`, so a binary left in `target/release` by an older checkout never ends up in a newer
 archive.
 
-A prebuilt tarball is attached to each [release](https://github.com/blackixxce12/fxsound-linux/releases);
+A prebuilt tarball is attached to each [release](https://github.com/blackixxce12/CrossFX/releases);
 check it against the release's `SHA256SUMS` before unpacking. It is this same script's output, built
 on Debian 12's glibc so the binary runs on anything newer, and it carries the same `install.sh`. The
-archive is a prefix in miniature: `bin/fxsound`, `lib/systemd/user/fxsound.service`,
+archive is a prefix in miniature: `bin/crossfx`, `lib/systemd/user/crossfx.service`,
 `share/dbus-1/services/` (D-Bus activation), `share/applications/`, `share/icons/hicolor/` (the
-app icon and the tray's three status icons), `share/fxsound/presets/`, `share/man/man1/fxsound.1`,
-`share/metainfo/` and `share/doc/fxsound-linux/` (README, CHANGELOG, LICENSE, the licences of
+app icon and the tray's three status icons), `share/crossfx/presets/`, `share/man/man1/crossfx.1`,
+`share/metainfo/` and `share/doc/crossfx/` (README, CHANGELOG, LICENSE, the licences of
 the bundled RNNoise code and Noto faces, the Hyprland rules and the autostart entry).
 `install.sh` copies all of that into the prefix and rewrites the unit's `ExecStart` and
-`ExecStop`, and the activation file's `Exec`, to `<prefix>/bin/fxsound`; it warns if the prefix
+`ExecStop`, and the activation file's `Exec`, to `<prefix>/bin/crossfx`; it warns if the prefix
 is anything other than `/usr` or `/usr/local`, because those are the only two the binary searches
-for presets. On an older distribution than Debian 12, build from source instead.
+for presets. It refuses a prefix inside a home folder, such as `~/.local`, where CrossFX keeps that
+user's own presets. On an older distribution than Debian 12, build from source instead.
 
 ### What lands where
 
 | Path | What |
 |---|---|
-| `/usr/bin/fxsound` | the binary |
-| `/usr/share/fxsound/presets/Factsoft/`, `BonusPresets/` | the 34 factory and bonus `.fac` presets |
-| `/usr/share/fxsound/presets/Input/` | the 13 voice presets, in TOML |
-| `/usr/share/applications/com.fxsound.FxSound.desktop` | the launcher entry |
-| `/usr/lib/systemd/user/fxsound.service` | `systemctl --user enable --now fxsound` |
-| `/usr/share/dbus-1/services/org.fxsound.FxSound.service` | starts FxSound, through that unit, for a D-Bus call |
-| `/usr/share/icons/hicolor/*/apps/fxsound.png` | the icon |
-| `/usr/share/icons/hicolor/*/apps/com.fxsound.FxSound.png` | the same icon under the application id, the name the notifications carry |
+| `/usr/bin/crossfx` | the binary |
+| `/usr/share/crossfx/presets/Factsoft/`, `BonusPresets/` | the 34 factory and bonus `.fac` presets |
+| `/usr/share/crossfx/presets/Input/` | the 13 voice presets, in TOML |
+| `/usr/share/applications/io.github.blackixxce12.CrossFX.desktop` | the launcher entry |
+| `/usr/lib/systemd/user/crossfx.service` | `systemctl --user enable --now crossfx` |
+| `/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service` | starts CrossFX, through that unit, for a D-Bus call |
+| `/usr/share/icons/hicolor/*/apps/io.github.blackixxce12.CrossFX.png` | the icon, under the application id, the name the launcher and the notifications carry |
 | `/usr/share/icons/hicolor/scalable/status/` | the tray's three status icons |
-| `/usr/share/man/man1/fxsound.1` | the manual page: every option, the status document and the D-Bus interface |
-| `/usr/share/metainfo/com.fxsound.FxSound.metainfo.xml` | what GNOME Software and Discover show |
-| `/usr/share/doc/fxsound-linux/` | the Hyprland rules and the autostart entry |
-| `/usr/share/licenses/fxsound-linux/` | the AGPL, and the licences of the RNNoise code and the Noto faces built into the binary (the `.deb` carries them in `/usr/share/doc/fxsound-linux/copyright`) |
+| `/usr/share/man/man1/crossfx.1` | the manual page: every option, the status document and the D-Bus interface |
+| `/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml` | what GNOME Software and Discover show |
+| `/usr/share/doc/crossfx/` | the Hyprland rules and the autostart entry |
+| `/usr/share/licenses/crossfx/` | the AGPL, and the licences of the RNNoise code and the Noto faces built into the binary (the `.deb` carries them in `/usr/share/doc/crossfx/copyright`) |
 
-FxSound started by the user unit — enabled, or by a D-Bus call such as a status bar's — runs in the
+CrossFX started by the user unit — enabled, or by a D-Bus call such as a status bar's — runs in the
 systemd user manager's environment, not the compositor's. Where the compositor does not import
-`WAYLAND_DISPLAY` into it (sway, and Hyprland without uwsm), that FxSound has no display: it runs in
+`WAYLAND_DISPLAY` into it (sway, and Hyprland without uwsm), that CrossFX has no display: it runs in
 the tray, and asking for its window brings a notification that it could not be opened instead. A
-window raised only because «Like FxSound for Windows» is on — a forwarded Windows command line —
-that cannot be opened is just logged, and FxSound keeps running, with or without a tray. Import
-it when the compositor starts, with `exec dbus-update-activation-environment --systemd
-WAYLAND_DISPLAY DISPLAY` in sway (`exec-once = ...` in Hyprland).
+window raised only because «Like the original FxSound LLC» is on — for a forwarded command line, as
+the original does — that cannot be opened is just logged, and CrossFX keeps running, with or without
+a tray. Import it when the compositor starts, with `exec dbus-update-activation-environment
+--systemd WAYLAND_DISPLAY DISPLAY` in sway (`exec-once = ...` in Hyprland).
 
 There is no AppImage or Flatpak. A Flatpak would be actively counterproductive here: the whole
 point of the app is to own a node in your PipeWire graph and drive your real output device, and the
@@ -194,8 +194,8 @@ rules from [`packaging/hyprland.conf.example`](packaging/hyprland.conf.example) 
 
 ```conf
 windowrule {
-    name = fxsound
-    match:class = ^(com\.fxsound\.FxSound)$
+    name = crossfx
+    match:class = ^(io\.github\.blackixxce12\.CrossFX)$
     float = true
     border_size = 0
 }
@@ -209,17 +209,17 @@ spelling for the Lua config that Hyprland prefers over `hyprland.conf` from 0.55
 
 Closing the window never quits. The ✕ button and the compositor's own close request (`killactive`,
 usually bound to `Super+Q`) hide the window while the audio keeps processing; the app lives on in
-the system tray, and the tray's **Open** or `fxsound --show` bring the window back. **Exit** in the
-tray menu or `fxsound --quit` are the only ways out. This is what the Windows build does too — with
-the difference that a Wayland client cannot unmap its own toplevel, so "hide" here really destroys
-the window and recreates it on demand. The minimise button hides the window into the tray as well
-while a tray icon is there to come back from (Hyprland and sway have no minimised state to put it
-in); on a desktop with no tray, such as GNOME without an AppIndicator extension, it minimises the
-window as the Windows build does, instead of making it vanish, and `fxsound --show` or launching
-FxSound again brings a minimised window back (on Wayland as a fresh window in its place, since an
-application cannot take its own window out of the minimised state there). FxSound quit with its
-window in the tray starts in the tray next time, unless it is started with `--show` or no tray icon
-comes up to be in, when the window comes up minimised after a few seconds.
+the system tray, and the tray's **Open** or `crossfx --show` bring the window back. **Exit** in the
+tray menu or `crossfx --quit` are the only ways out. This is what the original FxSound for Windows
+does too — with the difference that a Wayland client cannot unmap its own toplevel, so "hide" here
+really destroys the window and recreates it on demand. The minimise button hides the window into the
+tray as well while a tray icon is there to come back from (Hyprland and sway have no minimised state
+to put it in); on a desktop with no tray, such as GNOME without an AppIndicator extension, it
+minimises the window as the original does, instead of making it vanish, and `crossfx --show` or
+launching CrossFX again brings a minimised window back (on Wayland as a fresh window in its place,
+since an application cannot take its own window out of the minimised state there). CrossFX quit with
+its window in the tray starts in the tray next time, unless it is started with `--show` or no tray
+icon comes up to be in, when the window comes up minimised after a few seconds.
 
 Fullscreen (Hyprland's `fullscreen` dispatcher, Super+F in many configurations) and maximised
 windows scale the fixed design up to fit the monitor and centre it; the app never draws into a
@@ -229,7 +229,7 @@ cutting it off, to half size at the least. The hamburger menu and the drop-down 
 inside the window, and the window does not grow for them: the menu scrolls under the hamburger,
 and a list scrolls between the title bar and the window's bottom edge, over its own box when there
 is no room under it — in the Lite view, four rows of the menu and two and a half of a list show at
-a time. FxSound gives the compositor each view's size as the window's smallest and largest, so
+a time. CrossFX gives the compositor each view's size as the window's smallest and largest, so
 flipping between Pro and Lite and opening Settings resize a floating window on Hyprland too.
 COSMIC (cosmic-comp 1.9) does not take the new size and keeps the window at the Pro size, so the
 Lite view and the Settings pages are drawn scaled inside it.
@@ -238,24 +238,24 @@ Global shortcuts are the one feature that cannot work the way it does on Windows
 is not allowed to grab keys it does not have focus for — that is a deliberate security property of
 the protocol, not a gap. The same file binds them in the compositor instead, which reaches the
 running instance through its control socket. It uses Super+Alt, which few desktops and no
-applications use, because a compositor binding takes its keys from every application — the Windows
-build's own Ctrl+Shift+Q is how Chromium quits:
+applications use, because a compositor binding takes its keys from every application — the
+original's own Ctrl+Shift+Q is how Chromium quits:
 
 ```conf
-bind = SUPER ALT, P,            exec, fxsound --toggle-power
-bind = SUPER ALT, bracketright, exec, fxsound --next-preset
+bind = SUPER ALT, P,            exec, crossfx --toggle-power
+bind = SUPER ALT, bracketright, exec, crossfx --next-preset
 ```
 
-In sway the same is `bindsym $mod+Mod1+p exec fxsound --toggle-power`. None of these raises the
-window: on the command line only `--show`, `--view` and a bare `fxsound` do, and every option that
+In sway the same is `bindsym $mod+Mod1+p exec crossfx --toggle-power`. None of these raises the
+window: on the command line only `--show`, `--view` and a bare `crossfx` do, and every option that
 sets something — `--preset=Gaming` from a keybind included — does it without pulling the window over
-what you are doing. That holds when the keybind is what starts FxSound, too: it starts in the tray
+what you are doing. That holds when the keybind is what starts CrossFX, too: it starts in the tray
 (with no tray icon after a few seconds, minimised), and `--view` at a start sets the layout without
 showing the window unless the tray state or `--show` says so.
 
 ## Scripts, status bars and D-Bus
 
-A running FxSound can be driven and watched without its window. `man fxsound` has every option, the
+A running CrossFX can be driven and watched without its window. `man crossfx` has every option, the
 whole status document and the D-Bus interface; what follows is the short version.
 
 Ask a running instance what it is doing, as one JSON document — both lanes, their devices and
@@ -263,19 +263,19 @@ presets, the microphone's readouts, every preset, every device, every band with 
 applications:
 
 ```bash
-fxsound --status --json | jq '.output'
+crossfx --status --json | jq '.output'
 ```
 
-It carries every key the Windows build's `--status` writes, too, so a client written for either
-reads it. For a bar, `fxsound --watch --json` is better than polling that: it stays connected,
+It carries every key the original's `--status` writes, too, so a client written for either
+reads it. For a bar, `crossfx --watch --json` is better than polling that: it stays connected,
 opens with the whole status and prints one JSON object per line as things change — `power`,
 `preset_changed`, `device_changed`, `audio_state`, `notice`, `app_routed` and the rest — until
-FxSound quits. It never starts FxSound. A Waybar module that shows the speakers' preset, or *off*,
-is a few lines of `jq` over it, saved as `~/.config/waybar/fxsound.sh` and made executable:
+CrossFX quits. It never starts CrossFX. A Waybar module that shows the speakers' preset, or *off*,
+is a few lines of `jq` over it, saved as `~/.config/waybar/crossfx.sh` and made executable:
 
 ```sh
 #!/bin/sh
-fxsound --watch --json | jq --unbuffered -c -n '
+crossfx --watch --json | jq --unbuffered -c -n '
   foreach inputs as $e ({on: false, preset: ""};
     if $e.event == "status" then {on: $e.status.power, preset: ($e.status.output.preset // "")}
     elif $e.event == "power" then .on = $e.on
@@ -283,54 +283,55 @@ fxsound --watch --json | jq --unbuffered -c -n '
     else . end;
     if $e.event == "quit" then {text: ""}
     else {text: (if .on then .preset else "off" end),
-          tooltip: "FxSound: \(.preset)",
+          tooltip: "CrossFX: \(.preset)",
           class: (if .on then "on" else "off" end)} end)'
 ```
 
 ```jsonc
-"custom/fxsound": {
-    "exec": "~/.config/waybar/fxsound.sh",
+"custom/crossfx": {
+    "exec": "~/.config/waybar/crossfx.sh",
     "return-type": "json",
     "restart-interval": 5,
-    "on-click": "fxsound --toggle-power",
-    "on-click-right": "fxsound --toggle-window"
+    "on-click": "crossfx --toggle-power",
+    "on-click-right": "crossfx --toggle-window"
 }
 ```
 
-The module hides while FxSound is not running, and `restart-interval` picks the stream up again
+The module hides while CrossFX is not running, and `restart-interval` picks the stream up again
 once it is. `--meters` adds the microphone's readouts, at most four times a second.
 
 The JSON is meant to be built on. Its `schema` (3), and `v` in each event, are compatibility
 numbers: a new key never changes them, so read the keys you know and ignore the rest; a key
-removed, renamed or given another meaning or type would raise them, and FxSound gives a changed
-meaning a key of its own instead. `man fxsound` has the rule under *STATUS DOCUMENT*.
+removed, renamed or given another meaning or type would raise them, and CrossFX gives a changed
+meaning a key of its own instead. `man crossfx` has the rule under *STATUS DOCUMENT*.
 
-The same commands are a D-Bus interface, `org.fxsound.FxSound` at `/org/fxsound/FxSound` on the
-session bus, for anything that would rather hold a connection than start a process:
+The same commands are a D-Bus interface, `io.github.blackixxce12.CrossFX` at
+`/io/github/blackixxce12/CrossFX` on the session bus, for anything that would rather hold a
+connection than start a process:
 
 ```bash
-busctl --user call org.fxsound.FxSound /org/fxsound/FxSound org.fxsound.FxSound SetPreset s Music
-busctl --user call org.fxsound.FxSound /org/fxsound/FxSound org.fxsound.FxSound \
+busctl --user call io.github.blackixxce12.CrossFX /io/github/blackixxce12/CrossFX io.github.blackixxce12.CrossFX SetPreset s Music
+busctl --user call io.github.blackixxce12.CrossFX /io/github/blackixxce12/CrossFX io.github.blackixxce12.CrossFX \
     Apply as 2 -- --preset=Music --set_effect=bass:7.5
-busctl --user --auto-start=no call org.fxsound.FxSound /org/fxsound/FxSound \
-    org.freedesktop.DBus.Properties Get ss org.fxsound.FxSound Power
-busctl --user monitor org.fxsound.FxSound
+busctl --user --auto-start=no call io.github.blackixxce12.CrossFX /io/github/blackixxce12/CrossFX \
+    org.freedesktop.DBus.Properties Get ss io.github.blackixxce12.CrossFX Power
+busctl --user monitor io.github.blackixxce12.CrossFX
 ```
 
 Each method does what its option does — `TogglePower`, `SetPreset`, `SetOutput`, `SetInput`,
 `SetNoiseSuppression`, `SetAppPreset`, `GetStatus` and the rest — and `Apply` runs a whole command
 line and answers with what it printed. Properties carry the power, the edited lane's preset, both
-lanes' devices and the edit direction, and signals say when they change. A call with no FxSound
+lanes' devices and the edit direction, and signals say when they change. A call with no CrossFX
 running starts it in the tray, through the systemd user unit, so anything that only reads — a bar
 module above all — should ask the bus not to (`busctl --auto-start=no call`, or the `NO_AUTO_START`
-flag), or it brings FxSound back seconds after you quit it. Read a property with `call` and
+flag), or it brings CrossFX back seconds after you quit it. Read a property with `call` and
 `org.freedesktop.DBus.Properties Get`, as above: `busctl get-property` and `busctl introspect`
-start FxSound whatever `--auto-start` says (systemd 262). The command line keeps to its own socket
+start CrossFX whatever `--auto-start` says (systemd 262). The command line keeps to its own socket
 and works without a session bus.
 
-`fxsound --self-test` checks an installation without a display, a session or a sound server —
+`crossfx --self-test` checks an installation without a display, a session or a sound server —
 presets, settings, both chains run offline, the desktop entry, icons, unit, activation file, man
-page and metainfo — and never touches a running FxSound. Every package's CI job runs it.
+page and metainfo — and never touches a running CrossFX. Every package's CI job runs it.
 
 ## How the audio path works
 
@@ -339,12 +340,12 @@ page and metainfo — and never touches a running FxSound. Every package's CI jo
        │  play into
        ▼
 ┌──────────────────┐     ┌─────────────────────┐     ┌──────────────────┐
-│  FxSound sink    │────►│  music chain        │────►│  your real sink  │
+│  CrossFX sink    │────►│  music chain        │────►│  your real sink  │
 │  (virtual, ours) │     │  EQ → effects → lim │     │  (you choose it) │
 └──────────────────┘     └─────────────────────┘     └──────────────────┘
 
 ┌──────────────────┐     ┌─────────────────────┐     ┌──────────────────┐
-│  your real mic   │────►│  voice chain        │────►│  FxSound source  │
+│  your real mic   │────►│  voice chain        │────►│  CrossFX source  │
 │  (you choose it) │     │  denoise → … → lim  │     │  (virtual, ours) │
 └──────────────────┘     └─────────────────────┘     └──────────────────┘
                                                             │  record from
@@ -352,24 +353,23 @@ page and metainfo — and never touches a running FxSound. Every package's CI jo
                                                         your apps
 ```
 
-FxSound publishes its own sink. Everything written there is processed and rendered to whichever real
-device you pick in the app. That is the same shape as the Windows virtual driver, implemented with
-PipeWire nodes instead of a kernel driver — which also means uninstalling is `pkill fxsound` and
-your audio comes straight back. The one exception is
-[*Smooth moves in WirePlumber*](#deliberate-differences-from-the-windows-build): once ticked, it
-leaves a script for WirePlumber in your home, which no package removes — untick it before
-uninstalling.
+CrossFX publishes its own sink. Everything written there is processed and rendered to whichever real
+device you pick in the app. That is the same shape as the original's virtual driver, implemented
+with PipeWire nodes instead of a kernel driver — which also means uninstalling is `pkill crossfx`
+and your audio comes straight back. The one exception is [*Smooth moves in
+WirePlumber*](#deliberate-differences-from-the-original-fxsound): once ticked, it leaves a script
+for WirePlumber in your home, which no package removes — untick it before uninstalling.
 
 A microphone is a second lane beside it, not a switch: a capture stream from the microphone you pick
-runs [the voice chain](#the-microphone-chain) and feeds a virtual source, `FxSound (Input)`, that
+runs [the voice chain](#the-microphone-chain) and feeds a virtual source, `CrossFX (Input)`, that
 applications record from. Each lane has its own device, preset, nodes and claim on the session
 default, and either can be set to *Off* while the other runs; the one power button covers both.
 
 Neither lane keeps anything awake for nothing. The stream to your speakers sleeps while no
-application plays into FxSound, and the microphone is opened only while something records from
-`FxSound (Input)`, the calibration runs or the Pro view shows the microphone's meters.
+application plays into CrossFX, and the microphone is opened only while something records from
+`CrossFX (Input)`, the calibration runs or the Pro view shows the microphone's meters.
 
-The volume the desktop shows for `FxSound (Output)` is kept per output device, so a level set for
+The volume the desktop shows for `CrossFX (Output)` is kept per output device, so a level set for
 quiet laptop speakers does not come back at full on headphones, and it is applied after the chain
 rather than in front of it, where the volume levelling would win part of a turn-down back.
 
@@ -377,7 +377,7 @@ rather than in front of it, where the volume levelling would win part of a turn-
 `priority.session = 500` so it never wins implicitly, and the default is only claimed when you ask
 for it. When you do, the previous default is remembered first and handed back on the way out —
 before the nodes are destroyed, so there is never a moment where the default names a node that no
-longer exists. This is the one part of the port that can affect audio for the whole session, and it
+longer exists. This is the one part of CrossFX that can affect audio for the whole session, and it
 is written to fail safe.
 
 ## The signal chain
@@ -441,10 +441,10 @@ compressor, because a compressor in front would ride the sibilant and duck the w
 voice preset may still name another order, `chain = "podcast"`, `"broadcast"` or `"streaming"`, each
 argued in [`crates/fxsound-dsp/src/input/processor.rs`](crates/fxsound-dsp/src/input/processor.rs).
 
-**Echo cancellation** is PipeWire's own WebRTC canceller, loaded into FxSound: the microphone and
+**Echo cancellation** is PipeWire's own WebRTC canceller, loaded into CrossFX: the microphone and
 what the speakers actually play go in, and the voice chain records from the echo-cancelled result,
 so a call on speakers does not hear itself. It runs only while something records from
-`FxSound (Input)`, and if the WebRTC module is missing the microphone keeps working and the window
+`CrossFX (Input)`, and if the WebRTC module is missing the microphone keeps working and the window
 says so.
 
 Added latency is the limiter's 1 ms, plus 20 ms for RNNoise and 10 ms for the de-reverb while they
@@ -467,8 +467,8 @@ once it sends sound.
 
 ### Voice presets
 
-Thirteen ship, in TOML rather than `.fac`: a `.fac` is a byte-for-byte contract with the Windows
-build and has nowhere to put a gate threshold. A stage that is switched off has no table in the
+Thirteen ship, in TOML rather than `.fac`: a `.fac` is a byte-for-byte contract with the original
+FxSound and has nowhere to put a gate threshold. A stage that is switched off has no table in the
 file, so there is no way to ship a full set of numbers that nothing reads.
 
 | Preset | For |
@@ -491,11 +491,11 @@ The picker shows the voice set in front of a microphone and the `.fac` set in fr
 and never mixes them. Your choice is remembered **per direction**, so a preset picked for a
 microphone does not follow you back to your speakers. Voice presets are edited, saved, renamed,
 deleted, imported and exported like the `.fac` ones, and yours live in
-`~/.local/share/fxsound/presets/Input/`. The reasoning behind every number in the shipped files is
+`~/.local/share/crossfx/presets/Input/`. The reasoning behind every number in the shipped files is
 in `docs/input-presets-decision.md`.
 
 It is also remembered **per device**, in both directions: every output keeps the `.fac` preset and
-every microphone the voice preset it was last used with, and brings it back whenever FxSound moves
+every microphone the voice preset it was last used with, and brings it back whenever CrossFX moves
 to it again — picked in the window or the tray, with `--output`, `--input`, `--next-output` or
 `--next-input`, or chosen by the priority list when it is plugged in. A device used for the first
 time leaves the preset alone. The rows of Settings ▸ Audio's *Output Device Preference* and of
@@ -516,28 +516,28 @@ makeup gain in the master gain's place.
 ## Presets
 
 `.fac` files are read and written in the original's format — a line-based text format, despite the
-extension. Every preset that ships with FxSound round-trips byte-for-byte, so presets copy in both
-directions between this port and the Windows build.
+extension. Every preset that ships with the original FxSound round-trips byte-for-byte, so presets
+copy in both directions between CrossFX and the original FxSound for Windows.
 
 | | Path |
 |---|---|
-| Factory presets | `/usr/share/fxsound/presets/Factsoft/`, `BonusPresets/` |
-| Voice presets | `/usr/share/fxsound/presets/Input/` |
-| Your presets | `~/.local/share/fxsound/presets/`, voice presets under `Input/` |
-| Unsaved edits | `~/.local/share/fxsound/presets/AutoSave/` |
-| Settings | `~/.config/fxsound/settings.toml` |
-| Applications and their presets | `~/.config/fxsound/apps.toml` |
+| Factory presets | `/usr/share/crossfx/presets/Factsoft/`, `BonusPresets/` |
+| Voice presets | `/usr/share/crossfx/presets/Input/` |
+| Your presets | `~/.local/share/crossfx/presets/`, voice presets under `Input/` |
+| Unsaved edits | `~/.local/share/crossfx/presets/AutoSave/` |
+| Settings | `~/.config/crossfx/settings.toml` |
+| Applications and their presets | `~/.config/crossfx/apps.toml` |
 
 The flip button at the top of the effect column turns it over to the equalizer's own controls, as in
 the original since 1.2.12: the band count, the master gain, the volume leveling, the filter width,
 the balance and Restore Defaults. Each slider has the original's range and step, except that the
-master gain and the balance step by 1 dB where Windows steps by 2, so every value `--master_gain`
-and `--balance` take can be set from the window too. The volume leveling reads its 0 to 4 amount
-without the "dB" Windows puts after it. A right-click puts any slider back to its default, the
-effects included (which it switches off), and every slider's tooltip says so. A press on a slider's
-thumb moves nothing until the pointer does, where Windows jumps to the pointer and can move the
-gain or the balance by a step, and one wheel notch is one step. Every title-bar button and the flip
-button say on hover what they do, and *Hide help tips* hides that too.
+master gain and the balance step by 1 dB where the original steps by 2, so every value
+`--master_gain` and `--balance` take can be set from the window too. The volume leveling reads its 0
+to 4 amount without the "dB" the original puts after it. A right-click puts any slider back to its
+default, the effects included (which it switches off), and every slider's tooltip says so. A press
+on a slider's thumb moves nothing until the pointer does, where the original jumps to the pointer
+and can move the gain or the balance by a step, and one wheel notch is one step. Every title-bar
+button and the flip button say on hover what they do, and *Hide help tips* hides that too.
 
 With the power off the sliders are grey but still show their values, and a preset can still be
 picked, from the window, the menu or the tray, as from the command line; switching back on plays it.
@@ -547,43 +547,45 @@ positions is shown with its decimal (General's Surround reads 1.6), a press on t
 move it, a plain arrow key or wheel notch takes it to the next position that way (Surround 1.6 to 2
 or 1), and **Shift** with the arrow keys, the wheel or a drag steps one stored value at a time, so
 loading a preset and saving it changes nothing. Ambience's positions 1 to 10 run over the values it
-can be heard at; on Windows positions 1 to 3 were all but silent.
+can be heard at; in the original positions 1 to 3 were all but silent.
 
 The equalizer's curve is the response the equalizer really has, filter width and all, where the
-Windows build joins the band values with straight lines: bands boosted side by side add up, and a
+original joins the band values with straight lines: bands boosted side by side add up, and a
 narrower filter width draws a narrower peak. The first and last band's wheels on five and ten bands
 turn both ways, reaching half a band past the ladder (on ten bands 46 Hz and 20 kHz); a preset
-exported for Windows has such a band put back at 62.5 Hz or 16 kHz, where its wheels stop, unless,
-at «Like FxSound for Windows» = Interface and sound, "Keep the end bands where they are" is ticked
-in the Export window (`--export-unshifted`). **Ctrl+Alt**+drag on a band solos it, as Alt+drag does
-on Windows: every other band sinks to −10 dB while you listen and comes back when you let go, or
-when a preset, the band count or the lane changes under it, and the preset is not marked as changed.
-The solo is offered while the equalizer plays, not while it is switched off. A press on a band's
-knob moves nothing until the pointer does, as on the sliders, and a band held when a preset, the
-band count or the lane arrives from elsewhere stays where the new curve puts it until you let go.
+exported for the original has such a band put back at 62.5 Hz or 16 kHz, where its wheels stop,
+unless, at «Like the original FxSound LLC» = Interface and sound, "Keep the end bands where they
+are" is ticked in the Export window (`--export-unshifted`). **Ctrl+Alt**+drag on a band solos it, as
+Alt+drag does in the original: every other band sinks to −10 dB while you listen and comes back when
+you let go, or when a preset, the band count or the lane changes under it, and the preset is not
+marked as changed. The solo is offered while the equalizer plays, not while it is switched off. A
+press on a band's knob moves nothing until the pointer does, as on the sliders, and a band held when
+a preset, the band count or the lane arrives from elsewhere stays where the new curve puts it until
+you let go.
 
 A preset lands on your band count, as in the original since 1.2.11: pick a ten-band preset while on
 31 bands and its curve is fitted onto the 31, and changing the band count carries the curve over
 instead of flattening it. Both go by frequency, so a boost stays where it was. The band count is
 your setting, not an edit to the preset. Restore Defaults puts back the neutral levels and keeps the
-band count and the curve. The twenty-band equalizer's bands sit every half octave; a Windows
-twenty-band preset is moved onto them band for band, and exported back on the Windows ladder.
+band count and the curve. The twenty-band equalizer's bands sit every half octave; a twenty-band
+preset of the original is moved onto them band for band, and exported back on the original's
+ladder.
 Export writes a preset as last saved, never its unsaved edits.
 
 Unsaved edits are kept in `AutoSave/` a minute after the first one and whenever you switch presets
 or quit, so a crash loses at most a minute. **Delete Preset** asks first and moves the file to the
 desktop's trash, where a file manager can restore it, and its unsaved edits with it: restore both
-and the preset is back with its `*`. **Save New Preset** also copies a preset with
-no unsaved changes, and **Export Presets** and **Import Presets** work with unsaved changes; at
-«Like FxSound for Windows» = Interface, as on Windows, the first waits for changes and the other two
-for none. A new preset's name is cut to the 126 bytes a Windows FxSound reads a name in
-(63 Cyrillic letters), and a line break or a tab in it becomes a space. Saving over one of your
-presets writes the file it was listed from, whatever that file is called, so a preset 0.3.0 saved
-as `Rock:Live.fac` keeps its file, and the unsaved edits 0.3.0 left in `AutoSave/` come back with
-it. **Reset presets** in Settings asks first, then discards every unsaved change and keeps your
-saved presets. `max_user_presets` in the settings file allows 10 to 1000 presets.
+and the preset is back with its `*`. **Save New Preset** also copies a preset with no unsaved
+changes, and **Export Presets** and **Import Presets** work with unsaved changes; at «Like the
+original FxSound LLC» = Interface, as in the original, the first waits for changes and the other two
+for none. A new preset's name is cut to the 126 bytes the original FxSound for Windows reads a name
+in (63 Cyrillic letters), and a line break or a tab in it becomes a space. Saving over one of your
+presets writes the file it was listed from, whatever that file is called, so a preset 0.3.0 saved as
+`Rock:Live.fac` keeps its file, and the unsaved edits 0.3.0 left in `AutoSave/` come back with it.
+**Reset presets** in Settings asks first, then discards every unsaved change and keeps your saved
+presets. `max_user_presets` in the settings file allows 10 to 1000 presets.
 
-The settings file keeps the original's key names so it can be diffed against the Windows
+The settings file keeps the original's key names so it can be diffed against the original's
 `FxSound.settings`. Settings and presets are written durably — temporary file, fsync, rename — so an
 interrupted save cannot truncate what was there. A settings file that does not load (a typo, a
 comment saved in a legacy encoding, permissions) is moved aside to `settings.toml.bad`, or
@@ -594,35 +596,35 @@ them on its next save. A settings file or preset that is a symbolic link, as GNU
 Stow or chezmoi leave them, stays one: the file it points to is the one replaced. A link to a
 read-only file, or to one in a directory you may not write, is never saved through, so every save of
 that file fails. home-manager's default links into the Nix store are such links; link the file with
-`mkOutOfStoreSymlink` to let FxSound save it.
+`mkOutOfStoreSymlink` to let CrossFX save it.
 
 ## A preset per application
 
-Every application that plays or records through FxSound is remembered, and each can have a preset of
+Every application that plays or records through CrossFX is remembered, and each can have a preset of
 its own on either lane: a game on *Gaming*, a browser on *Volume Boost*, a voice chat's microphone
-on *Headset*, all at the same time. One chain cannot run two presets at once, so FxSound gives such
-an application a pair of nodes of its own on the same device, `FxSound (Output) · Gaming` for one,
+on *Headset*, all at the same time. One chain cannot run two presets at once, so CrossFX gives such
+an application a pair of nodes of its own on the same device, `CrossFX (Output) · Gaming` for one,
 running its preset, and moves the application's stream onto it the way a volume mixer moves a stream
 — through the stream's target in PipeWire's `default` metadata, which WirePlumber honours. The rest
 of the session keeps the lane's preset. Up to four presets of one lane run this way at a time; an
 application past that stays on the lane's preset, and the window says so.
 
-**Settings ▸ Applications** lists every application FxSound has seen, the ones running now first,
-each with a preset combo for what it plays, what it records, or both; *FxSound's preset* has it
+**Settings ▸ Applications** lists every application CrossFX has seen, the ones running now first,
+each with a preset combo for what it plays, what it records, or both; *CrossFX's preset* has it
 follow the lane again, and the ✕ forgets it. The Pro view's preset combo says on hover which
 applications are running on presets of their own. From a script:
 
 ```bash
-fxsound --app-preset='bf6.exe=Gaming' --app-preset='firefox=Volume Boost' \
+crossfx --app-preset='bf6.exe=Gaming' --app-preset='firefox=Volume Boost' \
     --app-input-preset='com.discordapp.Discord=Headset'
-fxsound --app-preset='firefox=default'     # back to the lane's preset
-fxsound --list-apps
+crossfx --app-preset='firefox=default'     # back to the lane's preset
+crossfx --list-apps
 ```
 
-An application is named by its Flatpak id, its program or the name it gives itself, and one FxSound
+An application is named by its Flatpak id, its program or the name it gives itself, and one CrossFX
 has never seen gets its preset the first time it plays. D-Bus has the same as `SetAppPreset` and
 `ListApps`, and `--watch` reports every move as `app_routed`. The choices live in
-`~/.config/fxsound/apps.toml`, which keeps the 500 applications heard most recently, forgetting
+`~/.config/crossfx/apps.toml`, which keeps the 500 applications heard most recently, forgetting
 those that only follow the lanes first.
 
 With the power off none of them is moved: every application plays and records through the system's
@@ -631,12 +633,12 @@ one of these nodes is moved back to where its application's preset puts it — g
 instead — while a stream moved anywhere else, or a recorder pointed at such a node's monitor, stays
 where you put it.
 
-## Deliberate differences from the Windows build
+## Deliberate differences from the original FxSound
 
 Each of these is a considered decision, not an oversight:
 
-- **The sound is not quite the Windows build's.** Since 0.4.0 defects of the original DSP are fixed
-  rather than reproduced, so a preset plays close to, not exactly, as it does on Windows. Bass
+- **The sound is not quite the original's.** Since 0.4.0 defects of the original DSP are fixed
+  rather than reproduced, so a preset plays close to, not exactly, as it does in the original. Bass
   driven into the limiter comes out clean: the limiter holds its gain for 20 ms and moves the
   channels together, where it breathed within each bass cycle — up to 18.6 % distortion on a limited
   bass tone with the shipped presets, at most 0.016 % now — and dragged the stereo image towards the
@@ -647,97 +649,100 @@ Each of these is a considered decision, not an oversight:
   whole side; an effect or band switched back on starts clean; the twenty-band equalizer's bands sit
   every half octave; a slider, a preset change or the EQ switch glides over about 20 ms instead
   of clicking; the power button, and on a microphone a preset change or a stage switched in or out,
-  dips out and back in over 20 ms instead of stepping; and a sound moved onto FxSound in the middle
+  dips out and back in over 20 ms instead of stepping; and a sound moved onto CrossFX in the middle
   of a note — every application, when the power comes back on — fades in instead of starting at
   full level. No shipped preset was re-voiced, and each genre preset still ranks where it did for
   its genre.
 - **No update check and no telemetry.** Nothing contacts the network; updates come from your package
-  manager. The Windows keys for the update check, the hotkey chords, the window position and
+  manager. The original's keys for the update check, the hotkey chords, the window position and
   always-on-top are read from an older `settings.toml` without complaint and no longer written back.
 - **Deterministic preset ordering.** The original lists presets in filesystem-glob order, which is
-  arbitrary. This port lists the factory presets first, the numbered ones in the vendor's order and
+  arbitrary. CrossFX lists the factory presets first, the numbered ones in the vendor's order and
   the rest by name, then the user's own presets by name; a user's copy of a factory preset keeps
   the factory one's place.
 - **Frame-rate-independent visualizer decay.** The original decays its bars once per timer tick;
-  this port decays by elapsed time, so the animation looks the same at 60 and 165 Hz.
+  CrossFX decays by elapsed time, so the animation looks the same at 60 and 165 Hz.
 - **Q multiplier no longer resets the band layout.** Changing the filter width in the original
   silently discards preset-supplied band frequencies and resets the sample rate to 44100 until the
-  next buffer. That is a bug; this port only redesigns the coefficients.
+  next buffer. That is a bug; CrossFX only redesigns the coefficients.
 - **Presets work with the power off.** The original greys out its preset list, its menu's preset
-  items and its tray's preset menu while processing is off, and its command line ignores
-  `--preset`, `--save_preset` and the rest. Here all of them work either way, and a command is
-  refused exactly where the hamburger menu greys the item out — an overwrite or rename of a
-  factory preset, a rename with unsaved changes, a name already taken, the user-preset limit —
-  with the reason on stderr, exit status 1, and `org.fxsound.FxSound.Error.Refused` on D-Bus.
-  «Like FxSound for Windows» = Interface greys the window's list and menu items and drops the tray's
-  preset menu with the power again; the command line and D-Bus still work.
+  items and its tray's preset menu while processing is off, and its command line ignores `--preset`,
+  `--save_preset` and the rest. Here all of them work either way, and a command is refused exactly
+  where the hamburger menu greys the item out — an overwrite or rename of a factory preset, a rename
+  with unsaved changes, a name already taken, the user-preset limit — with the reason on stderr,
+  exit status 1, and `io.github.blackixxce12.CrossFX.Error.Refused` on D-Bus. «Like the original
+  FxSound LLC» = Interface greys the window's list and menu items and drops the tray's preset menu
+  with the power again; the command line and D-Bus still work.
 - **Global hotkeys live in the compositor.** See above.
 - **Window position is not restored.** Wayland gives a client no way to place its own toplevel, so
   the compositor places the window.
-- **The command line raises the window only when asked to.** On Windows every option but `--status`
-  shows and raises the window; here only `--show`, `--view` and `fxsound` with no options do, so a
-  keybind or a script sets a preset, the power or an effect without the window jumping in front —
-  and a line of such options that starts FxSound starts it in the tray. «Like FxSound for Windows»
-  = Interface raises it again for the options Windows has; the keybind options and D-Bus never do.
+- **The command line raises the window only when asked to.** In the original every option but
+  `--status` shows and raises the window; here only `--show`, `--view` and `crossfx` with no options
+  do, so a keybind or a script sets a preset, the power or an effect without the window jumping in
+  front — and a line of such options that starts CrossFX starts it in the tray. «Like the original
+  FxSound LLC» = Interface raises it again for the options the original has; the keybind options and
+  D-Bus never do.
 - **The command line says what it will not do.** Two preset options on one line (`--save_preset=A
-  --preset=B`, which Windows reads as `--preset=B` alone), a new preset name that is nothing once the
-  characters a `.fac` name cannot hold are gone, and a `--language` FxSound has no translation for
-  are parse errors; a band list naming a band the equalizer does not have (`--set_band_gain=12:2` on
-  ten bands), or a `--set_band_freq` outside the band's range, is refused whole with the band named
-  (at «Like FxSound for Windows» = Interface the pairs that fit are set and the rest skipped, with a
-  note). Windows ignores all of them without a word. `--language` also takes the ISO codes Windows
-  spells its own way (`uk`, `bs`, `nb`) and locales.
-- **Every option works when it starts FxSound.** Windows drops the band lists, `--set_effect` and
-  the preset commands (`--next-preset` from a keybind included) when there is no FxSound running
-  for them; here the start carries them out on the preset it selects. `--next-output` and
-  `--next-input` have no device to step from until FxSound runs, so with none running they are
-  refused and nothing starts.
+  --preset=B`, which the original reads as `--preset=B` alone), a new preset name that is nothing
+  once the characters a `.fac` name cannot hold are gone, and a `--language` CrossFX has no
+  translation for are parse errors; a band list naming a band the equalizer does not have
+  (`--set_band_gain=12:2` on ten bands), or a `--set_band_freq` outside the band's range, is refused
+  whole with the band named (at «Like the original FxSound LLC» = Interface the pairs that fit are
+  set and the rest skipped, with a note). The original ignores all of them without a word.
+  `--language` also takes the ISO codes the original spells its own way (`uk`, `bs`, `nb`) and
+  locales.
+- **Every option works when it starts CrossFX.** The original drops the band lists, `--set_effect`
+  and the preset commands (`--next-preset` from a keybind included) when it is not running yet; here
+  the start carries them out on the preset it selects. `--next-output` and `--next-input` have no
+  device to step from until CrossFX runs, so with none running they are refused and nothing starts.
 - **Two device menus in the tray.** The playback devices are under *Playback Device Select* and the
   microphones under *Recording Device Select*, and a long device name is shortened in its middle,
-  where Windows cut every name after 30 characters and PipeWire's names of one card's outputs all
-  looked alike. «Like FxSound for Windows» = Interface cuts the playback devices after 30 again.
+  where the original cut every name after 30 characters and PipeWire's names of one card's outputs
+  all looked alike. «Like the original FxSound LLC» = Interface cuts the playback devices after 30
+  again.
 - **No Donate button, no update check, no bonus-preset download, no Help center.** The heart in
-  the title bar and the Donate items in the menu and the tray are gone: this fork is not the
-  upstream developers' product and must not solicit money for them. "Check for updates" and the
+  the title bar and the Donate items in the menu and the tray are gone: CrossFX is not the
+  original developers' product and must not solicit money for them. "Check for updates" and the
   "Automatic updates" toggle need a network the package never uses, the bonus presets ship inside
   the package, and Settings ▸ Help keeps only the version and a **Changelog** that opens the
-  bundled `CHANGELOG.md` in-app instead of the upstream website. "Always On Top" is also absent:
+  bundled `CHANGELOG.md` in-app instead of the original's website. "Always On Top" is also absent:
   winit ignores window levels on Wayland, and a control that does nothing is worse than none.
 - **Translated, from the original's own tables.** The 29 JUCE `LocalisedStrings` files embedded in
-  the Windows binary (`assets/translations/`, extracted from its `BinaryData.cpp` as of 1.2.16.0,
-  which added Bulgarian; Hungarian was declared but never shipped) are embedded here and looked up
-  by the same English keys the C++ passes to `TRANS`, read as JUCE reads them, so the lines the
-  Windows tables leave unclosed translate here as they do there. The language follows the desktop session (`LC_ALL`/`LC_MESSAGES`/`LANG`)
-  unless one is picked in Settings ▸ General or with `--language <code>` (`--language system`
-  returns to following the desktop). The switch lists English and then every language by its own
-  name, in alphabetical order, where Windows used an order of its own and called three of them by
-  the wrong word (Turkish "Türk", Thai "แบบไทย", Czech "Česky"). «Like FxSound for Windows» = Interface
-  brings back the Windows order, not the wrong words. Strings this port added are in
-  `assets/translations/port/`. Right-to-left scripts render left-to-right — egui has no bidi.
+  the original's Windows binary (`assets/translations/`, extracted from its `BinaryData.cpp` as of
+  1.2.16.0, which added Bulgarian; Hungarian was declared but never shipped) are embedded here and
+  looked up by the same English keys the C++ passes to `TRANS`, read as JUCE reads them, so the
+  lines the original's tables leave unclosed translate here as they do there. The language follows
+  the desktop session (`LC_ALL`/`LC_MESSAGES`/`LANG`) unless one is picked in Settings ▸ General or
+  with `--language <code>` (`--language system` returns to following the desktop). The switch lists
+  English and then every language by its own name, in alphabetical order, where the original used an
+  order of its own and called three of them by the wrong word (Turkish "Türk", Thai "แบบไทย", Czech
+  "Česky"). «Like the original FxSound LLC» = Interface brings back the original's order, not the
+  wrong words. Strings CrossFX added are in `assets/translations/port/`. Right-to-left scripts
+  render left-to-right — egui has no bidi.
 - **Desktop notifications** for preset, output and power changes, the way the original's tray
   balloons announce them, through `org.freedesktop.Notifications`; *Hide notifications* in Settings
   silences them. What has to be seen — where the window went, a lost output, a refused save, the
   power toggled from a keybind, a change made while the window is hidden or minimised — is sent at
   normal urgency; a preset or an output picked in the window is sent at low urgency, which GNOME
   files in the message list without a banner. Every notice stays in GNOME's list until it is
-  dismissed or FxSound quits.
-- **FxSound takes the session default automatically — politely.** Picking an output device makes
-  `FxSound (Output)` the default sink so every application plays through it without any manual
+  dismissed or CrossFX quits.
+- **CrossFX takes the session default automatically — politely.** Picking an output device makes
+  `CrossFX (Output)` the default sink so every application plays through it without any manual
   routing; the previous default is remembered first and handed back on exit or when a lane is
   switched `Off`. Only `default.configured.audio.*` is ever written; `default.audio.*` stays
   WirePlumber's.
-- **Power off takes FxSound out of the path; it is no longer a bypass alone.** 0.3.0 kept every
-  application playing through FxSound's nodes with the effects switched off. Now, as in the Windows
-  build since 1.2.6, power off also hands both session defaults back to the real devices, so sound
-  no longer passes through FxSound at all (no added latency, and the desktop's own device switcher
+- **Power off takes CrossFX out of the path; it is no longer a bypass alone.** 0.3.0 kept every
+  application playing through its nodes with the effects switched off. Now, as in the original
+  since 1.2.6, power off also hands both session defaults back to the real devices, so sound
+  no longer passes through CrossFX at all (no added latency, and the desktop's own device switcher
   works), and power on takes them again. That goes for applications with a preset of their own
   too: while the power is off none of them is kept on its route, and each plays and records
   through the system's default devices like everything else, until the power comes back on and
   takes them onto their presets again (a stream that holds on to its preset's node by itself stays
   there, unprocessed). While it is off, the device lists show the system's
-  default device, which is where the sound goes; a device picked then is the one FxSound takes
+  default device, which is where the sound goes; a device picked then is the one CrossFX takes
   over when the power comes back on. Moving an application in the middle of its sound used to
-  click; FxSound now fades each application it is about to have moved to silence, and back in once
+  click; CrossFX now fades each application it is about to have moved to silence, and back in once
   it plays or records where it went — a short dip of about a tenth of a second instead of a click,
   for the power button and for an application's own preset switched on or off. Now and then —
   for a recording application, about one power switch in a hundred — PipeWire itself still plays a
@@ -746,11 +751,11 @@ Each of these is a considered decision, not an oversight:
   applications as plain Linux does, click and all — unless *Smooth moves in WirePlumber* is ticked
   (below).
 - **Smooth moves in WirePlumber (Settings ▸ Experimental, off by default).** A device picked in the
-  desktop's sound settings is moved by WirePlumber itself, before FxSound hears of it, so only
-  WirePlumber can fade that move. Ticked, FxSound puts a small WirePlumber 0.5 script,
-  `~/.local/share/wireplumber/scripts/fxsound/fade-on-move.lua`, and the fragment that loads it,
-  `~/.config/wireplumber/wireplumber.conf.d/90-fxsound-fade-on-move.conf`, where WirePlumber reads
-  them: every stream WirePlumber moves while it plays — with FxSound or without, on or off — is
+  desktop's sound settings is moved by WirePlumber itself, before CrossFX hears of it, so only
+  WirePlumber can fade that move. Ticked, CrossFX puts a small WirePlumber 0.5 script,
+  `~/.local/share/wireplumber/scripts/crossfx/fade-on-move.lua`, and the fragment that loads it,
+  `~/.config/wireplumber/wireplumber.conf.d/90-crossfx-fade-on-move.conf`, where WirePlumber reads
+  them: every stream WirePlumber moves while it plays — with CrossFX or without, on or off — is
   faded out before the move and back in after it, a dip of about a tenth of a second instead of the
   click (measured below −52 dBFS where it was −19 to −28). It changes WirePlumber's own policy for
   every application, needs WirePlumber 0.5 or newer (Ubuntu 24.04 ships 0.4, and the box is greyed
@@ -761,102 +766,102 @@ Each of these is a considered decision, not an oversight:
   a WirePlumber not started by systemd takes the change at the next login. The script is loaded as
   an optional component: one that fails on a later WirePlumber is logged and skipped, and never
   stops WirePlumber. Unticking deletes both files; by hand, delete them and restart WirePlumber.
-  Untick it before uninstalling FxSound or going back to 0.4.0: the package manager does not touch
-  files in your home, and only FxSound 0.5.0 or later takes them away, so WirePlumber would go on
-  loading the script with no FxSound left to untick it. Otherwise delete the two files and run
+  Untick it before uninstalling CrossFX or going back to 0.4.0: the package manager does not touch
+  files in your home, and only CrossFX takes them away, so WirePlumber would go on
+  loading the script with no CrossFX left to untick it. Otherwise delete the two files and run
   `systemctl --user restart wireplumber`.
-  With *Follow the system's default device* ticked and the power off, FxSound's own lane moving to
+  With *Follow the system's default device* ticked and the power off, CrossFX's own lane moving to
   the picked device still clicks the application that has just arrived there. An application closed
   in the tenth of a second the script holds it silent keeps its own volume: WirePlumber, which keeps
   each application's volume for its next start, never sees the script's silence, nor a point of its
   fades PipeWire reports on the way, and the script says the volume once more once its fade back is
   over, until PipeWire shows it. While it holds an application it says so in the `default` metadata
-  (`fxsound.held`), and FxSound's own fade leaves that application to it. An application whose own
+  (`crossfx.held`), and CrossFX's own fade leaves that application to it. An application whose own
   libpipewire is older than 0.3.68 has no ramp to fade with, and is moved as it is. An application
-  whose new link fails — a recorder WirePlumber strands between a mono microphone and FxSound's
-  stereo source — gets its volume back only once FxSound has linked it again, and one WirePlumber
-  has not moved yet when FxSound takes the default back is left to the script rather than faded by
-  FxSound too. Should an application ever start silent while the desktop's mixer shows 100 % all the
+  whose new link fails — a recorder WirePlumber strands between a mono microphone and CrossFX's
+  stereo source — gets its volume back only once CrossFX has linked it again, and one WirePlumber
+  has not moved yet when CrossFX takes the default back is left to the script rather than faded by
+  CrossFX too. Should an application ever start silent while the desktop's mixer shows 100 % all the
   same, `pw-cli set-param <id> Props '{ volume: 1.0 }'` on its node while it plays gives it its
   volume back for good (`wpctl status` lists the ids).
-- **Changing the device keeps `FxSound (Output)` and `FxSound (Input)`.** A lane moved to another
-  device — picked in FxSound, `--output`, `--next-output`, `--input`, or followed from the
+- **Changing the device keeps `CrossFX (Output)` and `CrossFX (Input)`.** A lane moved to another
+  device — picked in CrossFX, `--output`, `--next-output`, `--input`, or followed from the
   desktop's sound settings — replaces only its own stream on the device when the new one takes the
-  same channel count and rate, so nothing playing or recording through FxSound is moved: the sound
+  same channel count and rate, so nothing playing or recording through CrossFX is moved: the sound
   dips for about a tenth of a second instead of clicking twice as WirePlumber moved it away and
   back. After a pick in the desktop's sound settings, WirePlumber's own move to the picked device
   still clicks as plain Linux does where the application arrives, unprocessed; on the speakers
-  FxSound was playing through, the part of the sound it had not played yet fades out over 10 ms,
-  as it does whenever an application is taken off FxSound in the middle of its sound (the preset's
-  ring-out after it is dropped, and the next sound fades in over 30 ms), and FxSound's taking the
+  CrossFX was playing through, the part of the sound it had not played yet fades out over 10 ms,
+  as it does whenever an application is taken off CrossFX in the middle of its sound (the preset's
+  ring-out after it is dropped, and the next sound fades in over 30 ms), and CrossFX's taking the
   default back is faded. A device with another channel count or rate still has both
   nodes built anew, as before.
 - **An application silenced in the middle of a move gets its volume back.** For that tenth of a
-  second FxSound keeps each faded application's volume in `~/.local/state/fxsound/handover.toml`.
-  Should FxSound be killed right then, the application is left silent — WirePlumber even keeps the
+  second CrossFX keeps each faded application's volume in `~/.local/state/crossfx/handover.toml`.
+  Should CrossFX be killed right then, the application is left silent — WirePlumber even keeps the
   silence for its next start, while the desktop's mixer shows 100 % — and the next start of
-  FxSound gives it its volume back. Without FxSound, `pw-cli set-param <id> Props '{ volume: 1.0 }'`
+  CrossFX gives it its volume back. Without CrossFX, `pw-cli set-param <id> Props '{ volume: 1.0 }'`
   on the application's node while it plays does the same (`wpctl status` lists the ids).
 - **The device priority list can be told to step aside.** Settings ▸ Audio's list (and Settings ▸
-  Microphone's list of microphones, a port addition) picks the device as the Windows build's does:
+  Microphone's list of microphones, a CrossFX addition) picks the device as the original's does:
   every device seen joins it, at the bottom or, with *Prioritize new output devices*, at the top.
-  *Follow the system's default device*, which the Windows build does not have (its issue #629),
+  *Follow the system's default device*, which the original does not have (its issue #629),
   hands that choice back to the desktop's sound settings and keeps the list for later: a device
-  picked there moves the lane and FxSound stays the default, even after a device was picked in
-  FxSound, and the next start begins on the device picked there last. A device that
+  picked there moves the lane and CrossFX stays the default, even after a device was picked in
+  CrossFX, and the next start begins on the device picked there last. A device that
   is not connected has a ✕ beside it that forgets it and the preset it remembers, and
-  `fxsound --forget-device=NAME` (D-Bus `ForgetDevice`) does the same from a script. With no
-  FxSound running it forgets the name from the settings file and exits, without starting FxSound.
-- **Mono outputs are accepted.** The Windows build refuses an output with fewer than two channels,
+  `crossfx --forget-device=NAME` (D-Bus `ForgetDevice`) does the same from a script. With no
+  CrossFX running it forgets the name from the settings file and exits, without starting CrossFX.
+- **Mono outputs are accepted.** The original refuses an output with fewer than two channels,
   a workaround for a Windows driver (`sndDevices.h:32-39`). Here a Bluetooth headset in its
   hands-free (call) profile or a mono USB headset is an output like any other, and PipeWire mixes
-  FxSound's stereo down for it. And a device plugged in at the moment another goes — a USB DAC
-  swapped for another, a headset changing profile — is noticed as a new device, which the Windows
-  build misses (its open PR #532).
-- **A Bluetooth microphone wakes only when something records.** FxSound holds a microphone open
-  only while an application records from `FxSound (Input)`, the calibration wizard runs, or the Pro
+  CrossFX's stereo down for it. And a device plugged in at the moment another goes — a USB DAC
+  swapped for another, a headset changing profile — is noticed as a new device, which the original
+  misses (its open PR #532).
+- **A Bluetooth microphone wakes only when something records.** CrossFX holds a microphone open
+  only while an application records from `CrossFX (Input)`, the calibration wizard runs, or the Pro
   view shows the microphone's meters, so a headset is not switched to its call profile — mono,
   16 kHz — just because its microphone is picked. The picker says so on hover, and using one
   headset for both lanes says what it costs.
-- **Suspend mutes, resume starts clean, nothing waits.** FxSound listens for logind's
+- **Suspend mutes, resume starts clean, nothing waits.** CrossFX listens for logind's
   `PrepareForSleep` on the system bus: going to sleep mutes both lanes, and on resume their filters
-  are cleared before they are unmuted, as the Windows build does from its suspend notification. It
-  never holds a sleep inhibitor, as the Windows build decided too; without a system bus it simply
+  are cleared before they are unmuted, as the original does from its suspend notification. It
+  never holds a sleep inhibitor, as the original decided too; without a system bus it simply
   does not listen.
-- **A microphone gets a processor of its own, beside the speakers'.** The Windows build has no input
+- **A microphone gets a processor of its own, beside the speakers'.** The original has no input
   processing at all. Here the device lists are split into *Output* and *Input*, and choosing a
-  microphone builds a second lane — a capture stream feeding a virtual source, `FxSound (Input)`,
+  microphone builds a second lane — a capture stream feeding a virtual source, `CrossFX (Input)`,
   which becomes the default microphone — running [the voice chain](#the-microphone-chain) rather
   than applying reverberation and a bass lift to someone's speech. The speakers' lane keeps running;
   either lane can be set to *Off* on its own.
 - **System-visible names follow the system locale.** The node descriptions shown by pavucontrol and
-  desktop volume widgets are `FxSound (Вывод)` / `FxSound (Ввод)` on a Russian desktop,
-  `FxSound (Ausgabe)` / `FxSound (Eingabe)` on a German one, and so on for the thirteen languages
-  the original ships; English otherwise. Node *names* (`fxsound_sink`, `fxsound_source`, …) are
+  desktop volume widgets are `CrossFX (Вывод)` / `CrossFX (Ввод)` on a Russian desktop,
+  `CrossFX (Ausgabe)` / `CrossFX (Eingabe)` on a German one, and so on for the thirteen languages
+  the original ships; English otherwise. Node *names* (`crossfx_sink`, `crossfx_source`, …) are
   fixed ASCII, because they are what gets written into metadata.
 
 The original's painting slips are fixed rather than reproduced: the slider fill no longer overshoots
 its track by 8 px, the balance gradient no longer ends 8 px early, and the lit slider thumb is drawn
 at its 16 points instead of a quarter of that (`widgets::slider::Fidelity::Faithful` keeps the first
-two, and «Like FxSound for Windows» = Interface paints them). In the light theme the power-off
+two, and «Like the original FxSound LLC» = Interface paints them). In the light theme the power-off
 spectrum and a bypassed equalizer go a grey that can be seen instead of white, the Settings rule and
 the menu's edge get a colour that shows on the light background, and Settings' tab captions are set
 smaller where a translation would run past the rule.
 
-«Like FxSound for Windows» = Interface puts the window back the way the Windows build draws and
+«Like the original FxSound LLC» = Interface puts the window back the way the original draws and
 works it, and changes nothing you hear or have saved: the master gain and the balance step by 2 dB,
 the volume leveling reads "dB", the light theme's power-off graphs turn white and its rules nearly
-vanish again, the slider fill overshoots as it did, a long preset name loses its ` *` with the
-cut, the equalizer's curve joins the band values with straight lines, the first and last wheels on
-five and ten bands turn one way from 62.5 Hz and 16 kHz (a band a preset already put further out
-stays there and can only come back in), a right-click on an effect slider moves it as a click does
-instead of switching the effect off, the tooltips are the Windows build's own and no more (none on
-the title bar, the flip button or the level sliders, none of the right-click and solo lines), the
-Audio, General and Help captions are set in the normal font and cut where their button ends, the
-language switch runs in the Windows order (with the right names), and with the power off the preset
-list, the menu's preset items and the tray's preset menu go grey or away — the command line and
-D-Bus still pick presets. The port's own features, the microphone lane, the applications' presets
-and the other Settings tabs among them, stay as they are.
+vanish again, the slider fill overshoots as it did, a long preset name loses its ` *` with the cut,
+the equalizer's curve joins the band values with straight lines, the first and last wheels on five
+and ten bands turn one way from 62.5 Hz and 16 kHz (a band a preset already put further out stays
+there and can only come back in), a right-click on an effect slider moves it as a click does instead
+of switching the effect off, the tooltips are the original's own and no more (none on the title bar,
+the flip button or the level sliders, none of the right-click and solo lines), the Audio, General
+and Help captions are set in the normal font and cut where their button ends, the language switch
+runs in the original's order (with the right names), and with the power off the preset list, the
+menu's preset items and the tray's preset menu go grey or away — the command line and D-Bus still
+pick presets. CrossFX's own features, the microphone lane, the applications' presets and the other
+Settings tabs among them, stay as they are.
 
 ## Implementation status
 
@@ -875,12 +880,12 @@ from disk and drives both the sliders and the equalizer curve, the Settings pane
 parses every original option and reaches a running instance over the control socket, audio rendered
 offline through `cargo run -p fxsound-dsp --example process_wav` measures the preset's equalizer
 curve back out of the rendered file, and on a live PipeWire session the sink is published as
-**FxSound (Output)**, claims the session default, accepts a stream, and hands processed samples to
+**CrossFX (Output)**, claims the session default, accepts a stream, and hands processed samples to
 the chosen output device. Verified on Hyprland 0.56 as well: the window survives on a hidden
 workspace without tripping the compositor's "not responding" watchdog (the control socket keeps
 answering while the surface is unmapped), ✕ / minimise / `killactive` hide to the tray and
-`fxsound --show` brings a fresh, fully painted window back, the hamburger menu opens with the
-original's items, and picking a microphone moves the session default source to **FxSound (Input)**
+`crossfx --show` brings a fresh, fully painted window back, the hamburger menu opens with the
+original's items, and picking a microphone moves the session default source to **CrossFX (Input)**
 and hands it back afterwards.
 
 The audio crate's graph tests start a PipeWire daemon of their own, with synthetic speakers and a
@@ -896,7 +901,7 @@ each in a disposable session with its own PipeWire graph, so the checks never to
 
 Measuring a running instance from outside is harder than it looks: recording the output device's
 monitor picks up **everything** playing on that device, so anything else the machine is playing
-buries the test signal. Point FxSound at an idle device, or instrument the ring between its two
+buries the test signal. Point CrossFX at an idle device, or instrument the ring between its two
 nodes, rather than trusting a monitor capture.
 
 ### Known limitation: no second window
@@ -910,29 +915,29 @@ against a Mesa driver before calling it an upstream bug.
 
 ## Documentation
 
-`man fxsound` ([`packaging/fxsound.1`](packaging/fxsound.1) in the tree, `man -l
-packaging/fxsound.1` to read it there) is the reference for using it: every option and its exit
+`man crossfx` ([`packaging/crossfx.1`](packaging/crossfx.1) in the tree, `man -l
+packaging/crossfx.1` to read it there) is the reference for using it: every option and its exit
 status, the `--status --json` document key by key, the `--watch` events, the D-Bus methods,
-properties and signals, and the files FxSound reads and writes.
+properties and signals, and the files CrossFX reads and writes.
 
-[`docs/0.5.0-windows-parity.md`](docs/0.5.0-windows-parity.md) is the contract of «Like FxSound
-for Windows»: its levels (three in 0.5.0; Everything, which hides the port's own features, comes
-later), which of the port's changes and features each one reverts or hides and which none ever
+[`docs/0.5.0-windows-parity.md`](docs/0.5.0-windows-parity.md) is the contract of «Like the original
+FxSound LLC»: its levels (three in 0.5.0; Everything, which hides CrossFX's own features, comes
+later), which of CrossFX's changes and features each one reverts or hides and which none ever
 does, and the setting, option, D-Bus members and status keys that carry it.
 [`docs/0.5.0-dsp-inventory.md`](docs/0.5.0-dsp-inventory.md) lists every change to the output
 lane's sound since the engine before the 0.4.0 audit, with the level each one belongs to, and
 `scripts/windows-parity-bitexact.sh <commit>` holds the output lane to another build of itself bit
 for bit — every shipped preset as the application plays it, on 10, 20 and 31 bands; CI holds it to
 `v0.4.0`, and with `--compat=windows` holds Interface and sound to the engine before the 0.4.0
-audit from a cold start. Where the Windows C code is the reference instead (Ambience, the balance
+audit from a cold start. Where the original's C code is the reference instead (Ambience, the balance
 on surround), `scripts/windows-vectors/build.sh` compiles it into the golden vectors the unit
 tests hold.
 
 `docs/0.4.0-design.md`, `docs/0.4.0-upstream.md` and `docs/0.4.0-apps.md` record how 0.4.0 was
 built: the two lanes, the voice chain's new stages, D-Bus and the event stream; what was taken from
-the Windows build's own later releases; and the per-application presets.
+the original's own later releases; and the per-application presets.
 
-`docs/spec/` holds the reverse-engineering specification this port was written against — roughly
+`docs/spec/` holds the reverse-engineering specification CrossFX was written against — roughly
 20,000 lines covering every subsystem of the original, with citations down to the source line. It is
 worth reading before changing any DSP code. `docs/api/` holds verified API cheatsheets for
 egui/eframe 0.36 and pipewire-rs 0.10, quoted from the vendored crate sources. The voice chain has
@@ -941,7 +946,7 @@ its own reasoning in `docs/voice-presets-research.md`, `docs/input-presets-decis
 
 ## Licence
 
-AGPL-3.0-or-later, inherited from upstream FxSound.
+AGPL-3.0-or-later, inherited from the original FxSound.
 
 Two parts of the binary are under other licences, and every package installs their text beside
 `LICENSE` (the `.deb` in its `copyright` file): the noise suppression in `crates/fxsound-rnnoise`,
@@ -949,14 +954,14 @@ Joe Neeman's `nnnoiseless` port of Xiph's RNNoise with its model, is BSD-3-Claus
 (`COPYING.rnnoise`), and the Noto fallback faces are SIL OFL 1.1 (`OFL.noto`, from
 `assets/fonts/OFL.txt`).
 
-The bundled artwork and the Gilroy typeface come from the upstream repository and carry their own
+The bundled artwork and the Gilroy typeface come from the original's repository and carry their own
 terms. Gilroy is Radomir Tinkov's commercial typeface: its files say "All rights reserved" and name
-no licence. A redistributable package may need to replace it — its presence in the upstream tree is
-not itself a licence to redistribute.
+no licence. A redistributable package may need to replace it — its presence in the original's tree
+is not itself a licence to redistribute.
 
 ## Credits
 
 FxSound is by [FxSound LLC](https://www.fxsound.com), with major DSP contributions from
-[Theremino](https://www.theremino.com). This port would not be possible without their decision to
+[Theremino](https://www.theremino.com). CrossFX would not be possible without their decision to
 open the source. It is an independent community project, not affiliated with, endorsed by or
 supported by FxSound LLC.
