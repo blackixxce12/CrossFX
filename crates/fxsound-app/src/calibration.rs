@@ -1,4 +1,5 @@
-//! The microphone calibration wizard's state machine (0.4.0 design §8, upstream U9).
+//! The microphone calibration wizard's state machine (0.4.0 design §8, U9 of the review of the
+//! original's changes).
 //!
 //! The wizard in `fxsound_ui::dialogs::calibration` only draws; this is what times it and turns
 //! what the input lane measured into a voice preset:
@@ -10,7 +11,7 @@
 //! ```
 //!
 //! **Waking.** Start asks the engine to hold the microphone open ([`Command::KeepInputAwake`]):
-//! the input lane's capture is passive while nobody records from FxSound (Input), and a Bluetooth
+//! the input lane's capture is passive while nobody records from CrossFX (Input), and a Bluetooth
 //! headset only switches to its microphone profile when something does. Nothing is measured until
 //! the lane is attached to a microphone and processing — and a Bluetooth microphone until it
 //! delivers something other than digital zeros, which its loopback carries until the profile
@@ -87,7 +88,7 @@ pub const TARGET_RMS_DB: f32 = -18.0;
 pub const EXPECTED_COMPRESSION_DB: f32 = 4.0;
 
 /// The makeup is held to this either way: a microphone that needs more is misconfigured in the
-/// mixer, and the wizard should not hide it (upstream #505 asked for ±18).
+/// mixer, and the wizard should not hide it (the original's #505 asked for ±18).
 pub const MAKEUP_LIMIT_DB: f32 = 18.0;
 
 /// The compressor's ratio in every calibrated preset.
@@ -500,7 +501,7 @@ pub fn signed_db(db: f32) -> String {
 /// Held to what a typed name may be — no character the name editor filters out, no control
 /// characters, at most [`crate::app::MAX_PRESET_NAME_CHARS`] characters and
 /// [`fxsound_preset::MAX_NAME_BYTES`] bytes — so the preset can be renamed, exported and copied to
-/// Windows like one the user named.
+/// the original FxSound for Windows like one the user named.
 /// Not translated: a preset's name is written as it is in every language, like the shipped ones.
 #[must_use]
 pub fn calibrated_preset_name(description: &str) -> String {
@@ -514,8 +515,8 @@ pub fn calibrated_preset_name(description: &str) -> String {
     } else {
         format!("Calibrated — {cleaned}")
     };
-    // At most sixty-four characters and the 126 bytes a Windows FxSound reads a name in (0.4.0
-    // audit #15): "Calibrated — " and a Cyrillic device name reach the bytes first.
+    // At most sixty-four characters and the 126 bytes the original FxSound for Windows reads a name
+    // in (0.4.0 audit #15): "Calibrated — " and a Cyrillic device name reach the bytes first.
     fxsound_preset::new_preset_name(&name)
 }
 
@@ -1756,8 +1757,8 @@ mod tests {
             "{long}"
         );
         assert!(!long.ends_with(' '));
-        // 0.4.0 audit #15: a Cyrillic device name reaches the bytes a Windows FxSound reads a name
-        // in before it reaches sixty-four characters.
+        // 0.4.0 audit #15: a Cyrillic device name reaches the bytes the original FxSound for
+        // Windows reads a name in before it reaches sixty-four characters.
         let cyrillic = calibrated_preset_name(&"Микрофон ".repeat(8));
         assert!(
             cyrillic.len() <= fxsound_preset::MAX_NAME_BYTES,

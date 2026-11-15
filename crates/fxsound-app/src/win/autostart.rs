@@ -1,11 +1,13 @@
-//! "Run at startup" on Windows: the value `FxSound Port` under
-//! `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, where FxSound for Windows keeps its own
-//! (`FxController.cpp:2789-2812`), which is what the XDG autostart entry stands in for on Linux.
+//! "Run at startup" on Windows: the value `CrossFX` under
+//! `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, where the original FxSound keeps a value
+//! of its own (`FxController.cpp:2789-2812`), which is what the XDG autostart entry stands in for
+//! on Linux.
 //!
-//! The value is `"<path of fxsound.exe>" --hide`: a start at log-on goes to the notification area,
-//! as the autostart entry's `Exec=fxsound --hide` does. Its name is the port's own, not the
-//! original's `FxSound`, so that the two can be installed side by side without one's tick
-//! turning the other on; the uninstallers delete it by this name.
+//! The value is `"<path of crossfx.exe>" --hide`: a start at log-on goes to the notification area,
+//! as the autostart entry's `Exec=crossfx --hide` does. Its name is CrossFX's own
+//! ([`fxsound_core::identity::PRODUCT`]), never the name of the original FxSound's value, which
+//! this module neither reads nor writes: the two can be installed side by side without one's tick
+//! turning the other on, and the uninstallers delete CrossFX's value by its name.
 //!
 //! Task Manager's Startup tab turns an entry off without deleting it, with a value of the same
 //! name under `…\Explorer\StartupApproved\Run` whose first byte is odd — as a desktop's autostart
@@ -30,7 +32,7 @@ pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const APPROVED_KEY: &str =
     r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 /// The value's name, which the uninstallers delete too.
-pub const VALUE_NAME: &str = "FxSound Port";
+pub const VALUE_NAME: &str = fxsound_core::identity::PRODUCT;
 
 /// What the value says for the binary at `exe`.
 #[must_use]
@@ -38,7 +40,7 @@ pub fn command_for(exe: &Path) -> String {
     format!("\"{}\" --hide", exe.display())
 }
 
-/// Whether FxSound starts at log-on: the value is there, and Task Manager has not turned it off.
+/// Whether CrossFX starts at log-on: the value is there, and Task Manager has not turned it off.
 #[must_use]
 pub fn enabled() -> bool {
     enabled_under(RUN_KEY, APPROVED_KEY, VALUE_NAME)
@@ -150,7 +152,7 @@ mod tests {
     impl ScratchKey {
         fn new(tag: &str) -> Self {
             Self(format!(
-                r"Software\FxSound Port tests\{tag}-{}",
+                r"Software\CrossFX tests\{tag}-{}",
                 std::process::id()
             ))
         }
@@ -167,7 +169,7 @@ mod tests {
     impl Drop for ScratchKey {
         fn drop(&mut self) {
             use windows::Win32::System::Registry::{RegDeleteKeyW, RegDeleteTreeW};
-            let (own, parent) = (wide(&self.0), wide(r"Software\FxSound Port tests"));
+            let (own, parent) = (wide(&self.0), wide(r"Software\CrossFX tests"));
             // SAFETY: NUL-terminated strings; the keys are the tests' own. The parent goes only
             // once it is empty, which `RegDeleteKeyW` checks.
             unsafe {
@@ -178,18 +180,29 @@ mod tests {
         }
     }
 
+    /// The value CrossFX writes is `CrossFX`: never the original FxSound's value, whatever its
+    /// case, nor any other name of the original's.
+    #[test]
+    fn the_value_is_crossfx_own_and_never_the_original_s() {
+        assert_eq!(VALUE_NAME, "CrossFX");
+        assert!(
+            !VALUE_NAME.to_lowercase().contains("fxsound"),
+            "{VALUE_NAME}"
+        );
+    }
+
     #[test]
     fn the_command_quotes_the_path_and_starts_in_the_tray() {
         assert_eq!(
-            command_for(Path::new(r"C:\Program Files\FxSound Port\fxsound.exe")),
-            r#""C:\Program Files\FxSound Port\fxsound.exe" --hide"#
+            command_for(Path::new(r"C:\Program Files\CrossFX\crossfx.exe")),
+            r#""C:\Program Files\CrossFX\crossfx.exe" --hide"#
         );
     }
 
     #[test]
     fn ticking_writes_the_value_and_unticking_takes_it_and_task_managers_note_away() {
         let key = ScratchKey::new("tick");
-        let exe = Path::new(r"C:\Program Files\FxSound Port\fxsound.exe");
+        let exe = Path::new(r"C:\Program Files\CrossFX\crossfx.exe");
         assert!(!enabled_under(&key.run(), &key.approved(), VALUE_NAME));
         set_under(&key.run(), &key.approved(), VALUE_NAME, true, exe).expect("tick");
         assert!(enabled_under(&key.run(), &key.approved(), VALUE_NAME));

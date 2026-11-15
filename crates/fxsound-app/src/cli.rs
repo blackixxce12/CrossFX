@@ -1,13 +1,13 @@
 //! The command line.
 //!
-//! The Windows build parses its command line twice, with two different option sets:
+//! The original parses its command line twice, with two different option sets:
 //! `FxController::initConfig` (`fxsound/Source/GUI/FxController.cpp:221-342`) runs in the first
 //! instance before any UI exists, and `FxController::applyConfig` (`:344-602`) runs in the
 //! *already running* instance when a second process is launched and JUCE forwards its command line
 //! (`fxsound/Source/Main.cpp:136-139`). The union of both is documented normatively in
 //! `docs/COMMAND_LINE_OPTIONS.md`, and this module keeps every option spelled exactly as that
 //! document spells it — underscores included — so existing scripts and the `fxmcp` MCP server keep
-//! working against the port.
+//! working against CrossFX.
 //!
 //! Three deliberate departures from the original, each one prescribed by
 //! `docs/spec/07-startup-tray.md` §4.7, and four the 0.4.0 audit added:
@@ -20,44 +20,45 @@
 //!    resets them to the default with no message, which is a bug generator; the in-tree Go client
 //!    already validates instead (`fxmcp/internal/fxsound/config.go:186-202`). Silent clamping is
 //!    kept only for values read back from the settings file, which is `fxsound-core`'s job.
-//! 3. **Linux additions for the compositor.** A Wayland client cannot grab a global hotkey
+//! 3. **CrossFX's additions for the compositor.** A Wayland client cannot grab a global hotkey
 //!    (`docs/spec/07-startup-tray.md` §2.7), so the five `RegisterHotKey` bindings become
 //!    compositor keybindings that run this CLI: `--toggle-power`, `--next-preset`,
 //!    `--prev-preset`, `--next-output` and `--toggle-window`, plus `--show`, `--hide` and
 //!    `--quit`. `packaging/hyprland.conf.example` binds five of them, on Super+Alt: a compositor
-//!    binding takes its keys from every application, and the Windows build's own chords collide
+//!    binding takes its keys from every application, and the original's own chords collide
 //!    (Ctrl+Shift+Q is how Chromium quits; 0.4.0 audit #33).
-//! 4. **Only what is about the window raises it** (0.4.0 audit R11). On Windows every forwarded
-//!    command line but `--status` shows and raises the window (`FxController.cpp:523-531`), so a
-//!    keybind that runs `fxsound --preset=Gaming` pulled the window over the game each time. Here
-//!    an option that sets something — a preset, the power, a device, an effect, a band, a level,
-//!    the language — does it silently, and a line of nothing else that starts FxSound starts it in
-//!    the tray ([`Cli::only_sets_things`]); `--show`, `--view` and a line with no options at all
-//!    raise the window, `--toggle-window` toggles it and `--hide` hides it
-//!    (`Cli::window_command`). At a start `--view` sets the layout and the window follows the
-//!    remembered tray state, unless `--show` is given too ([`Cli::cold_start_commands`]). At «Как
-//!    в Windows» = Interface and above a line with an option the Windows build has raises the
-//!    window again, as there ([`Cli::raises_like_windows`]); the keybind options and D-Bus never
-//!    do.
-//! 5. **One preset option per line** (audit #30). Windows takes the first of `--preset`,
+//! 4. **Only what is about the window raises it** (0.4.0 audit R11). In the original every
+//!    forwarded command line but `--status` shows and raises the window
+//!    (`FxController.cpp:523-531`), so a keybind that runs `crossfx --preset=Gaming` pulled the
+//!    window over the game each time. Here an option that sets something — a preset, the power, a
+//!    device, an effect, a band, a level, the language — does it silently, and a line of nothing
+//!    else that starts CrossFX starts it in the tray ([`Cli::only_sets_things`]); `--show`,
+//!    `--view` and a line with no options at all raise the window, `--toggle-window` toggles it and
+//!    `--hide` hides it (`Cli::window_command`). At a start `--view` sets the layout and the window
+//!    follows the remembered tray state, unless `--show` is given too
+//!    ([`Cli::cold_start_commands`]). At «Как в оригинальном FxSound LLC» = Interface and above a
+//!    line with an option the original has raises the window again, as there
+//!    ([`Cli::raises_like_windows`]); the keybind options and D-Bus never do.
+//! 5. **One preset option per line** (audit #30). The original takes the first of `--preset`,
 //!    `--save_preset`, `--overwrite_preset`, `--undo_preset`, `--rename_preset` and
 //!    `--delete_preset` and silently drops the rest (`FxController.cpp:393-448`); here a second one
 //!    — `--next-preset` and `--prev-preset` included — is a parse error naming both, and so is a
 //!    name that is empty, or one that has nothing left once the characters a preset name cannot
 //!    hold are taken out.
 //! 6. **A band list with a band the equalizer does not have is refused, with a message** (audit
-//!    #51): Windows drops such a list without a word when it has more pairs than bands, and sets
-//!    whatever it can otherwise; here nothing of it is set, and the command fails naming the bands
-//!    that are not there (`crate::commands`). So is a `--set_band_freq` list with a frequency
-//!    outside its band's range, a pair Windows drops alone and without a word. At «Как в Windows»
-//!    = Interface and above the pairs that fit are set and the others skipped, with a note.
-//! 7. **An unknown `--language` is an error** (audit #28): Windows saves any code and shows the
-//!    language whose name it starts with, or English. The table's own codes are taken in any case,
-//!    and so are the ISO codes it spells otherwise (`uk`, `bs`, `nb`, `nn`) and locales
+//!    #51): the original drops such a list without a word when it has more pairs than bands, and
+//!    sets whatever it can otherwise; here nothing of it is set, and the command fails naming the
+//!    bands that are not there (`crate::commands`). So is a `--set_band_freq` list with a frequency
+//!    outside its band's range, a pair the original drops alone and without a word. At «Как в
+//!    оригинальном FxSound LLC» = Interface and above the pairs that fit are set and the others
+//!    skipped, with a note.
+//! 7. **An unknown `--language` is an error** (audit #28): the original saves any code and shows
+//!    the language whose name it starts with, or English. The table's own codes are taken in any
+//!    case, and so are the ISO codes it spells otherwise (`uk`, `bs`, `nb`, `nn`) and locales
 //!    (`ru_RU.UTF-8`), through [`fxsound_core::i18n::canonical_code`].
 //! 8. **Every option works at a start too.** `initConfig` reads ten options and never sees the
 //!    band lists, `--set_effect` or the preset management, so a line of them that starts the
-//!    Windows build is dropped without a word. Here a start carries them out once the presets are
+//!    original is dropped without a word. Here a start carries them out once the presets are
 //!    read ([`Command::honoured_at_cold_start`]). `--next-output` and `--next-input` step from the
 //!    device a lane is on, and a start has none yet: a line with one is refused and starts nothing
 //!    (`crate::commands::answer_without_an_instance`).
@@ -86,8 +87,8 @@ pub use fxsound_preset::{
     sanitise_preset_name,
 };
 
-/// The only band counts the equalizer accepts; anything else is `DEFAULT_NUM_EQ_BANDS = 10` on
-/// Windows (`FxController.cpp:283-293`, `FxController.h:45`) and an error here.
+/// The only band counts the equalizer accepts; anything else is `DEFAULT_NUM_EQ_BANDS = 10` in
+/// the original (`FxController.cpp:283-293`, `FxController.h:45`) and an error here.
 pub const VALID_BAND_COUNTS: [u32; 5] = [5, 10, 15, 20, 31];
 
 /// `-20.0..=+20.0` dB, from `DEFAULT_BALANCE`'s validation at `FxController.cpp:307-317`.
@@ -116,12 +117,12 @@ pub const MAX_EFFECT_PAIRS: usize = Effect::COUNT;
 /// `docs/spec/07-startup-tray.md` §4.7.
 #[derive(Debug, Clone, Default, Parser)]
 #[command(
-    name = "fxsound",
+    name = "crossfx",
     version,
     about = "System-wide audio enhancement: EQ, ambience, surround, bass and dynamic boost",
-    long_about = "Run with no options to start FxSound, or to raise the window of an instance \
+    long_about = "Run with no options to start CrossFX, or to raise the window of an instance \
                   that is already running. Any option given while an instance is running is \
-                  forwarded to it over the control socket in $XDG_RUNTIME_DIR/fxsound.",
+                  forwarded to it over the control socket in $XDG_RUNTIME_DIR/crossfx.",
     // The four reports `--json` can reshape. A group rather than four `requires`, because clap
     // reads a list of `requires` as "all of them".
     group(
@@ -148,15 +149,15 @@ pub const MAX_EFFECT_PAIRS: usize = Effect::COUNT;
     )
 )]
 // The Windows facts where the Linux text names the socket, the bus or systemd: a later
-// `long_about` is the one clap keeps. The Linux text above stays as `packaging/fxsound.1`
+// `long_about` is the one clap keeps. The Linux text above stays as `packaging/crossfx.1`
 // documents it.
 #[cfg_attr(
     windows,
     command(
-        long_about = "Run with no options to start FxSound, or to raise the window of an \
+        long_about = "Run with no options to start CrossFX, or to raise the window of an \
                       instance that is already running. Any option given while an instance is \
                       running is forwarded to it over its control pipe, \
-                      \\\\.\\pipe\\fxsound-<user SID>, which only the same user can open."
+                      \\\\.\\pipe\\crossfx-<user SID>, which only the same user can open."
     )
 )]
 pub struct Cli {
@@ -217,10 +218,10 @@ pub struct Cli {
     /// detach the lane.
     ///
     /// `--output=<device>` — `docs/COMMAND_LINE_OPTIONS.md:24`, `FxController.cpp:254-257`,
-    /// `:451-462`. On Windows this is the WASAPI friendly name; here it is the PipeWire
+    /// `:451-462`. In the original this is the WASAPI friendly name; here it is the PipeWire
     /// `node.description`, with `node.name` accepted too since that is what settings persist.
-    /// `off` is a Linux addition (0.4.0 design §1.4). In 0.3.0 naming a capture device here
-    /// switched FxSound into its input mode; a microphone named here is still selected, for the
+    /// `off` is a CrossFX addition (0.4.0 design §1.4). In 0.3.0 naming a capture device here
+    /// switched the program into its input mode; a microphone named here is still selected, for the
     /// input lane, with a note on stderr that `--input` is the option for it now.
     #[arg(long = "output", value_name = "DEVICE|off")]
     #[cfg_attr(
@@ -230,7 +231,7 @@ pub struct Cli {
                          name, or `off` to detach the lane.\n\n\
                          `--output=<device>` — `docs/COMMAND_LINE_OPTIONS.md:24`, \
                          `FxController.cpp:254-257`, `:451-462`: the device's name as Windows \
-                         lists it, as the original takes it. `off` is a port addition (0.4.0 \
+                         lists it, as the original takes it. `off` is a CrossFX addition (0.4.0 \
                          design §1.4). A microphone named here is still selected, for the input \
                          lane, with a note on stderr that `--input` is the option for it."
         )
@@ -240,15 +241,15 @@ pub struct Cli {
     /// Select the microphone the input lane reads from, by its exact name, or `off` to detach the
     /// lane.
     ///
-    /// Linux addition (0.4.0 design §1.4): the input lane runs beside the output lane, so it has
-    /// an option of its own. Matched like `--output`: `node.name` first, then the description.
+    /// A CrossFX addition (0.4.0 design §1.4): the input lane runs beside the output lane, so it
+    /// has an option of its own. Matched like `--output`: `node.name` first, then the description.
     #[arg(long = "input", value_name = "DEVICE|off")]
     #[cfg_attr(
         windows,
         arg(
             long_help = "Select the microphone the input lane reads from, by its exact name, or \
                          `off` to detach the lane.\n\n\
-                         A port addition (0.4.0 design §1.4): the input lane runs beside the \
+                         A CrossFX addition (0.4.0 design §1.4): the input lane runs beside the \
                          output lane, so it has an option of its own. Matched like `--output`."
         )
     )]
@@ -257,8 +258,8 @@ pub struct Cli {
     /// Forget a device that is not connected: drop it from its lane's device priority list, and
     /// the preset remembered for it, as the ✕ beside its row in Settings does.
     ///
-    /// Linux addition (0.4.0 audit #34). By `node.name` or description, playback devices and
-    /// microphones alike; a device that is connected is refused, since FxSound would learn it
+    /// A CrossFX addition (0.4.0 audit #34). By `node.name` or description, playback devices and
+    /// microphones alike; a device that is connected is refused, since CrossFX would learn it
     /// again at once. Not with `--status`, `--watch`, `--self-test` or `--list-apps`: a report
     /// runs alone, and the device would not be forgotten.
     #[arg(
@@ -274,9 +275,9 @@ pub struct Cli {
             long_help = "Forget a device that is not connected: drop it from its lane's device \
                          priority list, and the preset remembered for it, as the ✕ beside its \
                          row in Settings does.\n\n\
-                         A port addition (0.4.0 audit #34). By name, playback devices and \
+                         A CrossFX addition (0.4.0 audit #34). By name, playback devices and \
                          microphones alike; a device that is connected is refused, since \
-                         FxSound would learn it again at once. Not with `--status`, `--watch`, \
+                         CrossFX would learn it again at once. Not with `--status`, `--watch`, \
                          `--self-test` or `--list-apps`: a report runs alone, and the device \
                          would not be forgotten."
         )
@@ -285,7 +286,7 @@ pub struct Cli {
 
     /// Which lane the window edits and the preset, effect and level options act on.
     ///
-    /// Linux addition (0.4.0 design §1.1): a GUI concern only; the engine has no notion of it.
+    /// A CrossFX addition (0.4.0 design §1.1): a GUI concern only; the engine has no notion of it.
     /// Picking a device with `--output` or `--input` changes it too, and an `--edit` on the same
     /// line wins over that.
     #[arg(long = "edit", value_name = "output|input", value_parser = parse_direction)]
@@ -305,10 +306,10 @@ pub struct Cli {
     #[arg(long = "language", value_name = "CODE|system", value_parser = parse_language)]
     pub language: Option<String>,
 
-    /// «Как в Windows» / "Like FxSound for Windows": `off`, `interface` or `sound`, saved like
-    /// the slider in Settings ▸ Experimental.
+    /// «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC": `off`, `interface` or
+    /// `sound`, saved like the slider in Settings ▸ Experimental.
     ///
-    /// Linux addition (`docs/0.5.0-windows-parity.md`). `full` (`everything`) is read, and
+    /// A CrossFX addition (`docs/0.5.0-windows-parity.md`). `full` (`everything`) is read, and
     /// refused: Everything arrives in a later version. Once it is offered, a move to `full` that
     /// would switch off something in use — the microphone lane, an application's own preset, a
     /// calibration — is refused unless `--force` is given too: the window asks first, and a
@@ -327,12 +328,12 @@ pub struct Cli {
     pub force: bool,
 
     /// Export a `.fac` with its first and last band where they are (1, or no value), or back
-    /// inside the range FxSound for Windows tunes them in (0), as the Export window's tick box
+    /// inside the range the original FxSound tunes them in (0), as the Export window's tick box
     /// says; saved.
     ///
-    /// Linux addition (`docs/0.5.0-windows-parity.md` §2, roadmap 0.5.0 §14 #56). Followed from
-    /// «Like FxSound for Windows» = Interface and sound on; below it every export shifts them, as
-    /// 0.4.0 does, and the choice waits.
+    /// A CrossFX addition (`docs/0.5.0-windows-parity.md` §2, roadmap 0.5.0 §14 #56). Followed from
+    /// «Like the original FxSound LLC» = Interface and sound on; below it every export shifts them,
+    /// as 0.4.0 does, and the choice waits.
     #[arg(
         long = "export-unshifted",
         alias = "export_unshifted",
@@ -393,8 +394,8 @@ pub struct Cli {
     /// Noise suppression for the microphone: `off`, `light`, `medium`, `strong`, or `preset` to
     /// follow the voice preset.
     ///
-    /// Linux addition (0.4.0 design §2 & 3): the Settings pane's global override, which wins over
-    /// every voice preset until it is set back to `preset`. `mild` is accepted for `light`,
+    /// A CrossFX addition (0.4.0 design §2 & 3): the Settings pane's global override, which wins
+    /// over every voice preset until it is set back to `preset`. `mild` is accepted for `light`,
     /// because that is what the window calls it.
     #[arg(
         long = "noise-suppression",
@@ -407,9 +408,9 @@ pub struct Cli {
     /// Give an application a playback preset of its own, `APP=PRESET`, or `APP=default` to have
     /// it follow the output lane's preset again. May be given more than once.
     ///
-    /// Linux addition (per-application presets, `docs/0.4.0-apps.md`). `APP` is a remembered
+    /// A CrossFX addition (per-application presets, `docs/0.4.0-apps.md`). `APP` is a remembered
     /// application's Flatpak id, program or name, in any case (`--list-apps` shows them); one
-    /// FxSound has not seen gets a rule for the Flatpak id, name or program `APP` looks like
+    /// CrossFX has not seen gets a rule for the Flatpak id, name or program `APP` looks like
     /// (`crate::app::unseen_key`). `PRESET` is an output preset's exact name; `default` and
     /// `follow` are the lane's.
     #[arg(
@@ -425,9 +426,9 @@ pub struct Cli {
             long_help = "Give an application a playback preset of its own, `APP=PRESET`, or \
                          `APP=default` to have it follow the output lane's preset again. May be \
                          given more than once.\n\n\
-                         A port addition (per-application presets, `docs/0.4.0-apps.md`). `APP` \
+                         A CrossFX addition (per-application presets, `docs/0.4.0-apps.md`). `APP` \
                          is a remembered application's program or name, in any case \
-                         (`--list-apps` shows them); one FxSound has not seen gets a rule for \
+                         (`--list-apps` shows them); one CrossFX has not seen gets a rule for \
                          the name or program `APP` looks like (`crate::app::unseen_key`). \
                          `PRESET` is an output preset's exact name; `default` and `follow` are \
                          the lane's."
@@ -484,9 +485,9 @@ pub struct Cli {
     /// alongside for a single JSON object instead.
     ///
     /// `--status` — `docs/COMMAND_LINE_OPTIONS.md:35`, `FxController.cpp:348-352`, `:635-700`.
-    /// Unlike Windows, the answer comes back over the control socket and is printed on *this*
+    /// Unlike the original, the answer comes back over the control socket and is printed on *this*
     /// process's stdout. Earlier versions of this help promised JSON by default and a
-    /// `$XDG_RUNTIME_DIR/fxsound/status.json` written as a courtesy; neither was ever true. The
+    /// `$XDG_RUNTIME_DIR/crossfx/status.json` written as a courtesy; neither was ever true. The
     /// JSON is now real and explicit, and the file is not written at all — a status file that is
     /// only refreshed when somebody asks for it is stale by definition, and a status bar is
     /// better served by running this command than by reading a file nothing keeps current.
@@ -499,7 +500,7 @@ pub struct Cli {
                          One `key: value` line per item, which is what scripts grep; pass \
                          `--json` alongside for a single JSON object instead.\n\n\
                          The answer comes back over the control pipe and is printed on this \
-                         process's own output, where FxSound for Windows printed it to the \
+                         process's own output, where the original FxSound printed it to the \
                          running instance's console. No status file is written."
         )
     )]
@@ -514,18 +515,18 @@ pub struct Cli {
     #[arg(long = "json", requires = "report")]
     pub json: bool,
 
-    /// Print the applications FxSound remembers — the ones playing or recording now first — with
+    /// Print the applications CrossFX remembers — the ones playing or recording now first — with
     /// the preset each has of its own and the one it runs through now, and exit.
     ///
-    /// Linux addition (per-application presets, `docs/0.4.0-apps.md`). A question like
+    /// A CrossFX addition (per-application presets, `docs/0.4.0-apps.md`). A question like
     /// `--status`: every other option on the line is ignored and the window is left alone. With
-    /// no FxSound running it answers from the store, `apps.toml`, in which nothing is running.
+    /// no CrossFX running it answers from the store, `apps.toml`, in which nothing is running.
     #[arg(long = "list-apps", alias = "list_apps")]
     pub list_apps: bool,
 
     /// Subscribe to the running instance and print one event per line until it quits.
     ///
-    /// Linux addition (0.4.0 design §10). The first event is the full `--status` document. Like
+    /// A CrossFX addition (0.4.0 design §10). The first event is the full `--status` document. Like
     /// `--status`, every other option on the line is ignored and the window is left alone.
     #[arg(long = "watch")]
     pub watch: bool,
@@ -537,8 +538,8 @@ pub struct Cli {
     /// Check the installation and exit: presets, settings, both processing chains offline, the
     /// installed files, and whether PipeWire and a session bus are there to be used.
     ///
-    /// Linux addition (0.4.0 design §13). It runs in this process before the single-instance
-    /// lock is taken, so it works beside a running FxSound and in a bare container, and it
+    /// A CrossFX addition (0.4.0 design §13). It runs in this process before the single-instance
+    /// lock is taken, so it works beside a running CrossFX and in a bare container, and it
     /// never forwards anything. Every other option on the line is ignored.
     #[arg(long = "self-test", alias = "self_test")]
     #[cfg_attr(
@@ -552,8 +553,8 @@ pub struct Cli {
                          virtual playback device (the FxSound driver's, or VB-CABLE's) is there \
                          to stand in front of the speakers with, and whether the control pipe \
                          is in use or can be made.\n\n\
-                         An addition of this port. It runs in this process before the control \
-                         pipe is claimed, so it works beside a running FxSound; it never \
+                         A CrossFX addition. It runs in this process before the control \
+                         pipe is claimed, so it works beside a running CrossFX; it never \
                          connects to one, opens no stream and changes no device. Every other \
                          option on the line is ignored."
         )
@@ -563,8 +564,8 @@ pub struct Cli {
     /// Start without showing the window, or hide the window of a running instance.
     ///
     /// `--run_minimized` — `docs/COMMAND_LINE_OPTIONS.md:36`, `FxController.cpp:236-239`,
-    /// `:523-531`. `--hide` is the Linux spelling and is what `packaging/fxsound-autostart.desktop`
-    /// and `packaging/fxsound.service` invoke.
+    /// `:523-531`. `--hide` is the Linux spelling and is what `packaging/crossfx-autostart.desktop`
+    /// and `packaging/crossfx.service` invoke.
     #[arg(
         long = "run_minimized",
         alias = "run-minimized",
@@ -575,27 +576,27 @@ pub struct Cli {
         arg(
             long_help = "Start without showing the window, or hide the window of a running \
                          instance.\n\n\
-                         `--run_minimized` is FxSound for Windows' own spelling; `--hide` is \
-                         what \"Run at startup\" starts FxSound with."
+                         `--run_minimized` is the original FxSound's own spelling; `--hide` is \
+                         what \"Run at startup\" starts CrossFX with."
         )
     )]
     pub run_minimized: bool,
 
-    /// How the D-Bus activation file and the systemd user unit start FxSound: as `--hide`, except
-    /// that when FxSound is already running this process exits at once and forwards nothing.
+    /// How the D-Bus activation file and the systemd user unit start CrossFX: as `--hide`, except
+    /// that when CrossFX is already running this process exits at once and forwards nothing.
     ///
-    /// Linux addition. The bus starts FxSound for a call to a name nobody owns yet, and an
+    /// A CrossFX addition. The bus starts CrossFX for a call to a name nobody owns yet, and an
     /// instance started from the launcher only owns it once its audio engine is up: a status
-    /// bar's poll landing in between used to start `fxsound --hide`, which found the lock taken,
+    /// bar's poll landing in between used to start `crossfx --hide`, which found the lock taken,
     /// forwarded `--hide` and hid the window that had just been opened.
     #[arg(long = "activated")]
-    // Windows has no bus to start FxSound for a call; the option is still read, and not shown.
+    // Windows has no bus to start CrossFX for a call; the option is still read, and not shown.
     #[cfg_attr(windows, arg(hide = true))]
     pub activated: bool,
 
     /// Show and raise the window of the running instance, or start with it showing.
     ///
-    /// Linux addition (`docs/spec/07-startup-tray.md` §4.7). The original has no such option
+    /// A CrossFX addition (`docs/spec/07-startup-tray.md` §4.7). The original has no such option
     /// because *every* forwarded command line except `--status` raises the window; here only
     /// this, `--view` and a line with no options do (0.4.0 audit R11, `Cli::window_command`).
     #[arg(long = "show")]
@@ -675,16 +676,16 @@ pub struct Cli {
 
     /// Quit the running instance, autosaving a modified preset first.
     ///
-    /// Linux addition (`docs/spec/07-startup-tray.md` §4.7). On Windows the *only* way to quit is
-    /// the tray's Exit item (`FxSystemTrayView.cpp:285-287`); with no tray host available on some
-    /// desktops that would leave the app unkillable by UI.
+    /// A CrossFX addition (`docs/spec/07-startup-tray.md` §4.7). In the original the *only* way to
+    /// quit is the tray's Exit item (`FxSystemTrayView.cpp:285-287`); with no tray host available
+    /// on some desktops that would leave the app unkillable by UI.
     #[arg(long = "quit")]
     #[cfg_attr(
         windows,
         arg(
             long_help = "Quit the running instance, autosaving a modified preset first.\n\n\
-                         A port addition (`docs/spec/07-startup-tray.md` §4.7): FxSound for \
-                         Windows quits from the tray's Exit item alone \
+                         A CrossFX addition (`docs/spec/07-startup-tray.md` §4.7): \
+                         the original FxSound quits from the tray's Exit item alone \
                          (`FxSystemTrayView.cpp:285-287`)."
         )
     )]
@@ -698,7 +699,7 @@ pub enum PowerArg {
     On,
     /// `--power=0`, or `off`.
     Off,
-    /// `--power=toggle`. Linux addition (`docs/spec/07-startup-tray.md` §4.7).
+    /// `--power=toggle`. A CrossFX addition (`docs/spec/07-startup-tray.md` §4.7).
     Toggle,
 }
 
@@ -814,15 +815,16 @@ pub enum Command {
     MasterGain(f32),
     View(ViewMode),
     Language(String),
-    /// «Как в Windows» / "Like FxSound for Windows" (`--windows-parity`). `force` goes ahead with
-    /// a move to Everything that would take something in use away, which is refused without it,
-    /// from the version that offers Everything; this one refuses Everything either way.
+    /// «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC" (`--windows-parity`).
+    /// `force` goes ahead with a move to Everything that would take something in use away, which is
+    /// refused without it, from the version that offers Everything; this one refuses Everything
+    /// either way.
     WindowsParity {
         level: WindowsParity,
         force: bool,
     },
     /// Whether an export keeps the end bands where they are (`--export-unshifted`), followed
-    /// from «Like FxSound for Windows» = Interface and sound on.
+    /// from «Like the original FxSound LLC» = Interface and sound on.
     ExportUnshifted(bool),
     Window(WindowCommand),
     /// `(band index, Hz)` pairs. The caller refuses the whole list, naming the bands, when one of
@@ -851,10 +853,10 @@ pub enum PowerCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PresetCommand {
     Select(String),
-    /// Name already run through [`new_preset_name`] — [`sanitise_preset_name`] and the 126 bytes a
-    /// Windows FxSound reads a name in (0.4.0 audit #15); the case-insensitive collision check
-    /// against existing names (step 3 of `FxController::sanitizePresetName`, `:385`) still has to
-    /// happen where the preset list lives.
+    /// Name already run through [`new_preset_name`] — [`sanitise_preset_name`] and the 126 bytes
+    /// the original FxSound for Windows reads a name in (0.4.0 audit #15); the case-insensitive
+    /// collision check against existing names (step 3 of `FxController::sanitizePresetName`,
+    /// `:385`) still has to happen where the preset list lives.
     SaveAs(String),
     Overwrite,
     Undo,
@@ -901,7 +903,7 @@ impl From<PowerArg> for PowerCommand {
 impl Cli {
     /// Parse this process's own command line, exiting with `clap`'s message on a bad one.
     ///
-    /// The parse happens *before* the single-instance probe so that `fxsound --nonsense` reports
+    /// The parse happens *before* the single-instance probe so that `crossfx --nonsense` reports
     /// the problem instead of waking a running instance to reject it.
     #[must_use]
     pub fn parse_args() -> Self {
@@ -1066,7 +1068,8 @@ impl Cli {
     ///
     /// An explicit `--show` is kept: it is how a start overrides the remembered "start hidden"
     /// (`run_minimized`, written again since 0.4.0 audit #35), as `--hide` overrides the other way.
-    /// The raise of a bare `fxsound` or of `--view` is not (see [`Command::honoured_at_cold_start`]).
+    /// The raise of a bare `crossfx` or of `--view` is not (see
+    /// [`Command::honoured_at_cold_start`]).
     #[must_use]
     pub fn cold_start_commands(&self) -> Vec<Command> {
         self.commands()
@@ -1080,7 +1083,7 @@ impl Cli {
 
     /// `true` for a line that sets something and says nothing about the window: no `--show`,
     /// `--view`, `--hide`, `--toggle-window` or `--run_minimized`, no question, and not a bare
-    /// `fxsound` (`Cli::window_command` is `None` for it). A running instance leaves its window
+    /// `crossfx` (`Cli::window_command` is `None` for it). A running instance leaves its window
     /// alone for such a line (0.4.0 audit R11), and a cold start from one starts in the tray
     /// rather than putting a window over the game whose keybinding ran it (review FA).
     #[must_use]
@@ -1088,14 +1091,14 @@ impl Cli {
         !self.is_query() && self.window_command().is_none()
     }
 
-    /// `true` for a line the Windows build would raise its window for and this one does not: one
-    /// that says nothing about the window, is no question, and carries an option the Windows
-    /// build has ([`Command::parity_class`] is [`ParityClass::Interface`]). At «Как в Windows» =
-    /// Interface and above a running instance raises its window for such a line, as step 11 of
-    /// `applyConfig` does (`FxController.cpp:523-531`, 0.4.0 audit R11), and a cold start from one
-    /// starts as a bare `fxsound` does ([`Cli::only_sets_things_at`]).
+    /// `true` for a line the original would raise its window for and this one does not: one
+    /// that says nothing about the window, is no question, and carries an option the original
+    /// has ([`Command::parity_class`] is [`ParityClass::Interface`]). At «Как в оригинальном
+    /// FxSound LLC» = Interface and above a running instance raises its window for such a line, as
+    /// step 11 of `applyConfig` does (`FxController.cpp:523-531`, 0.4.0 audit R11), and a cold
+    /// start from one starts as a bare `crossfx` does ([`Cli::only_sets_things_at`]).
     ///
-    /// The options only this port has — the keybind options that stand in for the Windows
+    /// The options only CrossFX has — the keybind options that stand in for the original's
     /// hotkeys, which never raised anything there, `--output=off`, the microphone's and the
     /// applications' — raise nothing at any level, and a line of them alone stays quiet.
     #[must_use]
@@ -1107,10 +1110,10 @@ impl Cli {
                 .any(|command| command.parity_class() == ParityClass::Interface)
     }
 
-    /// [`Cli::only_sets_things`] at `level` of «Как в Windows»: from Interface on, a line the
-    /// Windows build raises its window for ([`Cli::raises_like_windows`]) is not one, so a cold
-    /// start from `fxsound --preset=Gaming` shows the window unless FxSound was last quit hidden,
-    /// as the Windows build's start does.
+    /// [`Cli::only_sets_things`] at `level` of «Как в оригинальном FxSound LLC»: from Interface on,
+    /// a line the original raises its window for ([`Cli::raises_like_windows`]) is not one, so a
+    /// cold start from `crossfx --preset=Gaming` shows the window unless CrossFX was last quit
+    /// hidden, as the original's start does.
     #[must_use]
     pub fn only_sets_things_at(&self, level: WindowsParity) -> bool {
         self.only_sets_things() && !(level.interface() && self.raises_like_windows())
@@ -1175,16 +1178,16 @@ impl Cli {
     /// Step 11 of `applyConfig` (`FxController.cpp:523-531`), narrowed to the options that are
     /// about the window (0.4.0 audit R11).
     ///
-    /// On Windows that step is an `else`: *any* forwarded command line that is not `--status`
-    /// shows and raises the window, so `fxsound --preset=Gaming` pops the UI to the front. On
+    /// In the original that step is an `else`: *any* forwarded command line that is not `--status`
+    /// shows and raises the window, so `crossfx --preset=Gaming` pops the UI to the front. On
     /// Linux the same CLI is the replacement for the five global hotkeys
     /// (`docs/spec/07-startup-tray.md` §2.7) and what a script or a game's launcher runs, and a
-    /// hotkey on Windows goes through `eventCallback` (`:1923-2014`) and never raises anything.
-    /// So only what asks for the window gets it: `--show`; `--view`, which switches the layout
-    /// the window shows; and a line with no options at all, which is how a desktop launcher
-    /// starts FxSound and so how a second launch brings the running one's window up. Every
-    /// option that sets something does so silently, and a question (`--status` and the like)
-    /// never touches the window.
+    /// hotkey in the original goes through `eventCallback` (`:1923-2014`) and never raises
+    /// anything. So only what asks for the window gets it: `--show`; `--view`, which switches the
+    /// layout the window shows; and a line with no options at all, which is how a desktop launcher
+    /// starts CrossFX and so how a second launch brings the running one's window up. Every option
+    /// that sets something does so silently, and a question (`--status` and the like) never touches
+    /// the window.
     fn window_command(&self) -> Option<WindowCommand> {
         if self.is_query() {
             None
@@ -1199,7 +1202,7 @@ impl Cli {
         }
     }
 
-    /// `true` for a line with no options — `fxsound`, as a desktop entry runs it — or with none
+    /// `true` for a line with no options — `crossfx`, as a desktop entry runs it — or with none
     /// that makes a command (`--output=`, an empty name, is none).
     fn asks_for_nothing(&self) -> bool {
         self.commands_before_the_window().is_empty() && self.commands_after_the_window().is_empty()
@@ -1216,7 +1219,7 @@ impl Command {
     /// settings file there, and `--next-output` / `--next-input` step from the device a lane is on,
     /// which a start does not have yet, so `main` refuses a line with one
     /// (`crate::commands::answer_without_an_instance`). [`WindowCommand::Show`] is
-    /// pointedly *not* on it: a plain `fxsound` emits one (see `Cli::window_command`), and
+    /// pointedly *not* on it: a plain `crossfx` emits one (see `Cli::window_command`), and
     /// honouring it at startup would override the persisted `run_minimized` on every launch and
     /// break "quit with the window hidden, start hidden next time" (§7.1). A cold start's
     /// visibility comes from the setting, with `--run_minimized` and an explicit `--show` as the
@@ -1274,21 +1277,22 @@ impl Command {
 }
 
 impl Command {
-    /// The level of «Как в Windows» at which this command stops doing what it does in FxSound for
-    /// Linux (`docs/0.5.0-windows-parity.md`, "Classification").
+    /// The level of «Как в оригинальном FxSound LLC» at which this command stops doing what it does
+    /// in CrossFX (`docs/0.5.0-windows-parity.md`, "Classification").
     ///
     /// Exhaustive on purpose, with no `_` arm: a new command does not compile until someone has
     /// decided its level.
     ///
-    /// - [`ParityClass::Interface`]: the options the Windows build has
+    /// - [`ParityClass::Interface`]: the options the original has
     ///   (`docs/COMMAND_LINE_OPTIONS.md`), whose window behaviour (0.4.0 audit R11) and band lists
-    ///   (#51) go back to Windows there, and the preset commands whose availability does (#17,
+    ///   (#51) go back to the original's there, and the preset commands whose availability does
+    ///   (#17,
     ///   #18).
-    /// - [`ParityClass::Full`]: what only this port has and Everything hides — the microphone
+    /// - [`ParityClass::Full`]: what only CrossFX has and Everything hides — the microphone
     ///   lane, the applications' presets.
-    /// - [`ParityClass::Never`]: the questions, the keybind options that stand in for the Windows
-    ///   hotkeys, the window, forgetting a device, quitting, and this option itself, which is the
-    ///   way back.
+    /// - [`ParityClass::Never`]: the questions, the keybind options that stand in for the
+    ///   original's hotkeys, the window, forgetting a device, quitting, and this option itself,
+    ///   which is the way back.
     #[must_use]
     pub const fn parity_class(&self) -> ParityClass {
         match self {
@@ -1298,7 +1302,7 @@ impl Command {
             Self::ListApps { .. } => ParityClass::Full,
             Self::Power(power) => match power {
                 PowerCommand::On | PowerCommand::Off => ParityClass::Interface,
-                // `--toggle-power` is the stand-in for the Windows hotkey, which never raised
+                // `--toggle-power` is the stand-in for the original's hotkey, which never raised
                 // the window.
                 PowerCommand::Toggle => ParityClass::Never,
             },
@@ -1313,7 +1317,7 @@ impl Command {
             },
             Self::Output(device) => match device {
                 DeviceCommand::Select(_) => ParityClass::Interface,
-                // `--next-output` is a hotkey's stand-in; `--output=off` is the port's own.
+                // `--next-output` is a hotkey's stand-in; `--output=off` is CrossFX's own.
                 DeviceCommand::Next | DeviceCommand::Detach => ParityClass::Never,
             },
             Self::Input(_)
@@ -1332,8 +1336,8 @@ impl Command {
             | Self::BandGains(_)
             | Self::Effects(_) => ParityClass::Interface,
             Self::WindowsParity { .. } | Self::Window(_) | Self::Quit => ParityClass::Never,
-            // A choice of the port's own, followed from Interface and sound on and hidden by no
-            // level: the Windows build has no such option to set it back to.
+            // A choice of CrossFX's own, followed from Interface and sound on and hidden by no
+            // level: the original has no such option to set it back to.
             Self::ExportUnshifted(_) => ParityClass::Never,
         }
     }
@@ -1433,8 +1437,8 @@ pub(crate) fn parse_windows_parity(value: &str) -> Result<WindowsParity, String>
 }
 
 /// `--language`'s value: `system` (also `default`) to follow the desktop session, or a language
-/// FxSound has a table for, as [`i18n::canonical_code`] reads one — its code in any case, the ISO
-/// code where the Windows build spells it otherwise (`uk`, `bs`, `nb`, `nn`), or a locale such as
+/// CrossFX has a table for, as [`i18n::canonical_code`] reads one — its code in any case, the ISO
+/// code where the original spells it otherwise (`uk`, `bs`, `nb`, `nn`), or a locale such as
 /// `ru_RU.UTF-8`. Comes back as the table's own code, or `system`. Anything else is an error that
 /// lists the codes: 0.3.0 saved it and showed the system's language instead (0.4.0 audit #28).
 fn parse_language(value: &str) -> Result<String, String> {
@@ -1448,7 +1452,7 @@ fn parse_language(value: &str) -> Result<String, String> {
             let mut codes: Vec<&str> = i18n::LANGUAGES.iter().map(|l| l.code).collect();
             codes.sort_unstable_by_key(|code| code.to_ascii_lowercase());
             format!(
-                "FxSound has no translation for `{value}`; expected system or one of {}",
+                "CrossFX has no translation for `{value}`; expected system or one of {}",
                 codes.join(", ")
             )
         })
@@ -1548,7 +1552,7 @@ fn parse_ranged(value: &str, range: (f32, f32), unit: &str) -> Result<f32, Strin
 }
 
 /// Split a `a:b,c:d` list into its pairs, rejecting anything that is not exactly two
-/// colon-separated halves. The Windows parser splits on `,` then `:` and simply produces garbage
+/// colon-separated halves. The original's parser splits on `,` then `:` and simply produces garbage
 /// for malformed input (`FxController.cpp:536-553`); we refuse it instead, per §4.7.
 fn split_pairs(list: &str) -> Result<Vec<(&str, &str)>, String> {
     if list.trim().is_empty() {
@@ -1650,13 +1654,13 @@ mod tests {
     const EPS: f32 = 1e-6;
 
     fn parse(args: &[&str]) -> Cli {
-        let mut argv = vec!["fxsound"];
+        let mut argv = vec!["crossfx"];
         argv.extend_from_slice(args);
         Cli::try_parse_from(argv).expect("command line should parse")
     }
 
     fn error(args: &[&str]) -> String {
-        let mut argv = vec!["fxsound"];
+        let mut argv = vec!["crossfx"];
         argv.extend_from_slice(args);
         Cli::try_parse_from(argv)
             .expect_err("command line should be rejected")
@@ -1796,7 +1800,7 @@ mod tests {
 
     #[test]
     fn out_of_range_numbers_are_rejected_rather_than_silently_reset() {
-        // Windows resets each of these to its default with no message
+        // The original resets each of these to its default with no message
         // (`docs/COMMAND_LINE_OPTIONS.md:9`); §4.7 requires an error on the CLI path.
         assert!(error(&["--balance=25"]).contains("-20..=20 dB"));
         assert!(error(&["--balance=-20.5"]).contains("-20..=20 dB"));
@@ -2004,7 +2008,7 @@ mod tests {
 
     #[test]
     fn a_multi_line_preset_name_from_the_command_line_is_saved_on_one_line() {
-        // `fxsound --save_preset="$(xclip -o)"` with two lines selected: the `.fac` it saved could
+        // `crossfx --save_preset="$(xclip -o)"` with two lines selected: the `.fac` it saved could
         // not be read back, and the preset vanished from the list.
         let commands = parse(&["--save_preset=Line one\nLine two\n"]).commands();
         assert_eq!(
@@ -2025,7 +2029,7 @@ mod tests {
     #[test]
     fn a_new_preset_name_from_the_command_line_fits_what_windows_reads() {
         // 0.4.0 audit #15: sixty-four Cyrillic letters are 128 bytes, two more than the name line
-        // a Windows FxSound reads.
+        // the original FxSound for Windows reads.
         // Not called `long`: the man page check reads that word, an equals sign and a string as
         // an option's name.
         let typed = "я".repeat(64);
@@ -2072,8 +2076,9 @@ mod tests {
 
     #[test]
     fn only_show_view_and_a_line_with_no_options_raise_the_window() {
-        // 0.4.0 audit R11: step 11 of applyConfig is an `else` (`FxController.cpp:523-531`), so on
-        // Windows every option raised the window, a keybind's `--preset=Gaming` over a game too.
+        // 0.4.0 audit R11: step 11 of applyConfig is an `else` (`FxController.cpp:523-531`), so in
+        // the original every option raised the window, a keybind's `--preset=Gaming` over a game
+        // too.
         for raising in [
             &[][..],
             &["--show"][..],
@@ -2147,8 +2152,8 @@ mod tests {
     }
 
     #[test]
-    fn a_line_that_only_sets_something_starts_fxsound_in_the_tray_and_the_rest_do_not() {
-        // FA: R11 covered a running instance; a cold start from `fxsound --preset=Gaming` still
+    fn a_line_that_only_sets_something_starts_crossfx_in_the_tray_and_the_rest_do_not() {
+        // FA: R11 covered a running instance; a cold start from `crossfx --preset=Gaming` still
         // opened and focused the window over the game.
         for quiet in [
             &["--preset=Gaming"][..],
@@ -2182,9 +2187,10 @@ mod tests {
 
     #[test]
     fn at_interface_a_line_with_an_option_windows_has_raises_the_window_as_there() {
-        // 0.4.0 audit R11 at «Как в Windows» = Interface: step 11 of applyConfig raises the
-        // window for every forwarded line (`FxController.cpp:523-531`), and a start from one
-        // shows it unless FxSound was last quit hidden. At Off the same lines stay quiet (above).
+        // 0.4.0 audit R11 at «Как в оригинальном FxSound LLC» = Interface: step 11 of applyConfig
+        // raises the window for every forwarded line (`FxController.cpp:523-531`), and a start from
+        // one shows it unless CrossFX was last quit hidden. At Off the same lines stay quiet
+        // (above).
         for windows in [
             &["--preset=Gaming"][..],
             &["--power=1"][..],
@@ -2203,7 +2209,7 @@ mod tests {
             &["--set_band_freq=0:60"][..],
             &["--set_band_gain=0:3"][..],
             &["--set_effect=bass:7"][..],
-            // An option Windows has beside the port's own still raises it, as there.
+            // An option the original has beside CrossFX's own still raises it, as there.
             &["--toggle-power", "--preset=Rock"][..],
             &["--edit=output", "--set_effect=bass:7"][..],
             &["--windows-parity=interface", "--preset=Rock"][..],
@@ -2216,13 +2222,13 @@ mod tests {
             }
         }
         for linux in [
-            // The keybind options stand in for the Windows hotkeys, which raise nothing there.
+            // The keybind options stand in for the original's hotkeys, which raise nothing there.
             &["--toggle-power"][..],
             &["--power=toggle"][..],
             &["--next-preset"][..],
             &["--prev-preset"][..],
             &["--next-output"][..],
-            // The port's own options, and the way back.
+            // CrossFX's own options, and the way back.
             &["--output=off"][..],
             &["--input=Mic"][..],
             &["--edit=input"][..],
@@ -2498,7 +2504,7 @@ mod tests {
 
     #[test]
     fn json_goes_with_status_watch_or_self_test_and_is_an_error_alone() {
-        // CI runs `fxsound --self-test --json` on every package; 0.3.0 tied `--json` to
+        // CI runs `crossfx --self-test --json` on every package; 0.3.0 tied `--json` to
         // `--status` and would have refused it.
         assert_eq!(
             parse(&["--self-test", "--json"]).commands(),
@@ -2631,7 +2637,7 @@ mod tests {
 
     #[test]
     fn a_cold_start_keeps_an_explicit_show_and_drops_the_raise_of_a_bare_line() {
-        // `--show` overrides a remembered "start hidden"; a bare `fxsound`, which a desktop entry
+        // `--show` overrides a remembered "start hidden"; a bare `crossfx`, which a desktop entry
         // runs, and `--view` leave the choice to the setting (§7.1).
         assert_eq!(
             parse(&["--show"]).cold_start_commands(),
@@ -2950,7 +2956,7 @@ mod tests {
         );
     }
 
-    // ---- «Как в Windows» (A9) ---------------------------------------------------------------
+    // ---- «Как в оригинальном FxSound LLC» (A9) --------------------------------------------------
 
     #[test]
     fn windows_parity_reads_its_four_levels_in_any_case_and_everything_for_full() {
@@ -3106,7 +3112,47 @@ mod tests {
         );
     }
 
-    /// The Windows build's help says the Windows facts — the control pipe, no socket, bus,
+    /// `crossfx --version` prints `crossfx <version>`, which every package's and installer's
+    /// version check reads (`packaging/`), and the usage line names the same command.
+    #[test]
+    fn the_command_is_crossfx_and_its_version_line_says_so() {
+        use clap::CommandFactory as _;
+        use fxsound_core::identity::BINARY;
+        let mut command = Cli::command();
+        assert_eq!(command.get_name(), BINARY);
+        assert_eq!(
+            command.render_version().trim_end(),
+            format!("{BINARY} {}", env!("CARGO_PKG_VERSION"))
+        );
+        let usage = command.render_usage().to_string();
+        assert!(usage.starts_with(&format!("Usage: {BINARY} ")), "{usage}");
+    }
+
+    /// The help calls the program CrossFX and its own options CrossFX additions, on both systems;
+    /// "FxSound" in it is only ever the original — the program, its company, its driver and the
+    /// mode named after it.
+    #[test]
+    fn the_help_calls_the_program_crossfx_and_names_fxsound_only_for_the_original() {
+        use clap::CommandFactory as _;
+        let long = Cli::command().render_long_help().to_string();
+        assert!(long.contains("A CrossFX addition"), "{long}");
+        let mut rest = long.clone();
+        for original in ["the original FxSound", "FxSound LLC", "the FxSound driver"] {
+            rest = rest.replace(original, "");
+        }
+        assert!(!rest.contains("FxSound"), "{rest}");
+        for old in [
+            "Linux addition",
+            "port addition",
+            "this port",
+            "fxsound",
+            "Как в Windows",
+        ] {
+            assert!(!long.contains(old), "{old:?} in:\n{long}");
+        }
+    }
+
+    /// CrossFX's help on Windows says the Windows facts — the control pipe, no socket, bus,
     /// compositor or PipeWire node — which holds only if clap keeps each `cfg_attr` text over the
     /// doc comment before it.
     #[cfg(windows)]
@@ -3115,7 +3161,7 @@ mod tests {
         use clap::CommandFactory as _;
         let long = Cli::command().render_long_help().to_string();
         let short = Cli::command().render_help().to_string();
-        assert!(long.contains(r"\\.\pipe\fxsound-<user SID>"), "{long}");
+        assert!(long.contains(r"\\.\pipe\crossfx-<user SID>"), "{long}");
         for help in [&long, &short] {
             for linux in [
                 "XDG_RUNTIME_DIR",

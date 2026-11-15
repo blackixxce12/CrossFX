@@ -1,16 +1,16 @@
-//! What FxSound asks of the desktop that each system answers in its own way: a link opened in the
+//! What CrossFX asks of the desktop that each system answers in its own way: a link opened in the
 //! browser, a folder shown in the file manager, a start at log-in, the desktop's language, the
-//! terminal FxSound was started from.
+//! terminal CrossFX was started from.
 //!
 //! One function for each, the same on both systems, so that the window, the notifications and the
 //! settings pane never ask which system they run on, and never spawn an opener of their own: on
 //! Linux every one they spawned is a child that has to be reaped, and a copy that forgot to was a
-//! zombie under FxSound — a tray application that runs for the whole session — for every click.
+//! zombie under CrossFX — a tray application that runs for the whole session — for every click.
 //!
 //! | | Linux | Windows |
 //! |---|---|---|
 //! | [`open_url`], [`open_folder`] | `xdg-open` | `ShellExecuteW` (`win::shell`) |
-//! | [`autostart_enabled`], [`set_autostart`] | `~/.config/autostart/fxsound.desktop` | `HKCU\…\Run`, `FxSound Port` (`win::autostart`) |
+//! | [`autostart_enabled`], [`set_autostart`] | `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` ([`AUTOSTART_ENTRY`]) | `HKCU\…\Run`, `CrossFX` (`win::autostart`) |
 //! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the display language, as `LANG` (`win::language`) |
 //! | [`attach_parent_console`], [`release_terminal`], [`on_the_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
 
@@ -19,10 +19,10 @@ use std::path::Path;
 
 /// Open `url` in the user's browser.
 ///
-/// Only `http` and `https`: every caller passes a link of FxSound's own, and anything else handed
+/// Only `http` and `https`: every caller passes a link of CrossFX's own, and anything else handed
 /// on — `file:`, a path, a scheme with a handler — would be a way to run a program. Never through
-/// a shell: `URL::launchInDefaultBrowser()` (`FxSystemTrayView.cpp:280-283`) hands the string to
-/// one on Windows, which makes any URL that reaches it a command line.
+/// a shell: the original's `URL::launchInDefaultBrowser()` (`FxSystemTrayView.cpp:280-283`) hands
+/// the string to one, which makes any URL that reaches it a command line.
 ///
 /// # Errors
 ///
@@ -68,11 +68,11 @@ pub fn open_folder(dir: &Path) -> Result<(), String> {
 }
 
 /// `xdg-open <target>`, spawned directly, never through a shell, and reaped on a helper thread so
-/// that it never lingers as a zombie: nothing in FxSound waits for children it does not know of,
+/// that it never lingers as a zombie: nothing in CrossFX waits for children it does not know of,
 /// and a dropped [`std::process::Child`] is not waited for.
 ///
-/// Off FxSound's own stdin, stdout and stderr, as a child of a GUI is: what `xdg-open` and the
-/// browser it may start in the foreground have to say is no business of FxSound's terminal or
+/// Off CrossFX's own stdin, stdout and stderr, as a child of a GUI is: what `xdg-open` and the
+/// browser it may start in the foreground have to say is no business of CrossFX's terminal or
 /// journal. What it came to is: an exit other than success is logged once it is known. On the
 /// generic path, with no desktop it recognises, `xdg-open` runs the browser in the foreground, so
 /// the helper may wait as long as the browser runs; it holds nothing but the child.
@@ -88,7 +88,7 @@ fn spawn_xdg_open(target: &std::ffi::OsStr) -> Result<(), String> {
         .map_err(|err| err.to_string())?;
     let shown = target.to_string_lossy().into_owned();
     let reaper = std::thread::Builder::new()
-        .name("fxsound-xdg-open".into())
+        .name("crossfx-xdg-open".into())
         .spawn(move || match child.wait() {
             Ok(status) if status.success() => {}
             Ok(status) => log::warn!("xdg-open {shown}: {status}"),
@@ -102,7 +102,7 @@ fn spawn_xdg_open(target: &std::ffi::OsStr) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether FxSound starts with the session.
+/// Whether CrossFX starts with the session.
 ///
 /// Read live, as the original reads the registry (`FxController.cpp:2789-2812`), so that an entry
 /// taken away by hand shows as unticked. On Linux: the XDG autostart entry exists and is not
@@ -112,10 +112,7 @@ fn spawn_xdg_open(target: &std::ffi::OsStr) -> Result<(), String> {
 pub fn autostart_enabled() -> bool {
     #[cfg(target_os = "linux")]
     {
-        autostart_path()
-            .ok()
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .is_some_and(|text| !text.lines().any(|line| line.trim() == "Hidden=true"))
+        dirs::config_dir().is_some_and(|config| autostart_enabled_in(&config))
     }
     #[cfg(windows)]
     {
@@ -123,8 +120,8 @@ pub fn autostart_enabled() -> bool {
     }
 }
 
-/// Start FxSound with the session, in the tray, or stop doing so: the XDG autostart entry on
-/// Linux, the `Run` value on Windows. The Windows build writes an `HKCU\…\Run` value; the XDG
+/// Start CrossFX with the session, in the tray, or stop doing so: the XDG autostart entry on
+/// Linux, the `Run` value on Windows. The original writes an `HKCU\…\Run` value; the XDG
 /// equivalent is a `.desktop` file in `~/.config/autostart` (`docs/spec/07-startup-tray.md`).
 ///
 /// # Errors
@@ -133,7 +130,9 @@ pub fn autostart_enabled() -> bool {
 pub fn set_autostart(enabled: bool) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
-        set_autostart_entry(enabled)
+        let config =
+            dirs::config_dir().ok_or_else(|| std::io::Error::other("no config directory"))?;
+        set_autostart_entry_in(&config, enabled)
     }
     #[cfg(windows)]
     {
@@ -141,45 +140,50 @@ pub fn set_autostart(enabled: bool) -> std::io::Result<()> {
     }
 }
 
-/// `~/.config/autostart/fxsound.desktop` — the XDG Autostart entry that stands in for the
-/// `HKCU\…\CurrentVersion\Run` value (`FxController.cpp:2789-2812`).
-#[cfg(target_os = "linux")]
-fn autostart_path() -> std::io::Result<std::path::PathBuf> {
-    Ok(dirs::config_dir()
-        .ok_or_else(|| std::io::Error::other("no config directory"))?
+/// The XDG autostart entry "Launch on system startup" writes on Linux, byte for byte: CrossFX,
+/// started in the tray. `packaging/crossfx-autostart.desktop` is this file as the packages ship it
+/// for an example (`tests/linux_files.rs` holds the two equal), so it is defined on every system.
+pub const AUTOSTART_ENTRY: &str = "[Desktop Entry]\n\
+    Type=Application\n\
+    Name=CrossFX\n\
+    Comment=Start CrossFX minimised to the system tray on login\n\
+    Exec=crossfx --hide\n\
+    Icon=io.github.blackixxce12.CrossFX\n\
+    Terminal=false\n\
+    Categories=AudioVideo;Audio;\n\
+    X-GNOME-Autostart-enabled=true\n";
+
+/// `<config>/autostart/io.github.blackixxce12.CrossFX.desktop` — the XDG Autostart entry that
+/// stands in for the original's `HKCU\…\CurrentVersion\Run` value (`FxController.cpp:2789-2812`),
+/// under `config`, the user's `~/.config`. It is named after the desktop id
+/// ([`fxsound_core::identity::APP_ID`]), as GNOME Tweaks and KDE's Autostart page name the copies
+/// they make, so that CrossFX and the desktop share one file.
+#[cfg(any(target_os = "linux", test))]
+fn autostart_path_in(config: &Path) -> std::path::PathBuf {
+    config
         .join("autostart")
-        .join("fxsound.desktop"))
+        .join(format!("{}.desktop", fxsound_core::identity::APP_ID))
 }
 
-/// Create or remove `~/.config/autostart/fxsound.desktop`.
-#[cfg(target_os = "linux")]
-fn set_autostart_entry(enabled: bool) -> std::io::Result<()> {
-    let path = autostart_path()?;
-    let dir = path
-        .parent()
-        .ok_or_else(|| std::io::Error::other("no autostart directory"))?
-        .to_path_buf();
+/// Whether the entry under `config` starts CrossFX: it is there, and not `Hidden=true`.
+#[cfg(any(target_os = "linux", test))]
+fn autostart_enabled_in(config: &Path) -> bool {
+    std::fs::read_to_string(autostart_path_in(config))
+        .is_ok_and(|text| !text.lines().any(|line| line.trim() == "Hidden=true"))
+}
 
+/// Write [`AUTOSTART_ENTRY`] under `config`, or remove it.
+#[cfg(any(target_os = "linux", test))]
+fn set_autostart_entry_in(config: &Path, enabled: bool) -> std::io::Result<()> {
+    let path = autostart_path_in(config);
     if !enabled {
         return match std::fs::remove_file(&path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             other => other,
         };
     }
-
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(
-        &path,
-        "[Desktop Entry]\n\
-         Type=Application\n\
-         Name=FxSound\n\
-         Comment=Start FxSound minimised to the system tray on login\n\
-         Exec=fxsound --hide\n\
-         Icon=fxsound\n\
-         Terminal=false\n\
-         Categories=AudioVideo;Audio;\n\
-         X-GNOME-Autostart-enabled=true\n",
-    )
+    std::fs::create_dir_all(config.join("autostart"))?;
+    std::fs::write(&path, AUTOSTART_ENTRY)
 }
 
 /// The desktop's language, where the interface's "the system's language" reads it: on Windows the
@@ -192,10 +196,10 @@ pub fn adopt_desktop_language() {
 }
 
 /// Attach to the console of the process that started this one, when there is one: a release
-/// build on Windows is a GUI program, which gets no console of its own, so `fxsound --status`,
+/// build on Windows is a GUI program, which gets no console of its own, so `crossfx --status`,
 /// `--help` and `--version` typed in a terminal would print nowhere without it. What was
-/// redirected stays where it was sent: `fxsound --status --json > status.json`, `fxsound --watch
-/// | findstr preset`. A no-op where there is no parent console — FxSound started from the Start
+/// redirected stays where it was sent: `crossfx --status --json > status.json`, `crossfx --watch
+/// | findstr preset`. A no-op where there is no parent console — CrossFX started from the Start
 /// menu — and on Linux, where a program always has the terminal it was started from.
 pub fn attach_parent_console() {
     #[cfg(windows)]
@@ -203,29 +207,29 @@ pub fn attach_parent_console() {
 }
 
 /// Let go of the terminal [`attach_parent_console`] borrowed, once this process is the running
-/// FxSound and before its engine starts. The shell did not wait for a GUI program, so the
-/// terminal is the next command's: a Ctrl+C typed there — for an `fxsound --watch`, say — and the
-/// terminal closing must not end the FxSound that happened to be started from it, as they do not
+/// CrossFX and before its engine starts. The shell did not wait for a GUI program, so the
+/// terminal is the next command's: a Ctrl+C typed there — for an `crossfx --watch`, say — and the
+/// terminal closing must not end the CrossFX that happened to be started from it, as they do not
 /// end a job sent to the background on Linux; and a process attached to a console is ended by
-/// either, which in the middle of the engine's start would leave the default device on FxSound's
+/// either, which in the middle of the engine's start would leave the default device on CrossFX's
 /// own. What the start has to say after that goes through [`on_the_terminal`]. A no-op on Linux,
-/// and for a console FxSound has of its own, the debug build's, whose Ctrl+C is the tray's Exit.
+/// and for a console CrossFX has of its own, the debug build's, whose Ctrl+C is the tray's Exit.
 pub fn release_terminal() {
     #[cfg(windows)]
     crate::win::session::release_borrowed_console();
 }
 
 /// Print what the start has to say once [`release_terminal`] has let go of the terminal — the
-/// report of the options FxSound was started with, `stdout` for the standard output and `stderr`
+/// report of the options CrossFX was started with, `stdout` for the standard output and `stderr`
 /// for the standard error, each unless it is empty — where it was typed, or where the stream was
 /// redirected to. On Windows the terminal is borrowed again for as long as the printing takes, and
 /// only when there is something to print on a stream that was the terminal's — a stream
 /// redirected to a file, a pipe or `NUL` gets its share where it was sent: Ctrl+C typed there
 /// while the report is printed stays the next command's, but one at the moment the terminal is
-/// attached again or let go of, or the terminal closing meanwhile, ends FxSound (`win::session`).
-/// On Linux, whose FxSound always has the terminal it was started from, and for a console of
-/// FxSound's own, the report is just printed. A stream that cannot be written to — a pipe whose
-/// reader has gone — costs its own line, and neither the other's nor the FxSound that is running.
+/// attached again or let go of, or the terminal closing meanwhile, ends CrossFX (`win::session`).
+/// On Linux, whose CrossFX always has the terminal it was started from, and for a console of
+/// CrossFX's own, the report is just printed. A stream that cannot be written to — a pipe whose
+/// reader has gone — costs its own line, and neither the other's nor the CrossFX that is running.
 pub fn on_the_terminal(stdout: &str, stderr: &str) {
     #[cfg(windows)]
     crate::win::session::on_the_terminal(stdout, stderr);
@@ -234,7 +238,7 @@ pub fn on_the_terminal(stdout: &str, stderr: &str) {
 }
 
 /// `stdout` on the standard output and `stderr` on the standard error, a line each, and neither
-/// when it is empty: how FxSound prints a report of its own (`write_report`).
+/// when it is empty: how CrossFX prints a report of its own (`write_report`).
 pub(crate) fn print_report(stdout: &str, stderr: &str) {
     let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
     write_report(&mut out, &mut err, stdout, stderr);
@@ -243,7 +247,7 @@ pub(crate) fn print_report(stdout: &str, stderr: &str) {
 /// `stdout` and a newline on `out`, `stderr` and a newline on `err`, and nothing for an empty
 /// one: [`print_report`] on the standard output and error, and the tests' on buffers of their
 /// own. A stream that cannot be written to is a log line and nothing more: the report is printed
-/// by a running FxSound, its engine started, and `println!` would have ended it — a release build
+/// by a running CrossFX, its engine started, and `println!` would have ended it — a release build
 /// aborts on a panic — and with it the hand-back of the default device, for a pipe whose reader
 /// had gone.
 fn write_report(out: &mut impl Write, err: &mut impl Write, stdout: &str, stderr: &str) {
@@ -262,6 +266,80 @@ fn write_report(out: &mut impl Write, err: &mut impl Write, stdout: &str, stderr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The entry starts CrossFX in the tray under CrossFX's names: the binary, the product's name
+    /// and the application id the icon is installed under.
+    #[test]
+    fn the_autostart_entry_starts_crossfx_in_the_tray_under_its_own_names() {
+        use fxsound_core::identity::{APP_ID, BINARY, PRODUCT};
+        let lines: Vec<&str> = AUTOSTART_ENTRY.lines().collect();
+        assert_eq!(lines.first(), Some(&"[Desktop Entry]"));
+        for wanted in [
+            format!("Name={PRODUCT}"),
+            format!("Comment=Start {PRODUCT} minimised to the system tray on login"),
+            format!("Exec={BINARY} --hide"),
+            format!("Icon={APP_ID}"),
+        ] {
+            assert!(
+                lines.contains(&wanted.as_str()),
+                "{wanted:?} in\n{AUTOSTART_ENTRY}"
+            );
+        }
+        assert!(AUTOSTART_ENTRY.ends_with('\n'));
+        assert!(!AUTOSTART_ENTRY.to_lowercase().contains("fxsound"));
+    }
+
+    /// "Launch on system startup", in a configuration folder of the test's own: ticking writes
+    /// exactly [`AUTOSTART_ENTRY`] under the desktop id's name, and nothing else, and unticking
+    /// takes it away again.
+    #[test]
+    fn ticking_writes_the_autostart_entry_under_the_desktop_id_and_unticking_removes_it() {
+        let config = tempfile::tempdir().expect("temp dir");
+        let folder = config.path().join("autostart");
+        let entry = folder.join("io.github.blackixxce12.CrossFX.desktop");
+        assert_eq!(autostart_path_in(config.path()), entry);
+        assert!(!autostart_enabled_in(config.path()));
+
+        set_autostart_entry_in(config.path(), true).expect("tick");
+        assert_eq!(
+            std::fs::read_to_string(&entry).expect("the entry"),
+            AUTOSTART_ENTRY
+        );
+        let names: Vec<String> = std::fs::read_dir(&folder)
+            .expect("the autostart folder")
+            .map(|item| {
+                item.expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, ["io.github.blackixxce12.CrossFX.desktop"]);
+        assert!(autostart_enabled_in(config.path()));
+
+        set_autostart_entry_in(config.path(), false).expect("untick");
+        assert!(!entry.exists());
+        assert!(!autostart_enabled_in(config.path()));
+        set_autostart_entry_in(config.path(), false).expect("again: a no-op");
+    }
+
+    /// A desktop's autostart editor turns an entry off by writing `Hidden=true` into it rather
+    /// than deleting it: the box then reads unticked, and ticking it writes the entry afresh.
+    #[test]
+    fn an_autostart_entry_a_desktop_turned_off_reads_as_unticked() {
+        let config = tempfile::tempdir().expect("temp dir");
+        set_autostart_entry_in(config.path(), true).expect("tick");
+        let entry = autostart_path_in(config.path());
+        std::fs::write(&entry, format!("{AUTOSTART_ENTRY}Hidden=true\n")).expect("turned off");
+        assert!(!autostart_enabled_in(config.path()));
+
+        set_autostart_entry_in(config.path(), true).expect("tick again");
+        assert!(autostart_enabled_in(config.path()));
+        assert_eq!(
+            std::fs::read_to_string(&entry).expect("the entry"),
+            AUTOSTART_ENTRY
+        );
+    }
 
     #[test]
     fn a_link_that_is_not_http_is_refused_rather_than_handed_to_the_desktop() {
@@ -315,7 +393,7 @@ mod tests {
     #[test]
     fn a_folder_that_is_not_a_directory_is_never_handed_to_the_shell() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let file = dir.path().join("fxsound.exe");
+        let file = dir.path().join("crossfx.exe");
         std::fs::write(&file, b"").expect("write");
         assert!(open_folder(&file).is_err(), "a file would be run");
         assert!(open_folder(&dir.path().join("missing")).is_err());

@@ -1,14 +1,14 @@
-//! The Windows resources of `fxsound.exe`: its icon, its version information and its application
+//! The Windows resources of `crossfx.exe`: its icon, its version information and its application
 //! manifest. Every other target builds exactly as it did before this script existed.
 //!
 //! * The icon is what Explorer, Start and the installers' shortcuts show for the executable;
-//!   without it they show Windows' blank default. `assets/windows/fxsound.ico`, made from
+//!   without it they show Windows' blank default. `assets/windows/crossfx.ico`, made from
 //!   `assets/images/fxsound_large.png` by `packaging/windows/make-icon.ps1`.
 //! * The version information is the Details tab of the file's properties, and its
-//!   `FileDescription` is the name Task Manager lists the process under. It says "FxSound Port"
-//!   and the port's contributors, never FxSound LLC's product name, because the original FxSound
-//!   may be installed and running beside it.
-//! * The manifest (`assets/windows/fxsound.exe.manifest`) declares per-monitor DPI awareness,
+//!   `FileDescription` is the name Task Manager lists the process under. It says "CrossFX" and
+//!   CrossFX's contributors, never FxSound LLC's product name, because the original FxSound may
+//!   be installed and running beside it.
+//! * The manifest (`assets/windows/crossfx.exe.manifest`) declares per-monitor DPI awareness,
 //!   Common Controls 6, Windows 10 and 11, and `asInvoker`; its comments say why each.
 //!
 //! A build script runs on the build machine, so what decides is the target being built
@@ -32,16 +32,20 @@ mod resources {
     /// The one binary that carries the resources. The library is linked into the test harnesses
     /// as well, and a test runner has no use for an icon or for a manifest that changes how it
     /// is run.
-    const BINARY: &str = "fxsound";
+    ///
+    /// It is `fxsound_core::identity::BINARY`, which a build script cannot name: a test of the
+    /// library holds the two equal, and `PRODUCT` and `COMPANY` with them.
+    const BINARY: &str = "crossfx";
 
     /// The publisher, as the installers name it too (`packaging/windows/`).
-    const COMPANY: &str = "FxSound Linux port contributors";
-    /// The product. Not "FxSound": that is FxSound LLC's, and it may be installed alongside.
-    const PRODUCT: &str = "FxSound Port";
+    const COMPANY: &str = "CrossFX contributors";
+    /// The product, `fxsound_core::identity::PRODUCT`. Never "FxSound": that is FxSound LLC's
+    /// product, which may be installed alongside.
+    const PRODUCT: &str = "CrossFX";
     /// The notice the AGPL asks a program to carry, cut down to one line.
-    const COPYRIGHT: &str = "Copyright \u{a9} FxSound Linux port contributors, portions \u{a9} \
-        FxSound LLC. Free software under the GNU Affero General Public License, version 3 or \
-        later; it comes with ABSOLUTELY NO WARRANTY.";
+    const COPYRIGHT: &str = "Copyright \u{a9} CrossFX contributors, portions \u{a9} FxSound LLC. \
+        Free software under the GNU Affero General Public License, version 3 or later; it comes \
+        with ABSOLUTELY NO WARRANTY.";
     /// en-US, the language the strings above are in.
     const LANGUAGE: u16 = 0x0409;
 
@@ -103,7 +107,7 @@ mod resources {
 mod resources {
     pub fn embed() {
         println!(
-            "cargo::warning=fxsound.exe is built without its icon, version information and \
+            "cargo::warning=crossfx.exe is built without its icon, version information and \
              manifest: they are compiled by winresource, which is only built on a Windows host"
         );
     }

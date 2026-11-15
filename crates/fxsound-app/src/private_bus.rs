@@ -1,7 +1,7 @@
 //! A `dbus-daemon` of the tests' own, for the D-Bus service ([`crate::dbus`]), the suspend
 //! watcher ([`crate::sleep`]), the notifications ([`crate::notify`]) and the tray
 //! ([`crate::tray`]). Never the session's bus, never the system's: a test that reached either
-//! would be driving — or muting — the FxSound the user is listening to.
+//! would be driving — or muting — the CrossFX the user is listening to.
 //!
 //! Started through `fxsound_core::test_support`, so it cannot outlive the test: it is killed
 //! when dropped, which a panicking test does too, and when the test process dies, however it
@@ -38,9 +38,10 @@ impl PrivateBus {
     /// so, where `dbus-daemon` is not installed.
     ///
     /// Not `dbus-daemon --session`: that configuration reads `/usr/share/dbus-1/services`, where a
-    /// FxSound package installs `org.fxsound.FxSound.service`, and a call to the name after the
-    /// test's own service let go of it would start the installed FxSound — with this process's
-    /// environment, on the session's PipeWire. Here a call nobody owns the name for just fails.
+    /// CrossFX package installs `io.github.blackixxce12.CrossFX.service`, and a call to the name
+    /// after the test's own service let go of it would start the installed CrossFX — with this
+    /// process's environment, on the session's PipeWire. Here a call nobody owns the name for just
+    /// fails.
     pub(crate) fn start() -> Option<Self> {
         Self::typed("session")
     }
@@ -178,7 +179,7 @@ impl Client {
         let driver = {
             let runtime = Arc::clone(&runtime);
             thread::Builder::new()
-                .name("fxsound-test-bus".to_owned())
+                .name("crossfx-test-bus".to_owned())
                 .spawn(move || {
                     // Nothing is ever sent; the sender going is the whole message.
                     let _ = runtime.block_on(stopped);

@@ -1,21 +1,21 @@
 //! Suspend and resume: logind's `PrepareForSleep` on the system bus (U13).
 //!
 //! logind broadcasts `org.freedesktop.login1.Manager.PrepareForSleep(true)` as the machine goes to
-//! sleep and `PrepareForSleep(false)` once it is back. A thread of its own, `fxsound-sleep`,
+//! sleep and `PrepareForSleep(false)` once it is back. A thread of its own, `crossfx-sleep`,
 //! listens for the signal and hands each word to the GUI thread over a channel; the controller
 //! does the rest ([`crate::App::system_sleeping`]): both lanes muted on the way down, their
 //! filters cleared and unmuted on the way up, the engine told to wait out the devices coming
-//! back. Upstream does the same from Windows' suspend notification (d62e024,
+//! back. The original does the same from Windows' suspend notification (d62e024,
 //! `FxController.cpp:2145-2159`).
 //!
 //! What it deliberately does not do is hold the suspend up. A delay inhibitor would give the mute
-//! time to land before the machine stops, and upstream's maintainers turned exactly that down (its
-//! PR #533): a sound program has no business delaying the user's suspend. The word may reach the
-//! engine only after the resume, then; the mute and the unmute that follow it at once cost
+//! time to land before the machine stops, and the original's maintainers turned exactly that down
+//! (its PR #533): a sound program has no business delaying the user's suspend. The word may reach
+//! the engine only after the resume, then; the mute and the unmute that follow it at once cost
 //! nothing, and the clean start is what matters.
 //!
 //! No system bus — a container, a minimal session — is not an error: the watcher says so in the
-//! log and ends, and FxSound runs on without it.
+//! log and ends, and CrossFX runs on without it.
 //!
 //! # Threads and runtimes
 //!
@@ -121,7 +121,7 @@ impl SleepWatch {
         let thread = {
             let state = Arc::clone(&state);
             thread::Builder::new()
-                .name("fxsound-sleep".to_owned())
+                .name("crossfx-sleep".to_owned())
                 .spawn(move || watch(&bus, &sleeping, stopped, &state))
         };
         let thread = match thread {
@@ -245,7 +245,7 @@ fn watch(
         let mut signals = match until_stopped(subscribing, &mut stopped).await {
             Some(Ok(signals)) => signals,
             Some(Err(why)) => {
-                log::warn!("not watching for suspend: {why}; FxSound runs on without it");
+                log::warn!("not watching for suspend: {why}; CrossFX runs on without it");
                 state.set(WatchState::Unavailable);
                 return;
             }
@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn a_signal_addressed_to_fxsound_alone_is_not_logind_speaking() {
+    fn a_signal_addressed_to_crossfx_alone_is_not_logind_speaking() {
         let aimed = Message::signal(LOGIND_PATH, LOGIND_MANAGER, PREPARE_FOR_SLEEP)
             .destination(":1.42")
             .build(&true)

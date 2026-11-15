@@ -1,5 +1,5 @@
 //! What `--self-test` asks of Windows audio, read and left alone: whether the audio service runs,
-//! and which playback endpoints are there — FxSound processes the sound that reaches a virtual
+//! and which playback endpoints are there — CrossFX processes the sound that reaches a virtual
 //! one, so without one it has nothing to process (`fxsound_audio::AudioError::NoVirtualDevice`).
 //!
 //! Nothing here opens a stream, changes a default or a volume, or plays anything: the service
@@ -106,7 +106,7 @@ pub fn playback_devices() -> Result<Vec<String>, String> {
     names.map_err(|err| err.message())
 }
 
-/// Whether a playback endpoint called `name` is a virtual device FxSound can stand in front of
+/// Whether a playback endpoint called `name` is a virtual device CrossFX can stand in front of
 /// the speakers with: the FxSound driver's ("FxSound Speakers"), or VB-CABLE's
 /// ("CABLE Input (VB-Audio Virtual Cable)").
 ///

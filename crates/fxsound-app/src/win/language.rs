@@ -2,8 +2,8 @@
 //!
 //! `fxsound_core::i18n::system_language` reads the session's language the POSIX way — `LC_ALL`,
 //! then `LC_MESSAGES`, then `LANG` — and so does `fxsound_audio`'s locale. Windows sets none of
-//! them, so a Russian Windows got an English FxSound. [`adopt_display_language`] puts the user's
-//! display language — the first of their preferred ones FxSound has a table for — into `LANG`
+//! them, so a Russian Windows got an English CrossFX. [`adopt_display_language`] puts the user's
+//! display language — the first of their preferred ones CrossFX has a table for — into `LANG`
 //! for this process, first thing in `main`, so that every reader of it agrees: the window, the
 //! notifications, the Settings pane's "System" entry. Unless one of the three is set already,
 //! which is somebody's word: the user's, or a terminal's — Git for Windows' sets `LANG` from this
@@ -49,7 +49,7 @@ fn multi_string(buffer: &[u16]) -> Vec<String> {
         .collect()
 }
 
-/// What `LANG` says for the display languages `preferred`: the first FxSound has a table for,
+/// What `LANG` says for the display languages `preferred`: the first CrossFX has a table for,
 /// spelt the POSIX way (`ru_RU`), which every reader of `LANG` takes. `None` for none of them.
 fn lang_for(preferred: &[String]) -> Option<String> {
     preferred

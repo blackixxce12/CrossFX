@@ -10,11 +10,11 @@
 //! # What this replaces it with
 //!
 //! A `SOCK_STREAM` unix socket plus an `flock`ed lock file, both in
-//! `$XDG_RUNTIME_DIR/fxsound/` (`docs/spec/07-startup-tray.md` §3.3):
+//! `$XDG_RUNTIME_DIR/crossfx/` (`docs/spec/07-startup-tray.md` §3.3):
 //!
 //! ```text
-//! $XDG_RUNTIME_DIR/fxsound/instance.lock   flock(LOCK_EX|LOCK_NB), holds "<pid>\n"
-//! $XDG_RUNTIME_DIR/fxsound/instance.sock   one JSON line per request, one per reply
+//! $XDG_RUNTIME_DIR/crossfx/instance.lock   flock(LOCK_EX|LOCK_NB), holds "<pid>\n"
+//! $XDG_RUNTIME_DIR/crossfx/instance.sock   one JSON line per request, one per reply
 //! ```
 //!
 //! The lock, not the socket, is what decides who is primary. That is the whole answer to the
@@ -25,7 +25,7 @@
 //!
 //! # On Windows
 //!
-//! The transport is a named pipe, `\\.\pipe\fxsound-<user SID>` (`crate::win::pipe`), and its
+//! The transport is a named pipe, `\\.\pipe\crossfx-<user SID>` (`crate::win::pipe`), and its
 //! first instance is the lock: Windows refuses `FILE_FLAG_FIRST_PIPE_INSTANCE` while any instance
 //! of the name exists, and lets the name go with the last handle, so there is no lock file and
 //! nothing for a crash to leave behind. The pipe's types have the methods of the socket's, so
@@ -34,7 +34,7 @@
 //! connect: the pipe's access control names the user's SID alone, and a client checks the pipe's
 //! owner and its integrity label before it sends anything — or lets the other end take the
 //! foreground — so that neither another account nor a sandboxed process of the same user that
-//! made the name first is taken for FxSound.
+//! made the name first is taken for CrossFX.
 //!
 //! # Why argv and not a command line
 //!
@@ -46,7 +46,7 @@
 //!
 //! # Why there is a reply
 //!
-//! `--status` on Windows answers out of band: it writes `status.json` and then does
+//! The original's `--status` answers out of band: it writes `status.json` and then does
 //! `AttachConsole(ATTACH_PARENT_PROCESS)` to print to the *running* instance's original console,
 //! explicitly not the caller's (`FxController.cpp:686-699`), which is why the Go client polls the
 //! file's mtime with a 2 s budget (`fxmcp/internal/fxsound/status.go:95-128`). Here the primary
@@ -55,7 +55,7 @@
 //! # Security
 //!
 //! `$XDG_RUNTIME_DIR` is created by the session manager mode `0700` and owned by the user, and the
-//! `fxsound/` subdirectory is created `0700` as well, so the directory permissions are the access
+//! `crossfx/` subdirectory is created `0700` as well, so the directory permissions are the access
 //! control. `SO_PEERCRED`, which `docs/spec/07-startup-tray.md` §3.3 asks for, guards an *abstract*
 //! socket — those live in the network namespace and are reachable by every uid on the machine.
 //! This implementation deliberately does not use an abstract socket, and `UnixStream::peer_cred`
@@ -77,7 +77,7 @@
 //!
 //! # Watching
 //!
-//! A request with `watch` set (`fxsound --watch`, 0.4.0 design §10) is not answered once. The
+//! A request with `watch` set (`crossfx --watch`, 0.4.0 design §10) is not answered once. The
 //! connection is handed to a broadcaster and stays open: it is sent the `--status --json` document
 //! as a `status` event, and then one line per [`AppEvent`] that [`Server::publish`] is given, as
 //! JSON or as `event key=value` depending on the caller's `--json`. The primary never reads from
@@ -145,7 +145,7 @@ pub const LOCK_NAME: &str = "instance.lock";
 /// How long a forwarding process waits for the primary's reply.
 ///
 /// `fxmcp/internal/fxsound/config.go:12-18` budgets 5 s for an apply, so a client written against
-/// the Windows build already expects this much.
+/// the original already expects this much.
 pub const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long the primary waits for a connected client to finish sending its request before hanging
@@ -159,11 +159,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 pub const HANDLER_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// What a caller hears when the GUI thread no longer takes commands.
-const SHUTTING_DOWN: &str = "FxSound is shutting down and cannot take that command";
+const SHUTTING_DOWN: &str = "CrossFX is shutting down and cannot take that command";
 
 /// What a caller hears when the GUI thread took a command and did not answer within
 /// [`HANDLER_TIMEOUT`].
-const NO_ANSWER_IN_TIME: &str = "FxSound did not answer in time; the command may still be running";
+const NO_ANSWER_IN_TIME: &str = "CrossFX did not answer in time; the command may still be running";
 
 /// The longest request line the primary reads. An argv is a few hundred bytes; anything near this
 /// is not a command line, and reading it without a bound is how a stray writer eats the heap.
@@ -175,7 +175,7 @@ pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 pub const MAX_CONNECTIONS: usize = 32;
 
 /// What a caller past [`MAX_CONNECTIONS`] hears, on the socket and on the bus.
-pub const TOO_MANY_CALLERS: &str = "FxSound is answering too many callers at once; try again";
+pub const TOO_MANY_CALLERS: &str = "CrossFX is answering too many callers at once; try again";
 
 /// What a caller hears when its request line does not arrive whole within [`REQUEST_TIMEOUT`].
 const REQUEST_TOO_SLOW: &str = "the request did not arrive in time";
@@ -202,8 +202,8 @@ pub struct Request {
     /// The forwarding process's real `argv`, `argv[0]` included.
     pub argv: Vec<String>,
     /// The forwarding process's working directory, so a relative path in an argument can still be
-    /// resolved. The Windows build cannot do this at all — it `chdir`s to the exe directory at
-    /// startup (`Main.cpp:308-321`), which this port does not port (§2.3).
+    /// resolved. The original cannot do this at all — it `chdir`s to the exe directory at
+    /// startup (`Main.cpp:308-321`), which CrossFX does not copy (§2.3).
     pub cwd: String,
     /// Subscribe to the event stream rather than be answered once. `argv` must then be a
     /// `--watch` line, whose `--json` picks the stream's spelling. Left out of every other frame,
@@ -273,7 +273,7 @@ impl Response {
     }
 
     /// Whether this is [`Response::unanswered`] rather than an answer: D-Bus reports that as a
-    /// failure, and every other `ok = false` as FxSound refusing the command.
+    /// failure, and every other `ok = false` as CrossFX refusing the command.
     #[must_use]
     pub fn is_unanswered(&self) -> bool {
         !self.ok && self.stderr == NO_ANSWER_IN_TIME
@@ -291,13 +291,13 @@ pub enum Instance {
     /// We took the lock: we are the application. Call [`Listener::serve`] to start accepting
     /// forwarded command lines.
     Primary(Listener),
-    /// Somebody else holds the lock. Call [`Client::forward`] and exit, exactly as the second
-    /// Windows process does (`fxmcp/internal/fxsound/process.go:84-87`).
+    /// Somebody else holds the lock. Call [`Client::forward`] and exit, exactly as the original's
+    /// second process does (`fxmcp/internal/fxsound/process.go:84-87`).
     Secondary(Client),
 }
 
 impl Instance {
-    /// Decide the role using `$XDG_RUNTIME_DIR/fxsound`.
+    /// Decide the role using `$XDG_RUNTIME_DIR/crossfx`.
     ///
     /// # Errors
     ///
@@ -308,7 +308,7 @@ impl Instance {
         Self::acquire_in(&runtime_dir())
     }
 
-    /// Decide the role using the user's control pipe, `\\.\pipe\fxsound-<user SID>`.
+    /// Decide the role using the user's control pipe, `\\.\pipe\crossfx-<user SID>`.
     ///
     /// # Errors
     ///
@@ -405,7 +405,7 @@ impl Listener {
     ///
     /// A new `--watch` subscriber's `status` event is the application's own answer to
     /// `--status --json`, asked for through [`Server::drain`] like any forwarded command line, so
-    /// it is exactly what `fxsound --status --json` prints.
+    /// it is exactly what `crossfx --status --json` prints.
     ///
     /// # Errors
     ///
@@ -462,7 +462,7 @@ impl Listener {
             let shared = Arc::clone(&shared);
             let shutdown = Arc::clone(&shutdown);
             thread::Builder::new()
-                .name("fxsound-ipc".to_owned())
+                .name("crossfx-ipc".to_owned())
                 .spawn(move || accept_loop(&listener, &shared, &shutdown))?
         };
 
@@ -484,7 +484,7 @@ impl Listener {
 /// when there is none to be had in time, in which case the subscription is refused.
 pub type StatusSource = Arc<dyn Fn() -> Option<serde_json::Value> + Send + Sync>;
 
-/// The default [`StatusSource`]: ask the application, the way `fxsound --status --json` does —
+/// The default [`StatusSource`]: ask the application, the way `crossfx --status --json` does —
 /// through [`hand_over`], so an instance on its way out answers at once rather than never.
 fn status_from_application(tx: WakingSender<Forwarded>, closing: Closing) -> StatusSource {
     Arc::new(move || {
@@ -719,7 +719,7 @@ impl Drop for Server {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-        // Every `fxsound --watch` sees end-of-file. One that got the `quit` event, published
+        // Every `crossfx --watch` sees end-of-file. One that got the `quit` event, published
         // before the server goes (`Runtime::shutdown`), exits 0; any other — one still waiting for
         // its status document, say — exits 1, its stream cut off.
         self.shared.broadcaster.close();
@@ -750,8 +750,8 @@ pub struct Forwarded {
     abandoned: Arc<AtomicBool>,
     /// The server's [`Closing`], for a command handed over through it.
     closing: Option<Closing>,
-    /// Whether the line is one the Windows build raises its window for
-    /// ([`crate::cli::Cli::raises_like_windows`]): a second `fxsound` on the socket says, D-Bus
+    /// Whether the line is one the original raises its window for
+    /// ([`crate::cli::Cli::raises_like_windows`]): a second `crossfx` on the socket says, D-Bus
     /// never does.
     raises_like_windows: bool,
 }
@@ -783,16 +783,17 @@ impl Forwarded {
         }
     }
 
-    /// Mark the line as one the Windows build raises its window for, as
-    /// [`crate::cli::Cli::raises_like_windows`] says: at «Как в Windows» = Interface and above the
-    /// GUI thread raises the window for it (`crate::commands::run_forwarded`).
+    /// Mark the line as one the original raises its window for, as
+    /// [`crate::cli::Cli::raises_like_windows`] says: at «Как в оригинальном FxSound LLC» =
+    /// Interface and above the GUI thread raises the window for it
+    /// (`crate::commands::run_forwarded`).
     #[must_use]
     pub const fn raising_like_windows(mut self, raises: bool) -> Self {
         self.raises_like_windows = raises;
         self
     }
 
-    /// Whether the line is one the Windows build raises its window for
+    /// Whether the line is one the original raises its window for
     /// ([`Forwarded::raising_like_windows`]); never for a D-Bus call.
     #[must_use]
     pub const fn raises_like_windows(&self) -> bool {
@@ -806,7 +807,7 @@ impl Forwarded {
         self
     }
 
-    /// Whether the caller has stopped waiting for the answer — it was told that FxSound did not
+    /// Whether the caller has stopped waiting for the answer — it was told that CrossFX did not
     /// answer in time. Such a command is not carried out late: a keybind pressed a dozen times
     /// while the GUI thread was busy would otherwise replay all of them at once when it is free.
     #[must_use]
@@ -921,7 +922,7 @@ impl Control {
     /// Asynchronous, so a D-Bus method handler awaits it instead of blocking a worker of the
     /// runtime it is on; that runtime needs its timer enabled for [`HANDLER_TIMEOUT`]. Never
     /// fails as such: an instance that is going away, or a GUI thread that does not answer in
-    /// time, comes back as a failed [`Response`] that says so, as `fxsound` would print it.
+    /// time, comes back as a failed [`Response`] that says so, as `crossfx` would print it.
     pub async fn call(&self, commands: Vec<Command>) -> Response {
         // As [`hand_over`] does for the socket: once the way out has begun, nothing waits.
         if self.closing.is_set() {
@@ -962,7 +963,7 @@ impl std::fmt::Debug for Control {
 
 /// The forwarding end: connect, hand over this process's argv, print the reply, exit.
 ///
-/// This is the whole of a secondary instance's job, and it is what makes `fxsound --next-preset`
+/// This is the whole of a secondary instance's job, and it is what makes `crossfx --next-preset`
 /// usable as a compositor keybinding.
 pub struct Client {
     path: PathBuf,
@@ -999,7 +1000,7 @@ impl Client {
         forward_to(&self.path, argv, cwd, timeout)
     }
 
-    /// `fxsound --watch`: subscribe with this process's own command line and copy every event to
+    /// `crossfx --watch`: subscribe with this process's own command line and copy every event to
     /// stdout, a line at a time, until the running instance quits. Returns the exit code.
     #[must_use]
     pub fn watch(&self, meters: bool) -> i32 {
@@ -1016,19 +1017,19 @@ impl Client {
     }
 }
 
-/// What `fxsound --watch` says when its stream ends without the instance's `quit` event.
+/// What `crossfx --watch` says when its stream ends without the instance's `quit` event.
 const STREAM_CUT_OFF: &str =
-    "the event stream was cut off (the reader fell behind or FxSound stopped)";
+    "the event stream was cut off (the reader fell behind or CrossFX stopped)";
 
 /// Subscribe on `socket` and copy the stream to `out` until it ends. Returns the exit code:
 ///
 /// * `0` when the instance hung up after its `quit` event — it quit — or when `out` stopped
-///   taking lines, which is what `fxsound --watch | head -n 1` does on purpose;
+///   taking lines, which is what `crossfx --watch | head -n 1` does on purpose;
 /// * `1` with `STREAM_CUT_OFF` on `err` when the stream ended without that event: the instance
 ///   dropped a reader that fell behind, or it died. A supervisor that restarts `--watch` until it
-///   exits 0 then keeps it running for as long as FxSound does, instead of stopping as though
-///   FxSound had quit;
-/// * `1` with `FxSound is not running` on `err` when there is nobody to subscribe to;
+///   exits 0 then keeps it running for as long as CrossFX does, instead of stopping as though
+///   CrossFX had quit;
+/// * `1` with `CrossFX is not running` on `err` when there is nobody to subscribe to;
 /// * the refusal's own code, with its message on `err`, when the instance said no — an older
 ///   instance that has never heard of `--watch` answers that way.
 pub fn watch_to(
@@ -1043,7 +1044,7 @@ pub fn watch_to(
         Ok(stream) => stream,
         Err(e) => {
             log::debug!("could not connect to {}: {e}", socket.display());
-            let _ = writeln!(err, "FxSound is not running");
+            let _ = writeln!(err, "CrossFX is not running");
             return 1;
         }
     };
@@ -1204,7 +1205,7 @@ pub fn socket_path() -> PathBuf {
     runtime_dir().join(SOCKET_NAME)
 }
 
-/// `$XDG_RUNTIME_DIR/fxsound`, or `/tmp/fxsound-<uid>` when the session has no runtime directory
+/// `$XDG_RUNTIME_DIR/crossfx`, or `/tmp/crossfx-<uid>` when the session has no runtime directory
 /// — cron and `ssh` without `pam_systemd` are the usual cases
 /// (`docs/spec/07-startup-tray.md` §4.7).
 #[cfg(unix)]
@@ -1220,9 +1221,10 @@ pub fn runtime_dir() -> PathBuf {
 /// be unset — which on a developer's desktop is never, and on a CI runner is always.
 #[cfg(unix)]
 fn runtime_dir_from(session: Option<PathBuf>, uid: u32) -> PathBuf {
+    use fxsound_core::identity::DIR_NAME;
     session.map_or_else(
-        || PathBuf::from(format!("/tmp/fxsound-{uid}")),
-        |dir| dir.join("fxsound"),
+        || PathBuf::from(format!("/tmp/{DIR_NAME}-{uid}")),
+        |dir| dir.join(DIR_NAME),
     )
 }
 
@@ -1368,7 +1370,7 @@ fn spawn_handler(stream: Stream, shared: &Arc<Shared>) {
     }
     let slot = ConnectionSlot(Arc::clone(shared));
     let spawned = thread::Builder::new()
-        .name("fxsound-ipc-client".to_owned())
+        .name("crossfx-ipc-client".to_owned())
         .spawn(move || handle_connection(stream, &slot.0));
     // A closure that never ran is dropped with its slot, which gives the count back.
     if let Err(e) = spawned {
@@ -1454,7 +1456,7 @@ fn read_request(stream: &Stream, within: Duration) -> Result<Request, String> {
         serde_json::from_slice(&line).map_err(|e| format!("malformed request: {e}"))?;
     if request.v != PROTOCOL_VERSION {
         return Err(format!(
-            "this FxSound speaks control protocol v{PROTOCOL_VERSION}, the caller speaks v{}",
+            "CrossFX speaks control protocol v{PROTOCOL_VERSION}, the caller speaks v{}",
             request.v
         ));
     }
@@ -1578,7 +1580,7 @@ impl Broadcaster {
         let id = {
             let mut subscribers = self.lock();
             if subscribers.closed {
-                refuse(&stream, "FxSound is shutting down");
+                refuse(&stream, "CrossFX is shutting down");
                 return;
             }
             // Nothing is written to a quiet stream, so a caller that went away is only noticed
@@ -1587,7 +1589,7 @@ impl Broadcaster {
                 subscriber.backlog.is_some() || !peer_closed(&subscriber.stream)
             });
             if subscribers.list.len() >= MAX_SUBSCRIBERS {
-                refuse(&stream, "FxSound has too many --watch streams open");
+                refuse(&stream, "CrossFX has too many --watch streams open");
                 return;
             }
             let id = subscribers.next_id;
@@ -1615,7 +1617,7 @@ impl Broadcaster {
             let subscriber = subscribers.list.remove(index);
             refuse(
                 &subscriber.stream,
-                "FxSound did not report its status in time",
+                "CrossFX did not report its status in time",
             );
             return;
         };
@@ -1731,7 +1733,7 @@ mod tests {
     use serde_json::{Value, json};
 
     fn argv(args: &[&str]) -> Vec<String> {
-        std::iter::once("fxsound")
+        std::iter::once("crossfx")
             .chain(args.iter().copied())
             .map(str::to_owned)
             .collect()
@@ -1806,7 +1808,8 @@ mod tests {
         );
         assert!(
             forwarded.raises_like_windows(),
-            "but Windows raises its window for them, which «Как в Windows» = Interface does again"
+            "but the original raises its window for them, which «Как в оригинальном FxSound LLC» = \
+             Interface does again"
         );
         assert_eq!(forwarded.cwd(), Path::new("/tmp"));
         drop(forwarded); // the implicit acknowledgement
@@ -1819,7 +1822,7 @@ mod tests {
 
     #[test]
     fn a_status_request_comes_back_on_the_callers_own_stdout() {
-        // The Windows build cannot do this: it prints to the *running* instance's console
+        // The original cannot do this: it prints to the *running* instance's console
         // (`FxController.cpp:686-699`).
         let dir = tempfile::tempdir().expect("temp dir");
         let Instance::Primary(listener) = Instance::acquire_in(dir.path()).expect("acquire") else {
@@ -1948,7 +1951,7 @@ mod tests {
     #[test]
     fn the_runtime_directory_is_private_to_the_user() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let nested = dir.path().join("fxsound");
+        let nested = dir.path().join("crossfx");
         prepare_dir(&nested).expect("prepare");
         let mode = fs::metadata(&nested)
             .expect("metadata")
@@ -1962,14 +1965,14 @@ mod tests {
     fn the_runtime_directory_falls_back_to_tmp_when_the_session_has_none() {
         assert_eq!(
             runtime_dir_from(Some(PathBuf::from("/run/user/1000")), 1000),
-            PathBuf::from("/run/user/1000/fxsound")
+            PathBuf::from("/run/user/1000/crossfx")
         );
         // `Path::starts_with` compares whole components, so an assertion spelled
-        // `starts_with("/tmp/fxsound-")` is false for `/tmp/fxsound-1000` and this test passed
+        // `starts_with("/tmp/crossfx-")` is false for `/tmp/crossfx-1000` and this test passed
         // only through its other branch — on a machine that has a session runtime directory.
         assert_eq!(
             runtime_dir_from(None, 1000),
-            PathBuf::from("/tmp/fxsound-1000")
+            PathBuf::from("/tmp/crossfx-1000")
         );
     }
 
@@ -2286,7 +2289,7 @@ mod tests {
         let frame = serde_json::to_string(&request).expect("serialise");
         assert_eq!(
             frame,
-            r#"{"v":1,"argv":["fxsound","--next-preset"],"cwd":"/"}"#
+            r#"{"v":1,"argv":["crossfx","--next-preset"],"cwd":"/"}"#
         );
 
         // And a 0.3.0 frame still parses, as a request that does not watch.
@@ -2416,7 +2419,7 @@ mod tests {
             .expect("serve")
     }
 
-    /// Connect and ask to watch with `args`, the way `fxsound --watch …` does.
+    /// Connect and ask to watch with `args`, the way `crossfx --watch …` does.
     fn subscribe(socket: &Path, args: &[&str]) -> BufReader<Stream> {
         let stream = Stream::connect(socket).expect("connect");
         stream
@@ -2482,7 +2485,7 @@ mod tests {
             let mut watcher = subscribe(&socket, &["--watch"]);
             next_line(&mut watcher)
         });
-        // The same question `fxsound --status --json` asks, through the same queue.
+        // The same question `crossfx --status --json` asks, through the same queue.
         let forwarded = wait_for(&server);
         assert_eq!(forwarded.commands(), [Command::Status { json: true }]);
         forwarded.respond(r#"{"power":false,"view":"lite"}"#);
@@ -2756,7 +2759,7 @@ mod tests {
     }
 
     #[test]
-    fn watching_with_nobody_to_watch_says_fxsound_is_not_running_and_exits_one() {
+    fn watching_with_nobody_to_watch_says_crossfx_is_not_running_and_exits_one() {
         let dir = tempfile::tempdir().expect("temp dir");
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = watch_to(
@@ -2769,7 +2772,7 @@ mod tests {
         );
         assert_eq!(code, 1);
         assert!(out.is_empty());
-        assert_eq!(String::from_utf8_lossy(&err), "FxSound is not running\n");
+        assert_eq!(String::from_utf8_lossy(&err), "CrossFX is not running\n");
     }
 
     #[test]
@@ -2792,7 +2795,7 @@ mod tests {
 
     #[test]
     fn a_reader_that_stops_taking_lines_ends_the_watch_quietly() {
-        /// `fxsound --watch | head -n 1`: the pipe closes after the first line.
+        /// `crossfx --watch | head -n 1`: the pipe closes after the first line.
         struct ClosesAfterOneLine(usize);
         impl Write for ClosesAfterOneLine {
             fn write(&mut self, buf: &[u8]) -> io::Result<usize> {

@@ -66,7 +66,7 @@ fn apartment_threaded<T: Send + 'static>(
         unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
     if apartment == RPC_E_CHANGED_MODE {
         return std::thread::Builder::new()
-            .name("fxsound-shell".to_owned())
+            .name("crossfx-shell".to_owned())
             .spawn(move || apartment_threaded(f))
             .map_err(|err| format!("no thread to ask the shell from: {err}"))?
             .join()

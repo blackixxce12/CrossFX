@@ -1,7 +1,7 @@
 //! Who this process runs as, for the control pipe's name and its access control.
 //!
 //! A named pipe lives in one namespace for the whole machine, so its name alone protects nothing:
-//! any session's process can create `\\.\pipe\fxsound-…` first, and connect to it. Three things
+//! any session's process can create `\\.\pipe\crossfx-…` first, and connect to it. Three things
 //! keep the control pipe this user's own ([`super::pipe`]): its security descriptor grants access
 //! to the user's SID and to nobody else, at medium integrity and above; a client checks that the
 //! pipe it reached is owned by that SID before it hands over a command line, so that a pipe
@@ -39,7 +39,7 @@ const MANDATORY_LABEL_ACE: u8 = 0x11;
 ///
 /// # Errors
 ///
-/// If the process token cannot be read, which leaves FxSound without a pipe name it could trust.
+/// If the process token cannot be read, which leaves CrossFX without a pipe name it could trust.
 pub(crate) fn sid() -> io::Result<String> {
     let mut token = HANDLE::default();
     // SAFETY: the pseudo-handle of this process, and an out-pointer to a local.
@@ -199,14 +199,14 @@ impl SecurityDescriptor {
     /// DACL so that nothing is inherited, and so no access at all for any other account, for
     /// anonymous callers or for an AppContainer. A process of the same user at low integrity cannot
     /// reach the pipe either, by the medium mandatory label (`S:(ML;;NW;;;ME)`): that is the
-    /// server's half. The label is also what a client knows FxSound's pipe by
+    /// server's half. The label is also what a client knows CrossFX's pipe by
     /// ([`integrity_of`]), since a low-integrity process could make a pipe of the same name and
     /// owner, but not one labelled medium.
     ///
     /// The owner and the label are named rather than left to the token's defaults. An elevated
     /// administrator's default owner is the Administrators group, and a client compares the owner
     /// with its own SID; and an object an elevated process creates is labelled high, which no
-    /// process at medium may write to. Named, the same user's FxSound and its command line meet
+    /// process at medium may write to. Named, the same user's CrossFX and its command line meet
     /// on the pipe whichever of the two runs elevated — a start from an elevated terminal, a
     /// keybind from the desktop.
     pub(crate) fn only(sid: &str) -> io::Result<Self> {

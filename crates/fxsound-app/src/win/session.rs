@@ -1,32 +1,32 @@
-//! Ending FxSound the way the tray's Exit does, whatever Windows ends it with.
+//! Ending CrossFX the way the tray's Exit does, whatever Windows ends it with.
 //!
 //! On Linux, `SIGTERM`, `SIGINT` and `SIGHUP` raise a flag that the pump reads as the tray's Exit
 //! (`main.rs`): the engine hands the default devices back and stops, and only then does the
-//! process end. A process that just dies leaves the system default on FxSound's virtual device,
-//! with nothing behind it to play the sound on — so the Windows build needs the same for each way
+//! process end. A process that just dies leaves the system default on CrossFX's virtual device,
+//! with nothing behind it to play the sound on — so CrossFX on Windows needs the same for each way
 //! Windows ends a program:
 //!
-//! - **Ctrl+C and Ctrl+Break** in the console FxSound runs in — the debug build's, a console
+//! - **Ctrl+C and Ctrl+Break** in the console CrossFX runs in — the debug build's, a console
 //!   program the shell waits for: the flag, as `SIGINT` raises it. A second one while the way out
 //!   is under way ends the process at once with the conventional 130, as a second Ctrl+C does on
 //!   Linux. A release build is a GUI program, which the shell does not wait for: it borrows the
 //!   terminal it was started from to print what its command line has to say
-//!   ([`attach_parent_console`]), and lets go of it as soon as it is the running FxSound, before
+//!   ([`attach_parent_console`]), and lets go of it as soon as it is the running CrossFX, before
 //!   its engine starts ([`release_borrowed_console`]), as a job sent to the background is out of
-//!   the reach of the Ctrl+C typed for the next command, `fxsound --watch` say, and of the
+//!   the reach of the Ctrl+C typed for the next command, `crossfx --watch` say, and of the
 //!   terminal closing. A process attached to a console gets that console's Ctrl+C, Ctrl+Break and
 //!   close, and with no handler of its own each one ends it — held over the start, the terminal
-//!   would end FxSound in the middle of taking over the default device. What the start has to say
+//!   would end CrossFX in the middle of taking over the default device. What the start has to say
 //!   once the engine is up, the report of the options it was started with, is printed on the
 //!   terminal borrowed again for as long as the printing takes ([`on_the_terminal`]), and only
 //!   when some of it is for the terminal, since no handler covers that borrow whole: one leaves
 //!   Ctrl+C and Ctrl+Break to the next command while the report is printed, but it covers neither
-//!   the moments of attaching and of letting go — a Ctrl+C on its way then reaches FxSound with no
+//!   the moments of attaching and of letting go — a Ctrl+C on its way then reaches CrossFX with no
 //!   handler to take it — nor the terminal closing, which ends whatever is attached to it. A plain
-//!   `fxsound`, `--show`, `--hide` and a line of settings that all went through have nothing to
+//!   `crossfx`, `--show`, `--hide` and a line of settings that all went through have nothing to
 //!   report, and a report whose streams were all redirected has nothing for the terminal: both
-//!   leave it alone. Every borrow keeps what was redirected where it was sent — `fxsound --status
-//!   --json > status.json`, `fxsound --watch | findstr preset`, `fxsound 2> fxsound.log` typed in
+//!   leave it alone. Every borrow keeps what was redirected where it was sent — `crossfx --status
+//!   --json > status.json`, `crossfx --watch | findstr preset`, `crossfx 2> crossfx.log` typed in
 //!   cmd.exe — although attaching a console gives the process that console's standard handles in
 //!   place of the ones cmd.exe started it with.
 //! - **The console closing**, and log-off and shutdown for a process the system tells through its
@@ -35,17 +35,17 @@
 //!   the devices back ([`Termination::close`]), or [`HANDBACK_WAIT`] at most.
 //! - **Log-off, shutdown and a Restart Manager close** for a program with windows, which hears
 //!   them as `WM_QUERYENDSESSION` and `WM_ENDSESSION` and not through its console at all: a window
-//!   on a thread of its own, `fxsound-session`, answers the first with "go ahead" — a sound
+//!   on a thread of its own, `crossfx-session`, answers the first with "go ahead" — a sound
 //!   program has no business holding the session up — and does for the second what the console's
 //!   close does.
 //! - **`taskkill` without `/F`**, `kill` on Windows: it posts `WM_CLOSE` to one window of the
 //!   process, the first visible one in Z-order — or, with none visible, the first of all. That
 //!   window is this one: shown, but drawing nothing — no size, layered, click-through, never
-//!   activated, on no taskbar — and topmost, which puts it ahead of FxSound's own window, whose
-//!   close only sends FxSound to the tray as Alt+F4 does, and of the hidden windows of winit and
+//!   activated, on no taskbar — and topmost, which puts it ahead of CrossFX's own window, whose
+//!   close only sends CrossFX to the tray as Alt+F4 does, and of the hidden windows of winit and
 //!   of the OpenGL driver, which would be destroyed under them (seen: three `taskkill`s took
-//!   those three away one by one, and FxSound ran on). It hears the close as the flag, as
-//!   `SIGTERM` raises it, and stays: gone, it would leave FxSound with nothing to hear the session
+//!   those three away one by one, and CrossFX ran on). It hears the close as the flag, as
+//!   `SIGTERM` raises it, and stays: gone, it would leave CrossFX with nothing to hear the session
 //!   end. So do the tray's windows (`crate::win::tray`), its own and the icon's, for a closer that
 //!   sends every window `WM_CLOSE`. Nothing waits here: the message was posted, and its sender
 //!   waits for the process.
@@ -92,7 +92,7 @@ use crate::wake::Waker;
 pub const HANDBACK_WAIT: Duration = Duration::from_secs(4);
 
 /// Posted to the watcher window by [`Termination`]'s drop: the watch is over, the window goes and
-/// its thread ends. A message of FxSound's own, since `WM_CLOSE` is a quit from outside (see the
+/// its thread ends. A message of CrossFX's own, since `WM_CLOSE` is a quit from outside (see the
 /// module docs).
 const WM_STOP_WATCHING: u32 = WM_APP + 1;
 
@@ -147,8 +147,8 @@ static CONSOLE: OnceLock<Arc<Shared>> = OnceLock::new();
 /// Where this process stands with the terminal it was started from: [`NO_TERMINAL`],
 /// [`BORROWED`] or [`GIVEN_BACK`].
 static TERMINAL: AtomicU8 = AtomicU8::new(NO_TERMINAL);
-/// No terminal was borrowed: there was none — FxSound started from the desktop — or the console
-/// is FxSound's own, the debug build's.
+/// No terminal was borrowed: there was none — CrossFX started from the desktop — or the console
+/// is CrossFX's own, the debug build's.
 const NO_TERMINAL: u8 = 0;
 /// [`attach_parent_console`] took the parent's console, which [`release_borrowed_console`] gives
 /// back.
@@ -159,7 +159,7 @@ const GIVEN_BACK: u8 = 2;
 
 /// The window of the console [`attach_parent_console`] took, as an address: the one console
 /// [`on_the_terminal`] borrows again. With the shell gone, the parent's process id may name
-/// another process by then, and its console is nobody FxSound has anything to say to.
+/// another process by then, and its console is nobody CrossFX has anything to say to.
 static TERMINAL_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
 /// Which of the standard output and error were the borrowed console's when
@@ -176,9 +176,9 @@ const STDERR: u8 = 2;
 const STANDARD_HANDLES: [STD_HANDLE; 3] = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE];
 
 /// Attach to the parent process's console, for a GUI build started from a terminal: the standard
-/// handles that were not redirected then reach that console, so that `fxsound --status` prints
+/// handles that were not redirected then reach that console, so that `crossfx --status` prints
 /// where it was typed (`crate::platform::attach_parent_console`), and those that were — to a
-/// file, a pipe or `NUL`, `fxsound --status --json > status.json` — stay where they were sent,
+/// file, a pipe or `NUL`, `crossfx --status --json > status.json` — stay where they were sent,
 /// which the attach alone does not leave them (`keep_redirects`). Fails, harmlessly, for a
 /// process that has a console already — the debug build, a console program — or whose parent has
 /// none.
@@ -207,8 +207,8 @@ fn standard_handles() -> [HANDLE; 3] {
 /// when it was started without `STARTF_USESTDHANDLES`, and the ones it has none of when it was
 /// started with it. cmd.exe starts a program without the flag, and hands it its redirections —
 /// `>`, `2>`, `2>&1`, `|`, `for /f` — as the standard handles it inherits, so the attach took
-/// every one of them: from cmd, `fxsound --status --json > status.json` left the file empty and
-/// printed on the terminal, and `fxsound 2> fxsound.log` sent the log to the terminal while it
+/// every one of them: from cmd, `crossfx --status --json > status.json` left the file empty and
+/// printed on the terminal, and `crossfx 2> crossfx.log` sent the log to the terminal while it
 /// was borrowed and nowhere once it was given back. The attach leaves open the handles it takes
 /// the place of, and once attached a handle of that console answers as the console's, so what is
 /// put back is the process's own redirection and never a console's handle.
@@ -231,11 +231,11 @@ fn is_redirected(handle: HANDLE) -> bool {
         && !is_console(handle)
 }
 
-/// Give back the console [`attach_parent_console`] took, once this process is the running FxSound
+/// Give back the console [`attach_parent_console`] took, once this process is the running CrossFX
 /// and before its engine starts (`crate::platform::release_terminal`): the terminal is the next
-/// command's from here on, and neither a Ctrl+C typed there nor its window closing is FxSound's
+/// command's from here on, and neither a Ctrl+C typed there nor its window closing is CrossFX's
 /// to hear (see the module docs). Which of the standard output and error were the console's is
-/// kept, for [`on_the_terminal`]. A no-op for a console FxSound did not borrow — the debug
+/// kept, for [`on_the_terminal`]. A no-op for a console CrossFX did not borrow — the debug
 /// build's own.
 pub fn release_borrowed_console() {
     if TERMINAL
@@ -250,10 +250,10 @@ pub fn release_borrowed_console() {
 /// once [`release_borrowed_console`] has given the terminal back: a stream that was the
 /// terminal's on the terminal, borrowed again for as long as the printing takes
 /// (`crate::platform::on_the_terminal`), and one that was redirected —
-/// `fxsound --preset=Gamng 2> errors.txt` — where it was sent. How the report of the options
-/// FxSound was started with reaches the terminal once the engine is up, the terminal having been
+/// `crossfx --preset=Gamng 2> errors.txt` — where it was sent. How the report of the options
+/// CrossFX was started with reaches the terminal once the engine is up, the terminal having been
 /// given back before it started (see the module docs). Ctrl+C and Ctrl+Break are the next
-/// command's while the report is printed, not FxSound's (`the_next_commands`); with nothing in it
+/// command's while the report is printed, not CrossFX's (`the_next_commands`); with nothing in it
 /// for the terminal, the terminal is not borrowed at all (`borrows_again`). With no console given
 /// back — none was borrowed, or the debug build's own — the report is just printed; and it is
 /// printed as well when the terminal is gone, since what goes to a file still goes there.
@@ -278,7 +278,7 @@ fn on_the_terminal_with(stdout: &str, stderr: &str, print: impl FnOnce()) {
         return;
     }
     // First thing once attached, before anything else is asked of the console: every call in
-    // between is a moment its Ctrl+C ends FxSound in (`the_next_commands`).
+    // between is a moment its Ctrl+C ends CrossFX in (`the_next_commands`).
     // SAFETY: a handler with the signature Windows calls, which only answers.
     let held = unsafe { SetConsoleCtrlHandler(Some(the_next_commands), true) }.is_ok();
     keep_redirects(before);
@@ -302,8 +302,8 @@ fn on_the_terminal_with(stdout: &str, stderr: &str, print: impl FnOnce()) {
 /// Whether [`on_the_terminal`] borrows the terminal again to print `stdout` and `stderr`: when
 /// it was given back ([`GIVEN_BACK`]), and only if there is something to print on a stream that
 /// was the terminal's, one of `console_streams` ([`CONSOLE_STREAMS`]). Every borrow is a moment
-/// the terminal's Ctrl+C and its closing can end FxSound in ([`the_next_commands`]), so a start
-/// with nothing to say there — a plain `fxsound`, `--show`, `--hide`, a line of settings that all
+/// the terminal's Ctrl+C and its closing can end CrossFX in ([`the_next_commands`]), so a start
+/// with nothing to say there — a plain `crossfx`, `--show`, `--hide`, a line of settings that all
 /// went through, or a report only on streams that were redirected, which it reaches without the
 /// terminal — leaves the terminal to the next command.
 const fn borrows_again(terminal: u8, console_streams: u8, stdout: &str, stderr: &str) -> bool {
@@ -313,11 +313,11 @@ const fn borrows_again(terminal: u8, console_streams: u8, stdout: &str, stderr: 
 }
 
 /// While [`on_the_terminal`] borrows the terminal again: Ctrl+C and Ctrl+Break are for whatever
-/// the shell runs next, and FxSound, which is not the shell's job, takes them as handled — from
+/// the shell runs next, and CrossFX, which is not the shell's job, takes them as handled — from
 /// the moment this is installed to the moment it is taken away, and no longer. The console sends
 /// its events from the moment of the attach, before this can be installed, and one still on its
 /// way when the console is let go reaches the default handler once this is gone: at either edge a
-/// Ctrl+C ends FxSound as though there were no handler, and no order of the calls closes those
+/// Ctrl+C ends CrossFX as though there were no handler, and no order of the calls closes those
 /// edges, which is why nothing is borrowed with nothing to say on the terminal
 /// ([`borrows_again`]). The console closing goes on to the next handler: nothing keeps a process
 /// attached to a console that closes, whatever its handler answers.
@@ -362,7 +362,7 @@ fn reach_the_console(streams: u8) -> Vec<OwnedHandle> {
 
 /// Detach from the console, clearing the standard handles that were its own first: Windows gives
 /// a closed handle's number to the next handle opened, and a late log line written to the old
-/// number would land there. A handle that was redirected, `fxsound 2> fxsound.log`, is not the
+/// number would land there. A handle that was redirected, `crossfx 2> crossfx.log`, is not the
 /// console's — it was put back after the attach ([`keep_redirects`]) — and stays, and so does the
 /// log in it. `opened` are the console handles [`reach_the_console`] opened, closed once nothing
 /// refers to them. Returns which of the standard output and error were the console's
@@ -380,7 +380,7 @@ fn let_go_of_the_console(opened: Vec<OwnedHandle>) -> u8 {
     }
     // SAFETY: a plain call; nothing of this process refers to the console any more.
     if let Err(err) = unsafe { FreeConsole() } {
-        log::debug!("the terminal FxSound was started from is still attached: {err}");
+        log::debug!("the terminal CrossFX was started from is still attached: {err}");
     }
     drop(opened);
     console_streams
@@ -425,7 +425,7 @@ unsafe extern "system" fn on_console_event(event: u32) -> BOOL {
             log::info!("the console is closing; handing the session default back");
             shared.quit();
             if !shared.wait_for_the_way_out(HANDBACK_WAIT) {
-                log::warn!("the console closed before FxSound had handed the default device back");
+                log::warn!("the console closed before CrossFX had handed the default device back");
             }
             true.into()
         }
@@ -463,7 +463,7 @@ unsafe extern "system" fn session_window(
                 }
                 DefWindowProcW(window, message, wparam, lparam)
             }
-            // FxSound never holds the session up; it quits when the session does end.
+            // CrossFX never holds the session up; it quits when the session does end.
             WM_QUERYENDSESSION => LRESULT(1),
             WM_ENDSESSION => {
                 let shared = GetWindowLongPtrW(window, GWLP_USERDATA) as *const Shared;
@@ -474,13 +474,13 @@ unsafe extern "system" fn session_window(
                     shared.quit();
                     if !shared.wait_for_the_way_out(HANDBACK_WAIT) {
                         log::warn!(
-                            "the session ended before FxSound had handed the default device back"
+                            "the session ended before CrossFX had handed the default device back"
                         );
                     }
                 }
                 LRESULT(0)
             }
-            // `taskkill`, or an installer closing FxSound: the tray's Exit, and the window stays.
+            // `taskkill`, or an installer closing CrossFX: the tray's Exit, and the window stays.
             WM_CLOSE => {
                 let shared = GetWindowLongPtrW(window, GWLP_USERDATA) as *const Shared;
                 if let Some(shared) = shared.as_ref() {
@@ -512,7 +512,7 @@ unsafe extern "system" fn session_window(
 /// The class of the watcher window, registered once per process.
 fn window_class() -> PCWSTR {
     static REGISTERED: OnceLock<()> = OnceLock::new();
-    let name = w!("FxSoundSession");
+    let name = w!("CrossFXSession");
     REGISTERED.get_or_init(|| {
         let class = WNDCLASSW {
             lpfnWndProc: Some(session_window),
@@ -538,10 +538,10 @@ pub struct Termination {
     window: Option<(JoinHandle<()>, isize)>,
 }
 
-/// Watch for everything that ends FxSound from outside (see the module docs), raising
+/// Watch for everything that ends CrossFX from outside (see the module docs), raising
 /// `terminate` and waking the pump through `waker` for each.
 ///
-/// Never fails: a handler that cannot be installed is a log line, and that way of ending FxSound
+/// Never fails: a handler that cannot be installed is a log line, and that way of ending CrossFX
 /// is then the abrupt one.
 #[must_use]
 pub fn watch(terminate: Arc<AtomicBool>, waker: &Waker) -> Termination {
@@ -567,7 +567,7 @@ impl Termination {
         let (tx, rx) = crossbeam_channel::bounded(1);
         let for_window = Arc::clone(&shared);
         let spawned = thread::Builder::new()
-            .name("fxsound-session".to_owned())
+            .name("crossfx-session".to_owned())
             .spawn(move || run_window(window_class(), for_window, &tx));
         let window = match spawned {
             Ok(thread) => match rx.recv() {
@@ -628,12 +628,12 @@ fn run_window(
             // Top-level, not message-only, so that the session's end is sent to it at all; shown
             // and topmost so that `taskkill` picks it (see the module docs). Nothing of it is ever
             // seen: no size, layered with nothing drawn, click-through, never activated, and a
-            // tool window, which no taskbar and no Alt+Tab lists. Not titled "FxSound", which
-            // FxSound LLC's FxSound's window is: whatever looks for that one by its title — to
-            // close it, say — must not find this.
+            // tool window, which no taskbar and no Alt+Tab lists. Titled neither as the
+            // original FxSound's window is nor as CrossFX's own window is: whatever looks for
+            // either by its title — to close it, say — must not find this.
             WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST,
             class,
-            w!("FxSound Port session"),
+            w!("CrossFX session"),
             WS_POPUP | WS_VISIBLE,
             0,
             0,
@@ -742,7 +742,7 @@ mod tests {
             }
         }
         static REGISTERED: OnceLock<()> = OnceLock::new();
-        let name = w!("FxSoundSessionRefusing");
+        let name = w!("CrossFXSessionRefusing");
         REGISTERED.get_or_init(|| {
             let class = WNDCLASSW {
                 lpfnWndProc: Some(refusing),
@@ -773,7 +773,7 @@ mod tests {
         // Before it: no window ever had it, and it goes with the slot.
         let before = shared();
         run_window(
-            w!("FxSoundSessionNeverRegistered"),
+            w!("CrossFXSessionNeverRegistered"),
             Arc::clone(&before),
             &tx,
         );
@@ -804,9 +804,9 @@ mod tests {
         const STATUS: &str = "status power=true";
         const REFUSAL: &str = "no preset named \"Gamng\"";
         for (terminal, console_streams, stdout, stderr, borrows) in [
-            // A plain `fxsound`, `--show`, `--hide`, settings that all went through: nothing to
+            // A plain `crossfx`, `--show`, `--hide`, settings that all went through: nothing to
             // say, and the terminal stays the next command's. Its Ctrl+C at the moment of
-            // attaching or of letting go, and its closing while attached, would end FxSound; a
+            // attaching or of letting go, and its closing while attached, would end CrossFX; a
             // start that borrows nothing gives them no moment to.
             (GIVEN_BACK, BOTH, "", "", false),
             // Something on either stream of the terminal's is said where the line was typed.
@@ -821,7 +821,7 @@ mod tests {
             // A report on a redirected stream and on the terminal's: borrowed, for the terminal's.
             (GIVEN_BACK, STDERR, STATUS, REFUSAL, true),
             (GIVEN_BACK, STDOUT, STATUS, REFUSAL, true),
-            // Nothing given back, nothing to borrow again: the console is FxSound's own, or still
+            // Nothing given back, nothing to borrow again: the console is CrossFX's own, or still
             // the borrowed one, and the report goes where the handles go.
             (NO_TERMINAL, BOTH, STATUS, REFUSAL, false),
             (BORROWED, BOTH, STATUS, REFUSAL, false),

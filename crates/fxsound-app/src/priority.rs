@@ -1,8 +1,8 @@
 //! The device priority list (U4): which real device each lane prefers.
 //!
-//! Upstream 1.2 keeps a ranked list of every output device it has ever seen (`DeviceConfig.cpp`)
-//! and lets it choose the device (`FxController.cpp:1540-1612`). Here the list is
-//! [`Settings::device_configs`], read per direction, and the choosing is the engine's
+//! The original FxSound 1.2 keeps a ranked list of every output device it has ever seen
+//! (`DeviceConfig.cpp`) and lets it choose the device (`FxController.cpp:1540-1612`). Here the list
+//! is [`Settings::device_configs`], read per direction, and the choosing is the engine's
 //! ([`UiToAudio::SetDevicePriority`]). What the controller does with it is three things:
 //!
 //! - keep it: every device a device list names is added to it the first time it is seen, at the
@@ -10,7 +10,7 @@
 //! - hand it to the engine whenever it changes ([`ranking`]), or an empty list while *Follow the
 //!   system's default device* is on;
 //! - order what the window's combos, the tray and `--next-output`/`--next-input` offer by it
-//!   ([`sort_by_rank`]), as upstream sorts its output list (`sortByDeviceConfigPriority`,
+//!   ([`sort_by_rank`]), as the original sorts its output list (`sortByDeviceConfigPriority`,
 //!   `FxController.cpp:1714-1725`).
 //!
 //! [`UiToAudio::SetDevicePriority`]: fxsound_core::messages::UiToAudio::SetDevicePriority
@@ -25,7 +25,7 @@ pub(crate) struct Learned {
     /// — and the settings file has to be written.
     pub changed: bool,
     /// Per lane, outputs first: a device seen for the first time that went to the top of the list
-    /// (*Prioritize new output devices*). The lane has to be moved to it by name, as upstream's
+    /// (*Prioritize new output devices*). The lane has to be moved to it by name, as the original's
     /// `updateOutputs` moves to a newcomer that ranks above the current device
     /// (`FxController.cpp:1558-1584`): the engine ran its rules on the new graph before this list
     /// reached the controller, while the newcomer was not ranked at all, and a ranking that
@@ -45,8 +45,8 @@ pub(crate) fn ranked(
 }
 
 /// What the engine is told about `direction` ([`UiToAudio::SetDevicePriority`]): the list's
-/// `node.name`s, most preferred first — or nothing at all while the user has asked FxSound to
-/// follow the system's default device instead (upstream issue #629).
+/// `node.name`s, most preferred first — or nothing at all while the user has asked CrossFX to
+/// follow the system's default device instead (the original's issue #629).
 ///
 /// [`UiToAudio::SetDevicePriority`]: fxsound_core::messages::UiToAudio::SetDevicePriority
 pub(crate) fn ranking(settings: &Settings, direction: DeviceDirection) -> Vec<String> {
@@ -80,12 +80,12 @@ pub(crate) fn sort_by_rank(devices: &mut [AudioDevice], settings: &Settings) {
     });
 }
 
-/// Add every device of `devices` the priority list does not know yet, as upstream's
+/// Add every device of `devices` the priority list does not know yet, as the original's
 /// `DeviceConfig::updateDeviceConfigs` does (`DeviceConfig.cpp:54-108`).
 ///
 /// A newcomer goes to the bottom of its direction's list, or to the top with *Prioritize new
 /// output devices* — several newcomers at once keep the order the list gave them. The first
-/// time a direction is seen at all, its devices are the list, in the order upstream's
+/// time a direction is seen at all, its devices are the list, in the order the original's
 /// `initDeviceConfigs` gives them (`DeviceConfig.cpp:26-52`): the one in use first — the lane's
 /// saved device, then the one it is attached to (`attached`, outputs first), then the session
 /// default — and the rest as listed. Taken in any other order, the first list would rank some
@@ -329,7 +329,7 @@ mod tests {
     fn a_cable_just_installed_is_never_prioritised_nor_promoted() {
         let mut settings = known(&[("speakers", OUT), ("mic", IN)]);
         settings.prioritize_new_output = true;
-        // VB-Cable installed while FxSound runs: both of its sides are new.
+        // VB-Cable installed while CrossFX runs: both of its sides are new.
         let devices = [
             cable("cable-in", OUT),
             device("speakers", OUT),

@@ -58,7 +58,8 @@ pub use per_app::{
 
 /// The characters `PresetNameInputFilter` strips from a typed preset name
 /// (`FxPresetNameEditor.cpp:6-33`): the Windows reserved-filename set, kept on Linux so a preset
-/// saved here can be copied to a Windows FxSound unchanged (`docs/spec/03-controls.md` §11.2).
+/// saved here can be copied to the original FxSound for Windows unchanged
+/// (`docs/spec/03-controls.md` §11.2).
 pub const FORBIDDEN_PRESET_NAME_CHARS: &str = "<>:\"/\\|?*";
 
 /// `setInputRestrictions(64)` (`FxPresetNameEditor.cpp:52`, `FxMainWindow.cpp:58`).
@@ -71,8 +72,8 @@ pub const MAX_PRESET_NAME_CHARS: usize = 64;
 const VOLUME_SAVE_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long unsaved edits wait before they are stashed in their autosave, counted from the first
-/// edit since the last stash (0.4.0 audit #47): upstream's `FxController` stashes the selected
-/// preset's edits once a minute (`FxController.cpp:2101-2110`), and this port only did on a switch
+/// edit since the last stash (0.4.0 audit #47): the original's `FxController` stashes the selected
+/// preset's edits once a minute (`FxController.cpp:2101-2110`), and CrossFX only did on a switch
 /// and on the way out, so a crash, a `SIGKILL` or a compositor going down lost every edit since
 /// the preset was picked. A minute of quiet costs nothing: the deadline is one [`Instant`], set by
 /// an edit and cleared by the stash.
@@ -114,12 +115,12 @@ pub fn rename_name_available(existing: &[PresetEntry], old: &str, name: &str) ->
 
 /// Why a preset command is refused: the reasons the hamburger menu greys an item out
 /// (`FxMainWindow.cpp:536-543`), which the command line, the control socket and D-Bus answer with
-/// rather than doing what the menu would never offer (upstream `FxController.cpp:377-448`). One
-/// rule, [`App::preset_command_allowed`], for all of them.
+/// rather than doing what the menu would never offer (the original's `FxController.cpp:377-448`).
+/// One rule, [`App::preset_command_allowed`], for all of them.
 ///
-/// The text ([`std::fmt::Display`]) is what `fxsound` prints on stderr and what a D-Bus caller
-/// gets with `org.fxsound.FxSound.Error.Refused`: English, and naming the options that get round
-/// it, like every other refusal of the command path.
+/// The text ([`std::fmt::Display`]) is what `crossfx` prints on stderr and what a D-Bus caller
+/// gets with `io.github.blackixxce12.CrossFX.Error.Refused`: English, and naming the options that
+/// get round it, like every other refusal of the command path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     /// `--preset` with a name the edit direction's list does not have; whether the other lane's
@@ -135,8 +136,9 @@ pub enum Refusal {
     NothingToSave {
         preset: String,
     },
-    /// Save New Preset of a preset with no unsaved changes at «Как в Windows» = Interface and
-    /// above, where it is offered only with changes, as on Windows (0.4.0 audit #17).
+    /// Save New Preset of a preset with no unsaved changes at «Как в оригинальном FxSound LLC» =
+    /// Interface and above, where it is offered only with changes, as in the original (0.4.0 audit
+    /// #17).
     NothingToSaveAsNew {
         preset: String,
     },
@@ -144,7 +146,7 @@ pub enum Refusal {
     NothingToUndo {
         preset: String,
     },
-    /// Overwrite of a preset that ships with FxSound, which would leave a user copy shadowing it.
+    /// Overwrite of a preset that ships with CrossFX, which would leave a user copy shadowing it.
     FactoryOverwrite {
         preset: String,
     },
@@ -207,9 +209,9 @@ impl std::fmt::Display for Refusal {
             }
             Self::NothingToSaveAsNew { preset } => write!(
                 f,
-                "{preset:?} has no unsaved changes: with \"Like FxSound for Windows\" on, a new \
-                 preset is saved from unsaved changes only, as on Windows; --windows-parity=off \
-                 saves a copy"
+                "{preset:?} has no unsaved changes: with \"Like the original FxSound LLC\" on, a \
+                 new preset is saved from unsaved changes only, as in the original; \
+                 --windows-parity=off saves a copy"
             ),
             Self::NothingToUndo { preset } => {
                 write!(f, "{preset:?} has no unsaved changes to undo")
@@ -251,9 +253,9 @@ const fn lane_noun(lane: DeviceDirection) -> &'static str {
 /// Which of the hamburger menu's preset items are offered: each is
 /// [`App::preset_command_allowed`] for its command (`FxMainWindow.cpp:536-543`), with the power on
 /// or off (0.4.0 audit R7). Export and Import are not preset commands; they are offered whether or
-/// not the preset has unsaved changes (0.4.0 audit #18), except at «Как в Windows» = Interface and
-/// above, where unsaved changes grey them out as on Windows, and the power off greys out all
-/// seven.
+/// not the preset has unsaved changes (0.4.0 audit #18), except at «Как в оригинальном FxSound LLC»
+/// = Interface and above, where unsaved changes grey them out as in the original, and the power off
+/// greys out all seven.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PresetMenu {
     pub save_new: bool,
@@ -615,7 +617,7 @@ pub struct App {
     /// Toasts are held back until construction is over: adopting the saved preset at start-up
     /// is not something to announce.
     notifications_armed: bool,
-    /// The "FxSound in system tray" tip is shown once per process (`FxController.cpp:920-926`).
+    /// The "CrossFX in system tray" tip is shown once per process (`FxController.cpp:920-926`).
     tray_tip_shown: bool,
     /// Each lane's controls, outputs first ([`lane_index`]) — the design's
     /// `PerDirection<ChainControls>` (§1.4), in the `[_; 2]` form every other per-lane field here
@@ -669,7 +671,7 @@ pub struct App {
     /// What the engine was last told about holding the microphone awake
     /// ([`UiToAudio::KeepInputAwake`], [`App::hold_microphone_as_needed`]).
     microphone_held: bool,
-    /// Settings ▸ Experimental's "Smooth moves in WirePlumber": FxSound's hook in the user's
+    /// Settings ▸ Experimental's "Smooth moves in WirePlumber": CrossFX's hook in the user's
     /// WirePlumber, and the WirePlumber it goes into (roadmap 0.5.0 §7, D5).
     wireplumber: wireplumber::WirePlumberHost,
 }
@@ -757,7 +759,7 @@ impl App {
             export_dir: if persist {
                 default_export_dir()
             } else {
-                std::env::temp_dir().join("fxsound-app-test-export")
+                std::env::temp_dir().join("crossfx-test-export")
             },
             announced_device: [None, None],
             notifier,
@@ -791,7 +793,7 @@ impl App {
                 wireplumber::WirePlumberHost::none()
             },
         };
-        // A hook an earlier FxSound installed is this build's from now on.
+        // A hook an earlier CrossFX installed is this build's from now on.
         app.wireplumber.bring_up_to_date();
 
         // What the settings file asks of the audio thread before it does anything else. See
@@ -855,8 +857,8 @@ impl App {
         self.set_edit_direction(edit);
     }
 
-    /// The palette the views should use: the theme chosen, and from «Как в Windows» = Interface on
-    /// the Windows build's own ([`Palette::windows`]).
+    /// The palette the views should use: the theme chosen, and from «Как в оригинальном
+    /// FxSound LLC» = Interface on the original's own ([`Palette::windows`]).
     #[must_use]
     pub fn palette(&self) -> Palette {
         Palette::new(self.state.theme).windows(
@@ -1023,10 +1025,10 @@ impl App {
             // already, when it was asked for.
             //
             // "Another device" is one other than the device the lane's preset goes with
-            // ([`App::preset_device`]), as upstream moves the preset only for a device other than
-            // the one it already shows: a lane attaching for the first time to its saved device,
-            // or coming back after a reconnect to the one it was on, has not moved, and a preset
-            // picked while it waited — `--preset` at a cold start — stays.
+            // ([`App::preset_device`]), as the original moves the preset only for a device other
+            // than the one it already shows: a lane attaching for the first time to its saved
+            // device, or coming back after a reconnect to the one it was on, has not moved, and a
+            // preset picked while it waited — `--preset` at a cold start — stays.
             AudioToUi::Attached {
                 direction,
                 node_name,
@@ -1107,8 +1109,8 @@ impl App {
                 }
             }
             // A device the desktop picked as the system's default while the lane follows it: the
-            // lane's device from now on, as a pick in FxSound would be, so the next start begins
-            // there (0.4.0 began on the device last picked in FxSound). Nothing goes back to the
+            // lane's device from now on, as a pick in CrossFX would be, so the next start begins
+            // there (0.4.0 began on the device last picked in CrossFX). Nothing goes back to the
             // engine, which has moved the lane already; and with the priority list in force
             // meanwhile, a pick on its way is the list's to decide, and not kept.
             AudioToUi::DesktopPick {
@@ -1127,7 +1129,7 @@ impl App {
                     self.settings_dirty = true;
                 }
             }
-            // The volume of FxSound's own node while attached to one device (U10), so the next
+            // The volume of CrossFX's own node while attached to one device (U10), so the next
             // pair built for that device starts where the user left it. Remembered at once, and
             // written with the next flush once `VOLUME_SAVE_DELAY` has passed: a mixer drag
             // reports every step, and one file write per step is what that must not cost.
@@ -1205,9 +1207,9 @@ impl App {
     /// device* switch — so the lists the window and the tray show are put in its new order, and
     /// the engine is given the new ranking.
     ///
-    /// A new ranking moves no lane by itself, as dragging a row of upstream's list moves nothing
-    /// (`FxOutputPreference.cpp:238-262`): the lane's device stays until a better-ranked one
-    /// arrives or it goes.
+    /// A new ranking moves no lane by itself, as dragging a row of the original's list moves
+    /// nothing (`FxOutputPreference.cpp:238-262`): the lane's device stays until a better-ranked
+    /// one arrives or it goes.
     fn device_priority_changed(&mut self) {
         let mut devices = self.state.devices.clone();
         priority::sort_by_rank(&mut devices, &self.settings);
@@ -1223,8 +1225,8 @@ impl App {
     }
 
     /// Move `lane` to `newcomer`, a device seen for the first time that *Prioritize new output
-    /// devices* has just put at the top of the lane's list — upstream's `updateOutputs` taking a
-    /// newcomer that ranks above the current device (`FxController.cpp:1558-1584`), which ends in
+    /// devices* has just put at the top of the lane's list — the original's `updateOutputs` taking
+    /// a newcomer that ranks above the current device (`FxController.cpp:1558-1584`), which ends in
     /// `setOutput` and so becomes the device the lane is saved on.
     ///
     /// Nothing for a lane that is switched off, for one already on it, or while the system's
@@ -1425,7 +1427,7 @@ impl App {
                 self.note_power();
                 self.sync_params_from_state();
                 // Off hands the session defaults back to the real devices, so the system's sound
-                // no longer passes through FxSound at all; on takes them again (U12, upstream
+                // no longer passes through CrossFX at all; on takes them again (U12, the original's
                 // `powerOn` → `restoreDefaultPlaybackDevice`, `FxController.cpp:1727-1748`). The
                 // combos follow: while off they show the system's default device.
                 for message in default_claims(self.state.power) {
@@ -1649,7 +1651,7 @@ impl App {
     /// The four stage switches live in [`UiState`] rather than in the mapping precisely so that
     /// this can move them: without it a preset's gate is a number nothing reads.
     ///
-    /// Read through [`voice_params`], which moves a twenty-band curve off the Windows ladder
+    /// Read through [`voice_params`], which moves a twenty-band curve off the original's ladder
     /// (0.4.0 audit R4).
     fn apply_input_preset(&mut self, preset: &InputPreset) {
         let params = voice_params(preset);
@@ -1813,7 +1815,8 @@ impl App {
 
     /// Where the preset the device of the lane on screen remembers sits in the window's list;
     /// `None` when the lane has no device, the device remembers nothing, or what it remembers is
-    /// no longer a preset. What Delete Preset and Reset Presets fall back to (upstream 7f160b6).
+    /// no longer a preset. What Delete Preset and Reset Presets fall back to (the original's
+    /// 7f160b6).
     fn device_preset_index(&self) -> Option<usize> {
         let lane = self.state.direction;
         let device = self.state.device_for(lane)?;
@@ -1822,7 +1825,7 @@ impl App {
     }
 
     /// Put a music preset in the window and publish it — its curve on the user's band count, not
-    /// its own (upstream `DfxDspEq.cpp:127-247`).
+    /// its own (the original's `DfxDspEq.cpp:127-247`).
     ///
     /// A user on thirty-one bands who picks a ten-band factory preset stays on thirty-one bands:
     /// the live ladder is kept and the preset's gains are fitted onto it by frequency
@@ -1862,8 +1865,9 @@ impl App {
         }
     }
 
-    /// Whose DSP the music chains play and whose reading of a preset the window takes: the Windows
-    /// build's from «Like FxSound for Windows» = Interface and sound on ([`DspCompat::for_level`]).
+    /// Whose DSP the music chains play and whose reading of a preset the window takes: the
+    /// original's from «Like the original FxSound LLC» = Interface and sound on
+    /// ([`DspCompat::for_level`]).
     fn music_compat(&self) -> DspCompat {
         DspCompat::for_level(self.windows_parity())
     }
@@ -2044,7 +2048,7 @@ impl App {
     /// Save the edit direction's controls: over the selected preset (`None`), or as a new user
     /// preset called `new_name` — into that lane's store, as that lane's kind of file.
     ///
-    /// A new name is cut to what every FxSound reads ([`fxsound_preset::new_preset_name`], 0.4.0
+    /// A new name is cut to what every CrossFX reads ([`fxsound_preset::new_preset_name`], 0.4.0
     /// audit #15), and a preset with no unsaved changes is saved as a copy of itself (audit #17).
     fn save_preset(&mut self, new_name: Option<String>) {
         let Some(preset) = self.current_preset_snapshot() else {
@@ -2125,7 +2129,7 @@ impl App {
                 // selected, the pick below would take it for the current preset and, were it
                 // modified, stash the deleted preset's controls under the neighbour's name.
                 self.state.selected_preset = None;
-                // The device's own preset, as the original does (upstream 7f160b6); else the
+                // The device's own preset, as the original does (the original's 7f160b6); else the
                 // neighbour, so the list does not jump back to its top.
                 let next = self
                     .device_preset_index()
@@ -2153,8 +2157,8 @@ impl App {
     }
 
     /// Change the edit direction's band count, carrying the curve over rather than wiping it
-    /// flat (upstream 182a329, `GraphicEqSet.cpp:200-245`) — by frequency, from the centres the
-    /// curve sits on, where the original goes by position (0.4.0 audit #13,
+    /// flat (the original's 182a329, `GraphicEqSet.cpp:200-245`) — by frequency, from the centres
+    /// the curve sits on, where the original goes by position (0.4.0 audit #13,
     /// [`fxsound_dsp::eq::fit_preset_gains`]): the window and `--num_bands` come through here.
     ///
     /// The new ladder is the engine's own for the count. On the speakers the count is the user's
@@ -2175,7 +2179,7 @@ impl App {
         self.drop_solo_on(self.state.direction);
         let lane = self.state.direction;
         // The music lane reads a curve as the level's DSP does (at Interface and sound by
-        // position, onto the Windows twenty-band ladder); the voice chain has one reading.
+        // position, onto the original's twenty-band ladder); the voice chain has one reading.
         let compat = match lane {
             DeviceDirection::Output => self.music_compat(),
             DeviceDirection::Input => DspCompat::Linux,
@@ -2362,8 +2366,8 @@ impl App {
         self.params.power = self.state.power;
         self.input_params.power = self.state.power;
         // Whose DSP the music chain plays is the level's, whichever lane the window edits: the
-        // Windows build's from «Like FxSound for Windows» = Interface and sound on. The voice
-        // chain has no Windows original.
+        // original's from «Like the original FxSound LLC» = Interface and sound on. The voice
+        // chain has no counterpart in the original.
         self.params.compat = DspCompat::for_level(self.windows_parity());
         // No `mute` for a system asleep: the engine silences both lanes and every route itself
         // (U13, [`App::system_sleeping`]), and gives up on a sleep whose end never came.
@@ -2532,7 +2536,7 @@ impl App {
     /// Detach a lane: hand its default back, stop processing it, remember that it is off.
     ///
     /// The engine tears the lane's nodes down and answers with `Attached { None }`; the other lane
-    /// is not touched, whichever of the two the window is editing. With both lanes off FxSound
+    /// is not touched, whichever of the two the window is editing. With both lanes off CrossFX
     /// processes nothing, which is what the two `Off` rows say.
     fn detach_lane(&mut self, direction: DeviceDirection) {
         // `Off` is the later word on the lane, wherever it was chosen — the window's list as the
@@ -2696,7 +2700,7 @@ impl App {
                 let ladder = self.music_ladder();
                 if ladder.len() != self.state.eq_bands.len() {
                     // By frequency, from the centres the snapshot holds (audit #13); by position
-                    // at Interface and sound, as the Windows build reads it.
+                    // at Interface and sound, as the original reads it.
                     let gains =
                         fxsound_dsp::eq::fit_preset_gains_in(centres, boosts, &ladder, compat);
                     self.state.eq_bands = bands_of(&ladder, &gains);
@@ -2928,7 +2932,7 @@ impl App {
 
     /// `lane`'s preset list as its picker lists it — factory presets first, each with its
     /// unsaved-changes marker — whichever lane the window is editing. For `--status`, which lists
-    /// both (upstream's `printStatus` lists the one it has, `FxController.cpp:616-636`).
+    /// both (the original's `printStatus` lists the one it has, `FxController.cpp:616-636`).
     ///
     /// The edit direction's is the window's own list. The other lane's is read from its store, as
     /// the window would list it on switching over, with the unsaved changes of the selected
@@ -3037,7 +3041,7 @@ impl App {
             input_chain: fxsound_preset::input::DEFAULT_CHAIN.to_owned(),
             voice_presets: InputPresetStore::with_dirs(
                 Vec::new(),
-                std::env::temp_dir().join("fxsound-app-test").join("Input"),
+                std::env::temp_dir().join("crossfx-test").join("Input"),
             ),
             devices_seen: false,
             audio_status: [fxsound_core::AudioStatus::default(); 2],
@@ -3050,17 +3054,14 @@ impl App {
             solo: None,
             pending_devices: Vec::new(),
             settings: Settings::default(),
-            presets: PresetStore::with_dirs(
-                Vec::new(),
-                std::env::temp_dir().join("fxsound-app-test"),
-            ),
+            presets: PresetStore::with_dirs(Vec::new(), std::env::temp_dir().join("crossfx-test")),
             loaded_preset: None,
             loaded_voice: None,
             engine: None,
             assets: AssetCache::new(),
             settings_dirty: false,
             persist: false,
-            export_dir: std::env::temp_dir().join("fxsound-app-test-export"),
+            export_dir: std::env::temp_dir().join("crossfx-test-export"),
             announced_device: [None, None],
             notifier: Notifier::new(true),
             notifications_armed: true,
@@ -3095,12 +3096,13 @@ impl App {
     /// filters and hears each lane again once its device is back, so the first sound after the
     /// resume is the chain starting clean, not the tail of what was playing before. The app clears
     /// both lanes' filters on the resume as well, which changes nothing that the engine's own
-    /// clearing does not. Upstream mutes and unmutes the same way (`FxController.cpp:2145-2159`)
-    /// and, as here, never holds the suspend up with an inhibitor (its PR #533).
+    /// clearing does not. The original mutes and unmutes the same way
+    /// (`FxController.cpp:2145-2159`) and, as here, never holds the suspend up with an inhibitor
+    /// (its PR #533).
     ///
     /// The silence is the engine's alone, never the snapshots' `mute`: the engine gives up on a
     /// sleep that no `false` follows once the system has been awake for a minute, and a mute of
-    /// the app's own would outlast that and keep FxSound silent for the rest of the session — a
+    /// the app's own would outlast that and keep CrossFX silent for the rest of the session — a
     /// logind restarted between its two signals, with the watcher's connection still up.
     ///
     /// The same word twice is said once: logind repeats nothing, but a watcher whose connection
@@ -3332,7 +3334,7 @@ pub enum ForgetRefusal {
     NotListedYet { name: String },
     /// Neither priority list has a device of that `node.name` or description.
     Unknown { name: String },
-    /// Every device of that name is connected, and FxSound would learn it again at once.
+    /// Every device of that name is connected, and CrossFX would learn it again at once.
     Connected { name: String },
 }
 
@@ -3341,7 +3343,7 @@ impl std::fmt::Display for ForgetRefusal {
         match self {
             Self::NotListedYet { name } => write!(
                 f,
-                "FxSound has not listed the audio devices yet, so it cannot tell whether {name:?} \
+                "CrossFX has not listed the audio devices yet, so it cannot tell whether {name:?} \
                  is connected; try again in a moment"
             ),
             Self::Unknown { name } => write!(
@@ -3351,7 +3353,7 @@ impl std::fmt::Display for ForgetRefusal {
             ),
             Self::Connected { name } => write!(
                 f,
-                "{name:?} is connected, and FxSound would learn it again at once; unplug it first"
+                "{name:?} is connected, and CrossFX would learn it again at once; unplug it first"
             ),
         }
     }
@@ -3364,7 +3366,7 @@ impl std::error::Error for ForgetRefusal {}
 /// says are plugged in now. Returns the descriptions forgotten (the `node.name` of an entry that
 /// has none), in the lists' order.
 ///
-/// Also what a `--forget-device` does with no FxSound running
+/// Also what a `--forget-device` does with no CrossFX running
 /// ([`crate::commands::forget_in_the_settings_file`]): nothing is attached to any device then, so
 /// `connected` is never true there.
 ///
@@ -3428,13 +3430,13 @@ impl App {
 
     /// Remember whether the window was hidden to the tray, for the next start
     /// (`settings.run_minimized`): `hideMainWindow` writes `true` and `showMainWindow` writes
-    /// `false` (`FxController.cpp:911-934`), so FxSound quit with its window in the tray starts in
+    /// `false` (`FxController.cpp:911-934`), so CrossFX quit with its window in the tray starts in
     /// the tray (`docs/spec/07-startup-tray.md` §7.1). 0.3.0 read the key and never wrote it
     /// (0.4.0 audit #35).
     ///
     /// The shell says `true` only for a hide into a tray icon that is there. The setting promises
     /// a start with "no window, tray only", and a session with no tray to start in — GNOME without
-    /// its AppIndicator extension — would start FxSound with nothing on screen at all.
+    /// its AppIndicator extension — would start CrossFX with nothing on screen at all.
     pub fn remember_window_hidden(&mut self, hidden: bool) {
         if self.settings.run_minimized != hidden {
             self.settings.run_minimized = hidden;
@@ -3606,8 +3608,8 @@ impl App {
             // A clean preset is saved as a copy (0.4.0 audit #17): the original offers Save New
             // Preset only with unsaved changes (`FxMainWindow.cpp:535`,
             // `FxController.cpp:405-411`), so copying a factory preset meant moving a slider and
-            // moving it back first. At «Как в Windows» = Interface and above it is the original's
-            // again.
+            // moving it back first. At «Как в оригинальном FxSound LLC» = Interface and above it is
+            // the original's again.
             PresetCommand::SaveAs(name) => {
                 let preset = selected()?;
                 if !preset.modified && self.windows_parity().interface() {
@@ -3704,15 +3706,15 @@ impl App {
     /// editor asks for.
     ///
     /// The original greys every one of them out while the power is off (`FxMainWindow.cpp:536-543`),
-    /// though its command line and this one's D-Bus run them; the port offers them either way, so
+    /// though its command line and this one's D-Bus run them; CrossFX offers them either way, so
     /// a preset can be picked, saved or tidied before switching on (0.4.0 audit R7).
     ///
     /// Export Presets and Import Presets are offered either way. The original greys both out while
     /// the preset has unsaved changes (`FxMainWindow.cpp:540-541`), which protects nothing here:
     /// the export writes the presets as saved, and the import skips a name already taken, the
-    /// modified preset's included (0.4.0 audit #18). At «Как в Windows» = Interface and above
-    /// they are greyed out as there, and so is every preset item while the power is off
-    /// ([`fxsound_core::WindowsLook::PresetsNeedPower`], R7 set back).
+    /// modified preset's included (0.4.0 audit #18). At «Как в оригинальном FxSound LLC» =
+    /// Interface and above they are greyed out as there, and so is every preset item while the
+    /// power is off ([`fxsound_core::WindowsLook::PresetsNeedPower`], R7 set back).
     #[must_use]
     pub fn preset_menu(&self) -> PresetMenu {
         let powered = self.state.power
@@ -3765,7 +3767,7 @@ impl App {
     /// The file and its autosave are moved, not copied and deleted as the original does through
     /// its preset list (0.4.0 audit #19, [`Store::rename`]), so a rename that changes only letter
     /// case — which the preset's own name no longer stands in the way of — cannot lose the preset
-    /// on a filesystem that folds case. The new name is cut to what every FxSound reads
+    /// on a filesystem that folds case. The new name is cut to what every CrossFX reads
     /// ([`fxsound_preset::new_preset_name`], audit #15). The menu only offers Rename while the
     /// preset is unmodified (`docs/spec/03-controls.md` §8.5).
     ///
@@ -3989,8 +3991,9 @@ impl App {
         }
     }
 
-    /// Where Export Presets writes: `Documents\FxSound\Presets\Export` in the original
-    /// (`FxController.cpp:1384-1417`), under the XDG documents directory here.
+    /// Where Export Presets writes: `CrossFX/Presets/Export` in the documents folder, where the
+    /// original writes under its own name (`FxController.cpp:1384-1417`); the XDG documents
+    /// directory on Linux.
     #[must_use]
     pub fn export_dir(&self) -> &Path {
         &self.export_dir
@@ -4076,8 +4079,8 @@ impl App {
     }
 
     /// The Export window for `lane`'s presets, `presets` listed: with the choice of where the end
-    /// bands go on the speakers' presets from «Like FxSound for Windows» = Interface and sound on
-    /// (`App::export_end_bands`), ticked as the setting says.
+    /// bands go on the speakers' presets from «Like the original FxSound LLC» = Interface and sound
+    /// on (`App::export_end_bands`), ticked as the setting says.
     #[must_use]
     pub fn export_window(&self, lane: DeviceDirection, presets: Vec<String>) -> ExportState {
         let mut state = ExportState {
@@ -4090,7 +4093,7 @@ impl App {
     }
 
     /// Bring an open Export window up to date with what may have moved since it opened: whether
-    /// «Like FxSound for Windows» still offers the end-band choice (`--windows-parity`, D-Bus
+    /// «Like the original FxSound LLC» still offers the end-band choice (`--windows-parity`, D-Bus
     /// `SetWindowsParity`), and the choice itself (`--export-unshifted`). The host calls it
     /// every frame the window is drawn, so what the window shows is what an export does
     /// ([`App::handle_export`] exports as the window says, not as the level says).
@@ -4100,15 +4103,15 @@ impl App {
     }
 
     /// Whether `lane`'s export offers to keep the end bands where they are: the speakers' `.fac`,
-    /// from «Like FxSound for Windows» = Interface and sound on (roadmap 0.5.0 §14 #56). A voice
-    /// preset has no Windows reader to shift them for.
+    /// from «Like the original FxSound LLC» = Interface and sound on (roadmap 0.5.0 §14 #56). A
+    /// voice preset has no reader in the original to shift them for.
     fn end_bands_offered(&self, lane: DeviceDirection) -> bool {
         lane == DeviceDirection::Output && self.windows_parity().sound()
     }
 
     /// Where an export from the Export window `state` puts the end bands: where they are when the
     /// window offers that and shows it chosen (`export_unshifted`, the tick box,
-    /// `--export-unshifted`), back inside the Windows build's range otherwise, as 0.4.0 does
+    /// `--export-unshifted`), back inside the original's range otherwise, as 0.4.0 does
     /// (0.4.0 audit R6). The window's own record, kept current by
     /// [`App::refresh_export_state`], so the export never does what the window does not show.
     fn export_end_bands(state: &ExportState) -> EndBands {
@@ -4120,7 +4123,7 @@ impl App {
     }
 
     /// Choose whether an export keeps the end bands where they are (the Export window's tick box,
-    /// `--export-unshifted`), and save it. It is followed from «Like FxSound for Windows» =
+    /// `--export-unshifted`), and save it. It is followed from «Like the original FxSound LLC» =
     /// Interface and sound on; below it the choice is kept for then.
     pub fn set_export_unshifted(&mut self, as_they_are: bool) {
         if self.settings.export_unshifted == as_they_are {
@@ -4248,22 +4251,22 @@ fn unvoiced_input_params() -> InputDspParams {
 ///
 /// - What a previous run displaced, first: if that run was killed while holding the default, the
 ///   metadata still names a node that is gone and only this can point it back at a real device.
-/// - The speakers' lane, when it was left off. The engine's own start is enabled — FxSound in
-///   front of the speakers is the Windows behaviour — so `output_enabled = false` has to be said,
-///   or the speakers would be processed after every restart while the combo said `Off`. It is
-///   said first with the engine ([`engine_start_options`]), before the device rules can attach
-///   the lane; the message repeats it and changes nothing. The input lane starts detached and
-///   needs no word: an enabled one is attached by its saved device the first time the list names
-///   it ([`saved_device_to_announce`]).
-/// - The per-device volumes of FxSound's own nodes (U10), so the first pair the engine builds
+/// - The speakers' lane, when it was left off. The engine's own start is enabled — CrossFX in
+///   front of the speakers is the original's behaviour — so `output_enabled = false` has to be
+///   said, or the speakers would be processed after every restart while the combo said `Off`. It is
+///   said first with the engine ([`engine_start_options`]), before the device rules can attach the
+///   lane; the message repeats it and changes nothing. The input lane starts detached and needs no
+///   word: an enabled one is attached by its saved device the first time the list names it
+///   ([`saved_device_to_announce`]).
+/// - The per-device volumes of CrossFX's own nodes (U10), so the first pair the engine builds
 ///   for a device starts at the level the user left it at rather than at whatever WirePlumber
 ///   restores. Sent even when there are none: it is the engine's whole memory of them, and "none"
 ///   is an answer too.
 /// - Each lane's device ranking (U4, [`crate::priority::ranking`]), before the engine's first
-///   choice of device, which would otherwise be made by the Windows rules alone. Empty while the
-///   user has FxSound follow the system's default device.
-/// - With the power left off, both lanes' hand-back of the session default (U12): FxSound off is
-///   FxSound out of the path, and the engine, which starts wanting the default, would otherwise
+///   choice of device, which would otherwise be made by the original's rules alone. Empty while the
+///   user has CrossFX follow the system's default device.
+/// - With the power left off, both lanes' hand-back of the session default (U12): CrossFX off is
+///   CrossFX out of the path, and the engine, which starts wanting the default, would otherwise
 ///   take it with the first pair it builds. Said first with the engine as well
 ///   ([`engine_start_options`]); the messages repeat it.
 /// - Echo cancellation, when it was left on. It is otherwise sent only when the checkbox is
@@ -4303,18 +4306,18 @@ fn device_priority(settings: &Settings, direction: DeviceDirection) -> UiToAudio
 }
 
 /// What the engine is started with from the settings file ([`fxsound_audio::StartOptions`]): the
-/// language of its nodes' descriptions, the per-device volumes of FxSound's own nodes (U10), each
+/// language of its nodes' descriptions, the per-device volumes of CrossFX's own nodes (U10), each
 /// lane's device ranking (U4), with where a device the ranking does not name yet goes, whether the
 /// speakers' lane is on, and whether the lanes take the session defaults — not with the power
 /// left off (U12).
 ///
 /// The engine builds the output lane's first pair a round trip after it connects, before a message
 /// sent once it has started is sure to have been read: a ranking sent only as
-/// [`UiToAudio::SetDevicePriority`] could arrive after the Windows rules had put the lane on the
+/// [`UiToAudio::SetDevicePriority`] could arrive after the original's rules had put the lane on the
 /// session default, which the ranking then had to take it away from, and the first pair on a
 /// remembered device would start at a level chosen without its volume. A power left off or a
 /// speakers' lane left `Off` said only as messages could arrive after that pair had claimed the
-/// default sink and moved every playing stream onto FxSound, to move them all back a moment later.
+/// default sink and moved every playing stream onto CrossFX, to move them all back a moment later.
 /// `startup_messages` still says all of it, with the same values.
 #[must_use]
 pub fn engine_start_options(settings: &Settings, language: &str) -> fxsound_audio::StartOptions {
@@ -4361,7 +4364,7 @@ pub(crate) const fn detach(lane: DeviceDirection) -> UiAction {
 /// A voice preset's own parameters — the one reading of a voice preset there is: the lane's own
 /// ([`App::apply_input_preset`]) and a recording route's ([`per_app`]) both go through it.
 ///
-/// A twenty-band curve on the Windows ladder, which a voice preset saved by 0.3.0 can carry, is
+/// A twenty-band curve on the original's ladder, which a voice preset saved by 0.3.0 can carry, is
 /// read on the half-octave ladder that replaced it (0.4.0 audit R4), as [`music_controls`] reads a
 /// `.fac`.
 fn voice_params(preset: &InputPreset) -> InputDspParams {
@@ -4446,20 +4449,20 @@ fn engine_error_notice(message: &str) -> String {
     } else if is(AudioError::FormatNegotiation) {
         "The audio format could not be agreed with PipeWire"
     } else if is(AudioError::NoVirtualDevice) {
-        // The Windows engine's: what is missing, and the two drivers that give FxSound one.
+        // The Windows engine's: what is missing, and the two drivers that give CrossFX one.
         "No virtual playback device: install the FxSound driver or VB-CABLE"
     } else if is(AudioError::NoVirtualInputDevice) {
         // The Windows engine's: the microphone plays into a cable of its own, and none is left
-        // for it — none is installed, or the only one is the one FxSound's output lane stands on
+        // for it — none is installed, or the only one is the one CrossFX's output lane stands on
         // (a machine without FxSound's driver), where installing VB-CABLE again adds nothing.
         "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
-         FxSound's output already uses one"
+         CrossFX's output already uses one"
     } else if is(AudioError::VirtualInputDeviceInUse) {
         // The Windows engine's: a cable is there, but in the user's use — they picked it as
-        // FxSound's output, which plays into it, or a default device of theirs is on one of its
+        // CrossFX's output, which plays into it, or a default device of theirs is on one of its
         // sides — and the microphone is not mixed into what they send through it. Installing
         // one would not help them; another output or default device, or a second cable, does.
-        "The virtual cable is in use as FxSound's output or a default device: choose another, or \
+        "The virtual cable is in use as CrossFX's output or a default device: choose another, or \
          install a second cable for the microphone"
     } else if message.starts_with(windows_unavailable.trim_end()) {
         // The Windows engine's, whatever the detail the log has: the service every WASAPI client
@@ -4503,15 +4506,15 @@ fn echo_cancel_trouble(detail: &str) -> Option<fxsound_ui::state::EchoCancelTrou
 /// — the engine's device rules can move a lane on their own, when its device is unplugged or a
 /// better one is plugged in, and the combo says where the sound really goes. With neither,
 /// nothing: an enabled lane that is attached to nothing processes nothing, and 0.3.0's fallback
-/// to the server's default device showed a device FxSound was not in front of. Either name counts
+/// to the server's default device showed a device CrossFX was not in front of. Either name counts
 /// only when the list carries it in the lane's direction, so a request for a device that has
 /// gone shows where the lane still is.
 ///
-/// With the power off, FxSound is out of the path (U12): once a request has been answered, the
+/// With the power off, CrossFX is out of the path (U12): once a request has been answered, the
 /// lane shows the system's default device of its direction, which is where the sound goes, as
-/// upstream's `syncOutputWithSystemDefault` does (`FxController.cpp:1666-1712`). A device picked
-/// while the power is off is the one the lane takes the default for when it comes back on; it
-/// shows until the engine has attached the lane to it. When the default is FxSound's own node
+/// the original's `syncOutputWithSystemDefault` does (`FxController.cpp:1666-1712`). A device
+/// picked while the power is off is the one the lane takes the default for when it comes back on;
+/// it shows until the engine has attached the lane to it. When the default is CrossFX's own node
 /// and no real device is marked, the device the lane is attached to is where the sound goes.
 fn lane_selection(
     settings: &Settings,
@@ -4551,7 +4554,7 @@ fn lane_selection(
 /// to it the first time that device is listed; rule 2 of `choose_device` yields to it
 /// (`docs/spec/12-audio-io.md` §28.5). A lane the settings say is off
 /// ([`Settings::lane_enabled`]) is not announced at all: a saved microphone switches the input
-/// lane on beside the speakers only when it was on when FxSound last ran, and a speakers' lane
+/// lane on beside the speakers only when it was on when CrossFX last ran, and a speakers' lane
 /// left off was detached at start-up ([`startup_messages`]) and stays so.
 ///
 /// `announced` is what was last sent for this lane — or, while the priority list chooses the
@@ -4559,13 +4562,13 @@ fn lane_selection(
 /// *around* the saved device sends nothing again. An empty saved name never matches a node, so
 /// nothing is sent on a first run.
 ///
-/// A saved device that is not there — unplugged, or not plugged in when FxSound started — is
+/// A saved device that is not there — unplugged, or not plugged in when CrossFX started — is
 /// where the two ways of choosing part. While the system's default decides (no ranking), it is
 /// announced afresh when it appears, which the engine's own rules make a no-op when the lane is
 /// already attached to it. While the priority list decides (U4), it is not: every `SelectDevice`
 /// is a fresh pick that beats the ranking once, so announcing a device that comes back would let
 /// one ranked below the lane's device take the lane from it. It competes by its rank in the
-/// engine instead, as a device plugged in does in upstream's `updateOutputs`
+/// engine instead, as a device plugged in does in the original's `updateOutputs`
 /// (`FxController.cpp:1540-1612`), and the lane's `AudioToUi::Attached` says where it went. So
 /// with a ranking the saved device is announced at start-up and when the lane is switched back
 /// on, and otherwise only by the user's own picks.
@@ -4607,13 +4610,15 @@ const fn lane_index(direction: DeviceDirection) -> usize {
     }
 }
 
-/// `~/Documents/FxSound/Presets/Export`, falling back to the home directory when the XDG user
-/// directories are not configured.
+/// `~/Documents/CrossFX/Presets/Export` ([`fxsound_core::identity::PRODUCT`]), falling back to the
+/// home directory when the XDG user directories are not configured. CrossFX's own folder: the
+/// original FxSound exports to the same place under its own name, and an export of CrossFX's must
+/// never land among its files.
 fn default_export_dir() -> PathBuf {
     dirs::document_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("FxSound")
+        .join(fxsound_core::identity::PRODUCT)
         .join("Presets")
         .join("Export")
 }
@@ -4746,7 +4751,7 @@ impl App {
     /// saved, by dropping every autosave in both stores. The window asks first (0.4.0 audit #21);
     /// saved presets are never touched, as the original's reset deletes them.
     ///
-    /// Each lane then loads the preset its device remembers (upstream 7f160b6), or else its
+    /// Each lane then loads the preset its device remembers (the original's 7f160b6), or else its
     /// selected one again as saved — the lane in the window and the one off screen alike, so the
     /// engine stops running edits that no longer exist anywhere, rather than the lane off screen
     /// keeping them until it is next looked at.
@@ -4799,8 +4804,8 @@ impl App {
         self.persist_settings();
     }
 
-    /// Set «Как в Windows» / "Like FxSound for Windows" (`--windows-parity`, D-Bus
-    /// `SetWindowsParity`, the slider in Settings ▸ Experimental), save it and say so on the
+    /// Set «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC" (`--windows-parity`,
+    /// D-Bus `SetWindowsParity`, the slider in Settings ▸ Experimental), save it and say so on the
     /// stream.
     ///
     /// Everything is refused with [`fxsound_core::parity::FULL_NOT_YET`] on every path: 0.5.0 does
@@ -4812,7 +4817,7 @@ impl App {
     /// question would have used ([`fxsound_core::parity::FULL_REFUSAL`]).
     ///
     /// The level is recorded, reported and saved, and from Interface and sound on the output lane
-    /// and the applications' output routes play the Windows build's DSP ([`DspCompat`]); what else
+    /// and the applications' output routes play the original's DSP ([`DspCompat`]); what else
     /// each level changes arrives with the phases that build it (`docs/0.5.0-windows-parity.md`).
     ///
     /// # Errors
@@ -4836,23 +4841,24 @@ impl App {
         // What the window draws from Interface on (W2) follows at the next frame.
         self.state.windows_parity = self.windows_parity();
         self.persist_settings();
-        // Interface and sound brings the Windows build's DSP to the output lane and the
+        // Interface and sound brings the original's DSP to the output lane and the
         // applications' output routes, and its reading of a preset to the window; the other
-        // levels play FxSound for Linux's.
+        // levels play CrossFX's.
         let (from, to) = (DspCompat::for_level(current), DspCompat::for_level(level));
         if to != from {
             self.read_music_controls_in(from, to);
             self.sync_params_from_state();
         }
         self.note_windows_parity();
-        // The tray's device rows are cut as Windows cuts them from Interface on (0.4.0 audit #31).
+        // The tray's device rows are cut as the original cuts them from Interface on (0.4.0 audit
+        // #31).
         self.tray_stale = true;
         Ok(())
     }
 
     /// Read the music lane's controls again in the other DSP's reading of a preset, when the level
-    /// of «Like FxSound for Windows» moves across Interface and sound: nothing is edited, marked or
-    /// saved.
+    /// of «Like the original FxSound LLC» moves across Interface and sound: nothing is edited,
+    /// marked or saved.
     ///
     /// A preset with no unsaved changes is read again from its own file, as picking it would read
     /// it at the new level ([`music_controls`]), as a band count change reads it (audit #45): a
@@ -4962,11 +4968,11 @@ impl App {
             || self.calibration.is_some()
     }
 
-    /// The level of «Как в Windows» in force: the one in the settings, except that Everything,
-    /// which a later version's `settings.toml` may hold and this one does not offer, runs as
-    /// Interface and sound ([`WindowsParity::offered_or_below`]). The settings keep what the file
-    /// said, so the next save writes it back unchanged. What `--status`, `--watch`, D-Bus and
-    /// every behaviour of a level go by.
+    /// The level of «Как в оригинальном FxSound LLC» in force: the one in the settings, except that
+    /// Everything, which a later version's `settings.toml` may hold and this one does not offer,
+    /// runs as Interface and sound ([`WindowsParity::offered_or_below`]). The settings keep what
+    /// the file said, so the next save writes it back unchanged. What `--status`, `--watch`, D-Bus
+    /// and every behaviour of a level go by.
     #[must_use]
     pub const fn windows_parity(&self) -> WindowsParity {
         self.settings.windows_parity.offered_or_below()
@@ -4986,7 +4992,7 @@ impl App {
         }
     }
 
-    /// `"FxSound is on."` / `"FxSound is off."` — the command-line and keybind path's toast
+    /// `"CrossFX is on."` / `"CrossFX is off."` — the command-line and keybind path's toast
     /// (`FxController.cpp:1933`); the window's own power button says nothing.
     pub fn notify_power(&self) {
         self.notify(Message::power_toggled(self.state.power));
@@ -5000,7 +5006,7 @@ impl App {
         self.tray_tip_shown
     }
 
-    /// The "FxSound in system tray" tip, once per process, the first time the window hides
+    /// The "CrossFX in system tray" tip, once per process, the first time the window hides
     /// (`FxController.cpp:920-926`).
     pub fn notify_hidden_to_tray(&mut self, tray_visible: bool) {
         if self.tray_tip_shown {
@@ -5010,17 +5016,17 @@ impl App {
         if tray_visible {
             self.notify(Message::minimised_to_tray());
         } else {
-            // "Click FxSound icon to reopen" is not advice on a session with no icon. This is the
+            // "Click CrossFX icon to reopen" is not advice on a session with no icon. This is the
             // GNOME-without-AppIndicator case, and the honest version names the way back.
             log::warn!(
                 "hiding with no tray icon in this session; the window can be brought back with \
-                 `fxsound --show`"
+                 `crossfx --show`"
             );
             self.notify(Message::hidden_with_no_tray());
         }
     }
 
-    /// The window was asked for and could not be opened, and FxSound stays in the tray: say so, as
+    /// The window was asked for and could not be opened, and CrossFX stays in the tray: say so, as
     /// a desktop notification — there is no window to put a notice up in — and on the event
     /// stream, where a status bar hears it.
     pub fn window_unavailable(&mut self) {
@@ -5054,8 +5060,8 @@ impl App {
                     self.send(message);
                 }
             }
-            // Upstream issue #629: the priority list stops choosing the device, and the system's
-            // default does, as the Windows rules have it. The list itself is kept.
+            // The original's issue #629: the priority list stops choosing the device, and the
+            // system's default does, as the original's rules have it. The list itself is kept.
             A::SetFollowSystemDefault(on) => {
                 self.settings.follow_system_default = *on;
                 state.settings.follow_system_default = *on;
@@ -5094,7 +5100,7 @@ impl App {
             }
             A::SetWirePlumberHook(on) => {
                 if let Err(error) = self.wireplumber.set(*on) {
-                    log::warn!("FxSound's hook in WirePlumber could not be changed: {error}");
+                    log::warn!("CrossFX's hook in WirePlumber could not be changed: {error}");
                     self.raise_notice(tr(WIREPLUMBER_NOT_CHANGED));
                 }
                 state.wireplumber_hook = self.wireplumber.state();
@@ -5107,7 +5113,7 @@ impl App {
                 state.wireplumber_hook = self.wireplumber.state();
             }
             A::SetLaunchOnStartup(on) => {
-                // The Windows build writes an HKCU\...\Run value; the XDG equivalent is a
+                // The original writes an HKCU\...\Run value; the XDG equivalent is a
                 // .desktop file in ~/.config/autostart (`docs/spec/07-startup-tray.md`).
                 match crate::platform::set_autostart(*on) {
                     Ok(()) => state.launch_on_startup = *on,
@@ -5188,7 +5194,7 @@ impl App {
                         .preset
                         .clone_from(preset);
                     // The row of the device the lane is on now takes effect at once, rather than
-                    // the next time the device comes back (upstream 83ccf5e,
+                    // the next time the device comes back (the original's 83ccf5e,
                     // `FxOutputPreference.cpp:57-61`) — on the microphone lane as on the
                     // speakers', whichever of the two the window edits.
                     let node_name = self.settings.device_configs[index].device_id.clone();
@@ -5284,7 +5290,7 @@ impl App {
 
     /// Forget a device the list shows at `row` (`FxOutputPreference.cpp:262-272`). The pane
     /// offers the ✕ only for a device that is not there; one that is comes back at the bottom of
-    /// the list, or the top, with the next device list, as upstream's would.
+    /// the list, or the top, with the next device list, as the original's would.
     fn remove_device_config(
         &mut self,
         state: &mut fxsound_ui::dialogs::settings::SettingsState,
@@ -5308,7 +5314,7 @@ impl App {
     /// every name before the first device list, when nothing is known to be connected — which a
     /// caller rarely meets: the pump holds a forwarded line with a `--forget-device` in it until
     /// that list is in (`main`'s `Runtime`, [`crate::commands::waits_for_the_device_list`]), and
-    /// with no FxSound running `main` forgets the name from the settings file instead
+    /// with no CrossFX running `main` forgets the name from the settings file instead
     /// ([`crate::commands::forget_in_the_settings_file`]). An open
     /// Settings pane shows the list as it is now on its next frame
     /// ([`App::refresh_settings_state`]).
@@ -5580,7 +5586,7 @@ impl App {
     /// signal, and let it sleep once neither does (U9, U19).
     ///
     /// The input lane's capture stream is passive, so the microphone runs only while something
-    /// records from FxSound (Input): with nobody recording, the wizard would measure nothing and
+    /// records from CrossFX (Input): with nobody recording, the wizard would measure nothing and
     /// the strip would stand still on the last buffer. The engine's one switch for it,
     /// [`UiToAudio::KeepInputAwake`], has the engine record its own source, which also switches a
     /// Bluetooth headset to its call profile; the two needs share it, so it is said once when the
@@ -5681,7 +5687,7 @@ impl App {
 /// The notice when "Smooth moves in WirePlumber" could not install the hook or take it away.
 pub(crate) const WIREPLUMBER_NOT_CHANGED: &str = "Could not change WirePlumber's settings";
 
-/// Whether FxSound starts with the session ([`crate::platform::autostart_enabled`]).
+/// Whether CrossFX starts with the session ([`crate::platform::autostart_enabled`]).
 pub use crate::platform::autostart_enabled;
 
 #[cfg(test)]
@@ -5844,8 +5850,8 @@ mod tests {
 
     #[test]
     fn changing_the_band_count_carries_the_curve_over_by_frequency() {
-        // Upstream 182a329 (`GraphicEqSet.cpp:200-245`): 10 → 31 used to wipe the curve flat.
-        // Upstream carries it by position, which slid a 62.5 Hz boost down to 20 Hz; the port
+        // The original's 182a329 (`GraphicEqSet.cpp:200-245`): 10 → 31 used to wipe the curve flat.
+        // The original carries it by position, which slid a 62.5 Hz boost down to 20 Hz; CrossFX
         // reads it by frequency (audit report #13).
         let mut app = with_presets(&["Jazz"]);
         app.handle(&[
@@ -6295,12 +6301,12 @@ mod tests {
     fn hiding_with_no_tray_says_so_instead_of_pointing_at_an_icon() {
         // The GNOME-without-AppIndicator case: no window, no icon, and until this existed nothing
         // said about either — a running process the user can neither see nor reach. "Click
-        // FxSound icon to reopen" is not advice on a session with no icon.
+        // CrossFX icon to reopen" is not advice on a session with no icon.
         let with_tray = Message::minimised_to_tray().body;
         let without = Message::hidden_with_no_tray().body;
-        assert!(with_tray.contains("Click FxSound icon"), "{with_tray}");
+        assert!(with_tray.contains("Click CrossFX icon"), "{with_tray}");
         assert!(without.contains("--show"), "{without}");
-        assert!(!without.contains("Click FxSound icon"), "{without}");
+        assert!(!without.contains("Click CrossFX icon"), "{without}");
 
         // And the tip is shown once per process either way, as the original does.
         let mut app = App::headless_for_tests();
@@ -6355,7 +6361,7 @@ mod tests {
     #[test]
     fn a_change_made_with_the_window_minimised_is_an_alert() {
         // GNOME without AppIndicator: the minimise button minimises, the window stays up, and a
-        // preset a keybind or `fxsound --next-preset` picks then is on no screen either.
+        // preset a keybind or `crossfx --next-preset` picks then is on no screen either.
         use crate::notify::Weight;
         let (tx, rx) = crossbeam_channel::unbounded();
         let mut app = app_with_two_presets("notice-weight-minimised");
@@ -6388,7 +6394,7 @@ mod tests {
     #[test]
     fn an_output_command_before_the_device_list_waits_for_it() {
         // The bug this closes: the control socket answers as soon as the GUI thread is up, which
-        // is before PipeWire has finished enumerating, so `fxsound --output "..."` at login
+        // is before PipeWire has finished enumerating, so `crossfx --output "..."` at login
         // returned 0, printed nothing and did nothing. Anything scripted hits it.
         let mut app = App::headless_for_tests();
         assert!(!app.has_seen_devices());
@@ -6666,7 +6672,7 @@ mod tests {
         assert_eq!(
             lane_selection(&settings, &devices, DeviceDirection::Output, None, None),
             None,
-            "attached to nothing: not the server's default, which FxSound is not in front of"
+            "attached to nothing: not the server's default, which CrossFX is not in front of"
         );
         assert_eq!(
             lane_selection(&settings, &devices, input, None, None),
@@ -7958,11 +7964,11 @@ mod tests {
             (
                 AudioError::NoVirtualInputDevice,
                 "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
-                 FxSound's output already uses one",
+                 CrossFX's output already uses one",
             ),
             (
                 AudioError::VirtualInputDeviceInUse,
-                "The virtual cable is in use as FxSound's output or a default device: choose \
+                "The virtual cable is in use as CrossFX's output or a default device: choose \
                  another, or install a second cable for the microphone",
             ),
             (
@@ -8088,7 +8094,7 @@ mod tests {
         assert!(
             !app.export_window(DeviceDirection::Input, Vec::new())
                 .end_bands_offered,
-            "a voice preset has no Windows reader"
+            "a voice preset has no reader in the original"
         );
         assert_eq!(
             export_through_the_window(&mut app, &dir, "Wide").eq_bands[0].center_hz,
@@ -9864,7 +9870,8 @@ mod tests {
         assert_eq!(
             select_devices(&engine.take_sent()),
             [&select(HEADPHONES, OUT), &select(MIC, IN)],
-            "at start-up the saved picks are announced, as upstream's init sets its saved output"
+            "at start-up the saved picks are announced, as the original's init sets its saved \
+             output"
         );
         engine.feed(attached(OUT, Some(HEADPHONES)));
         app.poll_audio();
@@ -9920,8 +9927,8 @@ mod tests {
 
     #[test]
     fn while_the_system_decides_a_saved_device_that_comes_back_is_asked_for_again() {
-        // No ranking: the engine's Windows rules keep the user's pick, and announcing it again is
-        // what brings the lane back to it.
+        // No ranking: the engine's rules from the original keep the user's pick, and announcing it
+        // again is what brings the lane back to it.
         let mut settings = saved_settings(OUT);
         settings.follow_system_default = true;
         let (mut app, engine, _dir) = started_with(settings);
@@ -9945,7 +9952,7 @@ mod tests {
     fn while_the_system_decides_the_device_the_desktop_picked_last_is_where_the_next_start_begins()
     {
         // roadmap 0.5.0 §3.2 (deferred from 0.4.0): a start in this mode began on the device last
-        // picked in FxSound, not on the one the desktop picked last before the quit.
+        // picked in CrossFX, not on the one the desktop picked last before the quit.
         let mut settings = saved_settings(OUT);
         settings.follow_system_default = true;
         let (mut app, engine, _dir) = started_with(settings);
@@ -10042,7 +10049,7 @@ mod tests {
         assert_eq!(engine.take_sent(), [select(SPEAKERS, OUT)]);
 
         // Everything that redraws both combos before the engine gets to the pick leaves it shown:
-        // a device list (FxSound's own sink becoming the default clears the speakers' flag), an
+        // a device list (CrossFX's own sink becoming the default clears the speakers' flag), an
         // error about the other lane, and the other lane's attachment.
         let mut list = two_lane_devices();
         for device in list.iter_mut().filter(|device| device.direction == OUT) {
@@ -11594,7 +11601,7 @@ mod tests {
         app.handle(&[UiAction::ToggleView]);
         assert_eq!(awake_requests(&engine.take_sent()), [true]);
 
-        // FxSound off is FxSound out of the path, microphone and all.
+        // CrossFX off is CrossFX out of the path, microphone and all.
         app.handle(&[UiAction::TogglePower]);
         assert_eq!(awake_requests(&engine.take_sent()), [false]);
         app.handle(&[UiAction::TogglePower]);
@@ -12008,7 +12015,7 @@ mod tests {
         assert!(app.settings().calibration.is_none());
     }
 
-    // ---- the upstream review's controller items: U2, U6, U15, U16 -----------------------------
+    // ---- the controller items of the review of the original's changes: U2, U6, U15, U16 ------
 
     use crate::cli::PresetCommand as P;
 
@@ -12052,9 +12059,9 @@ mod tests {
 
     #[test]
     fn a_preset_of_another_band_count_lands_on_the_users_band_count() {
-        // Upstream `DfxDspEq.cpp:127-247`: a user on thirty-one bands who picks a ten-band preset
-        // stays on thirty-one bands, the preset's curve fitted onto them (U2) — by frequency,
-        // where upstream goes by position (audit report #13).
+        // The original's `DfxDspEq.cpp:127-247`: a user on thirty-one bands who picks a ten-band
+        // preset stays on thirty-one bands, the preset's curve fitted onto them (U2) — by
+        // frequency, where the original goes by position (audit report #13).
         let ten: Vec<(f32, f32)> = fxsound_core::eq::DEFAULT_CENTERS_HZ
             .iter()
             .zip([6.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, -3.0])
@@ -12128,7 +12135,7 @@ mod tests {
 
     #[test]
     fn interface_and_sound_sends_the_windows_dsp_to_the_output_lane_and_the_other_levels_do_not() {
-        // «Like FxSound for Windows» = Interface and sound plays the Windows build's DSP on the
+        // «Like the original FxSound LLC» = Interface and sound plays the original's DSP on the
         // output lane (and on the applications' output routes, which read the settings' levels,
         // `MusicLevels::of`): the snapshot says so the moment the level moves, and says so again
         // the moment it moves back. The other levels leave the sound alone.
@@ -12182,9 +12189,9 @@ mod tests {
 
     #[test]
     fn a_twenty_band_preset_taken_to_interface_and_sound_and_back_is_the_preset_it_was() {
-        // A12 of «Like FxSound for Windows»: at Interface and sound twenty bands are the Windows
-        // ladder, and the curve moves there band for band (audit report R4 taken back); back at
-        // Off it is the curve it was, bit for bit, and nothing was edited on the way.
+        // A12 of «Like the original FxSound LLC»: at Interface and sound twenty bands are the
+        // original's ladder, and the curve moves there band for band (audit report R4 taken back);
+        // back at Off it is the curve it was, bit for bit, and nothing was edited on the way.
         use WindowsParity::{Off, Sound};
         let (mut app, engine, dir) =
             started_on(20, &[preset_with("Twenty", &half_octave_twenty())]);
@@ -12232,7 +12239,7 @@ mod tests {
     #[test]
     fn a_level_change_reads_an_unedited_preset_again_as_a_pick_at_that_level_would() {
         // A ten-band preset on twenty bands: fitted by frequency at Off, by position onto the
-        // Windows ladder at Interface and sound, and back — each time what a pick would play.
+        // original's ladder at Interface and sound, and back — each time what a pick would play.
         use WindowsParity::{Off, Sound};
         let ten: Vec<(f32, f32)> = fxsound_core::eq::DEFAULT_CENTERS_HZ
             .iter()
@@ -12311,9 +12318,9 @@ mod tests {
 
     #[test]
     fn a_twenty_band_preset_saved_at_interface_and_sound_reads_back_at_off_as_it_was_saved() {
-        // A12, the other half: saved at Interface and sound the file is on the Windows ladder, as
-        // the Windows build writes twenty bands, and read at Off it is on the half-octave ladder
-        // with every gain where it was saved.
+        // A12, the other half: saved at Interface and sound the file is on the original's ladder,
+        // as the original writes twenty bands, and read at Off it is on the half-octave ladder with
+        // every gain where it was saved.
         use WindowsParity::{Off, Sound};
         let (mut app, _engine, dir) =
             started_on(20, &[preset_with("Twenty", &half_octave_twenty())]);
@@ -12347,7 +12354,7 @@ mod tests {
     #[test]
     fn at_interface_and_sound_the_band_count_changes_and_a_preset_of_another_count_go_by_position()
     {
-        // Audit report #13 taken back: the Windows build reads a curve onto another band count by
+        // Audit report #13 taken back: the original reads a curve onto another band count by
         // position, on the window's band count change and on a pick alike.
         let ten: Vec<(f32, f32)> = fxsound_core::eq::DEFAULT_CENTERS_HZ
             .iter()
@@ -12381,7 +12388,7 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_ambiences_slider_stores_the_windows_builds_values() {
-        // Audit report #39 taken back with the stage: position 1 saves 13, as the Windows build's
+        // Audit report #39 taken back with the stage: position 1 saves 13, as the original's
         // slider does; a value the preset stores keeps playing across the level change.
         let mut stored = preset_with("Room", &[]);
         stored.set_effect(Effect::Ambience, scale::midi_to_value(64));
@@ -12397,7 +12404,7 @@ mod tests {
         let shown = app.state.effects[Effect::Ambience as usize];
         assert!(
             (shown - 5.039).abs() < 0.001,
-            "64 shows at {shown} on Windows"
+            "64 shows at {shown} in the original"
         );
         app.handle(&[UiAction::SetEffect(Effect::Ambience, 1.0)]);
         assert_eq!(
@@ -12430,10 +12437,10 @@ mod tests {
 
     #[test]
     fn the_music_lane_plays_every_shipped_preset_as_the_shared_reading_does() {
-        // `fxsound_dsp::preset::preset_params` is what the bit-exactness harness of «Like FxSound
-        // for Windows», `preset_drift` and `process_wav` render a `.fac` with. They measure what
-        // the application plays only while the lane plays exactly that, on each band count the
-        // harness renders at, with the speakers' levels wherever they are.
+        // `fxsound_dsp::preset::preset_params` is what the bit-exactness harness of «Like the
+        // original FxSound LLC», `preset_drift` and `process_wav` render a `.fac` with. They
+        // measure what the application plays only while the lane plays exactly that, on each band
+        // count the harness renders at, with the speakers' levels wherever they are.
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/presets");
         let mut files: Vec<PathBuf> = ["Factsoft", "BonusPresets"]
             .iter()
@@ -12521,7 +12528,7 @@ mod tests {
 
     #[test]
     fn a_device_preset_set_in_settings_for_the_device_playing_applies_at_once() {
-        // Upstream 83ccf5e (`FxOutputPreference.cpp:57-61`); the row of a device that is not
+        // The original's 83ccf5e (`FxOutputPreference.cpp:57-61`); the row of a device that is not
         // playing only remembers.
         let mut app = speakers_on_alpha("settings-row");
         let mut pane = app.settings_state();
@@ -12582,7 +12589,7 @@ mod tests {
 
     #[test]
     fn deleting_a_preset_selects_the_one_the_device_remembers() {
-        // Upstream 7f160b6 (`FxController::deletePreset`): the device's preset, not the
+        // The original's 7f160b6 (`FxController::deletePreset`): the device's preset, not the
         // neighbour, which here would be Beta.
         let mut app = speakers_on_alpha("delete-to-device");
         app.presets
@@ -12619,7 +12626,7 @@ mod tests {
 
     #[test]
     fn resetting_presets_selects_the_one_the_device_remembers() {
-        // Upstream 7f160b6 (`FxController::resetPresets`).
+        // The original's 7f160b6 (`FxController::resetPresets`).
         let mut app = speakers_on_alpha("reset-to-device");
         app.handle(&[UiAction::SetEffect(Effect::Bass, 6.0)]);
         app.settings.remember_device_preset(
@@ -12767,7 +12774,7 @@ mod tests {
 
     /// The saved run of [`saved_settings`] — the headphones on `Beta`, which they remember — just
     /// started, with `Alpha` picked before the engine has said anything: from the command line,
-    /// where `fxsound --preset Alpha` at a cold start runs before the device list, or from the
+    /// where `crossfx --preset Alpha` at a cold start runs before the device list, or from the
     /// window.
     fn alpha_picked_at_a_cold_start(from_the_window: bool) -> (App, FakeEngine, tempfile::TempDir) {
         let mut settings = saved_settings(OUT);
@@ -12792,7 +12799,7 @@ mod tests {
     #[test]
     fn a_preset_picked_at_a_cold_start_survives_the_saved_device_being_listed() {
         // The saved headphones are announced and then attached. The preset they remember is the
-        // one the pick replaced: bringing it back would undo the pick, and upstream moves the
+        // one the pick replaced: bringing it back would undo the pick, and the original moves the
         // preset only for a device other than the one it shows (`FxController.cpp:1645-1658`).
         for from_the_window in [false, true] {
             let (mut app, engine, _dir) = alpha_picked_at_a_cold_start(from_the_window);
@@ -12994,10 +13001,10 @@ mod tests {
 
     #[test]
     fn at_interface_save_new_export_and_import_are_offered_as_on_windows() {
-        // 0.4.0 audit #17 and #18 at «Как в Windows» = Interface: Save New Preset only with
-        // unsaved changes (`FxMainWindow.cpp:535`, `FxController.cpp:405-411`), Export Presets
-        // and Import Presets only without (`FxMainWindow.cpp:540-541`). At Off (above) a clean
-        // preset is copied and both are always offered; the other items are the same at both.
+        // 0.4.0 audit #17 and #18 at «Как в оригинальном FxSound LLC» = Interface: Save New Preset
+        // only with unsaved changes (`FxMainWindow.cpp:535`, `FxController.cpp:405-411`), Export
+        // Presets and Import Presets only without (`FxMainWindow.cpp:540-541`). At Off (above) a
+        // clean preset is copied and both are always offered; the other items are the same at both.
         for level in [WindowsParity::Interface, WindowsParity::Sound] {
             for factory in [true, false] {
                 for modified in [false, true] {
@@ -13033,7 +13040,8 @@ mod tests {
     #[test]
     fn at_interface_every_preset_item_goes_grey_with_the_power_as_on_windows() {
         // `FxMainWindow.cpp:535-541` ands every preset item with the power (0.4.0 audit R7 set
-        // back at «Как в Windows» = Interface). Off offers them either way (above).
+        // back at «Как в оригинальном FxSound LLC» = Interface). Off offers them either way
+        // (above).
         for factory in [true, false] {
             for modified in [false, true] {
                 let mut app = choosing(factory, modified);
@@ -13084,8 +13092,8 @@ mod tests {
 
     #[test]
     fn a_new_level_redraws_the_tray_with_it() {
-        // The tray cuts its playback devices as Windows does from Interface on (0.4.0 audit #31),
-        // so a level set from the command line, D-Bus or the slider reaches it at once.
+        // The tray cuts its playback devices as the original does from Interface on (0.4.0 audit
+        // #31), so a level set from the command line, D-Bus or the slider reaches it at once.
         let mut app = headless();
         let _ = app.take_tray_refresh();
         assert_eq!(app.tray_state().windows_parity, WindowsParity::Off);
@@ -13283,7 +13291,7 @@ mod tests {
 
     #[test]
     fn exporting_from_the_window_writes_the_saved_preset_not_its_unsaved_edits() {
-        // Upstream PR #155 (U16): the edits live in the autosave until they are saved.
+        // The original's PR #155 (U16): the edits live in the autosave until they are saved.
         let (mut app, dir) = with_store();
         add_user_preset(&mut app, "Music");
         add_user_preset(&mut app, "Other");
@@ -13393,7 +13401,7 @@ mod tests {
     #[test]
     fn the_engine_is_started_with_the_rankings_and_the_volumes_before_its_first_pair() {
         // BU8: a ranking that only follows the start as a message may reach the engine after the
-        // output lane's first pair was built by the Windows rules.
+        // output lane's first pair was built by the original's rules.
         let mut settings = saved_settings(OUT);
         settings.remember_device_preset(SPEAKERS, "Speakers", "", "", OUT);
         settings.remember_device_preset(MIC, "Mic", "", "", IN);
@@ -13441,7 +13449,7 @@ mod tests {
     fn the_engine_is_started_with_the_power_and_the_speakers_lane_as_they_were_left() {
         // A power left off or a speakers' lane left `Off`, said only as messages after the start,
         // could reach the engine after its first pair had claimed the default sink and moved every
-        // playing stream onto FxSound, to be moved back a moment later.
+        // playing stream onto CrossFX, to be moved back a moment later.
         let settings = saved_settings(OUT);
         let options = engine_start_options(&settings, "en");
         assert!(options.want_default && options.output_enabled);
@@ -13520,7 +13528,7 @@ mod tests {
         let _ = app.take_tray_refresh();
 
         // The speakers moved to the top in Settings: the lists follow, the engine is told, and the
-        // lane stays where it is, as dragging a row of upstream's list moves nothing.
+        // lane stays where it is, as dragging a row of the original's list moves nothing.
         let mut pane = app.settings_state();
         app.handle_settings(&SettingsAction::MoveDeviceUp(1), &mut pane);
         assert_eq!(listed(&app), [SPEAKERS, HEADPHONES, MIC]);
@@ -13642,7 +13650,7 @@ mod tests {
         assert_eq!(
             app.settings.device_name(OUT),
             DOCK,
-            "as upstream's setOutput saves it"
+            "as the original's setOutput saves it"
         );
         assert_eq!(app.state.direction, OUT);
         // The engine's answer is the move the lane asked for: no preset comes with it.
@@ -13659,7 +13667,7 @@ mod tests {
 
     #[test]
     fn with_new_devices_prioritised_a_cable_just_installed_takes_no_lane_and_is_saved_for_none() {
-        // VB-Cable installed while FxSound runs, both lanes on: the engine's next list carries both
+        // VB-Cable installed while CrossFX runs, both lanes on: the engine's next list carries both
         // of its sides, before any lane's rules have stood on it. Promoted, the speakers' lane
         // would play into it and the microphone's record from it — and both be saved so.
         const CABLE_IN: &str = "{0.0.0.00000000}.{cable-in}";
@@ -13954,8 +13962,8 @@ mod tests {
 
     #[test]
     fn a_voice_preset_given_to_the_microphone_in_use_applies_at_once_whichever_lane_is_edited() {
-        // As on the speakers (upstream 83ccf5e): the row of the device a lane is on is the lane's
-        // preset from then on, not only the next time the device comes back.
+        // As on the speakers (the original's 83ccf5e): the row of the device a lane is on is the
+        // lane's preset from then on, not only the next time the device comes back.
         let (mut app, engine, _dir) = two_microphones_listed();
         let mut pane = app.settings_state();
         set_row_preset(&mut app, &mut pane, IN, MIC, "Quiet");
@@ -14179,7 +14187,7 @@ mod tests {
 
     #[test]
     fn while_off_each_combo_shows_the_systems_default_device() {
-        // The speakers are the default sink, the microphone the default source; FxSound's output
+        // The speakers are the default sink, the microphone the default source; CrossFX's output
         // lane is on the headphones.
         let (mut app, engine, _dir) = listed_with(saved_settings(OUT), HEADPHONES);
         engine.feed(attached(IN, Some(MIC)));
@@ -14206,7 +14214,7 @@ mod tests {
         assert_eq!(selected(&app, OUT), Some(HEADPHONES));
 
         app.handle(&[UiAction::TogglePower]);
-        assert_eq!(selected(&app, OUT), Some(HEADPHONES), "FxSound's own again");
+        assert_eq!(selected(&app, OUT), Some(HEADPHONES), "CrossFX's own again");
     }
 
     #[test]
@@ -14280,7 +14288,7 @@ mod tests {
         assert!(default_wishes(&startup_messages(&saved_settings(OUT))).is_empty());
     }
 
-    // ---- sleep (U13) ------------------------------------------------------------------------------
+    // ---- sleep (U13) ----------------------------------------------------------------------------
 
     #[test]
     fn going_to_sleep_tells_the_engine_which_silences_both_lanes_itself() {
@@ -14498,7 +14506,7 @@ mod tests {
         assert_eq!(app.lane_preset(OUT), Some(("Beta", false)));
         assert!(
             !app.state.power,
-            "picking a preset does not switch FxSound on"
+            "picking a preset does not switch CrossFX on"
         );
         assert!(!engine.params().expect("published").power);
         assert!(app.tray_state().output.presets.len() > 1);
@@ -15015,7 +15023,8 @@ mod tests {
 
     // ---- presets and data safety (0.4.0 audit, Phase F5) ----------------------------------------
 
-    /// A store with the user preset `Twenty`, a Windows twenty-band curve, selected.
+    /// A store with the user preset `Twenty`, a twenty-band curve on the original's ladder,
+    /// selected.
     fn with_windows_twenty_band_preset() -> (App, tempfile::TempDir) {
         let (mut app, dir) = with_store();
         let preset = Preset {
@@ -15201,8 +15210,8 @@ mod tests {
     #[test]
     fn a_windows_twenty_band_preset_is_read_on_the_half_octave_ladder_and_exported_on_its_own() {
         // 0.4.0 audit R4, the user's decision: the twenty bands sit every half octave now; a
-        // curve on the Windows ladder is moved band for band when it reaches the application,
-        // and an export for a Windows FxSound carries the Windows ladder again.
+        // curve on the original's ladder is moved band for band when it reaches the application,
+        // and an export for the original FxSound for Windows carries the original's ladder again.
         let (mut app, dir) = with_windows_twenty_band_preset();
         app.settings.num_bands = 20;
         app.select_preset(at(&app, "Twenty"));
@@ -15219,7 +15228,7 @@ mod tests {
         let saved = fxsound_preset::load(&dir.path().join("user/Twenty.fac")).expect("load");
         let saved_centres: Vec<f32> = saved.eq_bands.iter().map(|b| b.center_hz).collect();
         assert_eq!(saved_centres, fxsound_core::eq::TWENTY_BAND_CENTRES_HZ);
-        // …and exported on the Windows one.
+        // …and exported on the original's one.
         let exported = app
             .presets
             .export("Twenty", &dir.path().join("export"))
@@ -15322,8 +15331,8 @@ mod tests {
     }
 
     #[test]
-    fn a_new_preset_name_is_cut_to_what_a_windows_fxsound_reads() {
-        // 0.4.0 audit #15: sixty-four Cyrillic letters are 128 bytes; Windows reads 126.
+    fn a_new_preset_name_is_cut_to_what_the_original_fxsound_reads() {
+        // 0.4.0 audit #15: sixty-four Cyrillic letters are 128 bytes; the original reads 126.
         let (mut app, dir) = with_store();
         add_user_preset(&mut app, "Mine");
         app.select_preset(0);
@@ -15485,5 +15494,29 @@ mod tests {
             state.wireplumber_hook.restart,
             WirePlumberRestart::NotNeeded
         );
+    }
+}
+
+#[cfg(test)]
+mod export_folder_tests {
+    use super::default_export_dir;
+
+    /// CrossFX exports into a folder of its own name, never into the original FxSound's, which
+    /// Windows does not tell from `fxsound`. The path is only built: nothing is created or read.
+    #[test]
+    fn the_default_export_folder_is_crossfx_own_and_never_the_original_s() {
+        let dir = default_export_dir();
+        let own = std::path::Path::new("CrossFX")
+            .join("Presets")
+            .join("Export");
+        assert!(dir.ends_with(&own), "{}", dir.display());
+        for component in dir.components() {
+            let component = component.as_os_str().to_string_lossy();
+            assert!(
+                !component.eq_ignore_ascii_case("fxsound"),
+                "{}",
+                dir.display()
+            );
+        }
     }
 }

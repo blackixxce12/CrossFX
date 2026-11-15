@@ -9,13 +9,13 @@
 //!
 //! | Linux | Windows | here |
 //! |---|---|---|
-//! | `$XDG_RUNTIME_DIR/fxsound/instance.sock` and its `flock` | `\\.\pipe\fxsound-<user SID>` | [`pipe`] |
+//! | `$XDG_RUNTIME_DIR/crossfx/instance.sock` and its `flock` | `\\.\pipe\crossfx-<user SID>` | [`pipe`] |
 //! | StatusNotifierItem (`ksni`) | the notification area (`tray-icon`) | [`tray`] |
 //! | `org.freedesktop.Notifications` | a toast | [`toast`] |
 //! | logind's `PrepareForSleep` | `PowerRegisterSuspendResumeNotification` | [`power`] |
 //! | `SIGTERM`, `SIGINT`, `SIGHUP` | console control events, `WM_QUERYENDSESSION`/`WM_ENDSESSION` | [`session`] |
 //! | `xdg-open` | `ShellExecuteW` | [`shell`] |
-//! | `~/.config/autostart/fxsound.desktop` | `HKCU\…\CurrentVersion\Run`, value `FxSound Port` | [`autostart`] |
+//! | `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` | `HKCU\…\CurrentVersion\Run`, value `CrossFX` | [`autostart`] |
 //! | `--self-test`'s PipeWire and session-bus probes | the audio service and its playback endpoints | [`audio`] |
 //! | `LANG` and friends, the session's language | the user's display language | [`language`] |
 //!
@@ -180,7 +180,7 @@ pub(crate) fn wait_pumping(event: &Event, deadline: Instant) -> Pumped {
 }
 
 /// Dispatch every message waiting for this thread's windows. A `WM_QUIT` ends the round and is
-/// dropped: nothing in FxSound or in winit posts one to the GUI thread, and FxSound quits by the
+/// dropped: nothing in CrossFX or in winit posts one to the GUI thread, and CrossFX quits by the
 /// tray's Exit alone, which a stray quit message is not.
 fn dispatch_pending_messages() {
     let mut msg = MSG::default();
