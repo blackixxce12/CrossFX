@@ -224,19 +224,29 @@ end;
 // folder is always Program Files\FxSound Port (PrepareToInstall), user presets are kept under
 // %APPDATA%, never here, and the uninstaller and its log are left alone. A name is compared
 // without regard to case, as NTFS compares it, so that no shipped file is taken for another.
+//
+// A file is of the kind when its own name matches Mask. FindFirst asks Windows, which matches the
+// wildcard against the short 8.3 name it gives a long name as well, as it does on the system drive
+// by default, and by the rules of DOS: *.fac finds a Flat.fac_orig kept by hand by its short name,
+// FLAT~1.FAC, and COPYING.* finds a COPYING without an extension. Neither is a file of the
+// package's, and the stores, which take a preset by its own name's extension, never list the
+// first, so each file Windows finds is matched against Mask once more, by its own name.
+// WildcardMatch does not ignore case, so both sides are lowercased.
 // Dir is the installation's folder with a backslash, Folder one of its folders, Mask the kind.
 procedure RemoveLeftovers(const Dir, Folder, Mask: String);
 var
   Found: TFindRec;
-  Shipped, Relative: String;
+  Shipped, Kind, Relative: String;
 begin
   Shipped := AnsiLowercase(ShippedFiles);
+  Kind := AnsiLowercase(Mask);
   if not FindFirst(Dir + Folder + Mask, Found) then
     Exit;
   try
     repeat
       Relative := Folder + Found.Name;
       if (Found.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0) and
+        WildcardMatch(AnsiLowercase(Found.Name), Kind) and
         (Pos('|' + AnsiLowercase(Relative) + '|', Shipped) = 0) then
       begin
         if DeleteFile(Dir + Relative) then

@@ -21,7 +21,8 @@
       * the other installer run over it, which has to refuse;
       * the setup program only: run again over itself, as an upgrade is, with files an earlier
         version might have shipped and this one does not planted in its folder, which the
-        upgrade has to leave out of the tree;
+        upgrade has to leave out of the tree, and files of other kinds beside them, which it
+        has to keep;
       * the setup program only: run again while a preset is held open, so that the upgrade fails
         part-way and is rolled back, which has to leave the installed tree as it was;
       * the setup program only: FxSound Port started (--hide) to be running when it is
@@ -309,13 +310,41 @@ Write-Host '  the .msi refuses to install over it'
 # An upgrade: the setup program installs over the version before it rather than uninstalling it,
 # and the stores list every preset in the folders, so the presets and notices that version shipped
 # and this one does not have to go, as the .msi's upgrade removes them with the old product.
+#
+# Those and nothing else: a file of another kind in the same folders stays, even one Windows finds
+# when asked for a kind. The setup program asks it for *.fac, which Windows matches against the
+# short 8.3 name it gives a long name as well, as it does on the system drive by default, and so
+# finds a copy of a preset kept by hand as Flat.fac_orig by its short name, FLAT~1.FAC; and for
+# COPYING.* and OFL.*, which by the rules of DOS find a COPYING and an OFL without an extension.
+# They are taken away again once checked, for the legs below, which want the package's tree and
+# nothing more.
 $dropped = @('presets\Factsoft\Dropped.fac', 'presets\BonusPresets\Dropped.fac', 'presets\Input\Dropped.toml', 'OFL.dropped', 'COPYING.dropped')
 foreach ($relative in $dropped) {
     [System.IO.File]::WriteAllText((Join-Path $installDir $relative), "shipped by an earlier version`n")
 }
+$byShortName = 'presets\Factsoft\Flat.fac_orig'
+$kept = @($byShortName, 'COPYING', 'OFL')
+foreach ($relative in $kept) {
+    [System.IO.File]::WriteAllText((Join-Path $installDir $relative), "not a file of $product's`n")
+}
+# The short name is the one thing here that depends on the machine: where Windows makes none,
+# *.fac does not find Flat.fac_orig, and the leg shows less.
+$short = (New-Object -ComObject Scripting.FileSystemObject).GetFile((Join-Path $installDir $byShortName)).ShortName
+if ($short -notlike '*.fac') {
+    $note = "$byShortName has no short name *.fac finds on this machine (it is '$short'), so the upgrade is not seen to keep such a file"
+    Write-Warning $note
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        Write-Host "::warning title=Smoke test::$note"
+    }
+}
 Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=`"$logs\setup-upgrade.log`""
-Assert-Installed 'the upgrade' $setupFiles $treeVersion
-Write-Host "  an upgrade leaves out the $($dropped.Count) files this version does not ship"
+Assert-Installed 'the upgrade' ($setupFiles + $kept) $treeVersion
+foreach ($relative in $kept) {
+    $path = Join-Path $installDir $relative
+    Assert (Test-Path -LiteralPath $path -PathType Leaf) "the upgrade removed $relative, which is not a file of $product's"
+    Remove-Item -LiteralPath $path
+}
+Write-Host "  an upgrade leaves out the $($dropped.Count) files this version does not ship and keeps the $($kept.Count) of other kinds beside them"
 
 # An upgrade that fails part-way, here on a preset another program holds open, which Setup cannot
 # replace: silent, it gives up (exit 5, Abort at the Retry box) and rolls back, deleting every file
