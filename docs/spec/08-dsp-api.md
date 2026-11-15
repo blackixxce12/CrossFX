@@ -1,5 +1,7 @@
 # 08 — DfxDsp engine: public surface and private core
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 > Reverse-engineering spec for the Rust/egui/PipeWire port of FxSound.
 > Every number below is cited as `path:line` against the tree at
 > `/home/blackixxce/Загрузки/fxsound-app-main`. Paths are repo-relative.

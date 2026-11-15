@@ -1,5 +1,7 @@
 # `pipewire` 0.10.1 / `libspa` 0.10.1 — verified Rust API cheatsheet
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 > **Every signature below was read out of the vendored crate source and is quoted verbatim.**
 > Citations are `<file>:<line>`, relative to
 > `/home/blackixxce/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/`.

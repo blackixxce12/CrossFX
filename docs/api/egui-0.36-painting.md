@@ -1,5 +1,7 @@
 # egui 0.36 / epaint 0.36 — 2D Painting Surface (VERIFIED)
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 Every signature below was read verbatim out of the vendored sources. Citations are
 `<crate-dir>/<file>:<line>` relative to
 `/home/blackixxce/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/`.

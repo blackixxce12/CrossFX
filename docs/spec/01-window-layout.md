@@ -1,5 +1,7 @@
 # 01 — Top-level window, frameless chrome, and the three view modes
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 Reverse-engineering spec for the Rust/egui/Wayland port of FxSound.
 
 **Source of truth** — every number below is cited as `path:line` relative to the repo root

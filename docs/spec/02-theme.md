@@ -1,5 +1,7 @@
 # 02 — Theme, Colours, Fonts, Localisation
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 Reverse-engineering spec for the FxSound Windows app (JUCE 6.1.6, `LookAndFeel_V4`),
 written for a from-scratch re-implementation in **Rust 1.98.1 + egui/eframe 0.36.0**
 (winit / native Wayland, wgpu or glow renderer).

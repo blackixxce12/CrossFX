@@ -1,5 +1,7 @@
 # 03 — Audio Effect Controls
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 Reverse-engineering spec for the FxSound **audio effect control** subsystem, written so that it can
 be rebuilt from scratch in Rust 1.98.1 with `egui`/`eframe` 0.36.0 (winit / native Wayland, wgpu or
 glow) on top of PipeWire.

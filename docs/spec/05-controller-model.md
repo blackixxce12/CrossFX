@@ -1,5 +1,7 @@
 # 05 — Application Controller and Model
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 **Subsystem:** `FxController` + `FxModel` — the brain of the FxSound desktop app.
 **Purpose of this document:** a complete, citation-backed reverse-engineering of the Windows/JUCE
 implementation, followed by a concrete Rust 1.98.1 / egui-eframe 0.36.0 / PipeWire re-design.
