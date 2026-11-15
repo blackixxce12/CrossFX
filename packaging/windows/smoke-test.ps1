@@ -21,8 +21,8 @@
       * the other installer run over it, which has to refuse;
       * the setup program only: run again over itself, as an upgrade is, with files an earlier
         version might have shipped and this one does not planted in its folder, which the
-        upgrade has to leave out of the tree, and files of other kinds beside them, which it
-        has to keep;
+        upgrade has to leave out of the tree, and files beside them that are none of the
+        package's, which it has to keep;
       * the setup program only: run again while a preset is held open, so that the upgrade fails
         part-way and is rolled back, which has to leave the installed tree as it was;
       * the setup program only: FxSound Port started (--hide) to be running when it is
@@ -316,16 +316,20 @@ Write-Host '  the .msi refuses to install over it'
 # short 8.3 name it gives a long name as well, as it does on the system drive by default, and so
 # finds a copy of a preset kept by hand as Flat.fac_orig by its short name, FLAT~1.FAC; and for
 # COPYING.* and OFL.*, which by the rules of DOS find a COPYING and an OFL without an extension.
-# They are taken away again once checked, for the legs below, which want the package's tree and
-# nothing more.
+# A .fac or a .toml that is only the extension is no preset: the stores go by Rust's
+# Path::extension, which gives it none. And a name that ends in a space or a dot, which only a \\?\
+# path can make, is one Windows' path rules change: told to delete 'COPYING.rnnoise ' or
+# 'OFL.noto.', Windows deletes the notice beside it, which Assert-Tree then finds gone. These files
+# are written, looked for and, once checked, taken away again by their exact names, through \\?\,
+# for the legs below, which want the package's tree and nothing more.
 $dropped = @('presets\Factsoft\Dropped.fac', 'presets\BonusPresets\Dropped.fac', 'presets\Input\Dropped.toml', 'OFL.dropped', 'COPYING.dropped')
 foreach ($relative in $dropped) {
     [System.IO.File]::WriteAllText((Join-Path $installDir $relative), "shipped by an earlier version`n")
 }
 $byShortName = 'presets\Factsoft\Flat.fac_orig'
-$kept = @($byShortName, 'COPYING', 'OFL')
+$kept = @($byShortName, 'COPYING', 'OFL', 'presets\Factsoft\.fac', 'presets\Input\.toml', 'COPYING.rnnoise ', 'OFL.noto.')
 foreach ($relative in $kept) {
-    [System.IO.File]::WriteAllText((Join-Path $installDir $relative), "not a file of $product's`n")
+    [System.IO.File]::WriteAllText('\\?\' + (Join-Path $installDir $relative), "not a file of $product's`n")
 }
 # The short name is the one thing here that depends on the machine: where Windows makes none,
 # *.fac does not find Flat.fac_orig, and the leg shows less.
@@ -340,11 +344,11 @@ if ($short -notlike '*.fac') {
 Invoke-Installer $setup "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /LOG=`"$logs\setup-upgrade.log`""
 Assert-Installed 'the upgrade' ($setupFiles + $kept) $treeVersion
 foreach ($relative in $kept) {
-    $path = Join-Path $installDir $relative
-    Assert (Test-Path -LiteralPath $path -PathType Leaf) "the upgrade removed $relative, which is not a file of $product's"
-    Remove-Item -LiteralPath $path
+    $exact = '\\?\' + (Join-Path $installDir $relative)
+    Assert ([System.IO.File]::Exists($exact)) "the upgrade removed '$relative', which is not a file of $product's"
+    [System.IO.File]::Delete($exact)
 }
-Write-Host "  an upgrade leaves out the $($dropped.Count) files this version does not ship and keeps the $($kept.Count) of other kinds beside them"
+Write-Host "  an upgrade leaves out the $($dropped.Count) files this version does not ship and keeps the $($kept.Count) beside them that are none of its own"
 
 # An upgrade that fails part-way, here on a preset another program holds open, which Setup cannot
 # replace: silent, it gives up (exit 5, Abort at the Retry box) and rolls back, deleting every file

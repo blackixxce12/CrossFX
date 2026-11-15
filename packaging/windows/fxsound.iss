@@ -209,6 +209,34 @@ begin
     Result := FmtMessage(CustomMessage('OnlyProgramFiles'), [Only]);
 end;
 
+// For the upgrade's cleanup below: whether the file named Name, which FindFirst found for the mask
+// Kind (here in lower case), is of that kind by its own name. Every preset the stores list and
+// every notice is, so whatever an earlier version left over of either still goes.
+//
+// * Its name matches the mask. FindFirst asks Windows, which matches the wildcard against the
+//   short 8.3 name it gives a long name as well, as it does on the system drive by default, and by
+//   the rules of DOS: *.fac finds a Flat.fac_orig kept by hand by its short name, FLAT~1.FAC, and
+//   COPYING.* finds a COPYING without an extension. WildcardMatch does not ignore case, so both
+//   sides are lowercased.
+// * It is more than an extension. The stores and the self-test take a preset by its extension as
+//   Rust's Path::extension gives it, and a name whose only dot is its first character has none:
+//   .fac and .toml are never listed, ..fac and .x.toml are. No name COPYING.* or OFL.* matches is
+//   only an extension.
+// * It does not end in a space or a dot. Windows' path rules drop those from the end of a name, so
+//   only a \\?\ path can make such a file, and none of the package's is one; and DeleteFile, whose
+//   name goes through those rules, would remove another file: for a 'COPYING.rnnoise ', the
+//   COPYING.rnnoise its licence requires to ship with the binary; for a 'COPYING. ', a COPYING
+//   without an extension, which the first rule keeps.
+function OfKind(const Name, Kind: String): Boolean;
+var
+  Last: String;
+begin
+  Last := Copy(Name, Length(Name), 1);
+  Result := WildcardMatch(AnsiLowercase(Name), Kind) and
+    ((Copy(Name, 1, 1) <> '.') or (Pos('.', Copy(Name, 2, Length(Name))) > 0)) and
+    (Last <> ' ') and (Last <> '.');
+end;
+
 // What an earlier version installed and this one does not ship: a preset dropped or renamed since,
 // a licence of something no longer built in. Setup installs over the old version instead of
 // uninstalling it first, and the stores list every .fac and .toml in these folders, so a file left
@@ -222,16 +250,9 @@ end;
 // [InstallDelete] clears them, the new copies would count as new and go with the rollback, leaving
 // no presets at all. Only the package's own kinds of file in the package's own folders, too: the
 // folder is always Program Files\FxSound Port (PrepareToInstall), user presets are kept under
-// %APPDATA%, never here, and the uninstaller and its log are left alone. A name is compared
-// without regard to case, as NTFS compares it, so that no shipped file is taken for another.
-//
-// A file is of the kind when its own name matches Mask. FindFirst asks Windows, which matches the
-// wildcard against the short 8.3 name it gives a long name as well, as it does on the system drive
-// by default, and by the rules of DOS: *.fac finds a Flat.fac_orig kept by hand by its short name,
-// FLAT~1.FAC, and COPYING.* finds a COPYING without an extension. Neither is a file of the
-// package's, and the stores, which take a preset by its own name's extension, never list the
-// first, so each file Windows finds is matched against Mask once more, by its own name.
-// WildcardMatch does not ignore case, so both sides are lowercased.
+// %APPDATA%, never here, and the uninstaller and its log are left alone. A file is of the kind by
+// its own name (OfKind, above), and a name is compared without regard to case, as NTFS compares
+// it, so that no shipped file is taken for another.
 // Dir is the installation's folder with a backslash, Folder one of its folders, Mask the kind.
 procedure RemoveLeftovers(const Dir, Folder, Mask: String);
 var
@@ -245,8 +266,7 @@ begin
   try
     repeat
       Relative := Folder + Found.Name;
-      if (Found.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0) and
-        WildcardMatch(AnsiLowercase(Found.Name), Kind) and
+      if (Found.Attributes and FILE_ATTRIBUTE_DIRECTORY = 0) and OfKind(Found.Name, Kind) and
         (Pos('|' + AnsiLowercase(Relative) + '|', Shipped) = 0) then
       begin
         if DeleteFile(Dir + Relative) then
