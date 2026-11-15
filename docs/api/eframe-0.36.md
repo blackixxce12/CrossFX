@@ -1,5 +1,7 @@
 # eframe 0.36.0 — verified API cheatsheet
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 Every signature below was read verbatim out of the vendored source at
 `/home/blackixxce/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/eframe-0.36.0/`.
 Citations are `<file>:<line>` relative to that directory.

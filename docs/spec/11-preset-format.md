@@ -1,5 +1,7 @@
 # 11 - Presets and the `.fac` file format
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 **Scope.** Everything the Rust/egui Linux port needs in order to (a) read every `.fac`
 preset that the Windows FxSound 1.1.x ships or that a user has ever saved, (b) write
 files that the Windows application can read back, and (c) reproduce FxSound's preset

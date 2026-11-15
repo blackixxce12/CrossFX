@@ -1,5 +1,7 @@
 # Voice-preset research
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 Source material for the six factory input presets of 0.3.0 (tracker item `s3-05`). Gathered
 2026-09-20 from public sources rather than from anyone's recollection: **116 sources, 71 of them
 standards bodies, plugin source code or manufacturer documentation, and 290 attributed parameter

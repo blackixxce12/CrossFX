@@ -1,5 +1,7 @@
 # 12 — Audio Device Plumbing (`audiopassthru`) and its Linux/PipeWire Replacement
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 > **Scope.** This document reverse-engineers the entire `audiopassthru/` subsystem of the Windows
 > FxSound application and specifies, in full implementation detail, the Linux (PipeWire + Rust)
 > replacement. `audiopassthru/` is flagged by the project `CLAUDE.md` as the **highest-risk module**

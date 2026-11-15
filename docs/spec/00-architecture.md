@@ -1,5 +1,7 @@
 # 00 — Master architecture for the Rust/egui/PipeWire port
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 **Status: normative.** This document is the single source of truth for how the FxSound Linux port
 is assembled. Specs `01`–`13` describe *what the Windows application does*; this document decides
 *what we build*, in what order, and with which exact types. Where a sibling spec offers options,

@@ -1,5 +1,7 @@
 # Linux desktop crates — verified API cheatsheet
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 `ksni` 0.3.6 · `notify-rust` 4.18.0 · `rfd` 0.17.2 · `egui_extras` 0.36.0 · `resvg`/`usvg` 0.48.1 · `tiny-skia` 0.12.0
 
 Every signature below was read verbatim out of the vendored source under

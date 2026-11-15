@@ -1,5 +1,7 @@
 # 07 — Process lifecycle, command line, system tray
 
+> The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
+
 Reverse-engineering spec for the Rust/egui Linux port of FxSound.
 Subsystem: **process lifecycle, CLI, system tray, notifications, autostart.**
 

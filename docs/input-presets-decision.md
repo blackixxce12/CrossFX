@@ -1,5 +1,7 @@
 # Input presets: what to ship, and with what numbers
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 Decided 2026-09-20 from two surveys — what comparable products ship as named voice profiles,
 and which microphone situations the planned set serves badly. Tracker item `s3-05`.
 The source material for the first seven is in `voice-presets-research.md` beside this file.

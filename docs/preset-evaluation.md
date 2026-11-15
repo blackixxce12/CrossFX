@@ -1,5 +1,7 @@
 # Checking whether a preset is voiced correctly
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 Two answers to a question that has no single one, designed 2026-09-20. Tracker items `s5-09`
 (the measurable half) and `s5-10` (the half no measurement replaces).
 

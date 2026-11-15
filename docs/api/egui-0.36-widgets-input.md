@@ -1,5 +1,7 @@
 # egui 0.36 — Widgets, Interaction, Layout & Input (verified cheatsheet)
 
+> Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+
 Every signature below was read out of the vendored source. Nothing here is from memory.
 
 **Source root** (all `file:line` citations are relative to it):

@@ -1,8 +1,47 @@
 # Changelog
 
-All notable changes to the FxSound Linux port. The format follows
+All notable changes to CrossFX — called the FxSound Linux port (`fxsound-linux`) up to 0.5.0,
+whose entries keep the names of their time. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
+
+## [1.0.0] — Unreleased
+
+### Changed
+- **The program is called CrossFX, on Linux and on Windows.** Up to 0.5.0 it was the FxSound
+  Linux port, packaged as `fxsound-linux`. "FxSound" now means only the original FxSound by
+  FxSound LLC: its driver, FxSound Speakers, the presets taken from it, and the "Like the original
+  FxSound LLC" mode — the Experimental mode's name on Linux too, where it was "Like FxSound for
+  Windows".
+- **Settings and data of earlier versions are not carried over.** CrossFX starts with folders of
+  its own and reads nothing fxsound-linux 0.x left. The folders of 0.x, `~/.config/fxsound`,
+  `~/.local/share/fxsound` and `~/.local/state/fxsound`, can be deleted by hand, and so can, where
+  0.x made them, its start-up entry `~/.config/autostart/fxsound.desktop` and its WirePlumber hook,
+  `~/.local/share/wireplumber/scripts/fxsound` and
+  `~/.config/wireplumber/wireplumber.conf.d/90-fxsound-fade-on-move.conf`.
+
+### Breaking changes
+- **The command is `crossfx`.** `crossfx --version` prints `crossfx <version>`, the manual is
+  `crossfx(1)`, and `--status` and `--watch` say `CrossFX is not running` where they said
+  `FxSound is not running`.
+- **The packages are `crossfx`** for Debian and Ubuntu, Fedora and Arch, and `crossfx-bin` on the
+  AUR. The user unit is `crossfx.service`.
+- **D-Bus:** the name, object path and interface are `io.github.blackixxce12.CrossFX`,
+  `/io/github/blackixxce12/CrossFX` and `io.github.blackixxce12.CrossFX` (they were
+  `org.fxsound.FxSound`, `/org/fxsound/FxSound` and `org.fxsound.FxSound`; `com.fxsound.FxSound`
+  is no longer owned), and a refusal is `io.github.blackixxce12.CrossFX.Error.Refused`. The
+  control socket is `$XDG_RUNTIME_DIR/crossfx/instance.sock`.
+- **The application id, desktop file and icon are `io.github.blackixxce12.CrossFX`** (they were
+  `com.fxsound.FxSound`, and the icon also `fxsound`): dock pins, window rules that match the
+  class or `app_id` (`packaging/hyprland.conf.example` shows the new ones), launchers and
+  `notify-send -i` lines that name the icon, and per-application notification settings need the
+  new name. Notifications come from `CrossFX`, and KDE asks again whether to show the tray icon.
+- **The sound settings list `CrossFX (Output)` and `CrossFX (Input)`,** and their PipeWire names
+  are `crossfx_sink` and `crossfx_source`: programs that remember a device by name — OBS, Discord,
+  browsers, `pactl` scripts, WirePlumber rules, patchbays — need it picked again.
+- **Exported presets** go to `Documents/CrossFX/Presets/Export`.
+- **WirePlumber's log topic of the hook** is `s-crossfx` (it was `s-fxsound`):
+  `WIREPLUMBER_DEBUG=2,s-crossfx:4`.
 
 ## [0.5.0] — 2026-09-30
 
