@@ -11,14 +11,14 @@
 //! ([`lane_dsp::route`]) — its own ring and counters, and its own parameter buffer, whose writing
 //! half this module keeps and writes a preset's new parameters through ([`set_rules`]).
 //!
-//! - **Output.** `fxsound_route_o<N>`, an `Audio/Sink` described `FxSound (Output) · <preset>`,
-//!   and `fxsound_route_o<N>_play`, a playback stream to the device the output lane plays to —
+//! - **Output.** `crossfx_route_o<N>`, an `Audio/Sink` described `FxSound (Output) · <preset>`,
+//!   and `crossfx_route_o<N>_play`, a playback stream to the device the output lane plays to —
 //!   passive where the server runs a link-group together, like the lane's own (module docs of
-//!   `engine`, "Idle") — both in `fxsound-route-o<N>`.
-//! - **Input.** `fxsound_route_i<N>_capture`, a capture stream on the input lane's microphone —
+//!   `engine`, "Idle") — both in `crossfx-route-o<N>`.
+//! - **Input.** `crossfx_route_i<N>_capture`, a capture stream on the input lane's microphone —
 //!   or on the echo canceller's source while echo cancellation runs for it, as the lane's own
-//!   capture stream is — and `fxsound_route_i<N>`, an `Audio/Source` described
-//!   `FxSound (Input) · <preset>`, both in `fxsound-route-i<N>`.
+//!   capture stream is — and `crossfx_route_i<N>`, an `Audio/Source` described
+//!   `FxSound (Input) · <preset>`, both in `crossfx-route-i<N>`.
 //!
 //! A route plays at its lane's volume: its chain reads the lane's [`LaneVolume`] and the lane's
 //! silence while the system sleeps, and has its history cleared with the lane's when the system
@@ -27,7 +27,7 @@
 //! FxSound's own sink, move a routed game with everything else. Nothing a mixer sets on the route's
 //! node is applied. Its `priority.session` is below anything else's
 //! ([`app_routes::ROUTE_PRIORITY_SESSION`]), and no metadata write of FxSound's ever names it as
-//! a default, so it never becomes one; and its name is FxSound's ([`crate::is_fxsound_node`]), so
+//! a default, so it never becomes one; and its name is FxSound's ([`crate::is_crossfx_node`]), so
 //! it is never offered as a device nor listed as an application.
 //!
 //! A route follows its lane. It is built beside the lane's pair, on the same device and at the same

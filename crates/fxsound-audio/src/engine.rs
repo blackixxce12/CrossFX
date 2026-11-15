@@ -94,7 +94,7 @@
 //! the group makes the capture stream runnable with it, and the capture stream's link makes the
 //! microphone run — all in one cycle, as on the output side. Measured on PipeWire 1.6.8 in a
 //! private daemon
-//! (`graph_churn::sleep::a_microphone_runs_only_while_something_records_from_fxsound_input`):
+//! (`graph_churn::sleep::a_microphone_runs_only_while_something_records_from_crossfx_input`):
 //! with nothing recording, the capture stream and the microphone stay idle; with a recorder linked,
 //! both run and the recorder gets the processed microphone; unlinked, both are idle again. So the
 //! microphone — its light, a desktop's "recording" indicator, a Bluetooth headset's call profile —
@@ -130,7 +130,7 @@
 //! capture and monitor streams passive, and the capture stream that records the canceller's source
 //! is passive as above, so nothing in that chain runs it by itself: it runs while something records
 //! from FxSound (Input), and sleeps, canceller loaded, when the recording stops
-//! (`graph_churn::echo_cancellation_holds_nothing_awake_while_nothing_records_from_fxsound_input`).
+//! (`graph_churn::echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_input`).
 //! Before U19 the capture stream's link to the canceller ran all of it for as long as the lane was
 //! on.
 //!
@@ -227,7 +227,7 @@
 //!
 //! Until 0.5.0 a lane that moved to another device — picked in FxSound, from `--output`,
 //! `--next-output` or `--input`, or followed from the desktop's pick — took both of its nodes down
-//! and built them again there. For as long as `fxsound_sink` was gone, WirePlumber moved every
+//! and built them again there. For as long as `crossfx_sink` was gone, WirePlumber moved every
 //! application on it onto a device of its own, unprocessed, and back onto the new sink a moment
 //! later: two moves in the middle of the sound, measured at −4.9 to −10.3 dBFS on the speakers
 //! (roadmap 0.5.0 §7, D3). Nothing an application is linked to needs to go for that. So when the
@@ -342,7 +342,7 @@ use crate::{
     DEFAULT_QUANTUM_FRAMES, DEFAULT_SAMPLE_RATE, KEEP_AWAKE_NODE_NAME,
     KEEP_AWAKE_STREAM_DESCRIPTION, MAX_CHANNELS, MAX_QUANTUM_FRAMES, MIN_CHANNELS,
     ONE_HEADSET_ON_BOTH_LANES, OUTPUT_NODE_NAME, OUTPUT_STREAM_DESCRIPTION, RING_CAPACITY_FRAMES,
-    SINK_DESCRIPTION, SINK_NODE_NAME, SOURCE_NODE_NAME, is_fxsound_node, link_group, locale,
+    SINK_DESCRIPTION, SINK_NODE_NAME, SOURCE_NODE_NAME, is_crossfx_node, link_group, locale,
     our_node_name,
 };
 
@@ -1408,9 +1408,6 @@ pub(crate) struct Config {
     /// Whether the output lane starts enabled ([`crate::StartOptions::output_enabled`]), in place
     /// before the thread connects, so a lane the user left off builds no first pair.
     pub(crate) output_enabled: bool,
-    /// WirePlumber's `stream-properties` file, to read the level it kept for our nodes before
-    /// 0.4.0 from ([`volume::inherited`]); `None` to read nothing, which is what the tests do.
-    pub(crate) wireplumber_state: Option<std::path::PathBuf>,
     /// How long a per-application route nobody uses is kept ([`crate::app_routes::ROUTE_IDLE`]);
     /// shorter in the tests, which would otherwise wait ten seconds to see one go.
     pub(crate) route_idle: Duration,
@@ -1701,7 +1698,7 @@ struct CardProbe {
 /// connection. And a bind fails whenever the object goes between its announcement and the bind,
 /// which a `pw-dump`, a `pactl` or a notification sound can do: they live for milliseconds. Seen
 /// on PipeWire 1.6.8 when these probes were first dropped as their global went:
-/// `graph_churn::echo_cancellation_holds_nothing_awake_while_nothing_records_from_fxsound_input`,
+/// `graph_churn::echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_input`,
 /// which polls the graph with `pw-dump`, had the engine reconnect under it on every run — "no
 /// global 30 any more" on the bind, then "unknown resource 14 op:7" on the core — and
 /// `live_session` now builds the race on purpose. A bind that succeeded is removed by the server
@@ -2223,10 +2220,6 @@ struct Shared {
     /// since, so a device the lane comes back to within a run gets the level it had without a
     /// round trip through the app. Kept across reconnects: it is the user's, not the server's.
     target_volumes: Vec<TargetVolume>,
-    /// What WirePlumber kept for each virtual node before 0.4.0 took its volume over, read once at
-    /// start ([`volume::inherited`]): the level a lane with no history at all — no pair yet this
-    /// run, nothing remembered for its direction — starts no louder than ([`volume_for_pair`]).
-    inherited_volumes: PerDirection<Option<NodeVolume>>,
     /// The app holds the microphone awake ([`UiToAudio::KeepInputAwake`]): the input pair records
     /// its own source while it has one ([`KeepAwake`], [`reconcile_keep_awake`]). Kept across
     /// pairs and reconnects: it is the app's to change, not the server's.
@@ -2299,7 +2292,6 @@ impl Shared {
             aec: EchoCancel::new(aec::WEBRTC_LIBRARY),
             headset_warned: None,
             target_volumes: Vec::new(),
-            inherited_volumes: PerDirection::default(),
             keep_input_awake: false,
             asleep_since: None,
             lane_events: PerDirection::default(),
@@ -2548,7 +2540,6 @@ pub(crate) fn run(config: Config) {
         device_priority,
         want_default,
         output_enabled,
-        wireplumber_state,
         route_idle,
         handover_journal,
     } = config;
@@ -2595,9 +2586,8 @@ pub(crate) fn run(config: Config) {
             input: Some(lane_events.input),
         };
         // Before the first connection, and so before any pair: neither lane can build on a volume
-        // chosen without what the app remembers, or without what WirePlumber kept — nor choose
-        // its first device without the user's ranking, nor be built, or take the default, when
-        // the app is about to say it must not.
+        // chosen without what the app remembers, nor choose its first device without the user's
+        // ranking, nor be built, or take the default, when the app is about to say it must not.
         state.target_volumes = remembered_volumes(target_volumes);
         start_ranked(&mut state, device_priority);
         start_lanes(&mut state, output_enabled, want_default);
@@ -2605,19 +2595,6 @@ pub(crate) fn run(config: Config) {
         // Read before the first connection, so a stream met on it that a killed run left at 0 is
         // found in it ([`fades`]).
         state.fades = fades::Fades::new(handover_journal);
-        if let Some(path) = wireplumber_state {
-            state.inherited_volumes = volume::inherited_from(&path);
-            for (direction, inherited) in state.inherited_volumes.iter() {
-                if let Some(inherited) = inherited {
-                    log::info!(
-                        "{} lane: WirePlumber kept {:?}{} for our node before 0.4.0",
-                        direction.key(),
-                        inherited.effective(inherited.channel_volumes.len()),
-                        if inherited.mute { ", muted" } else { "" }
-                    );
-                }
-            }
-        }
     }
 
     let control_source = control.attach(mainloop.loop_(), {
@@ -2846,7 +2823,7 @@ fn control(shared: &mut Shared, message: UiToAudio) {
             // fresher truth and the settings file's copy is stale by a whole session.
             //
             // This is the whole repair for a lane that comes back, and it is smaller than it looks.
-            // A process that starts and finds the default naming `fxsound_sink` adopts that claim
+            // A process that starts and finds the default naming `crossfx_sink` adopts that claim
             // as its own — which is harmless *provided it knows what to hand back to*, and that
             // knowledge is exactly what the killed run took with it. Seeding it from disk is what
             // turns the next clean exit into the repair. There is deliberately no immediate
@@ -2946,7 +2923,7 @@ fn canceller_side(lane: &Lane) -> Side<'_> {
 /// the old name.
 /// (Without those keys it would be worse: WirePlumber would link it to whatever else it found —
 /// past FxSound's own default source, which `canLink` refuses because the two share
-/// `fxsound-input`, to the best of the rest, which can be another microphone altogether.)
+/// `crossfx-input`, to the best of the rest, which can be another microphone altogether.)
 ///
 /// The move is a repair of the pair, on the microphone it was already on, so it leaves the
 /// default source as it finds it (`Lane::last_target`): a canceller reloaded because the *speakers*
@@ -4044,7 +4021,7 @@ fn on_global(
             // found to name, and whether a recorder that does records FxSound
             // (`crate::app_streams`).
             let name = props.get(*pw::keys::NODE_NAME).unwrap_or_default();
-            if is_fxsound_node(name) {
+            if is_crossfx_node(name) {
                 let serial = props.get("object.serial").and_then(|s| s.parse().ok());
                 guard.apps.own_node_appeared(global.id, serial, name);
                 // The lanes' own sink and source: what a stream that follows the default is moved
@@ -5048,12 +5025,12 @@ fn on_metadata_property(shared: &Rc<RefCell<Shared>>, key: Option<&str>, value: 
 // The session default
 // ---------------------------------------------------------------------------------------------
 
-/// Whether `node_name` is one of the nodes FxSound makes ([`is_fxsound_node`]): a lane's, the echo
+/// Whether `node_name` is one of the nodes FxSound makes ([`is_crossfx_node`]): a lane's, the echo
 /// canceller's, a per-application route's. Never a default to remember, nor one to hand back to:
 /// a route's sink is an `Audio/Sink` too, and one WirePlumber fell back to must not be written to
 /// the settings file as the device the user had.
 fn is_ours(node_name: &str) -> bool {
-    is_fxsound_node(node_name)
+    is_crossfx_node(node_name)
 }
 
 /// Become the session default for a lane's direction, politely: remember what was there first
@@ -6685,9 +6662,7 @@ fn idle_plan(
 /// WirePlumber from restoring one volume for the node whatever it renders to
 /// (`node/state-stream.lua`, the condition at the top of its restore and store hooks) — the lane
 /// remembers one per target instead, as WirePlumber does for its own loopback nodes
-/// (`monitors/bluez/create-loopback-node.lua`). What WirePlumber had saved for the node until then
-/// stays in its state file, and is read once as the level a lane with no history starts no louder
-/// than ([`volume::inherited`]). And `channelmix.min-volume` and `max-volume` at
+/// (`monitors/bluez/create-loopback-node.lua`). And `channelmix.min-volume` and `max-volume` at
 /// unity make the adapter keep every volume a desktop writes and apply none of it, so the lane
 /// can apply it after its chain rather than have the volume leveller undo it.
 fn virtual_node_props(
@@ -6719,7 +6694,7 @@ fn virtual_node_props(
         *pw::keys::AUDIO_CHANNELS     => channels.to_string(),
         *pw::keys::AUDIO_RATE         => rate.to_string(),
         *pw::keys::AUDIO_FORMAT       => "F32",
-        *pw::keys::APP_NAME           => "FxSound",
+        *pw::keys::APP_NAME           => fxsound_core::identity::PRODUCT,
         *pw::keys::APP_ID             => crate::APP_ID,
         "audio.position"              => positions.to_property_value(),
         "device.class"                => "sound",
@@ -6729,8 +6704,8 @@ fn virtual_node_props(
         volume::MIN_VOLUME_KEY        => volume::UNITY,
         volume::MAX_VOLUME_KEY        => volume::UNITY,
         "state.restore-props"         => "false",
-        "media.icon-name"             => "fxsound",
-        "application.icon-name"       => "fxsound",
+        "media.icon-name"             => crate::APP_ID,
+        "application.icon-name"       => crate::APP_ID,
     }
 }
 
@@ -6824,7 +6799,7 @@ fn stream_props(
         // at the device's own layout only while this is off.
         *pw::keys::STREAM_DONT_REMIX   => "false",
         *pw::keys::TARGET_OBJECT       => target,
-        *pw::keys::APP_NAME            => "FxSound",
+        *pw::keys::APP_NAME            => fxsound_core::identity::PRODUCT,
         *pw::keys::APP_ID              => crate::APP_ID,
     };
     if direction == DeviceDirection::Input {
@@ -6868,7 +6843,7 @@ fn keep_awake_props(latency: &str) -> PropertiesBox {
         *pw::keys::NODE_LATENCY        => latency,
         *pw::keys::TARGET_OBJECT       => SOURCE_NODE_NAME,
         *pw::keys::STREAM_CAPTURE_SINK => "false",
-        *pw::keys::APP_NAME            => "FxSound",
+        *pw::keys::APP_NAME            => fxsound_core::identity::PRODUCT,
         *pw::keys::APP_ID              => crate::APP_ID,
     }
 }
@@ -7055,9 +7030,7 @@ fn target_port(shared: &Shared, device: &DeviceInfo) -> Option<String> {
 /// The volume a new pair of the lane of `direction` starts at on `target`, on its port `port`
 /// ([`volume::for_new_pair`]): the target's remembered one, or else no louder than the lane's last
 /// pair — or, before the lane has had one this run, than the quietest level remembered for any
-/// device of its direction — or, with nothing remembered for its direction either, than the level
-/// WirePlumber kept for the lane's node before 0.4.0. Without that last, the first 0.4.0 run after
-/// an upgrade would start at unity, however far down 0.3.0 had been left.
+/// device of its direction.
 fn volume_for_pair(
     shared: &Shared,
     direction: DeviceDirection,
@@ -7070,8 +7043,7 @@ fn volume_for_pair(
         .get(direction)
         .last_volume
         .clone()
-        .or_else(|| volume::quietest(&shared.target_volumes, direction))
-        .or_else(|| shared.inherited_volumes.get(direction).clone());
+        .or_else(|| volume::quietest(&shared.target_volumes, direction));
     volume::for_new_pair(
         remembered_volume(shared, direction, target, port),
         last.as_ref(),
@@ -7309,7 +7281,7 @@ fn publish_volume(shared: &mut Shared, direction: DeviceDirection) {
     );
 }
 
-/// The lane a virtual node belongs to, by its `node.name`: `fxsound_sink`'s or `fxsound_source`'s.
+/// The lane a virtual node belongs to, by its `node.name`: `crossfx_sink`'s or `crossfx_source`'s.
 fn virtual_node_direction(node_name: Option<&str>) -> Option<DeviceDirection> {
     match node_name? {
         SINK_NODE_NAME => Some(DeviceDirection::Output),
@@ -7478,7 +7450,7 @@ fn on_sink_param(_stream: &pw::stream::Stream, data: &mut SinkData, id: u32, par
 /// reports it.
 ///
 /// Whether the adapter clamps is not read here, even from a write that carries `params`: a write
-/// names only the settings it changes — `pw-cli set-param fxsound_sink Props '{ params = [
+/// names only the settings it changes — `pw-cli set-param crossfx_sink Props '{ params = [
 /// "channelmix.normalize" true ] }'` lists neither volume bound — so it would read as an adapter
 /// that does not clamp, and the lane would stop applying a volume the adapter still keeps at
 /// unity. Only the node's whole `Props` say it ([`on_own_props`]); a write that does move a
@@ -9482,82 +9454,6 @@ mod tests {
     }
 
     #[test]
-    fn a_first_pair_with_nothing_remembered_is_no_louder_than_what_wireplumber_kept_for_0_3_0() {
-        // 0.3.0 at about −24 dB, in WirePlumber's memory; the app's own memory still empty.
-        let (mut shared, _) = shared_with_messages();
-        shared.inherited_volumes.output = Some(at(&[0.064, 0.064]));
-        assert_eq!(
-            volume_for_pair(&shared, DeviceDirection::Output, "speakers", None, 2).effective(2),
-            [0.064, 0.064],
-            "not the unity a new node is made with: 24 dB louder than the user left it"
-        );
-        assert_eq!(
-            volume_for_pair(&shared, DeviceDirection::Input, "microphone", None, 2),
-            NodeVolume::default(),
-            "each lane by what WirePlumber kept for its own node"
-        );
-        shared.inherited_volumes.output = Some(at(&[2.0, 2.0]));
-        assert_eq!(
-            volume_for_pair(&shared, DeviceDirection::Output, "speakers", None, 2).effective(2),
-            [1.0, 1.0],
-            "and never above unity: it is a ceiling, not a level to replay"
-        );
-    }
-
-    #[test]
-    fn what_wireplumber_kept_gives_way_to_anything_the_lane_or_the_app_knows() {
-        let (mut shared, _) = shared_with_messages();
-        shared.inherited_volumes.output = Some(at(&[0.064, 0.064]));
-        shared.target_volumes = vec![remembered(
-            DeviceDirection::Output,
-            "headphones",
-            &[0.5, 0.5],
-        )];
-        assert_eq!(
-            volume_for_pair(&shared, DeviceDirection::Output, "headphones", None, 2).effective(2),
-            [0.5, 0.5],
-            "a remembered device: its own level"
-        );
-        assert_eq!(
-            volume_for_pair(&shared, DeviceDirection::Output, "usb-dac", None, 2).effective(2),
-            [0.5, 0.5],
-            "a device never seen: the quietest the app remembers, which is newer than 0.3.0"
-        );
-        shared.target_volumes.clear();
-        shared.lanes.output.last_volume = Some(at(&[0.7, 0.7]));
-        assert_eq!(
-            volume_for_pair(&shared, DeviceDirection::Output, "usb-dac", None, 2).effective(2),
-            [0.7, 0.7],
-            "a lane that has had a pair this run: that pair's level"
-        );
-    }
-
-    #[test]
-    fn wireplumbers_key_for_our_nodes_is_made_from_the_properties_they_carry() {
-        // `formKey` in `node/state-stream.lua`: the media class, then `application.id`.
-        pw::init();
-        let positions = ChannelMap::default_for(2);
-        for direction in DeviceDirection::ALL {
-            let props = virtual_node_props(direction, None, 2, 48_000, &positions, "512/48000");
-            let media_class = props.get("media.class").expect("a media class");
-            let app_id = props.get("application.id").expect("an application id");
-            assert_eq!(
-                volume::wireplumber_key(direction),
-                format!("{media_class}:application.id:{app_id}")
-            );
-            assert!(
-                !volume::wireplumber_key(direction).contains([' ', '=', '[', ']', '\\']),
-                "a key WirePlumber would have escaped in its file"
-            );
-        }
-        assert_eq!(
-            volume::wireplumber_key(DeviceDirection::Output),
-            "Audio/Sink:application.id:com.fxsound.FxSound",
-            "the key 0.3.0's sink was saved under"
-        );
-    }
-
-    #[test]
     fn a_new_pair_on_a_remembered_target_starts_at_that_targets_volume() {
         let (mut shared, _) = shared_with_messages();
         shared.target_volumes = vec![remembered(
@@ -9856,7 +9752,7 @@ mod tests {
         let volume = LaneVolume::new();
         volume.begin_pair(2, &at(&[0.2, 0.2]));
         let before = volume.changes();
-        // `pw-cli set-param fxsound_sink Props '{ params = [ "channelmix.normalize" true ] }'`
+        // `pw-cli set-param crossfx_sink Props '{ params = [ "channelmix.normalize" true ] }'`
         let normalize = props_write(
             None,
             Some(vec![("channelmix.normalize", Value::Bool(true))]),
@@ -11945,7 +11841,7 @@ mod tests {
         on_metadata_property(
             &shared,
             Some(devices::default_key(DeviceDirection::Output)),
-            Some(r#"{"name":"fxsound_sink"}"#),
+            Some(r#"{"name":"crossfx_sink"}"#),
         );
         publish(&mut shared.borrow_mut());
         let reports = app_reports(&drained(&messages));
@@ -11967,7 +11863,7 @@ mod tests {
         on_metadata_property(
             &shared,
             Some(devices::default_key(DeviceDirection::Input)),
-            Some(r#"{"name":"fxsound_source"}"#),
+            Some(r#"{"name":"crossfx_source"}"#),
         );
         publish(&mut shared.borrow_mut());
         assert!(app_reports(&drained(&messages)).is_empty());
@@ -13581,7 +13477,7 @@ mod tests {
 
         control(
             &mut shared,
-            ranking(&[UCM_HEADSET_MIC, "fxsound_source", "", LAPTOP_MICROPHONE]),
+            ranking(&[UCM_HEADSET_MIC, "crossfx_source", "", LAPTOP_MICROPHONE]),
         );
         assert_eq!(
             shared.preference.input.ranking,
@@ -13598,7 +13494,7 @@ mod tests {
         shared.lanes.input.needs_rules = false;
         control(
             &mut shared,
-            ranking(&[UCM_HEADSET_MIC, "fxsound_source", "", LAPTOP_MICROPHONE]),
+            ranking(&[UCM_HEADSET_MIC, "crossfx_source", "", LAPTOP_MICROPHONE]),
         );
         assert!(
             !shared.lanes.input.needs_rules,

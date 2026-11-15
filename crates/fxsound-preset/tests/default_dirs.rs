@@ -2,11 +2,11 @@
 //! binary counts as running from a checkout (`source_tree_of`).
 //!
 //! A test of its own rather than one of the library's: it goes through the public API only, and
-//! it runs as a binary that is not a development build of FxSound (`target/<profile>/deps/…`, or
+//! it runs as a binary that is not a development build of CrossFX (`target/<profile>/deps/…`, or
 //! deeper where cargo keeps its build directory apart). The old rule, "the directory three levels
 //! above the binary is the checkout", took a directory in `target` for one all the same; the
 //! stores must search nothing but the installation for such a binary, which is what an installed
-//! `C:\Program Files\FxSound Port\fxsound.exe` is too.
+//! `C:\Program Files\CrossFX\crossfx.exe` is too.
 
 use fxsound_core::test_support::ScratchDir;
 use fxsound_preset::input::InputPreset;
@@ -27,7 +27,7 @@ fn fake_checkout(tag: &str) -> (ScratchDir, PathBuf) {
 fn a_binary_cargo_built_in_this_checkout_runs_from_it() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for profile in ["debug", "release"] {
-        let exe = root.join("target").join(profile).join("fxsound");
+        let exe = root.join("target").join(profile).join("crossfx");
         assert_eq!(source_tree_of(&exe), Some(root.clone()), "{profile}");
     }
 }
@@ -36,23 +36,23 @@ fn a_binary_cargo_built_in_this_checkout_runs_from_it() {
 fn only_cargos_own_profile_directories_in_a_checkout_are_a_source_tree() {
     let (_tmp, root) = fake_checkout("source-tree-layouts");
     assert_eq!(
-        source_tree_of(&root.join("target").join("release").join("fxsound")),
+        source_tree_of(&root.join("target").join("release").join("crossfx")),
         Some(root.clone())
     );
     for exe in [
         // Three levels below the checkout's files, the depth that used to be enough: the
         // installers' folder two levels below a drive's root, and a .zip unpacked anywhere.
         root.join("Program Files")
-            .join("FxSound Port")
-            .join("fxsound.exe"),
-        root.join("Apps").join("FxSound").join("fxsound.exe"),
+            .join("CrossFX")
+            .join("crossfx.exe"),
+        root.join("Apps").join("CrossFX").join("crossfx.exe"),
         // A test harness, a cross build and an example are not the application either.
         root.join("target/debug/deps/fxsound_preset-0123456789abcdef"),
-        root.join("target/x86_64-pc-windows-msvc/release/fxsound.exe"),
+        root.join("target/x86_64-pc-windows-msvc/release/crossfx.exe"),
         root.join("target/release/examples/write_preset"),
         // A profile's name outside `target`, and `target` with something else below it.
-        root.join("build/release/fxsound"),
-        root.join("target/FxSound Port/fxsound.exe"),
+        root.join("build/release/crossfx"),
+        root.join("target/CrossFX/crossfx.exe"),
     ] {
         assert_eq!(source_tree_of(&exe), None, "{}", exe.display());
     }
@@ -62,12 +62,12 @@ fn only_cargos_own_profile_directories_in_a_checkout_are_a_source_tree() {
 fn cargos_layout_without_a_checkout_around_it_is_no_source_tree() {
     let tmp = ScratchDir::new("source-tree-bare");
     let root = tmp.join("root");
-    let exe = root.join("target").join("release").join("fxsound");
+    let exe = root.join("target").join("release").join("crossfx");
     std::fs::create_dir_all(root.join("assets").join("presets")).expect("mkdir");
     assert_eq!(source_tree_of(&exe), None, "presets without a Cargo.toml");
     std::fs::create_dir(root.join("Cargo.toml")).expect("mkdir");
     assert_eq!(source_tree_of(&exe), None, "a folder named Cargo.toml");
-    for exe in ["fxsound", "/fxsound", "/usr/bin/fxsound"] {
+    for exe in ["crossfx", "/crossfx", "/usr/bin/crossfx"] {
         assert_eq!(source_tree_of(Path::new(exe)), None, "{exe}");
     }
 }
@@ -77,7 +77,7 @@ fn cargos_layout_without_a_checkout_around_it_is_no_source_tree() {
 fn windows_matches_the_profile_and_target_names_without_regard_to_case() {
     let (_tmp, root) = fake_checkout("source-tree-case");
     assert_eq!(
-        source_tree_of(&root.join(r"Target\Release\fxsound.exe")),
+        source_tree_of(&root.join(r"Target\Release\crossfx.exe")),
         Some(root.clone())
     );
 }

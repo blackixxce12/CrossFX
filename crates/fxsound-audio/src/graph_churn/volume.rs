@@ -1,7 +1,7 @@
 //! The volume of FxSound's own nodes, against a private PipeWire (`docs/0.4.0-upstream.md`,
 //! U10 and U11).
 //!
-//! What a desktop's volume slider does to `fxsound_sink` is decided by PipeWire, not by this
+//! What a desktop's volume slider does to `crossfx_sink` is decided by PipeWire, not by this
 //! crate: the slider writes the node's `Props`, and the adapter in front of the stream applies
 //! them — somewhere. Where, relative to the process callback, is the whole of U11, so it is
 //! measured rather than assumed: pink noise into the sink, the volume leveller on, the sink turned
@@ -703,7 +703,6 @@ fn a_volume_remembered_at_start_is_where_its_device_starts_and_nothing_contradic
             target_volumes: vec![seeded("t_stereo", 2, 0.3), seeded("t_71", 8, 0.6)],
             ..StartOptions::default()
         },
-        None,
     )
     .expect("the engine should start");
     let mut said = Transcript::default();
@@ -737,60 +736,6 @@ fn a_volume_remembered_at_start_is_where_its_device_starts_and_nothing_contradic
         })
         .collect();
     assert!(reports.is_empty(), "{reports:?}");
-    handle.shutdown();
-}
-
-#[test]
-fn the_first_pair_after_an_upgrade_starts_at_the_level_wireplumber_kept_for_0_3_0() {
-    let Some(graph) = PrivateGraph::start("volinherit") else {
-        return;
-    };
-    if let Some(missing) = ["pw-dump", "pw-cli"]
-        .into_iter()
-        .find(|tool| !installed(tool))
-    {
-        skip(&format!(
-            "{missing} is not available, so the inherited volume was not checked"
-        ));
-        return;
-    }
-    // WirePlumber's memory as 0.3.0 left it, about −24 dB, and nothing in the app's: the first
-    // 0.4.0 start after an upgrade.
-    let state = graph.dir.join("stream-properties");
-    std::fs::write(
-        &state,
-        "[stream-properties]\n\
-         Audio/Sink:application.id:com.fxsound.FxSound={\"channelVolumes\":[0.064000, 0.064000], \
-         \"mute\":false, \"channelMap\":[\"FL\", \"FR\"], \"volume\":1.000000}\n",
-    )
-    .expect("WirePlumber's state file");
-    let handle =
-        AudioEngine::start_for_tests(Some(&graph.remote()), StartOptions::default(), Some(state))
-            .expect("the engine should start");
-    let mut said = Transcript::default();
-    said.until(
-        &handle,
-        "a device list",
-        |m| matches!(m, AudioToUi::Devices(d) if d.iter().any(|d| d.name == "t_71")),
-    );
-    handle.send(UiToAudio::SelectDevice {
-        node_name: "t_stereo".to_owned(),
-        direction: DeviceDirection::Output,
-    });
-    assert!(said.attached(&handle, DeviceDirection::Output, Some("t_stereo")));
-    assert_eq!(
-        graph.publishes(SINK_NODE_NAME, 2, 0.064),
-        Ok(()),
-        "not the unity a node WirePlumber may no longer restore is made with"
-    );
-    assert!(reported(
-        &mut said,
-        &handle,
-        DeviceDirection::Output,
-        "t_stereo",
-        2,
-        0.064
-    ));
     handle.shutdown();
 }
 

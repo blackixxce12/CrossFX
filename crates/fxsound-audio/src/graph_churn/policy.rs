@@ -36,7 +36,7 @@ use super::*;
 const POLICY_CONFIG: &str = r#"
 context.properties = {
     core.daemon                 = true
-    core.name                   = fxsound-test-0
+    core.name                   = crossfx-test-0
     support.dbus                = false
     default.clock.rate          = 48000
     default.clock.quantum       = 1024
@@ -89,7 +89,7 @@ context.objects = [
 /// that reaches past this graph — no hardware monitors, no D-Bus, no logind, no portal.
 const PROFILE: &str = r"
 wireplumber.profiles = {
-  fxsound-test = {
+  crossfx-test = {
     inherits = [ base ]
     metadata.sm-settings = required
     metadata.sm-objects = required
@@ -236,7 +236,7 @@ impl PolicyGraph {
         std::fs::write(
             graph
                 .dir
-                .join("config/wireplumber/wireplumber.conf.d/90-fxsound-test.conf"),
+                .join("config/wireplumber/wireplumber.conf.d/90-crossfx-test.conf"),
             PROFILE,
         )
         .expect("the graph's directory is ours");
@@ -244,9 +244,9 @@ impl PolicyGraph {
         let mut command = support::command("wireplumber");
         private_environment(&graph, &mut command);
         command
-            .args(["-p", "fxsound-test"])
+            .args(["-p", "crossfx-test"])
             // Warnings, and what FxSound's hook says it did ([`Self::session_manager_log`]).
-            .env("WIREPLUMBER_DEBUG", "2,s-fxsound:4")
+            .env("WIREPLUMBER_DEBUG", "2,s-crossfx:4")
             .env_remove("WIREPLUMBER_CONFIG_DIR")
             .stdin(Stdio::null())
             .stdout(Stdio::null())

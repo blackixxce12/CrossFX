@@ -30,7 +30,7 @@
 
 use fxsound_core::{AudioDevice, DeviceDirection};
 
-use crate::{AudioError, is_fxsound_node};
+use crate::{AudioError, is_crossfx_node};
 
 /// `SND_DEVICES_MIN_NUM_CHANS` (`audiopassthru/include/sndDevices.h:190`).
 ///
@@ -789,7 +789,7 @@ pub struct DeviceInfo {
 
 impl DeviceInfo {
     /// Build a device from a node's property dictionary, or `None` if the node is neither a sink
-    /// nor a source — or is one of FxSound's own nodes ([`is_fxsound_node`]), which must never be
+    /// nor a source — or is one of FxSound's own nodes ([`is_crossfx_node`]), which must never be
     /// listed as a device to attach to, or one of WirePlumber's internal Bluetooth nodes
     /// ([`BluezFacts::internal`]).
     ///
@@ -809,7 +809,7 @@ impl DeviceInfo {
         }
         // Ours by name, a per-application route's included: a route's sink is an `Audio/Sink` like
         // any other, and offered as a device it would let a lane play into its own route.
-        if is_fxsound_node(&name) {
+        if is_crossfx_node(&name) {
             return None;
         }
         let description = get("node.description")
@@ -1191,7 +1191,7 @@ pub fn candidates<'a>(
 /// when the user has ranked the direction's devices, upstream 1.2's priority list.
 ///
 /// `devices` may carry both directions; only those matching `direction` take part, and
-/// `our_node` — `fxsound_sink` or `fxsound_source` — is never a candidate. Nor is a device nothing
+/// `our_node` — `crossfx_sink` or `crossfx_source` — is never a candidate. Nor is a device nothing
 /// is plugged into while another can be heard ([`candidates`]): "present" below means present and
 /// heard. With an empty [`Preference::ranking`] the branch order is the one drawn at
 /// `docs/spec/12-audio-io.md` §19.5, which is in turn the order of
@@ -1978,8 +1978,8 @@ mod tests {
             (crate::AEC_MONITOR_NODE_NAME, "Audio/Source"),
             // A per-application route's sink and source are a sink and a source like any other:
             // only their names keep a lane from playing into its own route, or recording from it.
-            ("fxsound_route_o1", "Audio/Sink"),
-            ("fxsound_route_i2", "Audio/Source"),
+            ("crossfx_route_o1", "Audio/Sink"),
+            ("crossfx_route_i2", "Audio/Source"),
         ] {
             let props = [("media.class", class), ("node.name", name)];
             let parsed = DeviceInfo::from_props(1, &|key: &str| {
@@ -2139,8 +2139,8 @@ mod tests {
             Some("alsa_output.pci-0000_05_00.6.analog-stereo")
         );
         assert_eq!(
-            default_node_value("fxsound_sink"),
-            r#"{"name":"fxsound_sink"}"#
+            default_node_value("crossfx_sink"),
+            r#"{"name":"crossfx_sink"}"#
         );
         assert_eq!(parse_default_node_name("{}"), None);
         assert_eq!(parse_default_node_name(r#"{"name":""}"#), None);
@@ -2184,8 +2184,8 @@ mod tests {
             "default.configured.audio.source"
         );
         assert_eq!(
-            default_node_value("fxsound_source"),
-            r#"{"name":"fxsound_source"}"#
+            default_node_value("crossfx_source"),
+            r#"{"name":"crossfx_source"}"#
         );
     }
 
@@ -2450,7 +2450,7 @@ mod tests {
         let devices = devices_in(BLUEZ_HEADSET_HEAD_UNIT_DUMP);
         let output =
             |current_default: Option<&str>, previous: &[String], memory: &SelectionMemory| {
-                choose_output(&devices, "fxsound_sink", current_default, previous, memory)
+                choose_output(&devices, "crossfx_sink", current_default, previous, memory)
                     .expect("an output target")
             };
 
@@ -2477,7 +2477,7 @@ mod tests {
             most_recent_playback: LAPTOP_SPEAKERS.into(),
             ..SelectionMemory::default()
         };
-        let connected = output(Some("fxsound_sink"), &speakers_only, &at_our_default);
+        let connected = output(Some("crossfx_sink"), &speakers_only, &at_our_default);
         assert_eq!(connected.target, HEADSET_SINK);
         assert!(connected.write_previous_default);
 
@@ -2502,8 +2502,8 @@ mod tests {
         };
         let selection = choose_output(
             &devices,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &previous,
             &memory,
         )
@@ -2717,8 +2717,8 @@ mod tests {
         let mut memory = before.clone();
         let gone = choose_output(
             &without_headset,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &on_a2dp,
             &memory,
         )
@@ -2733,8 +2733,8 @@ mod tests {
         let speakers_only = vec![LAPTOP_SPEAKERS.to_owned()];
         let back = choose_output(
             &devices,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &speakers_only,
             &memory,
         )
@@ -2753,8 +2753,8 @@ mod tests {
         let mut in_one_run = before.clone();
         let kept = choose_output(
             &devices,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &on_a2dp,
             &in_one_run,
         )
@@ -2775,19 +2775,19 @@ mod tests {
     fn no_sinks_at_all_is_the_no_output_devices_state() {
         let memory = SelectionMemory::default();
         assert_eq!(
-            choose_output(&[], "fxsound_sink", None, &[], &memory),
+            choose_output(&[], "crossfx_sink", None, &[], &memory),
             Err(AudioError::NoOutputDevices)
         );
         // A graph containing only our own sink counts as empty too.
-        let only_us = [sink("fxsound_sink", 2)];
+        let only_us = [sink("crossfx_sink", 2)];
         assert_eq!(
-            choose_output(&only_us, "fxsound_sink", Some("fxsound_sink"), &[], &memory),
+            choose_output(&only_us, "crossfx_sink", Some("crossfx_sink"), &[], &memory),
             Err(AudioError::NoOutputDevices)
         );
         // And so does a graph with microphones but no speakers.
         let only_mics = [source("mic", 2)];
         assert_eq!(
-            choose_output(&only_mics, "fxsound_sink", None, &[], &memory),
+            choose_output(&only_mics, "crossfx_sink", None, &[], &memory),
             Err(AudioError::NoOutputDevices)
         );
     }
@@ -2795,13 +2795,13 @@ mod tests {
     #[test]
     fn no_sources_at_all_is_the_no_input_devices_state() {
         let memory = SelectionMemory::default();
-        let only_speakers = [sink("speakers", 2), source("fxsound_source", 2)];
+        let only_speakers = [sink("speakers", 2), source("crossfx_source", 2)];
         assert_eq!(
             choose_device(
                 &only_speakers,
                 DeviceDirection::Input,
-                "fxsound_source",
-                Some("fxsound_source"),
+                "crossfx_source",
+                Some("crossfx_source"),
                 &[],
                 &memory,
                 &Preference::default()
@@ -2833,7 +2833,7 @@ mod tests {
         let input = choose_device(
             &devices,
             DeviceDirection::Input,
-            "fxsound_source",
+            "crossfx_source",
             Some("internal-mic"),
             &[],
             &memory,
@@ -2846,7 +2846,7 @@ mod tests {
              source"
         );
 
-        let output = choose_output(&devices, "fxsound_sink", Some("speakers"), &[], &memory)
+        let output = choose_output(&devices, "crossfx_sink", Some("speakers"), &[], &memory)
             .expect("an output target");
         assert_eq!(output.target, "usb-sink", "rule 4 for outputs, as before");
     }
@@ -2861,8 +2861,8 @@ mod tests {
         let sources = [source("mono", 1), source("stereo", 2)];
         let sinks = [sink("mono", 1), sink("stereo", 2)];
         for (devices, direction, ours) in [
-            (&sources, DeviceDirection::Input, "fxsound_source"),
-            (&sinks, DeviceDirection::Output, "fxsound_sink"),
+            (&sources, DeviceDirection::Input, "crossfx_source"),
+            (&sinks, DeviceDirection::Output, "crossfx_sink"),
         ] {
             let selection = choose_device(
                 devices,
@@ -2903,7 +2903,7 @@ mod tests {
         let sinks = [sink("speakers", 2), sink("usb-dac", 2)];
         let mut memory = SelectionMemory::default();
         let selection =
-            choose_output(&sinks, "fxsound_sink", Some("usb-dac"), &[], &memory).expect("a target");
+            choose_output(&sinks, "crossfx_sink", Some("usb-dac"), &[], &memory).expect("a target");
         assert_eq!(selection.target, "usb-dac");
         assert!(!selection.write_previous_default);
 
@@ -2926,7 +2926,7 @@ mod tests {
         let selection = choose_device(
             &sources,
             DeviceDirection::Input,
-            "fxsound_source",
+            "crossfx_source",
             Some("fifine-mic"),
             &[],
             &memory,
@@ -2939,7 +2939,7 @@ mod tests {
         // The same holds for outputs, and a pick that is *not* present still lets rule 2 run.
         let sinks = [sink("speakers", 2), sink("usb-dac", 2)];
         let selection =
-            choose_output(&sinks, "fxsound_sink", Some("usb-dac"), &[], &memory).expect("a target");
+            choose_output(&sinks, "crossfx_sink", Some("usb-dac"), &[], &memory).expect("a target");
         assert_eq!(
             selection.target, "usb-dac",
             "internal-mic is not a sink; rule 2 applies"
@@ -2954,7 +2954,7 @@ mod tests {
             most_recent_playback: "gone".into(),
             ..SelectionMemory::default()
         };
-        let selection = choose_output(&sinks, "fxsound_sink", Some("fxsound_sink"), &[], &memory)
+        let selection = choose_output(&sinks, "crossfx_sink", Some("crossfx_sink"), &[], &memory)
             .expect("a target");
         assert_eq!(selection.target, "only-one");
     }
@@ -2967,7 +2967,7 @@ mod tests {
             user_selected: "usb-dac".into(),
             ..SelectionMemory::default()
         };
-        let selection = choose_output(&sinks, "fxsound_sink", Some("speakers"), &[], &memory)
+        let selection = choose_output(&sinks, "crossfx_sink", Some("speakers"), &[], &memory)
             .expect("a target");
         assert_eq!(selection.target, "usb-dac");
         assert!(!selection.write_previous_default);
@@ -2984,8 +2984,8 @@ mod tests {
         };
         let selection = choose_output(
             &sinks,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &previous,
             &memory,
         )
@@ -3015,8 +3015,8 @@ mod tests {
         };
         let selection = choose_output(
             &sinks,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &previous,
             &memory,
         )
@@ -3039,8 +3039,8 @@ mod tests {
         };
         let selection = choose_output(
             &sinks,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &previous,
             &memory,
         )
@@ -3070,8 +3070,8 @@ mod tests {
         let selection = choose_device(
             &sources,
             DeviceDirection::Input,
-            "fxsound_source",
-            Some("fxsound_source"),
+            "crossfx_source",
+            Some("crossfx_source"),
             &previous,
             &memory,
             &Preference::default(),
@@ -3096,8 +3096,8 @@ mod tests {
         };
         let selection = choose_output(
             &sinks,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &previous,
             &memory,
         )
@@ -3118,8 +3118,8 @@ mod tests {
         let previous = vec!["speakers".to_owned(), "gone".to_owned()];
         let selection = choose_output(
             &sinks,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &previous,
             &SelectionMemory {
                 most_recent_default: "speakers".into(),
@@ -3137,8 +3137,8 @@ mod tests {
         let previous = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
         let selection = choose_output(
             &sinks,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &previous,
             &SelectionMemory {
                 most_recent_default: "b".into(),
@@ -3164,8 +3164,8 @@ mod tests {
         let sinks = [sink("a", 2), sink("b", 2)];
         let selection = choose_output(
             &sinks,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &[],
             &SelectionMemory {
                 most_recent_default: "b".into(),
@@ -3186,8 +3186,8 @@ mod tests {
         let with = |memory: SelectionMemory| {
             choose_output(
                 &sinks,
-                "fxsound_sink",
-                Some("fxsound_sink"),
+                "crossfx_sink",
+                Some("crossfx_sink"),
                 &previous,
                 &memory,
             )
@@ -3257,7 +3257,7 @@ mod tests {
             ..SelectionMemory::default()
         };
         let selection =
-            choose_output(&sinks, "fxsound_sink", Some("mono-bt"), &[], &memory).expect("a target");
+            choose_output(&sinks, "crossfx_sink", Some("mono-bt"), &[], &memory).expect("a target");
         assert_eq!(selection.target, "mono-bt");
     }
 
@@ -3273,7 +3273,7 @@ mod tests {
             ..SelectionMemory::default()
         };
         let selection =
-            choose_output(&sinks, "fxsound_sink", Some("mono-bt"), &[], &memory).expect("a target");
+            choose_output(&sinks, "crossfx_sink", Some("mono-bt"), &[], &memory).expect("a target");
         assert_eq!(selection.target, "mono-bt");
     }
 
@@ -3286,7 +3286,7 @@ mod tests {
             ..SelectionMemory::default()
         };
         let selection =
-            choose_output(&sinks, "fxsound_sink", Some("mono-a"), &[], &memory).expect("a target");
+            choose_output(&sinks, "crossfx_sink", Some("mono-a"), &[], &memory).expect("a target");
         assert_eq!(selection.target, "mono-a");
         assert!(selection.write_previous_default, "rule 6, as for any sink");
 
@@ -3294,8 +3294,8 @@ mod tests {
         let only = [sink("mono-only", 1)];
         let selection = choose_output(
             &only,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &[],
             &SelectionMemory::default(),
         )
@@ -3851,8 +3851,8 @@ mod tests {
         preference: &Preference,
     ) -> Selection {
         let ours = match direction {
-            DeviceDirection::Output => "fxsound_sink",
-            DeviceDirection::Input => "fxsound_source",
+            DeviceDirection::Output => "crossfx_sink",
+            DeviceDirection::Input => "crossfx_source",
         };
         let default = devices
             .iter()
@@ -4339,8 +4339,8 @@ mod tests {
         let devices = [unheard(sink("hdmi", 2)), sink("speakers", 2)];
         let selection = choose_output(
             &devices,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &[],
             &SelectionMemory {
                 most_recent_default: "gone".into(),
@@ -4363,7 +4363,7 @@ mod tests {
         };
         let selection = choose_output(
             &devices,
-            "fxsound_sink",
+            "crossfx_sink",
             Some("hdmi"),
             &names(&["speakers"]),
             &everything_says_hdmi,
@@ -4398,18 +4398,18 @@ mod tests {
             "the session default, following the system"
         );
         assert_eq!(
-            candidates(&devices, DeviceDirection::Output, "fxsound_sink").len(),
+            candidates(&devices, DeviceDirection::Output, "crossfx_sink").len(),
             2
         );
     }
 
     #[test]
     fn a_lone_sleeping_monitor_keeps_the_output_lane_rather_than_ending_in_no_devices() {
-        let devices = [unheard(sink("hdmi", 2)), sink("fxsound_sink", 2)];
+        let devices = [unheard(sink("hdmi", 2)), sink("crossfx_sink", 2)];
         let selection = choose_output(
             &devices,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &names(&["hdmi"]),
             &on("hdmi"),
         );
@@ -4430,14 +4430,14 @@ mod tests {
         let sources = [
             unheard(source("headset-mic", 1)),
             unheard(source("line-in", 2)),
-            source("fxsound_source", 2),
+            source("crossfx_source", 2),
         ];
         let lone = [unheard(source("headset-mic", 1))];
         assert_eq!(
             choose_device(
                 &lone,
                 DeviceDirection::Input,
-                "fxsound_source",
+                "crossfx_source",
                 None,
                 &[],
                 &SelectionMemory::default(),
@@ -4460,7 +4460,7 @@ mod tests {
             "the ranked rules keep the device the lane is on"
         );
         assert_eq!(
-            candidates(&sources, DeviceDirection::Input, "fxsound_source").len(),
+            candidates(&sources, DeviceDirection::Input, "crossfx_source").len(),
             2,
             "every real microphone, and never ours"
         );
@@ -4491,7 +4491,7 @@ mod tests {
         let devices = [
             unheard(sink("hdmi", 2)),
             sink("speakers", 2),
-            sink("fxsound_sink", 2),
+            sink("crossfx_sink", 2),
             source("mic", 1),
             unheard(source("headset-mic", 1)),
         ];
@@ -4501,8 +4501,8 @@ mod tests {
                 .map(|device| device.name.clone())
                 .collect()
         };
-        assert_eq!(named(DeviceDirection::Output, "fxsound_sink"), ["speakers"]);
-        assert_eq!(named(DeviceDirection::Input, "fxsound_source"), ["mic"]);
+        assert_eq!(named(DeviceDirection::Output, "crossfx_sink"), ["speakers"]);
+        assert_eq!(named(DeviceDirection::Input, "crossfx_source"), ["mic"]);
     }
 
     #[test]
@@ -4575,8 +4575,8 @@ mod tests {
         assert_eq!(devices[0].name, HDMI1);
         let selection = choose_output(
             &devices,
-            "fxsound_sink",
-            Some("fxsound_sink"),
+            "crossfx_sink",
+            Some("crossfx_sink"),
             &[],
             &SelectionMemory {
                 most_recent_default: "gone".into(),

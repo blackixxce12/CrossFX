@@ -364,7 +364,7 @@ fn a_running_player_with_a_rule_gets_a_route_pair_and_is_moved_onto_it_until_it_
     );
     assert_eq!(
         prop(&sink, "node.link-group").as_deref(),
-        Some("fxsound-route-o1")
+        Some("crossfx-route-o1")
     );
     assert_eq!(
         prop(&sink, "priority.session").as_deref(),
@@ -382,7 +382,7 @@ fn a_running_player_with_a_rule_gets_a_route_pair_and_is_moved_onto_it_until_it_
     );
     assert_eq!(
         prop(&play, "node.link-group").as_deref(),
-        Some("fxsound-route-o1")
+        Some("crossfx-route-o1")
     );
     assert_eq!(
         prop(&play, "node.passive").as_deref(),
@@ -474,7 +474,7 @@ fn a_rule_taken_away_moves_the_stream_back_and_takes_its_route_down_at_once() {
     )]));
     let sink = RouteSlot::new(DeviceDirection::Output, 1).node_name();
     let Some(Ok(nodes)) = unless_skipped(
-        graph.routes_settle_on(&[&sink, "fxsound_route_o1_play"]),
+        graph.routes_settle_on(&[&sink, "crossfx_route_o1_play"]),
         "pw-dump",
         "the route pair",
     ) else {
@@ -535,10 +535,10 @@ fn every_stream_is_moved_back_before_the_engine_exits() {
     ]));
     let Some(Ok(nodes)) = unless_skipped(
         graph.routes_settle_on(&[
-            "fxsound_route_o1",
-            "fxsound_route_o1_play",
-            "fxsound_route_o2",
-            "fxsound_route_o2_play",
+            "crossfx_route_o1",
+            "crossfx_route_o1_play",
+            "crossfx_route_o2",
+            "crossfx_route_o2_play",
         ]),
         "pw-dump",
         "two route pairs",
@@ -547,8 +547,8 @@ fn every_stream_is_moved_back_before_the_engine_exits() {
     };
     // The game started first, so its preset took the first number.
     let keys = [
-        moved(game_id, serial(&nodes, "fxsound_route_o1")),
-        moved(browser_id, serial(&nodes, "fxsound_route_o2")),
+        moved(game_id, serial(&nodes, "crossfx_route_o1")),
+        moved(browser_id, serial(&nodes, "crossfx_route_o2")),
     ];
     if let Some(targets) = unless_skipped(
         graph.targets_settle_on(&keys),
@@ -669,10 +669,10 @@ fn a_stream_that_may_not_move_is_left_alone_and_gets_no_route() {
     let names: Vec<&str> = nodes.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(
         names,
-        vec!["fxsound_route_o1", "fxsound_route_o1_play"],
+        vec!["crossfx_route_o1", "crossfx_route_o1_play"],
         "no route for Gaming nor Studio: none of their applications may be moved"
     );
-    let movies = serial(&nodes, "fxsound_route_o1");
+    let movies = serial(&nodes, "crossfx_route_o1");
     let marker = moved(marker_id, movies);
     if let Some(targets) = unless_skipped(graph.stream_targets(), "pw-metadata", "the keys") {
         assert_eq!(targets, vec![marker.clone()]);
@@ -774,7 +774,7 @@ fn a_recorder_with_a_rule_gets_an_input_route_behind_the_microphone_which_goes_w
     for node in [&source, &capture] {
         assert_eq!(
             prop(node, "node.link-group").as_deref(),
-            Some("fxsound-route-i1")
+            Some("crossfx-route-i1")
         );
     }
     let key = moved(chat_id, serial(&nodes, &source));
@@ -863,7 +863,7 @@ fn a_fifth_preset_stays_on_the_lane_and_the_window_is_told_once() {
         .iter()
         .enumerate()
         .map(|(index, &(id, _))| {
-            moved(id, serial(&nodes, &format!("fxsound_route_o{}", index + 1)))
+            moved(id, serial(&nodes, &format!("crossfx_route_o{}", index + 1)))
         })
         .collect();
     let left = format!("App {}", by_id[MAX_ROUTES_PER_LANE].1);
@@ -898,12 +898,12 @@ fn game_on_its_route(graph: &PrivateGraph, handle: &EngineHandle) -> Option<(u64
         "Gaming",
     )]));
     let nodes = unless_skipped(
-        graph.routes_settle_on(&["fxsound_route_o1", "fxsound_route_o1_play"]),
+        graph.routes_settle_on(&["crossfx_route_o1", "crossfx_route_o1_play"]),
         "pw-dump",
         "the route pair",
     )?
     .unwrap_or_else(|seen| panic!("one route pair, not {seen:?}"));
-    let serial = serial(&nodes, "fxsound_route_o1");
+    let serial = serial(&nodes, "crossfx_route_o1");
     let key = moved(game_id, serial);
     unless_skipped(
         graph.targets_settle_on(std::slice::from_ref(&key)),
@@ -939,25 +939,25 @@ fn a_route_follows_its_lane_to_other_speakers_and_the_stream_follows_the_route()
     // The route is rebuilt on the new speakers — a new node, at their format — and the game is
     // moved onto the new node.
     let Some(Ok(())) = unless_skipped(
-        graph.prop_settles_on("fxsound_route_o1_play", "target.object", other),
+        graph.prop_settles_on("crossfx_route_o1_play", "target.object", other),
         "pw-dump",
         "the route's new device",
     ) else {
         panic!("the route should follow its lane to {other}");
     };
     let Some(Ok(nodes)) = unless_skipped(
-        graph.routes_settle_on(&["fxsound_route_o1", "fxsound_route_o1_play"]),
+        graph.routes_settle_on(&["crossfx_route_o1", "crossfx_route_o1_play"]),
         "pw-dump",
         "the rebuilt route",
     ) else {
         panic!("one route pair");
     };
-    let after = serial(&nodes, "fxsound_route_o1");
+    let after = serial(&nodes, "crossfx_route_o1");
     assert_ne!(after, before, "a new node");
     let channels = if other == "t_71" { "8" } else { "2" };
     assert_eq!(
         graph
-            .node_prop("fxsound_route_o1", "audio.channels")
+            .node_prop("crossfx_route_o1", "audio.channels")
             .flatten()
             .as_deref(),
         Some(channels),
@@ -1008,7 +1008,7 @@ fn a_restarted_connection_rebuilds_the_routes_and_takes_its_own_old_keys_over() 
     ) else {
         panic!("the route should be rebuilt on the new connection");
     };
-    let key = moved(game_id, serial(&nodes, "fxsound_route_o1"));
+    let key = moved(game_id, serial(&nodes, "crossfx_route_o1"));
     if let Some(targets) = unless_skipped(
         graph.targets_settle_on(std::slice::from_ref(&key)),
         "pw-metadata",
@@ -1139,7 +1139,7 @@ fn new_parameters_for_a_preset_reach_its_route_without_a_new_pair() {
 
 /// Game X ran through "Gaming" on o1 and quit; the number went to Discord's "Voice". X starts
 /// again, and WirePlumber writes back the target it remembers for it by name —
-/// `fxsound_route_o1`, which runs Voice now — the moment its stream appears. X gets a route of its
+/// `crossfx_route_o1`, which runs Voice now — the moment its stream appears. X gets a route of its
 /// own, and is moved onto it.
 #[test]
 fn a_player_restored_onto_a_route_another_preset_now_runs_is_moved_onto_its_own() {
@@ -1162,13 +1162,13 @@ fn a_player_restored_onto_a_route_another_preset_now_runs_is_moved_onto_its_own(
         output_rule(named("Game X"), "Gaming"),
     ]));
     let Some(Ok(nodes)) = unless_skipped(
-        graph.routes_settle_on(&["fxsound_route_o1", "fxsound_route_o1_play"]),
+        graph.routes_settle_on(&["crossfx_route_o1", "crossfx_route_o1_play"]),
         "pw-dump",
         "Discord's route",
     ) else {
         panic!("Discord's route should be built");
     };
-    let voice = serial(&nodes, "fxsound_route_o1");
+    let voice = serial(&nodes, "crossfx_route_o1");
     if let Some(targets) = unless_skipped(
         graph.targets_settle_on(&[moved(discord_id, voice)]),
         "pw-metadata",
@@ -1193,10 +1193,10 @@ fn a_player_restored_onto_a_route_another_preset_now_runs_is_moved_onto_its_own(
 
     let Some(Ok(nodes)) = unless_skipped(
         graph.routes_settle_on(&[
-            "fxsound_route_o1",
-            "fxsound_route_o1_play",
-            "fxsound_route_o2",
-            "fxsound_route_o2_play",
+            "crossfx_route_o1",
+            "crossfx_route_o1_play",
+            "crossfx_route_o2",
+            "crossfx_route_o2_play",
         ]),
         "pw-dump",
         "the game's own route",
@@ -1204,13 +1204,13 @@ fn a_player_restored_onto_a_route_another_preset_now_runs_is_moved_onto_its_own(
         panic!("the game should get a route of its own, not stay on Discord's");
     };
     assert_eq!(
-        serial(&nodes, "fxsound_route_o1"),
+        serial(&nodes, "crossfx_route_o1"),
         voice,
         "Discord's is left alone"
     );
     let keys = [
         moved(discord_id, voice),
-        moved(game_id, serial(&nodes, "fxsound_route_o2")),
+        moved(game_id, serial(&nodes, "crossfx_route_o2")),
     ];
     if let Some(targets) = unless_skipped(
         graph.targets_settle_on(&keys),
@@ -1227,7 +1227,7 @@ fn a_player_restored_onto_a_route_another_preset_now_runs_is_moved_onto_its_own(
 }
 
 /// A game opens a second stream while its first plays — a new level, the next video — and
-/// WirePlumber restores it onto `fxsound_route_o1`, its own route, the moment it appears. The key
+/// WirePlumber restores it onto `crossfx_route_o1`, its own route, the moment it appears. The key
 /// is FxSound's: the stream is reported on Gaming, and keeps the route in use once the first
 /// stream has gone, for as long as it plays.
 #[test]
@@ -1286,10 +1286,10 @@ fn a_player_restored_onto_its_own_route_keeps_the_route_in_use() {
         assert_eq!(
             nodes,
             vec![
-                ("fxsound_route_o1".to_owned(), route),
+                ("crossfx_route_o1".to_owned(), route),
                 (
-                    "fxsound_route_o1_play".to_owned(),
-                    serial(&nodes, "fxsound_route_o1_play")
+                    "crossfx_route_o1_play".to_owned(),
+                    serial(&nodes, "crossfx_route_o1_play")
                 ),
             ],
             "the route is in use, and kept, well past the idle period"
@@ -1324,7 +1324,7 @@ fn a_route_an_application_names_as_its_own_target_is_kept_while_it_plays_through
         "--playback",
         "t_tester",
         "Tester",
-        "target.object = fxsound_route_o1",
+        "target.object = crossfx_route_o1",
     ) else {
         return;
     };
@@ -1349,7 +1349,7 @@ fn a_route_an_application_names_as_its_own_target_is_kept_while_it_plays_through
     let still = |why: &str| {
         if let Some(nodes) = unless_skipped(graph.route_nodes(), "pw-dump", "the route") {
             assert_eq!(nodes.len(), 2, "{why}: {nodes:?}");
-            assert_eq!(serial(&nodes, "fxsound_route_o1"), route, "{why}");
+            assert_eq!(serial(&nodes, "crossfx_route_o1"), route, "{why}");
         }
     };
     still("in use by the tester well past the idle period");
@@ -1424,7 +1424,7 @@ fn a_stream_that_will_not_be_moved_again_keeps_the_route_it_was_restored_onto() 
     std::thread::sleep(IDLE * 2);
     if let Some(nodes) = unless_skipped(graph.route_nodes(), "pw-dump", "the route") {
         assert_eq!(nodes.len(), 2, "kept for the old player: {nodes:?}");
-        assert_eq!(serial(&nodes, "fxsound_route_o1"), route);
+        assert_eq!(serial(&nodes, "crossfx_route_o1"), route);
     }
     drop(old);
     if let Some(settled) = unless_skipped(graph.routes_settle_on(&[]), "pw-dump", "the route going")

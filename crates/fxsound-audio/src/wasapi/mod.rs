@@ -682,8 +682,6 @@ struct Windows {
     /// `None` when the policy class is not there, which leaves every default where it is.
     policy: Option<com::PolicyConfig>,
     events: Sender<Event>,
-    own_pid: u32,
-    own_image: Option<String>,
     record: record::Record,
     /// What the record holds, as read at the start and kept since: every keeping writes it whole.
     kept: record::Kept,
@@ -707,7 +705,6 @@ impl Windows {
                 );
             })
             .ok();
-        let own_pid = com::own_pid();
         let record = record::Record::of_user();
         let kept = record.read();
         Ok(Self {
@@ -715,8 +712,6 @@ impl Windows {
             _watch: watch,
             policy,
             events,
-            own_pid,
-            own_image: com::process_image(own_pid),
             record,
             kept,
             original: None,
@@ -829,7 +824,7 @@ impl System for Windows {
             self.original = None;
         }
         let processes = com::processes();
-        let process = original::find(&processes, self.own_pid, self.own_image.as_deref())?;
+        let process = original::find(&processes)?;
         let name = format!(
             "{} (process {})",
             process.image.as_deref().unwrap_or(&process.exe),
@@ -1416,7 +1411,7 @@ impl<S: System> Engine<S> {
     /// The device list as the GUI wants it: every output by name, then every input by name —
     /// the Linux engine's order, which the GUI draws its sections from.
     fn devices(&self) -> Vec<AudioDevice> {
-        let ours = self.fxsound_endpoints();
+        let ours = self.crossfx_endpoints();
         let mut published = Vec::new();
         for direction in DeviceDirection::ALL {
             let default = self.defaults.get(direction).main();
@@ -1457,7 +1452,7 @@ impl<S: System> Engine<S> {
 
     /// Every device offered ([`Self::devices`]) that `keep` keeps, as the device rules see devices.
     fn offered_infos(&self, keep: impl Fn(&Endpoint) -> bool) -> Vec<DeviceInfo> {
-        let ours = self.fxsound_endpoints();
+        let ours = self.crossfx_endpoints();
         self.endpoints
             .iter()
             .filter(|endpoint| endpoints::is_offered(endpoint, &ours) && keep(endpoint))
@@ -1587,11 +1582,11 @@ impl<S: System> Engine<S> {
         })
     }
 
-    /// FxSound's own endpoints, never a device (`endpoints::fxsound_endpoints`): its driver's, and
+    /// FxSound's own endpoints, never a device (`endpoints::crossfx_endpoints`): its driver's, and
     /// both sides of the cable each lane stands on — the output lane's by its plan whether or not
     /// it is on, because a cable it would capture is never a device to play to, and the one it
     /// stands on now besides; the input lane's while it is on.
-    fn fxsound_endpoints(&self) -> Vec<String> {
+    fn crossfx_endpoints(&self) -> Vec<String> {
         let planned = endpoints::plan(&self.endpoints, false, None, |_| false).output;
         let lanes: Vec<&VirtualDevice> = [
             planned.as_ref(),
@@ -1609,14 +1604,14 @@ impl<S: System> Engine<S> {
         .into_iter()
         .flatten()
         .collect();
-        endpoints::fxsound_endpoints(&self.endpoints, &lanes)
+        endpoints::crossfx_endpoints(&self.endpoints, &lanes)
     }
 
     /// Whether `id` is FxSound's, never the user's device nor the default they had before
     /// FxSound: one of FxSound's own endpoints, the endpoint a lane holds its defaults on — listed
     /// or not — or the one FxSound's record says a run left them on ([`record`]).
     fn is_virtual(&self, id: &str) -> bool {
-        self.fxsound_endpoints().iter().any(|ours| ours == id)
+        self.crossfx_endpoints().iter().any(|ours| ours == id)
             || self.lanes.iter().any(|(direction, lane)| {
                 lane.virtual_device
                     .as_ref()
@@ -1662,7 +1657,7 @@ impl<S: System> Engine<S> {
 
     /// Whether `id` is a real device of `direction` that is there now.
     fn is_listed(&self, direction: DeviceDirection, id: &str) -> bool {
-        let ours = self.fxsound_endpoints();
+        let ours = self.crossfx_endpoints();
         self.endpoints.iter().any(|endpoint| {
             endpoint.id == id
                 && endpoint.direction == direction

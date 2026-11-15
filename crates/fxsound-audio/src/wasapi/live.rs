@@ -269,17 +269,13 @@ fn the_default_device_policy_is_the_class_and_the_layout_the_engine_declares() {
 fn the_original_fxsound_is_found_whenever_it_runs_and_this_process_never_is() {
     let processes = com::processes();
     let own = com::own_pid();
-    let own_image = com::process_image(own);
-    assert!(own_image.is_some(), "this process reads its own path");
     assert!(processes.iter().any(|process| process.pid == own));
-    let found = original::find(&processes, own, own_image.as_deref());
-    let original_runs = processes.iter().any(|process| {
-        process.exe.eq_ignore_ascii_case("fxsound.exe")
-            && process
-                .image
-                .as_deref()
-                .is_some_and(|image| image.to_lowercase().contains(r"\fxsound llc\"))
-    });
+    let found = original::find(&processes);
+    // Found exactly when a process called `FxSound.exe` runs: never this one, a test harness, nor
+    // CrossFX, which is `crossfx.exe`.
+    let original_runs = processes
+        .iter()
+        .any(|process| process.exe.eq_ignore_ascii_case("fxsound.exe"));
     assert_eq!(found.is_some(), original_runs, "{found:?}");
     assert!(found.is_none_or(|process| process.pid != own));
     // Once found, it is watched through its process, which runs.
@@ -331,9 +327,8 @@ fn who_records_from_each_endpoint_is_watched_and_read_without_changing_anything(
     let Some((_apartment, enumerator, all)) = system() else {
         return;
     };
-    let own = com::own_pid();
     let processes = com::processes();
-    let original = original::find(&processes, own, com::process_image(own).as_deref());
+    let original = original::find(&processes);
     let (events, _heard) = crossbeam_channel::unbounded();
     for endpoint in &all {
         let device = enumerator

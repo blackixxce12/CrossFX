@@ -1,7 +1,7 @@
 //! Whether the original FxSound — FxSound LLC's, `C:\Program Files\FxSound LLC\FxSound\FxSound.exe`
 //! — is running.
 //!
-//! It holds the same virtual device this port's output lane stands on: it makes "FxSound Speakers"
+//! It holds the same virtual device CrossFX's output lane stands on: it makes "FxSound Speakers"
 //! the default, captures it and plays it to the speakers itself. Two programs doing that at once
 //! play every sound twice, each through its own chain, and each takes the default back from the
 //! other whenever the other moves it (`sndDevicesDeviceCallbacks.cpp:95-156`: the original reads a
@@ -9,16 +9,15 @@
 //! aside: it neither takes the default nor processes, and the user is told why
 //! ([`crate::ORIGINAL_FXSOUND_RUNNING`]).
 //!
-//! The original's executable is called `FxSound.exe` and so is this port's (`fxsound.exe`): the
-//! two are told apart by path, as reported by the same call for both, never by name alone. A
-//! process of that name whose path cannot be read is taken for the original, which is the
-//! direction that is safe to be wrong in: standing aside for nothing costs the user processing,
-//! fighting the original over the default costs them their sound.
+//! The original's executable is called `FxSound.exe`; CrossFX's is `crossfx.exe`, so every process
+//! called `FxSound.exe`, in any case and wherever it runs, is taken for the original. That is the
+//! direction that is safe to be wrong in: standing aside for a program that only shares the name
+//! costs the user processing, while fighting the original over the default would cost them their
+//! sound.
 //!
 //! Pure; the process list is `super::com::processes`.
 
-/// The executable both FxSounds are called by, compared without regard to case as Windows
-/// compares file names.
+/// The original's executable, compared without regard to case as Windows compares file names.
 pub(crate) const IMAGE_NAME: &str = "fxsound.exe";
 
 /// One running process, as the process list gives it.
@@ -27,33 +26,17 @@ pub(crate) struct Process {
     pub(crate) pid: u32,
     /// The executable's file name (`PROCESSENTRY32W::szExeFile`).
     pub(crate) exe: String,
-    /// The executable's full path (`QueryFullProcessImageNameW`), when it could be read.
+    /// The executable's full path (`QueryFullProcessImageNameW`), when it could be read: for the
+    /// log line that names the original, never to tell it from anything.
     pub(crate) image: Option<String>,
 }
 
-/// The original FxSound among `processes`, if it runs: a process called `FxSound.exe` that is not
-/// this process and whose image is not this process's (`own_image`, read the same way).
-pub(crate) fn find<'a>(
-    processes: &'a [Process],
-    own_pid: u32,
-    own_image: Option<&str>,
-) -> Option<&'a Process> {
-    processes.iter().find(|process| {
-        process.pid != own_pid
-            && process.exe.to_lowercase() == IMAGE_NAME
-            && match (process.image.as_deref(), own_image) {
-                (Some(image), Some(own)) => !same_path(image, own),
-                // Unreadable: taken for the original (module docs).
-                _ => true,
-            }
-    })
-}
-
-/// Whether two paths name the same file, as Windows compares paths: without regard to case, and
-/// with or without the `\\?\` prefix a path read one way or another may carry.
-fn same_path(a: &str, b: &str) -> bool {
-    let plain = |path: &str| path.trim_start_matches(r"\\?\").to_lowercase();
-    plain(a) == plain(b)
+/// The original FxSound among `processes`, if it runs: the first process called `FxSound.exe`,
+/// without regard to case (module docs).
+pub(crate) fn find(processes: &[Process]) -> Option<&Process> {
+    processes
+        .iter()
+        .find(|process| process.exe.eq_ignore_ascii_case(IMAGE_NAME))
 }
 
 #[cfg(test)]
@@ -61,7 +44,7 @@ mod tests {
     use super::*;
 
     const ORIGINAL: &str = r"C:\Program Files\FxSound LLC\FxSound\FxSound.exe";
-    const OURS: &str = r"C:\Users\Администратор\AppData\Local\Programs\FxSound\fxsound.exe";
+    const CROSSFX: &str = r"C:\Program Files\CrossFX\crossfx.exe";
 
     fn process(pid: u32, exe: &str, image: Option<&str>) -> Process {
         Process {
@@ -72,39 +55,62 @@ mod tests {
     }
 
     #[test]
-    fn the_original_is_the_fxsound_exe_that_is_not_this_one() {
+    fn the_original_is_found_among_other_processes() {
         let processes = [
             process(4, "System", None),
-            process(100, "fxsound.exe", Some(OURS)),
+            process(100, "crossfx.exe", Some(CROSSFX)),
             process(12_364, "FxSound.exe", Some(ORIGINAL)),
         ];
-        let found = find(&processes, 100, Some(OURS)).expect("the original");
+        let found = find(&processes).expect("the original");
         assert_eq!(found.pid, 12_364);
-        // Alone, this port finds nothing.
-        assert_eq!(find(&processes[..2], 100, Some(OURS)), None);
+        assert_eq!(found.image.as_deref(), Some(ORIGINAL));
     }
 
     #[test]
-    fn a_second_copy_of_this_port_is_not_the_original_however_its_path_is_spelt() {
-        let shouted = OURS.to_uppercase();
-        let prefixed = format!(r"\\?\{OURS}");
-        for image in [OURS, shouted.as_str(), prefixed.as_str()] {
-            let processes = [process(200, "FXSOUND.EXE", Some(image))];
-            assert_eq!(find(&processes, 100, Some(OURS)), None, "{image}");
+    fn crossfx_exe_is_never_the_original() {
+        let shouted = CROSSFX.to_uppercase();
+        let prefixed = format!(r"\\?\{CROSSFX}");
+        for (exe, image) in [
+            ("crossfx.exe", Some(CROSSFX)),
+            ("CROSSFX.EXE", Some(shouted.as_str())),
+            ("crossfx.exe", Some(prefixed.as_str())),
+            ("crossfx.exe", None),
+        ] {
+            let processes = [process(4, "System", None), process(100, exe, image)];
+            assert_eq!(find(&processes), None, "{exe} {image:?}");
         }
     }
 
     #[test]
-    fn an_fxsound_exe_whose_path_cannot_be_read_is_taken_for_the_original() {
-        let processes = [process(12_364, "FxSound.exe", None)];
-        assert!(find(&processes, 100, Some(OURS)).is_some());
-        // And so is every other one, when this process cannot read its own path.
-        let processes = [process(12_364, "FxSound.exe", Some(ORIGINAL))];
-        assert!(find(&processes, 100, None).is_some());
-        // A process of another name is nobody's FxSound, path or none.
-        assert_eq!(
-            find(&[process(7, "fxsound-helper.exe", None)], 100, Some(OURS)),
-            None
-        );
+    fn every_fxsound_exe_is_the_original_wherever_it_runs() {
+        // Not only the original's folder: whatever is called `FxSound.exe` holds the virtual
+        // device the way the original does, or may, and standing aside is the safe direction.
+        for (exe, image) in [
+            ("FxSound.exe", Some(r"C:\Tools\FxSound.exe")),
+            ("FXSOUND.EXE", Some(r"C:\Tools\FXSOUND.EXE")),
+            ("fxsound.exe", None),
+        ] {
+            let processes = [
+                process(100, "crossfx.exe", Some(CROSSFX)),
+                process(7, exe, image),
+            ];
+            assert_eq!(
+                find(&processes).map(|process| process.pid),
+                Some(7),
+                "{exe} {image:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_process_of_another_name_is_not_the_original() {
+        for exe in [
+            "fxsound-helper.exe",
+            "FxSound.exe.bak",
+            "notfxsound.exe",
+            "FxSound",
+        ] {
+            assert_eq!(find(&[process(7, exe, None)]), None, "{exe}");
+        }
     }
 }

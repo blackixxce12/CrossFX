@@ -147,7 +147,7 @@ fn the_way_out_in_the_middle_of_a_handover_gives_the_stream_its_volume_back_firs
         return;
     };
     let dir = ScratchDir::new("handover-exit");
-    let journal = dir.path().join("fxsound").join(JOURNAL_FILE);
+    let journal = dir.path().join("crossfx").join(JOURNAL_FILE);
     let handle = engine_with_the_default(&graph, journal.clone());
     assert!(volume_settles_on(&graph, "t_player", 1.0));
 
@@ -190,7 +190,7 @@ fn a_run_killed_in_the_middle_of_a_handover_leaves_the_next_run_the_volume_to_pu
         .pulse_player(PULSE_PLAYER, None)
         .expect("pacat should play");
     let dir = ScratchDir::new("handover-kill");
-    let journal = dir.path().join("fxsound").join(JOURNAL_FILE);
+    let journal = dir.path().join("crossfx").join(JOURNAL_FILE);
 
     let (_, module) = module_path!()
         .split_once("::")
@@ -321,7 +321,7 @@ fn a_desktop_pick_with_the_power_off_moves_the_stream_without_fxsound() {
         return;
     };
     let dir = ScratchDir::new("handover-off");
-    let journal = dir.path().join("fxsound").join(JOURNAL_FILE);
+    let journal = dir.path().join("crossfx").join(JOURNAL_FILE);
     let handle = engine_with_the_default(&graph, journal.clone());
     let mut said = Transcript::default();
     assert!(said.attached(&handle, DeviceDirection::Output, Some("t_stereo")));
@@ -388,7 +388,7 @@ fn a_power_switched_back_on_before_its_hand_back_keeps_fxsound_the_default_and_t
         return;
     };
     let dir = ScratchDir::new("handover-back");
-    let journal = dir.path().join("fxsound").join(JOURNAL_FILE);
+    let journal = dir.path().join("crossfx").join(JOURNAL_FILE);
     let handle = engine_with_the_default(&graph, journal.clone());
     assert!(volume_settles_on(&graph, "t_player", 1.0));
 
@@ -442,7 +442,7 @@ fn after_a_desktop_pick_the_power_off_hands_the_default_to_the_device_picked() {
         return;
     };
     let dir = ScratchDir::new("handover-pick");
-    let journal = dir.path().join("fxsound").join(JOURNAL_FILE);
+    let journal = dir.path().join("crossfx").join(JOURNAL_FILE);
     let handle = engine_with_the_default(&graph, journal.clone());
     let mut said = Transcript::default();
     assert!(said.attached(&handle, DeviceDirection::Output, Some("t_stereo")));

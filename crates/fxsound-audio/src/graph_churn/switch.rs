@@ -1,5 +1,5 @@
 //! Another device, the same virtual node (roadmap 0.5.0 §7, D3): a lane that moves to a device at
-//! the format it already runs at keeps `fxsound_sink` or `fxsound_source`, and replaces only its
+//! the format it already runs at keeps `crossfx_sink` or `crossfx_source`, and replaces only its
 //! stream on the device (`crate::engine`, "Another device, the same virtual node"). What the move
 //! sounds like is [`clicks`](super::clicks)'; this is where the nodes and the applications' links
 //! end up.
@@ -145,7 +145,7 @@ fn other_speakers_and_another_microphone_at_the_same_format_keep_fxsounds_sink_a
 
 /// A player that follows the default sink and a recorder that follows the default source, both
 /// on FxSound, keep their links while FxSound moves both lanes to the other devices (roadmap §7,
-/// test 3): the link from the player into `fxsound_sink` and the one from `fxsound_source` into
+/// test 3): the link from the player into `crossfx_sink` and the one from `crossfx_source` into
 /// the recorder are the very links they were — WirePlumber never had them to move — and neither
 /// is ever linked to a device of its own. In 0.4.0 the sink went, WirePlumber moved the player
 /// onto the other speakers unprocessed, and back onto the new sink a moment later.

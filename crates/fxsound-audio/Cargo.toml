@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Audio backends for the FxSound port: PipeWire on Linux, WASAPI on Windows — the virtual device, the DSP and the playback stream"
+description = "Audio backends for CrossFX: PipeWire on Linux, WASAPI on Windows — the virtual device, the DSP and the playback stream"
 
 [dependencies]
 fxsound-core = { workspace = true }
@@ -13,7 +13,7 @@ crossbeam-channel = { workspace = true }
 triple_buffer = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
-# The handover's journal, `$XDG_STATE_HOME/fxsound/handover.toml` (`src/stream_handover.rs`): the
+# The handover's journal, `$XDG_STATE_HOME/crossfx/handover.toml` (`src/stream_handover.rs`): the
 # volumes of the streams a handover has faded and not given back yet, in the format and with the
 # crates the settings file is written with.
 serde = { workspace = true }
@@ -21,12 +21,6 @@ toml = { workspace = true }
 
 # PipeWire is the Linux backend; Windows has its own (`src/wasapi/`), on WASAPI.
 [target.'cfg(target_os = "linux")'.dependencies]
-# The level WirePlumber kept for FxSound's own nodes before 0.4.0 took its volume over is a JSON
-# object in WirePlumber's state file (`src/volume.rs`, `inherited`). The tests use it as well:
-# `graph_churn`'s, to read the format one of our nodes holds out of `pw-dump`'s JSON rather than
-# out of a status the engine is right not to send, and `routes`', to read the UCM laptop
-# fixture's card routes, whose nested structs the device tests' minimal reader does not cover.
-serde_json = { workspace = true }
 # `v0_3_64` on `pipewire` is the level the code needs: without it `keys::NODE_LINK_GROUP`,
 # `keys::TARGET_OBJECT`, `keys::NODE_WANT_DRIVER` and `Buffer::requested()` do not exist
 # (`docs/api/pipewire-0.10-rust.md` §1.1). Not `v0_3_65`, although 0.3.65 is the floor: that level
@@ -67,6 +61,13 @@ windows = { workspace = true, features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 windows-core = { workspace = true }
+
+# The tests read JSON on Linux: `graph_churn`'s, to read the format one of our nodes holds out of
+# `pw-dump`'s JSON rather than out of a status the engine is right not to send, and `routes`', to
+# read the UCM laptop fixture's card routes, whose nested structs the device tests' minimal reader
+# does not cover.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # The tests' scratch directories and guarded children (`fxsound_core::test_support`).

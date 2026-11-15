@@ -1920,7 +1920,7 @@ fn report(scenario: &Scenario, gate: Gate, clean: &[Run], discarded: &[u64]) -> 
         };
         let heard = match (direction, scenario.streams, scenario.both_devices) {
             (DeviceDirection::Output, Streams::Pinned, _) => {
-                "played into fxsound_sink and kept there, recorded at the device's monitor"
+                "played into crossfx_sink and kept there, recorded at the device's monitor"
             }
             (DeviceDirection::Output, Streams::Following, false) => {
                 "played by an application that follows the default, recorded at the device's \
@@ -1931,7 +1931,7 @@ fn report(scenario: &Scenario, gate: Gate, clean: &[Run], discarded: &[u64]) -> 
                  monitors"
             }
             (DeviceDirection::Input, Streams::Pinned, _) => {
-                "into the microphone, recorded from fxsound_source and kept there"
+                "into the microphone, recorded from crossfx_source and kept there"
             }
             (DeviceDirection::Input, Streams::Following, false) => {
                 "into the microphone, recorded by an application that follows the default source"
@@ -3018,19 +3018,19 @@ fn the_median_is_the_middle_value_or_the_mean_of_the_middle_two() {
 fn xruns_are_the_growth_of_every_nodes_error_count_in_pw_top_s_last_table() {
     let first = "S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME \n\
                  R   30   1024  48000  20.1us  10.0us  0.00  0.00    2    F32LE 2 48000 t_stereo\n\
-                 R   45   1024  48000  12.0us   5.0us  0.00  0.00    0    F32LE 2 48000  + fxsound_sink\n";
+                 R   45   1024  48000  12.0us   5.0us  0.00  0.00    0    F32LE 2 48000  + crossfx_sink\n";
     let second = "S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME \n\
                   S   30      0      0    ---     ---   ---   ---     0                  t_stereo\n\
                   S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME \n\
                   R   30   1024  48000  20.1us  10.0us  0.00  0.00    3    F32LE 2 48000 t_stereo\n\
-                  R   45   1024  48000  12.0us   5.0us  0.00  0.00    0    F32LE 2 48000  + fxsound_sink\n\
+                  R   45   1024  48000  12.0us   5.0us  0.00  0.00    0    F32LE 2 48000  + crossfx_sink\n\
                   R   51   1024  48000  12.0us   5.0us  0.00  0.00    1    F32LE 2 48000  + t_player\n";
     let before = node_errors(first);
     assert_eq!(
         before,
         vec![
             ("30 t_stereo".to_owned(), 2),
-            ("45 fxsound_sink".to_owned(), 0)
+            ("45 crossfx_sink".to_owned(), 0)
         ]
     );
     assert_eq!(errors_between(&before, &node_errors(second)), 2);

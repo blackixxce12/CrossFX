@@ -910,7 +910,8 @@ impl Journal {
     }
 }
 
-/// Where this user's journal is: [`JOURNAL_FILE`] in `fxsound/` under the state directory
+/// Where this user's journal is: [`JOURNAL_FILE`] in CrossFX's folder
+/// ([`fxsound_core::identity::DIR_NAME`], `crossfx/`) under the state directory
 /// ([`crate::volume::state_dir_in`]). `None` without one.
 #[must_use]
 pub(crate) fn journal_file() -> Option<PathBuf> {
@@ -918,7 +919,10 @@ pub(crate) fn journal_file() -> Option<PathBuf> {
         std::env::var_os("XDG_STATE_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
     )
-    .map(|dir| dir.join("fxsound").join(JOURNAL_FILE))
+    .map(|dir| {
+        dir.join(fxsound_core::identity::DIR_NAME)
+            .join(JOURNAL_FILE)
+    })
 }
 
 #[cfg(test)]
@@ -1577,7 +1581,7 @@ mod tests {
     #[test]
     fn the_journal_outlives_the_run_that_wrote_it() {
         let dir = fxsound_core::test_support::ScratchDir::new("handover-journal");
-        let path = dir.path().join("fxsound").join(JOURNAL_FILE);
+        let path = dir.path().join("crossfx").join(JOURNAL_FILE);
         let mut journal = Journal::default();
         assert!(journal.remember("Output/Audio:application.name:Player", Some(40), 0.8));
         assert!(

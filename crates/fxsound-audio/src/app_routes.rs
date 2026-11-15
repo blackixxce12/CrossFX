@@ -117,7 +117,9 @@ use fxsound_core::{AppKey, DeviceDirection, MAX_ROUTES_PER_LANE};
 
 use crate::app_streams::ExplicitTarget;
 use crate::per_direction::PerDirection;
-use crate::{CAPTURE_STREAM_DESCRIPTION, OUTPUT_STREAM_DESCRIPTION, ROUTE_NODE_PREFIX, locale};
+use crate::{
+    CAPTURE_STREAM_DESCRIPTION, LINK_GROUP, OUTPUT_STREAM_DESCRIPTION, ROUTE_NODE_PREFIX, locale,
+};
 
 /// How long a route nobody plays into — or records from — is kept before it goes
 /// (`docs/0.4.0-apps.md`).
@@ -168,15 +170,15 @@ impl RouteSlot {
         }
     }
 
-    /// `node.name` of the route's virtual node — `fxsound_route_o<N>`, the sink applications are
-    /// moved onto, or `fxsound_route_i<N>`, the source recorders are moved onto. Its
+    /// `node.name` of the route's virtual node — `crossfx_route_o<N>`, the sink applications are
+    /// moved onto, or `crossfx_route_i<N>`, the source recorders are moved onto. Its
     /// `object.serial` is what a moved stream's metadata target names.
     pub(crate) fn node_name(self) -> String {
         format!("{ROUTE_NODE_PREFIX}{}{}", self.letter(), self.number)
     }
 
-    /// `node.name` of the route's stream on the real device: `fxsound_route_o<N>_play`, playing
-    /// the route's chain into the output lane's device, or `fxsound_route_i<N>_capture`,
+    /// `node.name` of the route's stream on the real device: `crossfx_route_o<N>_play`, playing
+    /// the route's chain into the output lane's device, or `crossfx_route_i<N>_capture`,
     /// recording the input lane's.
     pub(crate) fn stream_name(self) -> String {
         let suffix = match self.direction {
@@ -186,13 +188,13 @@ impl RouteSlot {
         format!("{}_{suffix}", self.node_name())
     }
 
-    /// The `node.link-group` of the route's two nodes, `fxsound-route-o<N>` or
-    /// `fxsound-route-i<N>`: a group of the route's own, for the reasons each lane has its own —
+    /// The `node.link-group` of the route's two nodes, `crossfx-route-o<N>` or
+    /// `crossfx-route-i<N>`: a group of the route's own, for the reasons each lane has its own —
     /// WirePlumber links no member of a group to another, so the route's stream is never linked
     /// into the route's own node, and the server runs a group together, so the route's two nodes
     /// run exactly when something plays into it, or records from it.
     pub(crate) fn link_group(self) -> String {
-        format!("fxsound-route-{}{}", self.letter(), self.number)
+        format!("{LINK_GROUP}-route-{}{}", self.letter(), self.number)
     }
 
     /// The route whose virtual node is called `node_name`, if it is one: not its stream on the
@@ -1347,13 +1349,13 @@ mod tests {
     #[test]
     fn a_route_is_named_as_the_contract_names_it() {
         let output = slot(OUT, 1);
-        assert_eq!(output.node_name(), "fxsound_route_o1");
-        assert_eq!(output.stream_name(), "fxsound_route_o1_play");
-        assert_eq!(output.link_group(), "fxsound-route-o1");
+        assert_eq!(output.node_name(), "crossfx_route_o1");
+        assert_eq!(output.stream_name(), "crossfx_route_o1_play");
+        assert_eq!(output.link_group(), "crossfx-route-o1");
         let input = slot(IN, 4);
-        assert_eq!(input.node_name(), "fxsound_route_i4");
-        assert_eq!(input.stream_name(), "fxsound_route_i4_capture");
-        assert_eq!(input.link_group(), "fxsound-route-i4");
+        assert_eq!(input.node_name(), "crossfx_route_i4");
+        assert_eq!(input.stream_name(), "crossfx_route_i4_capture");
+        assert_eq!(input.link_group(), "crossfx-route-i4");
     }
 
     #[test]
@@ -1361,8 +1363,8 @@ mod tests {
         for direction in DeviceDirection::ALL {
             for number in 1..=MAX_ROUTES_PER_LANE {
                 let slot = slot(direction, number);
-                assert!(crate::is_fxsound_node(&slot.node_name()));
-                assert!(crate::is_fxsound_node(&slot.stream_name()));
+                assert!(crate::is_crossfx_node(&slot.node_name()));
+                assert!(crate::is_crossfx_node(&slot.stream_name()));
                 let name = slot.node_name();
                 let props = [("media.class", "Audio/Sink"), ("node.name", name.as_str())];
                 let get = |key: &str| {
@@ -1386,14 +1388,14 @@ mod tests {
             }
         }
         for name in [
-            "fxsound_route_o0",
-            "fxsound_route_o5",
-            "fxsound_route_x1",
-            "fxsound_route_o",
-            "fxsound_route_o+1",
-            "fxsound_route_o1a",
-            "fxsound_sink",
-            "fxsound_route_o01x",
+            "crossfx_route_o0",
+            "crossfx_route_o5",
+            "crossfx_route_x1",
+            "crossfx_route_o",
+            "crossfx_route_o+1",
+            "crossfx_route_o1a",
+            "crossfx_sink",
+            "crossfx_route_o01x",
             "",
         ] {
             assert_eq!(RouteSlot::of_node(name), None, "{name}");
@@ -2257,7 +2259,7 @@ mod tests {
             "their key is never deleted, even with the route gone"
         );
         // A stream someone moved before FxSound ever looked at it is theirs too.
-        moves.heard(41, Some("fxsound_sink_of_somebody_else"));
+        moves.heard(41, Some("crossfx_sink_of_somebody_else"));
         assert!(moves.moved_by_hand(41));
         assert!(moves.everything_back().is_empty());
         // Once they delete their key, the stream is FxSound's to move again.
@@ -2628,7 +2630,7 @@ mod tests {
     }
 
     /// Firefox plays a video through "Movies" on o1, and the video ends. It opens a new stream for
-    /// the next one within the idle period, and WirePlumber — which saved `fxsound_route_o1` as
+    /// the next one within the idle period, and WirePlumber — which saved `crossfx_route_o1` as
     /// Firefox's target when FxSound moved it — writes o1's serial for the new stream the moment
     /// it appears, before FxSound plans it (`node/state-stream.lua`, `node.stream.restore-target`).
     #[test]
@@ -2685,7 +2687,7 @@ mod tests {
     }
 
     /// Game X ran through "Gaming" on o1 and quit; o1 went, and Discord's "Voice" took the number.
-    /// X starts again, and WirePlumber restores it onto whatever node is called `fxsound_route_o1`
+    /// X starts again, and WirePlumber restores it onto whatever node is called `crossfx_route_o1`
     /// now — Discord's preset. X goes onto a route of its own; and a recorder restored onto an
     /// OBS preset's input route likewise. Without a rule any more, X is moved back to its lane.
     #[test]
@@ -2848,7 +2850,7 @@ mod tests {
             start,
             ROUTE_IDLE,
         );
-        // A tester whose own properties name `fxsound_route_o1`, and no rule names: it plays
+        // A tester whose own properties name `crossfx_route_o1`, and no rule names: it plays
         // through o1 whatever FxSound decides.
         let tester = resting(44, OUT, named("pw-play"), slot(OUT, 1));
         // The game quits; the tester goes on.
@@ -2998,28 +3000,28 @@ mod tests {
         let object = |value: &str| ExplicitTarget::Object(value.to_owned());
         let node = |value: &str| ExplicitTarget::Node(value.to_owned());
         assert_eq!(
-            route_of_target(&object("fxsound_route_o1"), &nodes),
+            route_of_target(&object("crossfx_route_o1"), &nodes),
             Some(slot(OUT, 1))
         );
         assert_eq!(
-            route_of_target(&object("fxsound_route_o3"), &nodes),
+            route_of_target(&object("crossfx_route_o3"), &nodes),
             Some(slot(OUT, 3)),
             "by name, whatever node carries the name now or will"
         );
         assert_eq!(route_of_target(&object("700"), &nodes), Some(slot(OUT, 1)));
         assert_eq!(route_of_target(&node("72"), &nodes), Some(slot(IN, 2)));
         assert_eq!(
-            route_of_target(&node(" fxsound_route_i2 "), &nodes),
+            route_of_target(&node(" crossfx_route_i2 "), &nodes),
             Some(slot(IN, 2))
         );
         for (target, why) in [
             (object("70"), "an id is no serial"),
             (node("700"), "a serial is no id"),
             (
-                object("fxsound_route_o1_play"),
+                object("crossfx_route_o1_play"),
                 "the route's stream is not its node",
             ),
-            (object("fxsound_sink"), "the lane's node is no route"),
+            (object("crossfx_sink"), "the lane's node is no route"),
             (object("alsa_output.usb"), "somebody else's"),
             (object("-1"), "nothing"),
         ] {

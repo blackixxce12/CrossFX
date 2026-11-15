@@ -3,10 +3,10 @@
 //!
 //! # Why
 //!
-//! FxSound fades the streams it has moved itself — the power button's, an application's route,
+//! CrossFX fades the streams it has moved itself — the power button's, an application's route,
 //! the default it takes back (`crate::stream_handover`) — because it knows of those moves before
 //! they happen. A device picked in the desktop's sound settings is moved by WirePlumber the moment
-//! the default changes, before FxSound hears of it, unlinked and linked again in the middle of the
+//! the default changes, before CrossFX hears of it, unlinked and linked again in the middle of the
 //! wave: −19 to −26 dBFS, as in plain Linux (roadmap §14 #16). Only WirePlumber can fade that
 //! one, and WirePlumber 0.5 has the place for it: the chain of hooks a `select-target` event runs
 //! through, where an asynchronous hook ahead of `linking/prepare-link` can fade the stream and hold
@@ -14,20 +14,20 @@
 //! volume back once the new link is up. That is [`SCRIPT`]; measured on a private graph with
 //! WirePlumber 0.5.17, every move of 24 went below −70 dBFS with it.
 //!
-//! A stream moved off FxSound's own nodes — the desktop's pick with FxSound on — is held silent for
-//! longer after its new link (`CLAIM_WAIT_MS` in the script): FxSound takes the default back a
+//! A stream moved off CrossFX's own nodes — the desktop's pick with CrossFX on — is held silent for
+//! longer after its new link (`CLAIM_WAIT_MS` in the script): CrossFX takes the default back a
 //! moment later and has the stream moved back, and the hook must not be giving the volume back
-//! then, or FxSound's fade and the hook's ramp meet on the stream and PipeWire's converter jumps.
-//! Held, the stream is silent when FxSound's handover looks at it, which then leaves it to the
+//! then, or CrossFX's fade and the hook's ramp meet on the stream and PipeWire's converter jumps.
+//! Held, the stream is silent when CrossFX's handover looks at it, which then leaves it to the
 //! hook. Silent, but not always *reported* silent: PipeWire's converter reports a point of a ramp
 //! when the stream's `Props` are sent again in the middle of one, and may never report its end. So
 //! the hook says in the `default` metadata that it holds the stream ([`HELD_KEY`], under the
-//! stream's id, from its fade until it gives the volume back), and FxSound's handover leaves such a
+//! stream's id, from its fade until it gives the volume back), and CrossFX's handover leaves such a
 //! stream alone as it leaves one that is silent (`crate::stream_handover::Watched::hook_held`) —
 //! rather than take a point of the hook's fade for the stream's own volume, journal it, fade from
 //! it and give it back.
 //!
-//! The hook mirrors FxSound's handover in what it counts as its own. While it holds a stream, a
+//! The hook mirrors CrossFX's handover in what it counts as its own. While it holds a stream, a
 //! reported volume below the one it is to give back is a point of its ramps, not somebody else's
 //! write; only one above it, or one that rises once its fade has been played out (`SETTLE_MS` in
 //! the script), is — PipeWire reports a ramp's target first and the points on the way after it, so
@@ -37,18 +37,18 @@
 //! `RAMP_IN_DONE` and `CONFIRM_WAIT`): a converter that last reported a point 0.10 of the way up
 //! otherwise leaves the server showing 0.10 for good, and WirePlumber keeping it for the
 //! application's next stream. A recorder gets its volume back later after its new link than a
-//! player, as in FxSound's handover (`RECORDER_LINKED`): the first cycles of its new link bring it
+//! player, as in CrossFX's handover (`RECORDER_LINKED`): the first cycles of its new link bring it
 //! nothing yet, and a ramp spent on them leaves the sound to start at full volume — measured at
-//! −18 to −21 dBFS for a recorder FxSound took back after the desktop's pick, once FxSound left
+//! −18 to −21 dBFS for a recorder CrossFX took back after the desktop's pick, once CrossFX left
 //! the stream to the hook. Nor does a stream whose new link failed get its volume back before it
-//! has one (`UNLINKED_POLL_MS` in the script): FxSound links a recorder WirePlumber stranded a
+//! has one (`UNLINKED_POLL_MS` in the script): CrossFX links a recorder WirePlumber stranded a
 //! quarter of a second later (`crate::stranded`), and the sound would start at full volume then. A
 //! stream whose converter has no ramp — its client's libpipewire older than 0.3.68
-//! (`core.version`) — is moved as it is, as FxSound's handover moves it.
+//! (`core.version`) — is moved as it is, as CrossFX's handover moves it.
 //!
 //! WirePlumber moves the streams of a pick one at a time, and with the hook each that plays waits
-//! for its fade: the second is still on FxSound's node when FxSound takes the default back, a few
-//! milliseconds after the pick. FxSound's claim leaves such a stream out of its own fade
+//! for its fade: the second is still on CrossFX's node when CrossFX takes the default back, a few
+//! milliseconds after the pick. CrossFX's claim leaves such a stream out of its own fade
 //! (`crate::engine`, `claimed_streams`) — faded by the claim, it was silent when WirePlumber moved
 //! it, the hook left it alone, and it clicked — so the hook fades it if WirePlumber still moves it,
 //! and it stays where it is if the claim comes first.
@@ -61,7 +61,7 @@
 //! not the stream's, and kept, a stream closed while it is held — a player stopped, a tab closed, in
 //! that tenth of a second — would leave every later stream of the application silent while the
 //! desktop's mixer says 100 %: the stuck zero `crate::stream_handover`'s journal guards against
-//! for FxSound's own fades. The hook keeps it from being kept instead: a held stream's change to
+//! for CrossFX's own fades. The hook keeps it from being kept instead: a held stream's change to
 //! silence stops at the hook, ahead of `node/store-stream-props`, and never reaches the state; the
 //! volume given back is a change like any other. Writing the state from the hook afterwards would
 //! not do: `state-stream.lua` keeps what it saved in memory, gives that to the next stream and
@@ -70,7 +70,7 @@
 //!
 //! # What it costs, and why it is an option
 //!
-//! It changes WirePlumber's policy for every application, not FxSound's alone; it needs
+//! It changes WirePlumber's policy for every application, not CrossFX's alone; it needs
 //! WirePlumber 0.5 or later ([`SINCE`]: Ubuntu 24.04 ships 0.4, which is configured in Lua); it
 //! leans on the names of three of WirePlumber's own hooks; and WirePlumber reads it only when it
 //! starts. So it is off unless the user ticks it, and the pane offers the restart
@@ -78,8 +78,8 @@
 //!
 //! # How it is installed
 //!
-//! Two files, the only ones FxSound writes into WirePlumber's directories ([`Place`]): the script,
-//! under `$XDG_DATA_HOME/wireplumber/scripts/fxsound/`, and a configuration fragment
+//! Two files, the only ones CrossFX writes into WirePlumber's directories ([`Place`]): the script,
+//! under `$XDG_DATA_HOME/wireplumber/scripts/crossfx/`, and a configuration fragment
 //! ([`FRAGMENT`]), under `$XDG_CONFIG_HOME/wireplumber/wireplumber.conf.d/`, that makes it a
 //! component. The component is **optional**: a virtual feature that the `base` profile — which
 //! every profile of WirePlumber 0.5 inherits — requires *wants* it. A component WirePlumber is
@@ -89,7 +89,7 @@
 //! and skipped. The script also needs `hooks.linking.target.link`, so an instance of WirePlumber
 //! that links nothing leaves it out.
 //!
-//! Unticked, both files go. A newer FxSound finding the files of an older one writes its own
+//! Unticked, both files go. A newer CrossFX finding the files of an older one writes its own
 //! over them ([`Place::installed`], [`Installed::Stale`]), and one finding them under a
 //! WirePlumber older than 0.5 takes them away.
 
@@ -104,19 +104,19 @@ use std::time::SystemTime;
 pub const SCRIPT: &str = include_str!("wireplumber_hook/fade-on-move.lua");
 
 /// The key the hook sets in the `default` metadata, under a stream's id, while it holds the stream
-/// silent for a move (module docs): FxSound's handover leaves that stream alone. Its value is the
+/// silent for a move (module docs): CrossFX's handover leaves that stream alone. Its value is the
 /// volume the hook will give back.
-pub const HELD_KEY: &str = "fxsound.held";
+pub const HELD_KEY: &str = "crossfx.held";
 
 /// The configuration fragment that makes [`SCRIPT`] an optional component of every profile.
-pub const FRAGMENT: &str = include_str!("wireplumber_hook/90-fxsound-fade-on-move.conf");
+pub const FRAGMENT: &str = include_str!("wireplumber_hook/90-crossfx-fade-on-move.conf");
 
 /// Where [`SCRIPT`] goes, under the user's data directory: where WirePlumber looks for the scripts
-/// its components name (`fxsound/fade-on-move.lua` in [`FRAGMENT`]).
-const SCRIPT_PATH: &str = "wireplumber/scripts/fxsound/fade-on-move.lua";
+/// its components name (`crossfx/fade-on-move.lua` in [`FRAGMENT`]).
+const SCRIPT_PATH: &str = "wireplumber/scripts/crossfx/fade-on-move.lua";
 
 /// Where [`FRAGMENT`] goes, under the user's configuration directory.
-const FRAGMENT_PATH: &str = "wireplumber/wireplumber.conf.d/90-fxsound-fade-on-move.conf";
+const FRAGMENT_PATH: &str = "wireplumber/wireplumber.conf.d/90-crossfx-fade-on-move.conf";
 
 /// The first WirePlumber with profiles, components configured in `wireplumber.conf.d` and the
 /// event hooks the script is built from.
@@ -128,12 +128,12 @@ pub type Version = (u32, u32, u32);
 /// Whether the hook's files are where WirePlumber reads them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Installed {
-    /// No fragment: WirePlumber loads nothing of FxSound's.
+    /// No fragment: WirePlumber loads nothing of CrossFX's.
     No,
     /// This build's script and fragment.
     Current,
     /// A fragment, with a script or a fragment other than this build's, or no script: another
-    /// version of FxSound installed it, or someone changed it. Still ticked; FxSound writes its own
+    /// version of CrossFX installed it, or someone changed it. Still ticked; CrossFX writes its own
     /// over it.
     Stale,
 }
@@ -164,7 +164,7 @@ impl Place {
         }
     }
 
-    /// The hook's files for the user FxSound runs as, where the user's WirePlumber reads them.
+    /// The hook's files for the user CrossFX runs as, where the user's WirePlumber reads them.
     /// `None` without a home to put them in.
     #[must_use]
     pub fn of_user() -> Option<Self> {
@@ -253,7 +253,7 @@ impl Place {
         write_whole(&self.fragment, FRAGMENT)
     }
 
-    /// Take the hook away: the fragment first, then the script, then the script's `fxsound`
+    /// Take the hook away: the fragment first, then the script, then the script's `crossfx`
     /// directory if nothing else is in it. A file already gone is not an error.
     ///
     /// # Errors
@@ -281,7 +281,7 @@ fn write_whole(path: &Path, text: &str) -> io::Result<()> {
         .ok_or_else(|| io::Error::other(format!("{} has no directory", path.display())))?;
     std::fs::create_dir_all(dir)?;
     let mut name = path.file_name().unwrap_or_default().to_owned();
-    name.push(".fxsound-new");
+    name.push(".crossfx-new");
     let beside = dir.join(name);
     std::fs::write(&beside, text)?;
     std::fs::rename(&beside, path).inspect_err(|_| {
@@ -464,14 +464,14 @@ mod tests {
         let place = Place::under(Path::new("/c"), Path::new("/d"));
         assert_eq!(
             place.script(),
-            Path::new("/d/wireplumber/scripts/fxsound/fade-on-move.lua")
+            Path::new("/d/wireplumber/scripts/crossfx/fade-on-move.lua")
         );
         assert_eq!(
             place.fragment(),
-            Path::new("/c/wireplumber/wireplumber.conf.d/90-fxsound-fade-on-move.conf")
+            Path::new("/c/wireplumber/wireplumber.conf.d/90-crossfx-fade-on-move.conf")
         );
         // The fragment names the script by its path under `scripts`.
-        assert!(FRAGMENT.contains("name = fxsound/fade-on-move.lua"));
+        assert!(FRAGMENT.contains("name = crossfx/fade-on-move.lua"));
     }
 
     // The XDG directories are Linux's: on Windows `/x/config` has no drive, is not absolute, and is
@@ -540,7 +540,7 @@ mod tests {
         place.remove().expect("the hook is taken away");
         assert_eq!(place.installed(), Installed::No);
         assert!(!place.script().exists() && !place.fragment().exists());
-        assert!(!place.script().parent().expect("fxsound/").exists());
+        assert!(!place.script().parent().expect("crossfx/").exists());
         // WirePlumber's own directories stay.
         assert!(dir.path().join("data/wireplumber/scripts").is_dir());
         assert!(
@@ -578,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn a_script_left_in_the_fxsound_directory_by_someone_else_keeps_it() {
+    fn a_script_left_in_the_crossfx_directory_by_someone_else_keeps_it() {
         let dir = fxsound_core::test_support::ScratchDir::new("wp-hook");
         let place = Place::under(&dir.path().join("config"), &dir.path().join("data"));
         place.install().expect("the hook installs");
@@ -624,15 +624,15 @@ mod tests {
         ] {
             assert!(SCRIPT.contains(needle), "{needle}");
         }
-        // What FxSound's handover reads of it, and the version it takes a client's converter to
-        // ramp from: the same as FxSound's own.
+        // What CrossFX's handover reads of it, and the version it takes a client's converter to
+        // ramp from: the same as CrossFX's own.
         assert!(SCRIPT.contains(&format!("local HELD_KEY = \"{HELD_KEY}\"")));
         let (major, minor, micro) = crate::stream_handover::RAMPS_SINCE;
         assert!(SCRIPT.contains(&format!(
             "local RAMPS_SINCE = {{ {major}, {minor}, {micro} }}"
         )));
         assert!(SCRIPT.contains("client.properties [\"core.version\"]"));
-        // The volume given back is said once more after the ramp, as FxSound's handover says it.
+        // The volume given back is said once more after the ramp, as CrossFX's handover says it.
         for (name, value) in [
             (
                 "RAMP_IN_DONE_MS",
@@ -657,10 +657,47 @@ mod tests {
             );
         }
         // Optional, never required: a component WirePlumber requires stops it when it fails.
-        assert!(FRAGMENT.contains("wants = [ custom.fxsound.fade-on-move ]"));
-        assert!(FRAGMENT.contains("provides = custom.fxsound.fade-on-move"));
-        assert!(!FRAGMENT.contains("custom.fxsound.fade-on-move = required"));
+        assert!(FRAGMENT.contains("wants = [ custom.crossfx.fade-on-move ]"));
+        assert!(FRAGMENT.contains("provides = custom.crossfx.fade-on-move"));
+        assert!(!FRAGMENT.contains("custom.crossfx.fade-on-move = required"));
         // Licensed as the rest of the tree, since it lands outside it.
         assert!(SCRIPT.contains("SPDX-License-Identifier: AGPL-3.0-or-later"));
+    }
+
+    #[test]
+    fn the_script_knows_crossfx_nodes_by_the_engines_prefix_and_goes_by_crossfx_names_only() {
+        // Every own-node test of the script is the engine's prefix, and there are three: the
+        // nodes it leaves alone, and the two ends of a move off and onto them. The only other
+        // anchored match is of a media class.
+        let own = format!("find (\"^{}\")", crate::NODE_PREFIX.trim_end_matches('_'));
+        assert_eq!(own, "find (\"^crossfx\")");
+        assert_eq!(SCRIPT.matches(own.as_str()).count(), 3);
+        for (at, _) in SCRIPT.match_indices("find (\"^") {
+            let rest = &SCRIPT[at..];
+            assert!(
+                rest.starts_with(&own) || rest.starts_with("find (\"^Stream/"),
+                "{}",
+                rest.lines().next().unwrap_or_default()
+            );
+        }
+        // Its log topic, the prefix of each of its lines, its hooks and its components.
+        assert!(SCRIPT.contains("Log.open_topic (\"s-crossfx\")"));
+        for line in SCRIPT.lines().filter(|line| line.contains("log:info")) {
+            assert!(line.contains("\"crossfx: "), "{line}");
+        }
+        for line in SCRIPT
+            .lines()
+            .filter(|line| line.trim_start().starts_with("name = "))
+        {
+            assert!(line.contains("name = \"crossfx/"), "{line}");
+        }
+        assert!(FRAGMENT.contains("name = crossfx/fade-on-move.lua"));
+        assert!(SCRIPT_PATH.ends_with("scripts/crossfx/fade-on-move.lua"));
+        assert!(FRAGMENT_PATH.ends_with("/90-crossfx-fade-on-move.conf"));
+        assert_eq!(HELD_KEY, "crossfx.held");
+        // Nothing of either file names another program.
+        for text in [SCRIPT, FRAGMENT] {
+            assert!(!text.to_lowercase().contains("fxsound"));
+        }
     }
 }

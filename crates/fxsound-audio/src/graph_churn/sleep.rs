@@ -110,7 +110,7 @@ fn tools_and_a_tone(graph: &PrivateGraph, tone: Option<&str>, what: &str) -> boo
 }
 
 #[test]
-fn a_microphone_runs_only_while_something_records_from_fxsound_input() {
+fn a_microphone_runs_only_while_something_records_from_crossfx_input() {
     again_if_a_tone_ran_dry(|| {
         let Some(graph) = PrivateGraph::start("u19") else {
             return;

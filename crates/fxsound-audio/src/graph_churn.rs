@@ -318,7 +318,7 @@ impl PrivateGraph {
     }
 
     fn socket(&self) -> PathBuf {
-        self.dir.join("run/fxsound-test-0")
+        self.dir.join("run/crossfx-test-0")
     }
 
     /// Kill the daemon under whatever is connected to it: what a user meets as "PipeWire
@@ -1558,13 +1558,13 @@ fn still_running_after(started: &[(u32, u64)], patience: Duration) -> Vec<u32> {
 }
 
 /// What every child half's directory is called: [`ChildHalf`] removes nothing else.
-const CHILD_HALF_DIR: &str = "fxsound-t-child-half-";
+const CHILD_HALF_DIR: &str = "crossfx-t-child-half-";
 
 /// The child half as the tests below see it. Dropped, it kills the test process if it still runs,
 /// waits for its daemons to go and removes their directory: a child half that was killed outright
 /// never removes it itself, and neither does one that waited on its standard input for a line
 /// that never came, because the test that started it failed first — which is how a
-/// `fxsound-t-child-half-*` directory was left in `/tmp`.
+/// `crossfx-t-child-half-*` directory was left in `/tmp`.
 struct ChildHalf {
     /// The test process — guarded itself, so a test here that fails cannot leave it waiting.
     process: Guarded,
@@ -1745,7 +1745,7 @@ fn the_engine_connects_to_a_graph_and_reports_what_is_in_it() {
 
     // FxSound's own nodes must never be offered as somewhere to send audio.
     assert!(
-        !names.iter().any(|n| n.starts_with("fxsound_")),
+        !names.iter().any(|n| n.starts_with(crate::NODE_PREFIX)),
         "the engine offered its own nodes as devices: {names:?}"
     );
     handle.shutdown();
@@ -1837,7 +1837,7 @@ fn a_microphone_runs_beside_the_speakers_rather_than_instead_of_them() {
         "pw-dump",
         "the input lane's format",
     ) {
-        let (rate, channels) = capture.expect("fxsound_capture never showed a fixed format");
+        let (rate, channels) = capture.expect("crossfx_capture never showed a fixed format");
         assert_eq!(rate, 48_000, "the microphone should be captured at 48 kHz");
         assert!(
             (1..=2).contains(&channels),
@@ -2943,7 +2943,7 @@ fn a_restart_rebuilds_every_lane_that_was_running() {
 ///
 /// Wired one lane at a time and checked in both after each step. The server drives the members of a
 /// `node.link-group` together, and each lane's pair now has a group of its own — `fxsound`,
-/// `fxsound-input` — so linking the microphone alone schedules the input pair and nothing else: the
+/// `crossfx-input` — so linking the microphone alone schedules the input pair and nothing else: the
 /// output lane must not so much as report `processing` until something plays into the sink. (With
 /// one group for all four nodes, as an earlier revision of `docs/spec/12-audio-io.md` §29.2 had it,
 /// PipeWire 1.6.8 ran the output pair the moment the microphone was linked.) The meters are still
@@ -3717,7 +3717,9 @@ fn echo_cancellation_puts_the_canceller_in_front_of_the_microphone_and_takes_it_
     );
     assert!(
         said.0.iter().all(|m| match m {
-            AudioToUi::Devices(devices) => devices.iter().all(|d| !d.name.starts_with("fxsound_")),
+            AudioToUi::Devices(devices) => devices
+                .iter()
+                .all(|d| !d.name.starts_with(crate::NODE_PREFIX)),
             _ => true,
         }),
         "the canceller's nodes were offered as devices"
@@ -4014,7 +4016,7 @@ fn the_speakers_sleep_again_once_echo_cancellation_is_switched_off() {
 /// chain holds any of it: it all runs while something records from FxSound (Input), and sleeps
 /// with the canceller still loaded when the recording stops.
 #[test]
-fn echo_cancellation_holds_nothing_awake_while_nothing_records_from_fxsound_input() {
+fn echo_cancellation_holds_nothing_awake_while_nothing_records_from_crossfx_input() {
     let Some(graph) = PrivateGraph::start("aecsleep") else {
         return;
     };
@@ -4598,7 +4600,6 @@ fn a_ranking_handed_over_at_start_makes_the_first_choice_of_output() {
             },
             ..StartOptions::default()
         },
-        None,
     )
     .expect("the engine should start");
     let mut said = Transcript::default();
@@ -4626,7 +4627,6 @@ fn a_power_left_off_at_start_builds_the_speakers_pair_without_claiming_the_defau
             want_default: false,
             ..StartOptions::default()
         },
-        None,
     )
     .expect("the engine should start");
     let mut said = Transcript::default();
@@ -4664,7 +4664,6 @@ fn a_speakers_lane_left_off_at_start_builds_no_pair_before_the_app_says_so() {
             output_enabled: false,
             ..StartOptions::default()
         },
-        None,
     )
     .expect("the engine should start");
     let mut said = Transcript::default();
@@ -5266,7 +5265,7 @@ fn card_config() -> String {
 const CONFIG: &str = r#"
 context.properties = {
     core.daemon                 = true
-    core.name                   = fxsound-test-0
+    core.name                   = crossfx-test-0
     support.dbus                = false
     default.clock.rate          = 48000
     default.clock.quantum       = 1024

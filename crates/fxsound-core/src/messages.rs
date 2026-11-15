@@ -656,7 +656,7 @@ impl Default for Meters {
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TargetVolume {
-    /// Which lane's node: `fxsound_sink` for output, `fxsound_source` for input.
+    /// Which lane's node: `crossfx_sink` for output, `crossfx_source` for input.
     pub direction: DeviceDirection,
     /// `node.name` of the real device the lane was attached to.
     pub target: String,

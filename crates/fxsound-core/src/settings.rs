@@ -460,7 +460,7 @@ pub struct Settings {
     ///
     /// One entry per `(direction, target, port)` ([`TargetVolume::same_place`]): the speakers and
     /// the headphones of one sink keep a level each. Without it WirePlumber restores one volume for
-    /// `fxsound_sink` whatever it renders to, and a level set for headphones is the level the
+    /// `crossfx_sink` whatever it renders to, and a level set for headphones is the level the
     /// speakers get after an unplug. [`Settings::sanitise`] drops an entry that is not a
     /// volume anyone could have set; see [`TargetVolume::sanitised`].
     pub device_volumes: Vec<TargetVolume>,

@@ -1,35 +1,37 @@
-//! FxSound's own record of the defaults it holds: the endpoint each lane has made its direction's
+//! CrossFX's own record of the defaults it holds: the endpoint each lane has made its direction's
 //! default, written before the first write of a claim and cleared once its hand-back has moved
 //! every role off the endpoint — and of the defaults the user put on a virtual cable themselves.
 //!
 //! What the record is for is the run that never hands back. The release profile aborts on a panic
 //! and a process can be killed, and either leaves the defaults on the virtual device, which
 //! swallows every sound until something gives them back. The next start does (`super`, "The
-//! default devices") — but only a default it can tell is FxSound's. A virtual cable is not FxSound's
+//! default devices") — but only a default it can tell is CrossFX's. A virtual cable is not CrossFX's
 //! alone: a user who records the desktop's sound may have made "CABLE Output" their default
 //! recording device, or play into "CABLE Input" on purpose, and a start that moved those defaults
 //! away would break their setup at every start — the input lane, detached until a microphone is
 //! picked, never stands behind its cable. So a default left on a cable is given back only when the
-//! record says a run of this port put it there. A default on FxSound's own driver needs no record:
-//! nothing plays that device while neither FxSound runs. (A lane that comes to stand on a cable
+//! record says a run of CrossFX put it there. A default on the original FxSound's driver needs no
+//! record: nothing plays that device while neither the original nor CrossFX runs. (A lane that comes to stand on a cable
 //! later decides for itself whose each default it finds there is — the user's, or one Windows put
 //! there by itself: `super`, "Whose default it is".)
 //!
 //! The other way round, a default the user put on a cable is theirs ([`Kept::users`]). A start
 //! finds it there with nothing to tell it from one Windows put there as it installed the cable —
-//! and Windows' it takes it for, which FxSound moves wherever it is in that default's path. What
-//! says the user chose it is that a run of FxSound saw them move it there; that is kept here, role
+//! and Windows' it takes it for, which CrossFX moves wherever it is in that default's path. What
+//! says the user chose it is that a run of CrossFX saw them move it there; that is kept here, role
 //! by role, for as long as the role stays there, so that a later start leaves a call application
 //! sent to "CABLE Input", or a recorder of the desktop on "CABLE Output", where the user put it.
-//! It is forgotten once the role is somewhere else: moved by anyone but FxSound while a run
-//! watches, or found elsewhere by the next start — anywhere but on FxSound's own endpoint, where
+//! It is forgotten once the role is somewhere else: moved by anyone but CrossFX while a run
+//! watches, or found elsewhere by the next start — anywhere but on the endpoint CrossFX holds, where
 //! a run killed while it held the role left it.
 //!
 //! The Linux engine needs none of this: its virtual nodes are its own, and a default naming one is
-//! FxSound's by its name.
+//! CrossFX's by its name.
 //!
-//! The file is `%LOCALAPPDATA%\fxsound\claimed-defaults.toml` — local, not roaming, because an
-//! endpoint ID names a device of one machine:
+//! The file is `%LOCALAPPDATA%\CrossFX\claimed-defaults.toml`, in CrossFX's own local folder
+//! (`fxsound_core::Settings::local_dir`) — local, not roaming, because an endpoint ID names a device
+//! of one machine. Never the original FxSound's own local folder, which Windows does not tell
+//! from one called `fxsound`:
 //!
 //! ```toml
 //! output = "{0.0.0.00000000}.{73ca9fe5-1336-4bd0-b0a4-149e64acf557}"
@@ -45,6 +47,7 @@
 
 use std::path::PathBuf;
 
+use fxsound_core::Settings;
 use serde::{Deserialize, Serialize};
 
 use super::defaults::{Defaults, Role};
@@ -59,7 +62,7 @@ pub(crate) struct Kept {
     /// The endpoint each lane holds its direction's defaults on, or nothing.
     pub(crate) claimed: PerDirection<Option<String>>,
     /// Per direction and role, the virtual cable the user made that role's default themselves
-    /// while a run of FxSound watched (`super`, "Whose default it is"): theirs at a later start
+    /// while a run of CrossFX watched (`super`, "Whose default it is"): theirs at a later start
     /// too, which would otherwise find it there with nothing to tell it from one Windows put there.
     pub(crate) users: PerDirection<Defaults>,
 }
@@ -157,17 +160,17 @@ impl From<&Kept> for Contents {
 /// Where the record is kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Record {
-    /// `None` when there is nowhere to keep it — no `LOCALAPPDATA` — and then nothing is kept.
+    /// `None` when there is nowhere to keep it — Windows names no local application data — and
+    /// then nothing is kept.
     path: Option<PathBuf>,
 }
 
 impl Record {
-    /// The user's record, in `%LOCALAPPDATA%\fxsound`.
+    /// The user's record, in CrossFX's local folder (`%LOCALAPPDATA%\CrossFX`,
+    /// [`Settings::local_dir`]): the folder the shell names, not the environment.
     pub(crate) fn of_user() -> Self {
         Self {
-            path: std::env::var_os("LOCALAPPDATA")
-                .filter(|dir| !dir.is_empty())
-                .map(|dir| PathBuf::from(dir).join("fxsound").join(FILE_NAME)),
+            path: Settings::local_dir().map(|dir| dir.join(FILE_NAME)),
         }
     }
 
@@ -222,7 +225,7 @@ impl Record {
 /// The record a file's `text` holds. Anything unreadable in it is no record of that lane.
 fn parse(text: &str) -> Kept {
     let contents: Contents = toml::from_str(text).unwrap_or_else(|error| {
-        log::warn!("the record of FxSound's defaults is unreadable ({error}); taken as no record");
+        log::warn!("the record of CrossFX's defaults is unreadable ({error}); taken as no record");
         Contents::default()
     });
     let keep = |id: Option<String>| id.filter(|id| !id.trim().is_empty());
@@ -245,12 +248,12 @@ fn render(kept: &Kept) -> Option<String> {
         return None;
     }
     let body = toml::to_string(&contents)
-        .map_err(|error| log::warn!("the record of FxSound's defaults: {error}"))
+        .map_err(|error| log::warn!("the record of CrossFX's defaults: {error}"))
         .ok()?;
     Some(format!(
-        "# The default devices FxSound holds, so that a start after a run that was killed gives \
+        "# The default devices CrossFX holds, so that a start after a run that was killed gives \
          them back; and the ones\n# the user put on a virtual cable themselves, so that a later \
-         start leaves them theirs.\n# Written and removed by FxSound itself.\n{body}"
+         start leaves them theirs.\n# Written and removed by CrossFX itself.\n{body}"
     ))
 }
 
@@ -341,7 +344,7 @@ mod tests {
     #[test]
     fn the_record_is_kept_in_its_file_and_removed_when_it_holds_nothing() {
         let dir = fxsound_core::test_support::ScratchDir::new("wasapi-record");
-        let path = dir.path().join("fxsound").join(FILE_NAME);
+        let path = dir.path().join("crossfx").join(FILE_NAME);
         let record = Record::at(path.clone());
         assert_eq!(record.read(), claimed(None, None), "no file yet");
         record.write(&claimed(Some(FX), None));
@@ -373,10 +376,24 @@ mod tests {
 
     #[test]
     fn the_user_s_record_is_local_to_the_machine() {
-        if let Some(path) = Record::of_user().path {
-            assert!(path.ends_with(r"fxsound\claimed-defaults.toml"), "{path:?}");
-            let local = std::env::var_os("LOCALAPPDATA").expect("LOCALAPPDATA");
-            assert!(path.starts_with(local), "{path:?}");
-        }
+        // Only built: nothing is read, written or listed there.
+        let path = Record::of_user()
+            .path
+            .expect("Windows names a local application data folder");
+        assert!(path.ends_with(r"CrossFX\claimed-defaults.toml"), "{path:?}");
+        let local = std::env::var_os("LOCALAPPDATA").expect("LOCALAPPDATA");
+        assert!(path.starts_with(local), "{path:?}");
+        // Never the original's own folder, which Windows does not tell from `fxsound`.
+        assert!(
+            !path
+                .components()
+                .any(|part| part.as_os_str().eq_ignore_ascii_case("fxsound")),
+            "{path:?}"
+        );
+        assert_eq!(
+            path.parent(),
+            Settings::local_dir().as_deref(),
+            "the folder CrossFX keeps for this machine"
+        );
     }
 }

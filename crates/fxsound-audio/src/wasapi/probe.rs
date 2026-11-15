@@ -67,7 +67,7 @@ fn report() -> Result<String, AudioError> {
         .into_iter()
         .flatten()
         .collect();
-    let fxsound_ids = endpoints::fxsound_endpoints(&all, &lanes);
+    let fxsound_ids = endpoints::crossfx_endpoints(&all, &lanes);
 
     for (direction, defaults) in DeviceDirection::ALL.into_iter().zip(&defaults) {
         let _ = writeln!(
@@ -283,8 +283,7 @@ fn report() -> Result<String, AudioError> {
 
     let _ = writeln!(out, "\nThe original FxSound:");
     let processes = com::processes();
-    let own = com::own_pid();
-    match original::find(&processes, own, com::process_image(own).as_deref()) {
+    match original::find(&processes) {
         Some(process) => {
             let _ = writeln!(
                 out,

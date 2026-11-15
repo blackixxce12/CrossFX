@@ -7,16 +7,16 @@
 //! loaded:
 //!
 //! ```text
-//!  microphone ──► fxsound_aec_capture ─┐
-//!                                      ├─ WebRTC ─► fxsound_aec_source ──► fxsound_capture (input lane)
-//!  speakers' monitor ─► fxsound_aec_monitor ─┘
+//!  microphone ──► crossfx_aec_capture ─┐
+//!                                      ├─ WebRTC ─► crossfx_aec_source ──► crossfx_capture (input lane)
+//!  speakers' monitor ─► crossfx_aec_monitor ─┘
 //! ```
 //!
 //! `monitor.mode` is what makes the far end the speakers' own monitor — what is actually played,
 //! after FxSound's chain and after every other application's sound — rather than a sink of the
 //! module's own that applications would have to be moved into. While the canceller's source is in
 //! the graph, the input lane's capture stream records from it instead of from the microphone, and
-//! everything after that — the voice chain, `fxsound_source`, the recorder — is unchanged.
+//! everything after that — the voice chain, `crossfx_source`, the recorder — is unchanged.
 //!
 //! # Why a module, and why `unsafe`
 //!
@@ -78,7 +78,7 @@ pub(crate) const WEBRTC_LIBRARY: &str = "aec/libspa-aec-webrtc";
 #[cfg(test)]
 pub(crate) const NULL_LIBRARY: &str = "aec/libspa-aec-null";
 
-/// `priority.session` of the canceller's source: below `fxsound_source`'s 500, so that a session
+/// `priority.session` of the canceller's source: below `crossfx_source`'s 500, so that a session
 /// manager left to choose a default source on its own never prefers the half of FxSound that no
 /// application is meant to record from.
 const SOURCE_PRIORITY_SESSION: u32 = 400;
@@ -248,25 +248,25 @@ impl Arg {
 ///
 /// # The canceller's link-group
 ///
-/// Every one of the three streams gets `node.link-group = fxsound-aec` ([`AEC_LINK_GROUP`]): a
+/// Every one of the three streams gets `node.link-group = crossfx-aec` ([`AEC_LINK_GROUP`]): a
 /// group of the canceller's own, rather than a lane's, and rather than the module's default
 /// `echo-cancel-<pid>-<id>` — which would behave the same but carry a name nothing can check for.
 ///
-/// * **Not `fxsound-input`.** The input lane's capture stream has to be linked to
-///   `fxsound_aec_source`, and WirePlumber's `canLink` refuses outright a link into a node of the
-///   linking node's own group — the very rule that stops `fxsound_capture` recording from
-///   `fxsound_source`. In the input lane's group the canceller could never be used.
+/// * **Not `crossfx-input`.** The input lane's capture stream has to be linked to
+///   `crossfx_aec_source`, and WirePlumber's `canLink` refuses outright a link into a node of the
+///   linking node's own group — the very rule that stops `crossfx_capture` recording from
+///   `crossfx_source`. In the input lane's group the canceller could never be used.
 /// * **Not `fxsound`.** WirePlumber would allow it, but the server runs a group's members together
 ///   (`run_nodes`), and the canceller's capture stream runs whenever the microphone does: it would
-///   keep `fxsound_sink`, `fxsound_output` and the speakers running for as long as the input lane
+///   keep `crossfx_sink`, `crossfx_output` and the speakers running for as long as the input lane
 ///   was on, the failure `graph_churn::a_microphone_being_captured_does_not_keep_the_speakers_awake`
 ///   guards against for the lanes.
-/// * **`fxsound-aec`** passes `canLink` for every link the canceller needs, and still refuses the
-///   loop that matters: `fxsound_aec_capture` falling back to `fxsound_source`, the default source
-///   while the input lane holds it, is refused by the walk from `fxsound_source` through its
-///   partner `fxsound_capture` to that stream's peer `fxsound_aec_source`, in `fxsound-aec` again.
+/// * **`crossfx-aec`** passes `canLink` for every link the canceller needs, and still refuses the
+///   loop that matters: `crossfx_aec_capture` falling back to `crossfx_source`, the default source
+///   while the input lane holds it, is refused by the walk from `crossfx_source` through its
+///   partner `crossfx_capture` to that stream's peer `crossfx_aec_source`, in `crossfx-aec` again.
 ///
-/// That refusal only exists once `fxsound_capture` records from the canceller, so both of the
+/// That refusal only exists once `crossfx_capture` records from the canceller, so both of the
 /// module's capture streams also carry `node.dont-fallback`: a microphone or speakers that are not
 /// there yet are waited for, not replaced by whatever the default is at that moment.
 ///
@@ -578,7 +578,7 @@ pub(crate) struct EchoCancel {
     /// Whether that wait has outlasted [`SPEAKERS_GRACE`], as of the last [`Self::reconcile`]:
     /// then, with no trouble to report, the report names the speakers.
     speakers_overdue: bool,
-    /// The registry ids of the nodes called `fxsound_aec_source` in the graph now, as far as they
+    /// The registry ids of the nodes called `crossfx_aec_source` in the graph now, as far as they
     /// matter: forgotten the moment the module that made them goes ([`Self::unload`]) rather than
     /// when the registry gets round to saying so, because a source whose module is gone is gone,
     /// and nothing may be moved onto it or left recording from it meanwhile ([`route`]). A set
@@ -654,7 +654,7 @@ impl EchoCancel {
         true
     }
 
-    /// A node called `fxsound_aec_source` joined the graph.
+    /// A node called `crossfx_aec_source` joined the graph.
     pub(crate) fn source_appeared(&mut self, id: u32) {
         if !self.sources.contains(&id) {
             self.sources.push(id);
@@ -914,7 +914,7 @@ mod tests {
         );
         assert_eq!(
             at(&args, &["capture.props", "node.name"]).cloned(),
-            text("fxsound_aec_capture")
+            text("crossfx_aec_capture")
         );
         assert_eq!(
             at(&args, &["capture.props", "node.description"]).cloned(),
@@ -938,7 +938,7 @@ mod tests {
         );
         assert_eq!(
             at(&args, &["sink.props", "node.name"]).cloned(),
-            text("fxsound_aec_monitor")
+            text("crossfx_aec_monitor")
         );
         assert_eq!(
             at(&args, &["sink.props", "node.description"]).cloned(),
@@ -966,7 +966,7 @@ mod tests {
         );
         assert_eq!(
             at(&args, &["source.props", "node.name"]).cloned(),
-            text("fxsound_aec_source")
+            text("crossfx_aec_source")
         );
         assert_eq!(
             at(&args, &["source.props", "node.description"]).cloned(),
@@ -1000,11 +1000,11 @@ mod tests {
 
     #[test]
     fn the_canceller_has_a_link_group_of_its_own_and_its_capture_streams_never_fall_back() {
-        // `fxsound-input` would make WirePlumber refuse the link the input lane needs into the
+        // `crossfx-input` would make WirePlumber refuse the link the input lane needs into the
         // canceller's source; `fxsound` would keep the speakers' pair running with the microphone.
         assert_ne!(AEC_LINK_GROUP, INPUT_LINK_GROUP);
         assert_ne!(AEC_LINK_GROUP, LINK_GROUP);
-        assert_eq!(AEC_LINK_GROUP, "fxsound-aec");
+        assert_eq!(AEC_LINK_GROUP, "crossfx-aec");
 
         let args = module_args(
             NULL_LIBRARY,

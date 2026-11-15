@@ -37,9 +37,9 @@
 //! ```text
 //!  OUTPUT LANE (the Windows behaviour; enabled at start):
 //!
-//!  apps ──► fxsound_sink    (Audio/Sink, Direction::Input)    process(): DSP in place ──┐
+//!  apps ──► crossfx_sink    (Audio/Sink, Direction::Input)    process(): DSP in place ──┐
 //!                                                                                       │ ring
-//!           fxsound_output  (Stream/Output/Audio, Output)     process(): pop ◄──────────┘
+//!           crossfx_output  (Stream/Output/Audio, Output)     process(): pop ◄──────────┘
 //!                │
 //!                ▼  target.object = <chosen sink's node.name>
 //!           alsa_output.…   (the user's real speakers)
@@ -49,9 +49,9 @@
 //!           alsa_input.…    (the user's real microphone)
 //!                │
 //!                ▼  target.object = <chosen source's node.name>
-//!           fxsound_capture (Stream/Input/Audio, Direction::Input)  process(): DSP in place ──┐
+//!           crossfx_capture (Stream/Input/Audio, Direction::Input)  process(): DSP in place ──┐
 //!                                                                                            │ ring
-//!  apps ◄── fxsound_source  (Audio/Source, Direction::Output)       process(): pop ◄─────────┘
+//!  apps ◄── crossfx_source  (Audio/Source, Direction::Output)       process(): pop ◄─────────┘
 //! ```
 //!
 //! Why two streams rather than one filter: `pipewire` 0.10.1 has no `pw_filter` binding at all
@@ -63,8 +63,8 @@
 //! closes.
 //!
 //! The `node.link-group` is not decoration: it is how WirePlumber learns our nodes are one
-//! logical device and refuses to link `fxsound_output` back into `fxsound_sink` — or, in the input
-//! lane, `fxsound_capture` into `fxsound_source` — which is otherwise exactly what happens the
+//! logical device and refuses to link `crossfx_output` back into `crossfx_sink` — or, in the input
+//! lane, `crossfx_capture` into `crossfx_source` — which is otherwise exactly what happens the
 //! moment our node becomes the default.
 //!
 //! It is not only WirePlumber's business, either. Since 0.3.68 the PipeWire server schedules the
@@ -73,7 +73,7 @@
 //! lane's playback stream sleep while nothing plays into the sink, and the input lane's capture
 //! stream — and the microphone with it — while nothing records from the source (see `engine`,
 //! "Idle"), and it is why each lane has a group **of its own** — `fxsound` for the speakers,
-//! `fxsound-input` for the microphone (`docs/spec/12-audio-io.md` §29.2). WirePlumber would be
+//! `crossfx-input` for the microphone (`docs/spec/12-audio-io.md` §29.2). WirePlumber would be
 //! content either way: each stream still shares a group with its own virtual node, which is all
 //! its refusal needs, and no link either lane needs ever joins two of our own nodes. The server is
 //! not. With one group, a capture stream fed by a microphone made the speakers' pair runnable with
@@ -89,7 +89,7 @@
 //! than from the microphone directly (`docs/0.4.0-design.md` §7). The canceller is
 //! `libpipewire-module-echo-cancel`, loaded into this crate's PipeWire context (`aec`): it hears
 //! the microphone and the monitor of the speakers the output lane plays to, and its
-//! `fxsound_aec_source` takes the microphone's place in front of `fxsound_capture`. The three nodes
+//! `crossfx_aec_source` takes the microphone's place in front of `crossfx_capture`. The three nodes
 //! it makes are FxSound's as much as the lanes' four are — named by us, in a link-group of their
 //! own ([`AEC_LINK_GROUP`]), never offered as devices — and they come and go with the microphone
 //! lane: loaded once it has a pair, reloaded when its microphone or the speakers change, unloaded
@@ -120,8 +120,8 @@
 //! # The session default
 //!
 //! Once a lane's pair of nodes is up, FxSound **does** make itself the session default for that
-//! lane's direction — `default.configured.audio.sink = fxsound_sink` for the output lane,
-//! `default.configured.audio.source = fxsound_source` for the input lane — because that is the
+//! lane's direction — `default.configured.audio.sink = crossfx_sink` for the output lane,
+//! `default.configured.audio.source = crossfx_source` for the input lane — because that is the
 //! whole point: the user picks *their* speakers or *their* microphone in FxSound and every
 //! application follows without being re-routed by hand, exactly as the Windows driver does. Each
 //! lane holds its own claim. It does so politely, per `docs/spec/12-audio-io.md` §21: the default
@@ -135,7 +135,7 @@
 //!
 //! * **It never writes volume or mute on the target device.** On Windows the DFX endpoint and the
 //!   real endpoint are two separate system volume controls and FxSound mirrors them
-//!   (`sndDevicesVolCallbacks.cpp`). On Linux, once `fxsound_sink` is the default it *is* the
+//!   (`sndDevicesVolCallbacks.cpp`). On Linux, once `crossfx_sink` is the default it *is* the
 //!   control the volume keys, `wpctl` and every desktop slider target; mirroring would fight
 //!   WirePlumber's own restore and would leave the real device permanently changed after we exit.
 //!   The whole `savedPlaybackVolume` / `b_never_raise_volume` contract therefore disappears — see
@@ -239,55 +239,61 @@ pub use locale::{node_description, sink_description, source_description};
 #[cfg(windows)]
 pub use wasapi::probe as wasapi_probe;
 
+/// What the `node.name` of every node of this crate's starts with: the lanes' pairs, the node that
+/// holds the microphone awake, the echo canceller's and the per-application routes'
+/// ([`OUR_NODE_NAMES`], [`AEC_NODE_PREFIX`], [`ROUTE_NODE_PREFIX`]). The WirePlumber hook's script
+/// tells CrossFX's own nodes by it too (`wireplumber_hook`).
+pub const NODE_PREFIX: &str = "crossfx_";
+
 /// `node.name` of the virtual sink applications render into (output direction, NODE 1).
 ///
-/// This string is the FxSound analogue of `SND_DEVICES_DFX_DEVICE_STRING`
+/// This string is CrossFX's analogue of the original's `SND_DEVICES_DFX_DEVICE_STRING`
 /// (`audiopassthru/include/sndDevices.h:51`) and, like it, is matched by name elsewhere — it is
 /// what gets written into `default.configured.audio.sink`, so it must stay stable across releases.
-pub const SINK_NODE_NAME: &str = "fxsound_sink";
+pub const SINK_NODE_NAME: &str = "crossfx_sink";
 
 /// `node.name` of the stream that renders into the user's real device (output direction, NODE 2).
-pub const OUTPUT_NODE_NAME: &str = "fxsound_output";
+pub const OUTPUT_NODE_NAME: &str = "crossfx_output";
 
 /// `node.name` of the stream that captures from the user's real microphone (input direction,
 /// NODE 1).
-pub const CAPTURE_NODE_NAME: &str = "fxsound_capture";
+pub const CAPTURE_NODE_NAME: &str = "crossfx_capture";
 
 /// `node.name` of the virtual source applications record from (input direction, NODE 2).
 ///
 /// Written into `default.configured.audio.source`; stable for the same reason as
 /// [`SINK_NODE_NAME`].
-pub const SOURCE_NODE_NAME: &str = "fxsound_source";
+pub const SOURCE_NODE_NAME: &str = "crossfx_source";
 
-/// `application.id` of every node FxSound makes. Stable too: WirePlumber keyed the volume it kept
-/// for the two virtual nodes by it, and 0.4.0 reads that volume back once (`volume::inherited`).
+/// `application.id` of every node CrossFX makes: its application id
+/// ([`fxsound_core::identity::APP_ID`]), which desktops find its icon and its name by.
 #[cfg(target_os = "linux")]
-pub(crate) const APP_ID: &str = "com.fxsound.FxSound";
+pub(crate) const APP_ID: &str = fxsound_core::identity::APP_ID;
 
 /// `node.name` of the echo canceller's capture stream: the one that hears the microphone
 /// (`docs/0.4.0-design.md` §7).
-pub const AEC_CAPTURE_NODE_NAME: &str = "fxsound_aec_capture";
+pub const AEC_CAPTURE_NODE_NAME: &str = "crossfx_aec_capture";
 
 /// `node.name` of the echo canceller's monitor stream: the one that hears what the speakers play,
 /// the echo it takes out of the microphone.
-pub const AEC_MONITOR_NODE_NAME: &str = "fxsound_aec_monitor";
+pub const AEC_MONITOR_NODE_NAME: &str = "crossfx_aec_monitor";
 
 /// `node.name` of the echo canceller's source: the microphone with the echo taken out, and what the
 /// input lane's capture stream records from while echo cancellation runs.
-pub const AEC_SOURCE_NODE_NAME: &str = "fxsound_aec_source";
+pub const AEC_SOURCE_NODE_NAME: &str = "crossfx_aec_source";
 
-/// `node.name` of the stream FxSound records its own virtual source with while the app holds the
+/// `node.name` of the stream CrossFX records its own virtual source with while the app holds the
 /// microphone awake ([`UiToAudio::KeepInputAwake`], `docs/0.4.0-upstream.md` U19): the calibration
 /// wizard and the microphone meters.
 ///
 /// The input lane's capture stream is passive, so the microphone runs only while something records
-/// from FxSound (Input); this is that something when nobody else is. It is an ordinary recording
+/// from CrossFX (Input); this is that something when nobody else is. It is an ordinary recording
 /// stream with no `node.link-group` — the kind WirePlumber 0.5 switches a Bluetooth headset to its
 /// call profile for (`device/autoswitch-bluetooth-profile.lua`) — so it wakes a headset's
 /// microphone exactly as a call would.
 ///
 /// [`UiToAudio::KeepInputAwake`]: fxsound_core::messages::UiToAudio::KeepInputAwake
-pub const KEEP_AWAKE_NODE_NAME: &str = "fxsound_mic_check";
+pub const KEEP_AWAKE_NODE_NAME: &str = "crossfx_mic_check";
 
 /// The four nodes of the two lanes' pairs, in lane order: the output lane's, then the input lane's.
 pub const LANE_NODE_NAMES: [&str; 4] = [
@@ -305,7 +311,7 @@ pub const AEC_NODE_NAMES: [&str; 3] = [
 ];
 
 /// Every node this crate ever creates, or has PipeWire create for it: [`LANE_NODE_NAMES`], then
-/// [`AEC_NODE_NAMES`], then [`KEEP_AWAKE_NODE_NAME`]. None of them is a device FxSound could attach
+/// [`AEC_NODE_NAMES`], then [`KEEP_AWAKE_NODE_NAME`]. None of them is a device CrossFX could attach
 /// to, so [`DeviceInfo::from_props`] drops them by name whatever their `media.class` says. The
 /// canceller's source is an `Audio/Source` like any microphone, and offered as one it would let the
 /// input lane capture from its own canceller.
@@ -321,42 +327,39 @@ pub const OUR_NODE_NAMES: [&str; 8] = [
 ];
 
 /// What the `node.name` of every node of a per-application route starts with
-/// (`docs/0.4.0-apps.md`): `fxsound_route_o<N>` and `fxsound_route_o<N>_play` in front of the
-/// speakers, `fxsound_route_i<N>_capture` and `fxsound_route_i<N>` behind the microphone.
+/// (`docs/0.4.0-apps.md`): `crossfx_route_o<N>` and `crossfx_route_o<N>_play` in front of the
+/// speakers, `crossfx_route_i<N>_capture` and `crossfx_route_i<N>` behind the microphone.
 ///
 /// A prefix rather than a list, because how many routes there are is the user's rules' business,
-/// and every one of them is FxSound's as much as the lanes' own pairs are ([`is_fxsound_node`]).
-pub const ROUTE_NODE_PREFIX: &str = "fxsound_route_";
+/// and every one of them is CrossFX's as much as the lanes' own pairs are ([`is_crossfx_node`]).
+pub const ROUTE_NODE_PREFIX: &str = "crossfx_route_";
 
 /// What the `node.name` of every node of the echo canceller starts with ([`AEC_NODE_NAMES`]).
 ///
-/// The three names are listed too; the prefix is what [`is_fxsound_node`] matches, so a node the
+/// The three names are listed too; the prefix is what [`is_crossfx_node`] matches, so a node the
 /// module adds in some later version, named the way the others are, is ours from its first day.
-pub const AEC_NODE_PREFIX: &str = "fxsound_aec_";
+pub const AEC_NODE_PREFIX: &str = "crossfx_aec_";
 
-/// Whether the node called `node_name` is one of FxSound's own: a lane's pair, the node that
+/// Whether the node called `node_name` is one of CrossFX's own: a lane's pair, the node that
 /// keeps the microphone awake ([`OUR_NODE_NAMES`]), the echo canceller's ([`AEC_NODE_PREFIX`]),
 /// or a per-application route's ([`ROUTE_NODE_PREFIX`]).
 ///
 /// None of them is a device to attach to, and none is an application's stream: an application
-/// list that offered FxSound's own playback stream a preset would offer to run FxSound through
+/// list that offered CrossFX's own playback stream a preset would offer to run CrossFX through
 /// itself.
 #[must_use]
-pub fn is_fxsound_node(node_name: &str) -> bool {
+pub fn is_crossfx_node(node_name: &str) -> bool {
     OUR_NODE_NAMES.contains(&node_name)
         || node_name.starts_with(ROUTE_NODE_PREFIX)
         || node_name.starts_with(AEC_NODE_PREFIX)
 }
 
 /// The `node.link-group` of the output lane's two nodes. **Mandatory**; see the module docs.
-///
-/// The same string 0.3.0 gave its one pair, so the speakers' pair looks to anything outside the
-/// process exactly as it always has.
-pub const LINK_GROUP: &str = "fxsound";
+pub const LINK_GROUP: &str = "crossfx";
 
 /// The `node.link-group` of the input lane's two nodes: a group of their own, not the output
 /// lane's, because the server runs a group's members together (module docs).
-pub const INPUT_LINK_GROUP: &str = "fxsound-input";
+pub const INPUT_LINK_GROUP: &str = "crossfx-input";
 
 /// The `node.link-group` of the echo canceller's three streams: a group of their own, neither
 /// lane's (`docs/0.4.0-design.md` §7, and `aec` for the reasoning).
@@ -365,7 +368,7 @@ pub const INPUT_LINK_GROUP: &str = "fxsound-input";
 /// and WirePlumber refuses a link between two nodes of one group. Not the output lane's, because
 /// the server runs a group together, and the canceller's capture stream — which runs whenever the
 /// microphone does — would keep the speakers' pair running with it.
-pub const AEC_LINK_GROUP: &str = "fxsound-aec";
+pub const AEC_LINK_GROUP: &str = "crossfx-aec";
 
 /// The `node.link-group` of a lane's pair.
 #[must_use]
@@ -376,29 +379,30 @@ pub const fn link_group(direction: DeviceDirection) -> &'static str {
     }
 }
 
-/// The product name every description starts with, and the `media.name` of the two streams.
+/// The product name every description starts with, and the `media.name` of the two streams:
+/// [`fxsound_core::identity::PRODUCT`].
 ///
 /// The virtual sink and source are *not* described with this string alone: their
-/// `node.description` is `"FxSound (<Output|Input>)"` in the system language — see
+/// `node.description` is `"CrossFX (<Output|Input>)"` in the system language — see
 /// [`sink_description`] / [`source_description`] — so the two can be told apart in a device list.
-pub const SINK_DESCRIPTION: &str = "FxSound";
+pub const SINK_DESCRIPTION: &str = fxsound_core::identity::PRODUCT;
 
 /// `node.description` of the playback stream (output direction, NODE 2). Not localised: it is an
 /// internal node UIs group under the sink through the link-group.
-pub const OUTPUT_STREAM_DESCRIPTION: &str = "FxSound output";
+pub const OUTPUT_STREAM_DESCRIPTION: &str = "CrossFX output";
 
 /// `node.description` of the capture stream (input direction, NODE 1). Not localised, as above.
-pub const CAPTURE_STREAM_DESCRIPTION: &str = "FxSound capture";
+pub const CAPTURE_STREAM_DESCRIPTION: &str = "CrossFX capture";
 
 /// `node.description` and `media.name` of the stream that holds the microphone awake
 /// ([`KEEP_AWAKE_NODE_NAME`]). Not localised either, but — unlike the pair's two streams — seen: a
-/// desktop lists it among the applications recording, as "FxSound" with this beside it, for as
+/// desktop lists it among the applications recording, as "CrossFX" with this beside it, for as
 /// long as the calibration wizard or the microphone meters are open.
-pub const KEEP_AWAKE_STREAM_DESCRIPTION: &str = "FxSound microphone check";
+pub const KEEP_AWAKE_STREAM_DESCRIPTION: &str = "CrossFX microphone check";
 
 /// What the engine tells the user, translated, when one Bluetooth headset is the target of both
 /// lanes ([`AudioToUi::Warning`], `docs/0.4.0-upstream.md` U9): the headset runs its call profile
-/// while anything records from it through FxSound, and the music lane's sink goes with it — one
+/// while anything records from it through CrossFX, and the music lane's sink goes with it — one
 /// channel, 8 to 32 kHz depending on the codec, 16 kHz on nearly every headset.
 ///
 /// The English text is the key [`fxsound_core::i18n::tr`] looks the translation up by. Public so
@@ -416,7 +420,7 @@ pub const ONE_HEADSET_ON_BOTH_LANES: &str =
 /// Public for the reason [`ONE_HEADSET_ON_BOTH_LANES`] is: the app's translation tables and their
 /// audit name it, and this string reaches the screen from here.
 pub const TOO_MANY_APPLICATION_PRESETS: &str =
-    "%s stays on FxSound's preset: at most %s application presets can run at once";
+    "%s stays on CrossFX's preset: at most %s application presets can run at once";
 
 /// What the Windows engine tells the user, translated, while the original FxSound — FxSound LLC's,
 /// under `…\FxSound LLC\FxSound\` — runs ([`AudioToUi::Warning`] for the output lane): it holds the
@@ -429,10 +433,10 @@ pub const TOO_MANY_APPLICATION_PRESETS: &str =
 /// audit name it, and this string reaches the screen from here. Defined on every platform so that
 /// the audit reads it wherever it runs; only the Windows engine sends it.
 pub const ORIGINAL_FXSOUND_RUNNING: &str = "The original FxSound is running and is using the \
-                                            virtual device: quit it so that this FxSound can \
-                                            process the sound";
+                                            virtual device: quit it so that CrossFX can process \
+                                            the sound";
 
-/// The `node.name` of FxSound's virtual device for a direction — the value written into that
+/// The `node.name` of CrossFX's virtual device for a direction — the value written into that
 /// direction's `default.configured.audio.*` key.
 #[must_use]
 pub const fn our_node_name(direction: DeviceDirection) -> &'static str {
@@ -573,10 +577,9 @@ pub struct StartOptions {
     /// The UI's language for the virtual nodes' descriptions ([`AudioEngine::start_with_language`]);
     /// `None` reads the desktop locale.
     pub language: Option<String>,
-    /// Every remembered per-target volume of FxSound's own nodes: the settings file's
+    /// Every remembered per-target volume of CrossFX's own nodes: the settings file's
     /// `device_volumes` (U10). The first pair on a remembered device starts at its level; without
-    /// them it would start at a level chosen without them — unity, or the level WirePlumber kept
-    /// from before 0.4.0 — and only move once [`UiToAudio::SeedTargetVolumes`] arrived. Sanitised
+    /// them it would start at a level chosen without them — unity — and only move once [`UiToAudio::SeedTargetVolumes`] arrived. Sanitised
     /// here as that message's are.
     pub target_volumes: Vec<TargetVolume>,
     /// The output lane's device ranking (U4), as [`UiToAudio::SetDevicePriority`] would send it:
@@ -659,7 +662,7 @@ impl AudioEngine {
     ///
     /// The engine starts with the output lane enabled and the input lane detached. The output lane
     /// attaches to the device the port of `sndDevicesImplementDeviceRules` picks
-    /// ([`devices::choose_device`]) and, as soon as its nodes are up, makes `fxsound_sink` the
+    /// ([`devices::choose_device`]) and, as soon as its nodes are up, makes `crossfx_sink` the
     /// configured default sink — remembering the previous default so it can be handed back
     /// (`docs/spec/12-audio-io.md` §21). Send [`UiToAudio::SelectDevice`] to attach a lane to a
     /// specific device — a microphone enables the input lane beside the output lane, never instead
@@ -695,17 +698,12 @@ impl AudioEngine {
 
     /// [`AudioEngine::start`], with everything the first pair of nodes depends on
     /// ([`StartOptions`]).
-    ///
-    /// Also reads, once and before connecting, the level WirePlumber kept for FxSound's two nodes
-    /// before 0.4.0 took their volume over: what a lane with nothing remembered for its direction
-    /// starts no louder than (`docs/spec/12-audio-io.md` §19.7.1).
     #[cfg(target_os = "linux")]
     pub fn start_with_options(options: StartOptions) -> Result<EngineHandle, AudioError> {
         Self::start_with(
             None,
             options,
             aec::WEBRTC_LIBRARY,
-            volume::wireplumber_state_file(),
             app_routes::ROUTE_IDLE,
             stream_handover::journal_file(),
         )
@@ -727,8 +725,7 @@ impl AudioEngine {
     /// Crate-internal because the public surface is fixed, but it is the seam the tests use: a
     /// remote name that does not exist exercises the whole spawn/connect/report path — including
     /// the error mapping and the thread shutdown — without a server and without creating a single
-    /// node in the user's live graph. Nor does it read the user's WirePlumber state: a test's
-    /// first pair starts where the test says, not where this machine's FxSound was last left.
+    /// node in the user's live graph.
     #[cfg(target_os = "linux")]
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn start_with_remote(remote: Option<&str>) -> Result<EngineHandle, AudioError> {
@@ -736,7 +733,6 @@ impl AudioEngine {
             remote,
             StartOptions::default(),
             aec::WEBRTC_LIBRARY,
-            None,
             app_routes::ROUTE_IDLE,
             None,
         )
@@ -754,25 +750,21 @@ impl AudioEngine {
             remote,
             StartOptions::default(),
             aec::WEBRTC_LIBRARY,
-            None,
             idle,
             None,
         )
     }
 
-    /// [`Self::start_with_remote`], with [`StartOptions`], and WirePlumber's state read from
-    /// `wireplumber_state` — a file the test wrote — rather than the user's.
+    /// [`Self::start_with_remote`], with [`StartOptions`].
     #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn start_for_tests(
         remote: Option<&str>,
         options: StartOptions,
-        wireplumber_state: Option<std::path::PathBuf>,
     ) -> Result<EngineHandle, AudioError> {
         Self::start_with(
             remote,
             options,
             aec::WEBRTC_LIBRARY,
-            wireplumber_state,
             app_routes::ROUTE_IDLE,
             None,
         )
@@ -790,7 +782,6 @@ impl AudioEngine {
             remote,
             StartOptions::default(),
             aec::WEBRTC_LIBRARY,
-            None,
             app_routes::ROUTE_IDLE,
             Some(journal),
         )
@@ -810,7 +801,6 @@ impl AudioEngine {
             remote,
             StartOptions::default(),
             library,
-            None,
             app_routes::ROUTE_IDLE,
             None,
         )
@@ -821,7 +811,6 @@ impl AudioEngine {
         remote: Option<&str>,
         options: StartOptions,
         aec_library: &'static str,
-        wireplumber_state: Option<std::path::PathBuf>,
         route_idle: Duration,
         handover_journal: Option<std::path::PathBuf>,
     ) -> Result<EngineHandle, AudioError> {
@@ -849,11 +838,10 @@ impl AudioEngine {
         };
         config.want_default = want_default;
         config.output_enabled = output_enabled;
-        config.wireplumber_state = wireplumber_state;
         config.route_idle = route_idle;
         config.handover_journal = handover_journal;
         let join = std::thread::Builder::new()
-            .name("fxsound-audio".to_owned())
+            .name("crossfx-audio".to_owned())
             .spawn(move || engine::run(config))
             .map_err(|e| AudioError::PipewireUnavailable(e.to_string()))?;
         handle.engine.join = Some(join);
@@ -971,7 +959,6 @@ impl EngineHandle {
             device_priority: PerDirection::default(),
             want_default: true,
             output_enabled: true,
-            wireplumber_state: None,
             route_idle: app_routes::ROUTE_IDLE,
             handover_journal: None,
         };
@@ -1311,48 +1298,54 @@ mod tests {
     }
 
     #[test]
-    fn every_node_fxsound_makes_is_its_own_and_nobody_elses_is() {
+    fn every_node_crossfx_makes_is_its_own_and_nobody_elses_is() {
         for name in OUR_NODE_NAMES {
-            assert!(is_fxsound_node(name), "{name}");
+            assert!(is_crossfx_node(name), "{name}");
+            assert!(name.starts_with(NODE_PREFIX), "{name}");
+        }
+        // Every node of ours starts with the prefix the WirePlumber hook tells ours by.
+        assert_eq!(NODE_PREFIX, "crossfx_");
+        for prefix in [ROUTE_NODE_PREFIX, AEC_NODE_PREFIX] {
+            assert!(prefix.starts_with(NODE_PREFIX), "{prefix}");
         }
         // A per-application route's four kinds of node, whatever its number.
         for name in [
-            "fxsound_route_o1",
-            "fxsound_route_o1_play",
-            "fxsound_route_i4_capture",
-            "fxsound_route_i4",
-            "fxsound_route_o17",
+            "crossfx_route_o1",
+            "crossfx_route_o1_play",
+            "crossfx_route_i4_capture",
+            "crossfx_route_i4",
+            "crossfx_route_o17",
         ] {
-            assert!(is_fxsound_node(name), "{name}");
+            assert!(is_crossfx_node(name), "{name}");
         }
         // The canceller's, by its prefix, including one it does not make today.
-        assert!(is_fxsound_node("fxsound_aec_reference"));
-        assert_eq!(AEC_NODE_PREFIX, "fxsound_aec_");
-        assert_eq!(ROUTE_NODE_PREFIX, "fxsound_route_");
+        assert!(is_crossfx_node("crossfx_aec_reference"));
+        assert_eq!(AEC_NODE_PREFIX, "crossfx_aec_");
+        assert_eq!(ROUTE_NODE_PREFIX, "crossfx_route_");
         for name in AEC_NODE_NAMES {
             assert!(name.starts_with(AEC_NODE_PREFIX), "{name}");
         }
         // Somebody else's, even with our word in it.
         for name in [
             "",
-            "fxsound",
-            "fxsound_sink_2",
-            "fxsound_router",
-            "my_fxsound_route_o1",
+            "crossfx",
+            "crossfx_sink_2",
+            "crossfx_router",
+            "my_crossfx_route_o1",
             "alsa_output.pci-0000_00_1f.3.analog-stereo",
             "Firefox",
         ] {
-            assert!(!is_fxsound_node(name), "{name:?}");
+            assert!(!is_crossfx_node(name), "{name:?}");
         }
     }
 
     #[test]
     fn the_node_names_the_default_metadata_will_carry_are_stable() {
-        assert_eq!(SINK_NODE_NAME, "fxsound_sink");
-        assert_eq!(OUTPUT_NODE_NAME, "fxsound_output");
-        assert_eq!(CAPTURE_NODE_NAME, "fxsound_capture");
-        assert_eq!(SOURCE_NODE_NAME, "fxsound_source");
-        assert_eq!(LINK_GROUP, "fxsound");
+        assert_eq!(SINK_NODE_NAME, "crossfx_sink");
+        assert_eq!(OUTPUT_NODE_NAME, "crossfx_output");
+        assert_eq!(CAPTURE_NODE_NAME, "crossfx_capture");
+        assert_eq!(SOURCE_NODE_NAME, "crossfx_source");
+        assert_eq!(LINK_GROUP, "crossfx");
         assert_eq!(link_group(DeviceDirection::Output), LINK_GROUP);
         assert_eq!(link_group(DeviceDirection::Input), INPUT_LINK_GROUP);
         assert_ne!(
@@ -1362,10 +1355,10 @@ mod tests {
         assert_eq!(our_node_name(DeviceDirection::Output), SINK_NODE_NAME);
         assert_eq!(our_node_name(DeviceDirection::Input), SOURCE_NODE_NAME);
         // The echo canceller's three, which are ours as much as the lanes' four: never a device.
-        assert_eq!(AEC_CAPTURE_NODE_NAME, "fxsound_aec_capture");
-        assert_eq!(AEC_MONITOR_NODE_NAME, "fxsound_aec_monitor");
-        assert_eq!(AEC_SOURCE_NODE_NAME, "fxsound_aec_source");
-        assert_eq!(AEC_LINK_GROUP, "fxsound-aec");
+        assert_eq!(AEC_CAPTURE_NODE_NAME, "crossfx_aec_capture");
+        assert_eq!(AEC_MONITOR_NODE_NAME, "crossfx_aec_monitor");
+        assert_eq!(AEC_SOURCE_NODE_NAME, "crossfx_aec_source");
+        assert_eq!(AEC_LINK_GROUP, "crossfx-aec");
         assert_eq!(
             OUR_NODE_NAMES.to_vec(),
             [
@@ -1386,18 +1379,26 @@ mod tests {
         sorted.dedup();
         assert_eq!(sorted.len(), OUR_NODE_NAMES.len());
         // The descriptions, by contrast, are for people and carry the localised direction.
-        assert_eq!(SINK_DESCRIPTION, "FxSound");
-        assert_eq!(OUTPUT_STREAM_DESCRIPTION, "FxSound output");
-        assert_eq!(CAPTURE_STREAM_DESCRIPTION, "FxSound capture");
-        assert_eq!(KEEP_AWAKE_NODE_NAME, "fxsound_mic_check");
-        assert_eq!(KEEP_AWAKE_STREAM_DESCRIPTION, "FxSound microphone check");
+        assert_eq!(SINK_DESCRIPTION, "CrossFX");
+        assert_eq!(SINK_DESCRIPTION, fxsound_core::identity::PRODUCT);
+        assert_eq!(OUTPUT_STREAM_DESCRIPTION, "CrossFX output");
+        assert_eq!(CAPTURE_STREAM_DESCRIPTION, "CrossFX capture");
+        assert_eq!(KEEP_AWAKE_NODE_NAME, "crossfx_mic_check");
+        assert_eq!(KEEP_AWAKE_STREAM_DESCRIPTION, "CrossFX microphone check");
+        for description in [
+            OUTPUT_STREAM_DESCRIPTION,
+            CAPTURE_STREAM_DESCRIPTION,
+            KEEP_AWAKE_STREAM_DESCRIPTION,
+        ] {
+            assert!(description.starts_with(SINK_DESCRIPTION), "{description}");
+        }
         assert_eq!(
             node_description(DeviceDirection::Output, Some("ru")),
-            "FxSound (Вывод)"
+            "CrossFX (Вывод)"
         );
         assert_eq!(
             node_description(DeviceDirection::Input, Some("ru")),
-            "FxSound (Ввод)"
+            "CrossFX (Ввод)"
         );
     }
 
@@ -1405,7 +1406,7 @@ mod tests {
     /// and must not leave a thread or a node behind. Nothing in this test touches the live graph.
     #[test]
     fn starting_without_a_pipewire_server_returns_an_error_instead_of_panicking() {
-        let error = AudioEngine::start_with_remote(Some("fxsound-no-such-socket-for-tests"))
+        let error = AudioEngine::start_with_remote(Some("crossfx-no-such-socket-for-tests"))
             .expect_err("connecting to a socket that does not exist must fail");
         let AudioError::PipewireUnavailable(detail) = &error else {
             panic!("expected PipewireUnavailable, got {error:?}");

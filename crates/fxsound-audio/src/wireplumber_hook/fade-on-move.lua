@@ -1,24 +1,24 @@
--- FxSound for Linux: smooth moves in WirePlumber.
+-- CrossFX: smooth moves in WirePlumber.
 --
--- Copyright © 2026 the FxSound for Linux contributors
+-- Copyright © 2026 the CrossFX contributors
 --
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 --
--- Installed by FxSound's Settings ▸ Experimental ▸ "Smooth moves in WirePlumber", and taken away
+-- Installed by CrossFX's Settings ▸ Experimental ▸ "Smooth moves in WirePlumber", and taken away
 -- again by unticking it. Taken away by hand, it is this file and
--- ~/.config/wireplumber/wireplumber.conf.d/90-fxsound-fade-on-move.conf, and a restart of
+-- ~/.config/wireplumber/wireplumber.conf.d/90-crossfx-fade-on-move.conf, and a restart of
 -- WirePlumber (systemctl --user restart wireplumber).
 --
 -- WirePlumber moves a stream from one node to another by unlinking it and linking it again
 -- (linking/prepare-link, linking/link-target), in the middle of the wave: the click of a device
--- picked in the desktop's sound settings, with or without FxSound. This hook fades a stream that
+-- picked in the desktop's sound settings, with or without CrossFX. This hook fades a stream that
 -- plays to silence before WirePlumber unlinks it, and gives it its volume back once its new link
 -- is up. It moves the stream's master volume, with the ramp PipeWire's audio converter puts on it
 -- (volumeRampTime, volumeRampStepSamples); channelVolumes, the level a desktop's mixer shows,
 -- stays. WirePlumber's own ducking of media roles moves the same volume
 -- (linking/rescan-media-role-links.lua).
 --
--- The component is optional (90-fxsound-fade-on-move.conf): should this file be missing, or fail
+-- The component is optional (90-crossfx-fade-on-move.conf): should this file be missing, or fail
 -- on a WirePlumber that changed, WirePlumber says so in its log and runs without it.
 
 if not AsyncEventHook or not SimpleEventHook then
@@ -27,10 +27,10 @@ end
 
 local lutils = require ("linking-utils")
 local cutils = require ("common-utils")
-local log = Log.open_topic ("s-fxsound")
+local log = Log.open_topic ("s-crossfx")
 
--- The fade to silence, and the fade back: as FxSound's own handover of a stream
--- (crates/fxsound-audio/src/stream_handover.rs, RAMP_MS and RAMP_IN_MS).
+-- The fade to silence, and the fade back: as CrossFX's own handover of a stream
+-- (stream_handover.rs, RAMP_MS and RAMP_IN_MS).
 local FADE_OUT_MS = 20
 local FADE_IN_MS = 50
 -- Samples a step of the ramp: not one, whose hundreds of steps leave PipeWire's converter time to
@@ -41,26 +41,26 @@ local STEP_SAMPLES = 8
 local SETTLE_MS = 70
 -- From the new link to the fade back.
 local LINKED_MS = 20
--- The same for a stream moved off FxSound's own nodes: FxSound, on, takes the default back a
+-- The same for a stream moved off CrossFX's own nodes: CrossFX, on, takes the default back a
 -- moment later and has the stream moved back. Held silent until then, the stream's move back is
--- made in silence too; given back meanwhile, FxSound's own fade of it would meet this one's ramp,
+-- made in silence too; given back meanwhile, CrossFX's own fade of it would meet this one's ramp,
 -- which PipeWire's converter refuses and jumps instead: a click (measured at D5, −19 to −31 dBFS).
 local CLAIM_WAIT_MS = 250
 -- For a recorder, LINKED_MS and this much more: a recorder is handed what its source played in
 -- the cycle before, so the first cycles after its new link bring it nothing yet, and a ramp given
 -- back at once is spent on them; the sound then starts at full volume in the middle of a wave. As
--- FxSound's own handover waits (stream_handover.rs, RECORDER_LINKED). Given back 20 ms after its
--- link, a recorder FxSound took back after the desktop's pick clicked at −18 to −21 dBFS, two to
+-- CrossFX's own handover waits (stream_handover.rs, RECORDER_LINKED). Given back 20 ms after its
+-- link, a recorder CrossFX took back after the desktop's pick clicked at −18 to −21 dBFS, two to
 -- four switches in 24.
 local RECORDER_LINKED_MS = 50
 -- The volume comes back after this whatever happened to the move.
 local GIVE_BACK_MS = 1500
 -- How often a stream whose new link failed is looked at again, until it has one: WirePlumber gives
 -- up on a link to a port that is replaced during the move (a recorder moved from a mono microphone
--- onto FxSound's stereo source), and FxSound moves the stream again a quarter of a second later
--- (crates/fxsound-audio/src/stranded.rs). Given back while it had no link, a recorder started at
+-- onto CrossFX's stereo source), and CrossFX moves the stream again a quarter of a second later
+-- (stranded.rs). Given back while it had no link, a recorder started at
 -- full volume in the middle of a wave once it had one: −17.7 to −38.3 dBFS, 3 of 120 recorders
--- FxSound took back after the desktop's pick in the click test.
+-- CrossFX took back after the desktop's pick in the click test.
 local UNLINKED_POLL_MS = 20
 -- From the volume given back to the end of its ramp, with a margin for a quantum of up to 2048
 -- frames: the volume is then said once more, at once, and again every CONFIRM_WAIT_MS until the
@@ -72,17 +72,17 @@ local UNLINKED_POLL_MS = 20
 local RAMP_IN_DONE_MS = 100
 local CONFIRM_WAIT_MS = 50
 local CONFIRM_TRIES = 4
--- A master volume at or below this is silent already: FxSound's own handover faded the stream
+-- A master volume at or below this is silent already: CrossFX's own handover faded the stream
 -- before it had it moved, or someone muted it. Nothing to fade, and nothing to give back. Within
 -- it of each other, two volumes are the same, as WirePlumber compares them (state-stream.lua).
 local SILENT = 0.0001
 -- The first PipeWire whose audio converter ramps a volume (stream_handover.rs, RAMPS_SINCE).
 local RAMPS_SINCE = { 0, 3, 68 }
 -- The key in the default metadata that says, under a stream's id, that this hook holds it silent
--- for its move: FxSound's own handover leaves such a stream alone (stream_handover.rs,
+-- for its move: CrossFX's own handover leaves such a stream alone (stream_handover.rs,
 -- Watched::hook_held), rather than take the point of this hook's fade it may read for the
 -- stream's own volume.
-local HELD_KEY = "fxsound.held"
+local HELD_KEY = "crossfx.held"
 
 -- The streams held, by session item: the node, its object's id in WirePlumber and its id in
 -- PipeWire, its name, the volume to give back, which fade holds it, so that a timer of an earlier
@@ -182,7 +182,7 @@ local function mark (h, on)
     end
   end)
   if not ok then
-    log:info ("fxsound: could not say whether " .. h.name .. " is held: " .. tostring (err))
+    log:info ("crossfx: could not say whether " .. h.name .. " is held: " .. tostring (err))
   end
 end
 
@@ -224,7 +224,7 @@ local function confirm (id, fade, tries)
       return
     end
     if tries >= CONFIRM_TRIES then
-      log:info (h.node, "fxsound: " .. h.name
+      log:info (h.node, "crossfx: " .. h.name
           .. " never reported its volume back; letting it go at " .. tostring (now))
       release (id)
       return
@@ -237,7 +237,7 @@ local function confirm (id, fade, tries)
   end)
   if not ok then
     release (id)
-    log:info ("fxsound: the stream went away before its volume was back: " .. tostring (err))
+    log:info ("crossfx: the stream went away before its volume was back: " .. tostring (err))
   end
 end
 
@@ -294,24 +294,24 @@ give_back = function (id, fade, always)
     if ok and not has_link then
       if not h.polling then
         h.polling = true
-        log:info (h.node, "fxsound: " .. h.name .. " has no link yet; its volume waits for one")
+        log:info (h.node, "crossfx: " .. h.name .. " has no link yet; its volume waits for one")
         await_link (id, fade)
       end
       return
     end
   end
   local ok, err = pcall (function ()
-    -- A volume someone else wrote meanwhile — a mixer, WirePlumber's ducking, FxSound — is
+    -- A volume someone else wrote meanwhile — a mixer, WirePlumber's ducking, CrossFX — is
     -- theirs. A point on the way down is this hook's own fade, last reported before its end.
     local now = master_volume (h.node)
     if h.theirs or (now ~= nil and now > h.volume + SILENT) then
-      log:info (h.node, "fxsound: the volume moved meanwhile; leaving it at " .. tostring (now))
+      log:info (h.node, "crossfx: the volume moved meanwhile; leaving it at " .. tostring (now))
       release (id)
       return
     end
     mark (h, false)
     h.phase = "back"
-    log:info (h.node, "fxsound: giving " .. h.name .. " its volume back")
+    log:info (h.node, "crossfx: giving " .. h.name .. " its volume back")
     ramp (h.node, h.volume, FADE_IN_MS)
     Core.timeout_add (RAMP_IN_DONE_MS, function ()
       confirm (id, fade, 0)
@@ -320,12 +320,12 @@ give_back = function (id, fade, always)
   end)
   if not ok then
     release (id)
-    log:info ("fxsound: the stream went away before its volume came back: " .. tostring (err))
+    log:info ("crossfx: the stream went away before its volume came back: " .. tostring (err))
   end
 end
 
 AsyncEventHook {
-  name = "fxsound/fade-before-move",
+  name = "crossfx/fade-before-move",
   after = "linking/get-filter-from-target",
   before = "linking/prepare-link",
   interests = {
@@ -341,7 +341,7 @@ AsyncEventHook {
         local moving = target ~= nil and si_flags.peer_id ~= nil and si_flags.peer_id ~= target.id
         local name = si_props ["node.name"] or ""
         if not moving or si_props ["item.node.type"] ~= "stream"
-            or name:find ("^fxsound") then
+            or name:find ("^crossfx") then
           transition:advance ()
           return
         end
@@ -357,7 +357,7 @@ AsyncEventHook {
         -- of its own, and another when its volume came back.
         local has_ramp, answer = pcall (ramps, node)
         if has_ramp and not answer then
-          log:info (node, "fxsound: " .. name .. " has no volume ramp; moving it as it is")
+          log:info (node, "crossfx: " .. name .. " has no volume ramp; moving it as it is")
           transition:advance ()
           return
         end
@@ -372,8 +372,8 @@ AsyncEventHook {
           transition:advance ()
           return
         end
-        local off_fxsound = node_name (om, si_flags.peer_id):find ("^fxsound") ~= nil
-        local onto_fxsound = (target.properties ["node.name"] or ""):find ("^fxsound") ~= nil
+        local off_crossfx = node_name (om, si_flags.peer_id):find ("^crossfx") ~= nil
+        local onto_crossfx = (target.properties ["node.name"] or ""):find ("^crossfx") ~= nil
         local records = (si_props ["media.class"] or ""):find ("^Stream/Input") ~= nil
         -- Moved again while the last move holds it silent: it is silent already. Moved again
         -- while its volume comes back, it is faded anew.
@@ -385,7 +385,7 @@ AsyncEventHook {
           volume = volume, fade = fade, phase = "out",
           last = silent_already and earlier.last or volume,
           played = silent_already and earlier.played or false,
-          linked_ms = (off_fxsound and not onto_fxsound) and CLAIM_WAIT_MS
+          linked_ms = (off_crossfx and not onto_crossfx) and CLAIM_WAIT_MS
               or (records and LINKED_MS + RECORDER_LINKED_MS or LINKED_MS),
         }
         held [id] = h
@@ -398,7 +398,7 @@ AsyncEventHook {
           return
         end
         mark (h, true)
-        log:info (node, "fxsound: fading " .. name .. " out for its move")
+        log:info (node, "crossfx: fading " .. name .. " out for its move")
         ramp (node, 0.0, FADE_OUT_MS)
         Core.timeout_add (SETTLE_MS, function ()
           local e = held [id]
@@ -414,7 +414,7 @@ AsyncEventHook {
 }:register ()
 
 SimpleEventHook {
-  name = "fxsound/fade-after-move",
+  name = "crossfx/fade-after-move",
   after = "linking/link-target",
   interests = {
     EventInterest {
@@ -449,13 +449,13 @@ SimpleEventHook {
 -- what it saved in memory, gives that to the next stream, and writes it over the file at its
 -- next save.
 --
--- A report is someone else's — a mixer's, WirePlumber's ducking, FxSound's — when it is above the
+-- A report is someone else's — a mixer's, WirePlumber's ducking, CrossFX's — when it is above the
 -- volume to give back, or when it rises once the fade has been played out (SETTLE_MS). Not before:
 -- the converter's first report of a ramp is where the ramp goes, and the points it reports on the
 -- way come after it — measured on PipeWire 1.6.9, a ramp back to 0.5 reported 0.5, then 0.09,
 -- 0.19, 0.28, 0.37. Theirs, it goes on to state-stream, and the hook gives nothing back over it.
 SimpleEventHook {
-  name = "fxsound/keep-the-silence-unsaved",
+  name = "crossfx/keep-the-silence-unsaved",
   before = "node/store-stream-props",
   interests = {
     EventInterest {
@@ -479,7 +479,7 @@ SimpleEventHook {
       if h.phase == "out" then
         mark (h, false)
       end
-      log:info (node, "fxsound: " .. h.name .. " was given a volume of " .. tostring (now)
+      log:info (node, "crossfx: " .. h.name .. " was given a volume of " .. tostring (now)
           .. " while held; it is theirs")
       return
     end
@@ -493,7 +493,7 @@ SimpleEventHook {
 }:register ()
 
 SimpleEventHook {
-  name = "fxsound/gone-while-silent",
+  name = "crossfx/gone-while-silent",
   interests = {
     EventInterest {
       Constraint { "event.type", "=", "node-removed" },
@@ -506,9 +506,9 @@ SimpleEventHook {
       h.gone = true
       if h.phase == "out" then
         mark (h, false)
-        log:info ("fxsound: " .. h.name .. " went away while silent for its move")
+        log:info ("crossfx: " .. h.name .. " went away while silent for its move")
       else
-        log:info ("fxsound: " .. h.name .. " went away while its volume came back")
+        log:info ("crossfx: " .. h.name .. " went away while its volume came back")
       end
     end
   end,

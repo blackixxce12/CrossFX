@@ -1458,7 +1458,7 @@ fn a_playing_stream_is_silent_for_its_move_and_gets_its_volume_back() {
     let dir = fxsound_core::test_support::ScratchDir::new("handover-live");
     let journal = dir
         .path()
-        .join("fxsound")
+        .join("crossfx")
         .join(stream_handover::JOURNAL_FILE);
     let harness = Harness::connect_with_journal(graph, Some(journal.clone()));
     let Some((_player, id)) = playing_player(&harness, "t_player", "Player") else {
@@ -1664,7 +1664,7 @@ fn a_stream_a_killed_run_left_at_zero_gets_its_volume_back_from_the_journal() {
     let dir = fxsound_core::test_support::ScratchDir::new("handover-repair");
     let journal = dir
         .path()
-        .join("fxsound")
+        .join("crossfx")
         .join(stream_handover::JOURNAL_FILE);
     let mut lines = stream_handover::Journal::default();
     lines.remember(&player_key("Survivor"), Some(1), 0.7);
@@ -1743,7 +1743,7 @@ fn a_playing_stream_a_killed_run_left_at_zero_gets_its_volume_back_over_the_ramp
     let dir = fxsound_core::test_support::ScratchDir::new("handover-repair-ramp");
     let journal = dir
         .path()
-        .join("fxsound")
+        .join("crossfx")
         .join(stream_handover::JOURNAL_FILE);
     let mut lines = stream_handover::Journal::default();
     lines.remember(&player_key("Playing"), None, 0.7);
@@ -1819,7 +1819,7 @@ fn a_second_stream_of_a_faded_application_does_not_take_its_line_out_of_the_jour
     let dir = fxsound_core::test_support::ScratchDir::new("handover-sibling");
     let journal = dir
         .path()
-        .join("fxsound")
+        .join("crossfx")
         .join(stream_handover::JOURNAL_FILE);
     let harness = Harness::connect_with_journal(graph, Some(journal.clone()));
     let Some((_first, faded)) = playing_player(&harness, "t_first_tab", "Browser") else {
@@ -1949,7 +1949,7 @@ fn a_paused_sibling_met_before_the_faded_stream_leaves_it_its_line_in_the_journa
     let dir = fxsound_core::test_support::ScratchDir::new("handover-repair-sibling");
     let journal = dir
         .path()
-        .join("fxsound")
+        .join("crossfx")
         .join(stream_handover::JOURNAL_FILE);
     let mut lines = stream_handover::Journal::default();
     lines.remember(&player_key("Browser"), serial, 0.7);

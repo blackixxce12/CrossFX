@@ -10,10 +10,10 @@ use crate::stream_handover::JOURNAL_FILE;
 use crate::wireplumber_hook::{HELD_KEY, Place};
 
 /// What the hook logs for each stream it fades.
-const FADING: &str = "fxsound: fading t_player out for its move";
+const FADING: &str = "crossfx: fading t_player out for its move";
 
 /// What the hook logs as it gives the stream its volume back.
-const GIVING: &str = "fxsound: giving t_player its volume back";
+const GIVING: &str = "crossfx: giving t_player its volume back";
 
 /// A player that follows the default sink. `None`, said why, when a tool is missing.
 fn following_player(graph: &PolicyGraph) -> Option<apps::App> {
@@ -243,7 +243,7 @@ fn a_stream_the_hook_faded_comes_back_to_its_own_volume() {
 #[test]
 fn a_player_closed_while_the_hook_holds_it_silent_starts_again_at_its_own_volume() {
     const PLAYER: &str = "t_pulse_player";
-    const STAND_IN: &str = "fxsound_t_stand_in";
+    const STAND_IN: &str = "crossfx_t_stand_in";
     let Some(mut graph) = PolicyGraph::start_with_the_hook("wpgone") else {
         return;
     };
@@ -279,7 +279,7 @@ fn a_player_closed_while_the_hook_holds_it_silent_starts_again_at_its_own_volume
     assert!(volume_settles_on(&graph, PLAYER, 0.5));
 
     desktop_picks(&graph, "t_other");
-    let fading = format!("fxsound: fading {PLAYER} out for its move");
+    let fading = format!("crossfx: fading {PLAYER} out for its move");
     let deadline = Instant::now() + PATIENCE;
     while !graph.session_manager_log().contains(&fading) {
         assert!(
@@ -305,7 +305,7 @@ fn a_player_closed_while_the_hook_holds_it_silent_starts_again_at_its_own_volume
     assert!(
         logged(
             &graph,
-            &format!("fxsound: {PLAYER} went away while silent for its move"),
+            &format!("crossfx: {PLAYER} went away while silent for its move"),
             1
         ),
         "the player was not closed while the hook held it silent"
@@ -449,7 +449,7 @@ fn a_hook_that_cannot_load_leaves_wireplumber_running_and_linking() {
         assert!(volume_settles_on(&graph, "t_player", 1.0), "{tag}");
         let log = graph.session_manager_log();
         assert!(
-            log.contains("optional component 'custom.fxsound.fade-on-move"),
+            log.contains("optional component 'custom.crossfx.fade-on-move"),
             "{tag}: WirePlumber did not say it left the hook out:\n{log}"
         );
         assert!(!log.contains(FADING), "{tag}");
@@ -470,7 +470,7 @@ fn fxsounds_handover_and_the_hook_never_leave_a_stream_at_zero_between_them() {
         return;
     };
     let dir = ScratchDir::new("wp-hook-both");
-    let journal = dir.path().join("fxsound").join(JOURNAL_FILE);
+    let journal = dir.path().join("crossfx").join(JOURNAL_FILE);
     let handle = AudioEngine::start_with_journal(Some(&graph.remote()), journal.clone())
         .expect("the engine should start");
     let mut said = Transcript::default();

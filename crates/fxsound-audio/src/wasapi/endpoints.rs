@@ -37,9 +37,9 @@
 //! "Internal AUX", "MIDI") are the driver sample's own, not a loop of its speakers. So the input
 //! lane needs a cable of its own, distinct from the output lane's ([`plan`]).
 //!
-//! What is FxSound's, in the sense `crate::is_fxsound_node` gives a node of the Linux engine —
+//! What is FxSound's, in the sense `crate::is_crossfx_node` gives a node of the Linux engine —
 //! never a device to pick — is every endpoint of FxSound's driver, and both sides of a cable a lane
-//! stands on ([`fxsound_endpoints`], [`is_offered`]). Offered as an output, the device the output
+//! stands on ([`crossfx_endpoints`], [`is_offered`]). Offered as an output, the device the output
 //! lane captures would have it play into what it captures; a cable's recording side offered as a
 //! microphone, the input lane record what it plays. A cable no lane stands on is offered like any
 //! other device, as every endpoint but its driver's own is to the original
@@ -263,7 +263,7 @@ impl Endpoint {
 }
 
 /// Whether an endpoint is offered to the user as a device to pick: every one that is not among
-/// `ours`, FxSound's own endpoints ([`fxsound_endpoints`]; module docs).
+/// `ours`, FxSound's own endpoints ([`crossfx_endpoints`]; module docs).
 pub(crate) fn is_offered(endpoint: &Endpoint, ours: &[String]) -> bool {
     !ours.contains(&endpoint.id)
 }
@@ -271,7 +271,7 @@ pub(crate) fn is_offered(endpoint: &Endpoint, ours: &[String]) -> bool {
 /// FxSound's own endpoints among `endpoints`, never a device to pick: every endpoint of FxSound's
 /// driver, and both sides of each of `lanes` — the virtual devices the lanes stand on (module
 /// docs).
-pub(crate) fn fxsound_endpoints(endpoints: &[Endpoint], lanes: &[&VirtualDevice]) -> Vec<String> {
+pub(crate) fn crossfx_endpoints(endpoints: &[Endpoint], lanes: &[&VirtualDevice]) -> Vec<String> {
     let mut ours: Vec<String> = endpoints
         .iter()
         .filter(|endpoint| endpoint.virtual_kind() == Some(VirtualKind::FxSound))
@@ -529,7 +529,7 @@ pub(crate) mod tests {
     fn offered_alone(endpoint: &Endpoint) -> bool {
         is_offered(
             endpoint,
-            &fxsound_endpoints(std::slice::from_ref(endpoint), &[]),
+            &crossfx_endpoints(std::slice::from_ref(endpoint), &[]),
         )
     }
 
@@ -723,7 +723,7 @@ pub(crate) mod tests {
             let device = plan(std::slice::from_ref(&numbered), true, None, |_| false)
                 .output
                 .unwrap_or_else(|| panic!("{adapter}: a device for the speakers"));
-            let ours = fxsound_endpoints(std::slice::from_ref(&numbered), &[&device]);
+            let ours = crossfx_endpoints(std::slice::from_ref(&numbered), &[&device]);
             assert!(!is_offered(&numbered, &ours), "{adapter}");
         }
         // An adapter that says nothing: the name in brackets, number and all.
@@ -929,7 +929,7 @@ pub(crate) mod tests {
         // device the user may pick, as the original would have it.
         let plan = plan(&all, true, None, |_| false);
         let output = plan.output.clone().expect("FxSound's driver");
-        let ours = fxsound_endpoints(&all, &[&output]);
+        let ours = crossfx_endpoints(&all, &[&output]);
         assert_eq!(ours, [fxsound().id]);
         for endpoint in [&c_in, &c_out, &speakers(), &microphone()] {
             assert!(is_offered(endpoint, &ours), "{}", endpoint.label());
@@ -937,7 +937,7 @@ pub(crate) mod tests {
         assert!(!is_offered(&fxsound(), &ours));
         // The microphone's lane on it: both of its sides are FxSound's.
         let input = plan.input.expect("the cable");
-        let ours = fxsound_endpoints(&all, &[&output, &input]);
+        let ours = crossfx_endpoints(&all, &[&output, &input]);
         assert!(!is_offered(&c_in, &ours) && !is_offered(&c_out, &ours));
         assert!(is_offered(&speakers(), &ours));
         // The speakers' lane's cable, its recording side included, which nothing of FxSound's
@@ -945,7 +945,7 @@ pub(crate) mod tests {
         let only = [speakers(), microphone(), c_in.clone(), c_out.clone()];
         let output = plan_of(&only).output.expect("the cable");
         assert_eq!(output.capture, None);
-        let ours = fxsound_endpoints(&only, &[&output]);
+        let ours = crossfx_endpoints(&only, &[&output]);
         assert!(!is_offered(&c_in, &ours) && !is_offered(&c_out, &ours));
         // Either side of a cable names the whole cable.
         assert_eq!(

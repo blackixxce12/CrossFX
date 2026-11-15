@@ -1,15 +1,15 @@
 //! The localised half of the two virtual nodes' descriptions.
 //!
-//! The Windows build has one virtual endpoint and calls it "FxSound"
-//! (`SND_DEVICES_DFX_DEVICE_STRING`, `audiopassthru/include/sndDevices.h:51`). The Linux port can
+//! The original FxSound for Windows has one virtual endpoint and calls it "FxSound"
+//! (`SND_DEVICES_DFX_DEVICE_STRING`, `audiopassthru/include/sndDevices.h:51`). CrossFX on Linux can
 //! be a sink *or* a source, and on the user's machine the two would otherwise read identically in
 //! `pavucontrol` and the desktop's volume widget — exactly the confusion the USB microphone in
 //! `tests/fixtures/pw-dump-sinks.json` already causes with its twin "fifine Microphone Аналоговый
-//! стерео" nodes. So `node.description` becomes `"FxSound (<Output|Input>)"`, with the word in
+//! стерео" nodes. So `node.description` becomes `"CrossFX (<Output|Input>)"`, with the word in
 //! the system language, the way ALSA/UCM already localise "Analog Stereo" into "Аналоговый
 //! стерео" on that same machine (`docs/spec/12-audio-io.md` §28.4).
 //!
-//! Only the *description* is localised. `node.name` — `fxsound_sink`, `fxsound_source` — is
+//! Only the *description* is localised. `node.name` — `crossfx_sink`, `crossfx_source` — is
 //! matched by name and written into the `default` metadata, so it stays ASCII and fixed
 //! (`docs/spec/12-audio-io.md` §21).
 
@@ -23,7 +23,7 @@ pub const LOCALE_VARIABLES: [&str; 3] = ["LC_ALL", "LC_MESSAGES", "LANG"];
 
 /// The translations of "Output" / "Input", keyed by ISO 639-1 language code.
 ///
-/// Short on purpose: these are the two words a user sees next to "FxSound" in a device list, and
+/// Short on purpose: these are the two words a user sees next to "CrossFX" in a device list, and
 /// a wrong translation there is worse than an English one, so only languages with an unambiguous
 /// everyday word for a sound *output* and *input* are listed. Anything else falls back to English,
 /// which is also what the UI itself speaks (`docs/spec/07-startup-tray.md` — only `en` ships).
@@ -49,7 +49,7 @@ const WORDS: [(&str, &str, &str); 31] = [
     ("id", "Keluaran", "Masukan"),
     ("cs", "Výstup", "Vstup"),
     ("hr", "Izlaz", "Ulaz"),
-    // The Windows build's `ba` and ISO's `bs` for Bosnian.
+    // The original's `ba` and ISO's `bs` for Bosnian.
     ("ba", "Izlaz", "Ulaz"),
     ("bs", "Izlaz", "Ulaz"),
     ("sl", "Izhod", "Vhod"),
@@ -106,7 +106,7 @@ pub fn direction_word(direction: DeviceDirection, language: Option<&str>) -> &'s
     let Some(language) = language else {
         return direction.label();
     };
-    // Accept the UI's codes too (`zh-CN`, `pt-br`, and the Windows build's `ua` for Ukrainian):
+    // Accept the UI's codes too (`zh-CN`, `pt-br`, and the original's `ua` for Ukrainian):
     // the table is keyed by bare language.
     let language = language.to_ascii_lowercase();
     let language = language.split(['-', '_']).next().unwrap_or_default();
@@ -120,8 +120,8 @@ pub fn direction_word(direction: DeviceDirection, language: Option<&str>) -> &'s
     )
 }
 
-/// The `node.description` (and `node.nick`) of FxSound's virtual node for a direction:
-/// `"FxSound (Вывод)"`, `"FxSound (Input)"`, …
+/// The `node.description` (and `node.nick`) of CrossFX's virtual node for a direction:
+/// `"CrossFX (Вывод)"`, `"CrossFX (Input)"`, …
 #[must_use]
 pub fn node_description(direction: DeviceDirection, language: Option<&str>) -> String {
     format!(
@@ -225,28 +225,28 @@ mod tests {
     fn the_descriptions_carry_the_localised_direction_word() {
         assert_eq!(
             node_description(DeviceDirection::Output, Some("ru")),
-            "FxSound (Вывод)"
+            "CrossFX (Вывод)"
         );
         assert_eq!(
             node_description(DeviceDirection::Input, Some("ru")),
-            "FxSound (Ввод)"
+            "CrossFX (Ввод)"
         );
         assert_eq!(
             node_description(DeviceDirection::Output, None),
-            "FxSound (Output)"
+            "CrossFX (Output)"
         );
         assert_eq!(
             node_description(DeviceDirection::Input, None),
-            "FxSound (Input)"
+            "CrossFX (Input)"
         );
         assert_eq!(
             node_description(DeviceDirection::Input, Some("en")),
-            "FxSound (Input)",
+            "CrossFX (Input)",
             "English is English"
         );
         assert_eq!(
             node_description(DeviceDirection::Output, Some("xx")),
-            "FxSound (Output)",
+            "CrossFX (Output)",
             "an unknown language falls back to English rather than to nothing"
         );
         assert_eq!(
@@ -313,11 +313,11 @@ mod tests {
         let sink = sink_description();
         let source = source_description();
         assert!(
-            sink.starts_with("FxSound (") && sink.ends_with(')'),
+            sink.starts_with("CrossFX (") && sink.ends_with(')'),
             "{sink}"
         );
         assert!(
-            source.starts_with("FxSound (") && source.ends_with(')'),
+            source.starts_with("CrossFX (") && source.ends_with(')'),
             "{source}"
         );
         assert_ne!(sink, source);
@@ -329,7 +329,7 @@ mod language_coverage {
     use super::*;
 
     /// Every language the UI can be shown in names its virtual nodes in that language, so the
-    /// sound settings and the FxSound window agree.
+    /// sound settings and the CrossFX window agree.
     #[test]
     fn every_ui_language_has_its_own_direction_words() {
         for language in fxsound_core::i18n::LANGUAGES.iter().skip(1) {
@@ -352,11 +352,11 @@ mod language_coverage {
         // Bulgarian (upstream 1.2.16.0) in the words its own table uses for "Output: ".
         assert_eq!(
             node_description(DeviceDirection::Output, Some("bg")),
-            "FxSound (Изход)"
+            "CrossFX (Изход)"
         );
         assert_eq!(
             node_description(DeviceDirection::Input, Some("bg")),
-            "FxSound (Вход)"
+            "CrossFX (Вход)"
         );
     }
 }

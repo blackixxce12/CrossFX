@@ -3,7 +3,7 @@
 //!
 //! # Whose volume
 //!
-//! Once `fxsound_sink` is the session default it *is* the control every desktop slider, the volume
+//! Once `crossfx_sink` is the session default it *is* the control every desktop slider, the volume
 //! keys and `wpctl` move (`docs/spec/12-audio-io.md` §19.7): they write the node's `Props`. The
 //! real device's volume is never touched, by this module or anything else in the crate.
 //!
@@ -28,16 +28,6 @@
 //! port under a running pair the engine treats it as a change of device for the volume alone:
 //! remembered for the port it leaves, looked up — or never raised — for the one it moves to,
 //! written to the virtual node, and faded in from silence (`follow_port` in `crate::engine`).
-//!
-//! # From before 0.4.0
-//!
-//! Taking WirePlumber out is also what would have made the first 0.4.0 run the loudest one. 0.3.0
-//! left its level in WirePlumber's memory — one entry per node, under `$XDG_STATE_HOME/wireplumber/
-//! stream-properties` — which WirePlumber may no longer restore, and the app's own memory starts
-//! empty. With nothing else to go on, a pair would have started at unity: 24 dB up for anyone who
-//! had FxSound at −24 dB. So a lane with no history at all — no pair yet this run, nothing
-//! remembered for its direction — takes that entry as the level it was playing at
-//! ([`inherited`]), and the never-raise rule does the rest: the lower of it and unity.
 //!
 //! # After the chain
 //!
@@ -74,7 +64,7 @@
 //! reads the per-channel gains once a block. Everything in it is an atomic, and the data thread
 //! only ever loads.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use fxsound_core::messages::TargetVolume;
@@ -84,8 +74,6 @@ use libspa::pod::{Pod, Value, ValueArray};
 use libspa::utils::Id;
 
 use crate::MAX_CHANNELS;
-use crate::devices;
-use crate::per_direction::PerDirection;
 
 /// The most channels a lane's pair runs, and so the most gains the DSP applies.
 pub(crate) const CHANNELS: usize = MAX_CHANNELS as usize;
@@ -242,8 +230,7 @@ fn clamp_volume(volume: f32) -> f32 {
 ///   chose for that device, and upstream's 1.2.16 does the same (PR #620).
 /// * A target never seen gets, channel by channel, the lower of what a node PipeWire has just made
 ///   carries — unity — and `last`: what the lane was playing at before, or failing that the
-///   quietest level remembered for any device of this direction, or failing that the level
-///   WirePlumber kept for the node before 0.4.0 ([`inherited`]). A mute carries over. The volume
+///   quietest level remembered for any device of this direction. A mute carries over. The volume
 ///   never goes up because a device changed (upstream #606/#607, 4a74ba3).
 /// * A target remembered with no level at all — an entry with no `channel_volumes`, which only a
 ///   hand edit writes and [`TargetVolume::sanitised`] keeps as a remembered mute — is a target
@@ -305,54 +292,9 @@ pub(crate) fn quietest(entries: &[TargetVolume], direction: DeviceDirection) -> 
         })
 }
 
-/// The name of WirePlumber's state file for stream volumes, and of the one group in it
-/// (`State ("stream-properties")` in `node/state-stream.lua`).
-const WIREPLUMBER_STATE: &str = "stream-properties";
-
-/// The key WirePlumber saved the volume of FxSound's node of `direction` under: `formKey` in
-/// `node/state-stream.lua` — the node's `media.class`, then the first of `application.id`,
-/// `application.name`, `media.name` and `node.name` that it has. Both virtual nodes carry an
-/// `application.id`, and did in 0.3.0.
-pub(crate) fn wireplumber_key(direction: DeviceDirection) -> String {
-    let media_class = match direction {
-        DeviceDirection::Output => devices::SINK_MEDIA_CLASS,
-        DeviceDirection::Input => devices::SOURCE_MEDIA_CLASS,
-    };
-    format!("{media_class}:application.id:{}", crate::APP_ID)
-}
-
-/// Where WirePlumber 0.5 keeps [`WIREPLUMBER_STATE`] for this process's user
-/// ([`wireplumber_state_file_in`]).
-///
-/// Only 0.5's file is read. WirePlumber 0.4 kept another file in another format, and its
-/// `restore-stream.lua` — as far as is known without a 0.4 here to check against — restored
-/// `Stream/*` nodes only, so a virtual sink started at unity under 0.3.0 there too, and there is
-/// nothing to inherit.
-pub(crate) fn wireplumber_state_file() -> Option<PathBuf> {
-    wireplumber_state_file_in(
-        std::env::var_os("XDG_STATE_HOME").as_deref(),
-        std::env::var_os("HOME").as_deref(),
-    )
-}
-
-/// Where WirePlumber 0.5 keeps [`WIREPLUMBER_STATE`], given `$XDG_STATE_HOME` and `$HOME`:
-/// `wireplumber/` under the first, or under `.local/state` in the second when the first is not
-/// set to a path (`lib/wp/state.c`; the XDG spec ignores a relative one). `None` with neither.
-fn wireplumber_state_file_in(
-    xdg_state_home: Option<&std::ffi::OsStr>,
-    home: Option<&std::ffi::OsStr>,
-) -> Option<PathBuf> {
-    Some(
-        state_dir_in(xdg_state_home, home)?
-            .join("wireplumber")
-            .join(WIREPLUMBER_STATE),
-    )
-}
-
 /// The user's state directory, given `$XDG_STATE_HOME` and `$HOME`: the first, or `.local/state`
 /// in the second when the first is not set to a path (the XDG spec ignores a relative one). `None`
-/// with neither. WirePlumber's state is kept under it, and FxSound's handover journal
-/// (`crate::stream_handover`).
+/// with neither. CrossFX's handover journal is kept under it (`crate::stream_handover`).
 pub(crate) fn state_dir_in(
     xdg_state_home: Option<&std::ffi::OsStr>,
     home: Option<&std::ffi::OsStr>,
@@ -364,124 +306,6 @@ pub(crate) fn state_dir_in(
             home.filter(|home| !home.is_empty())
                 .map(|home| PathBuf::from(home).join(".local").join("state"))
         })
-}
-
-/// What WirePlumber last saved for each of FxSound's two nodes, read from the state file at
-/// `path` ([`inherited`]). Neither, when the file is not there or cannot be read.
-///
-/// Read once, when the engine starts and before it connects — never on the data thread.
-pub(crate) fn inherited_from(path: &Path) -> PerDirection<Option<NodeVolume>> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => PerDirection::from_fn(|direction| inherited(&text, direction)),
-        Err(error) => {
-            log::debug!("no WirePlumber volumes to inherit from {path:?}: {error}");
-            PerDirection::default()
-        }
-    }
-}
-
-/// The volume WirePlumber saved for FxSound's node of `direction` in `text`, the contents of its
-/// `stream-properties` file: the last level WirePlumber stored for the node while it still kept
-/// one, which after an upgrade is where 0.3.0 was left (module docs, "From before 0.4.0").
-///
-/// `None` when the file has no entry for the node, or one that is not a level anybody set: a
-/// value that is not a number, or is below zero. That is the same as an entry that is not there,
-/// and a lane with nothing else to go on starts at unity, as it did before 0.4.0 on a node
-/// WirePlumber had never seen.
-///
-/// The level is the node's as the adapter applied it: the master `volume` times each of the
-/// `channelVolumes`, both linear. A `mute` comes with it, as WirePlumber would have restored it.
-pub(crate) fn inherited(text: &str, direction: DeviceDirection) -> Option<NodeVolume> {
-    let value = keyfile_value(text, WIREPLUMBER_STATE, &wireplumber_key(direction))?;
-    let saved: serde_json::Value = serde_json::from_str(&value).ok()?;
-    let saved = saved.as_object()?;
-    let level = |value: &serde_json::Value| {
-        value
-            .as_f64()
-            .map(|level| level as f32)
-            .filter(|level| level.is_finite() && *level >= 0.0)
-    };
-    let volume = match saved.get("volume") {
-        Some(volume) => level(volume)?,
-        None => 1.0,
-    };
-    let channel_volumes = match saved.get("channelVolumes") {
-        Some(volumes) => volumes
-            .as_array()?
-            .iter()
-            .take(CHANNELS)
-            .map(level)
-            .collect::<Option<Vec<f32>>>()?,
-        None => Vec::new(),
-    };
-    let mute = match saved.get("mute") {
-        Some(mute) => mute.as_bool()?,
-        None => false,
-    };
-    if saved.get("volume").is_none() && channel_volumes.is_empty() && !mute {
-        // An entry that holds only a target or a channel map says nothing about the level.
-        return None;
-    }
-    Some(NodeVolume {
-        volume,
-        channel_volumes,
-        mute,
-    })
-}
-
-/// The value of `key` in `group` of a GLib key file, as `GKeyFile` reads one: the text after the
-/// first `=`, leading blanks gone, its escapes (`\s`, `\n`, `\t`, `\r`, `\\`) undone; of two
-/// lines with the same key, the later. Keys are compared as written, which is how WirePlumber
-/// writes FxSound's — it escapes only blanks, `=`, `[`, `]` and `\`, and ours have none.
-fn keyfile_value(text: &str, group: &str, key: &str) -> Option<String> {
-    let mut in_group = false;
-    let mut found = None;
-    for line in text.lines() {
-        let line = line.trim_start();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some(name) = line.strip_prefix('[') {
-            in_group = name.trim_end().strip_suffix(']') == Some(group);
-            continue;
-        }
-        if !in_group {
-            continue;
-        }
-        let Some((name, value)) = line.split_once('=') else {
-            continue;
-        };
-        if name.trim_end() == key {
-            found = Some(value.trim_start());
-        }
-    }
-    found.map(unescape_keyfile_value)
-}
-
-/// A key-file value with `GKeyFile`'s escapes undone. An escape it does not know is kept as it
-/// is.
-fn unescape_keyfile_value(value: &str) -> String {
-    let mut plain = String::with_capacity(value.len());
-    let mut chars = value.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            plain.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('s') => plain.push(' '),
-            Some('n') => plain.push('\n'),
-            Some('t') => plain.push('\t'),
-            Some('r') => plain.push('\r'),
-            Some('\\') => plain.push('\\'),
-            Some(other) => {
-                plain.push('\\');
-                plain.push(other);
-            }
-            None => plain.push('\\'),
-        }
-    }
-    plain
 }
 
 /// What one `Props` object said about the node's volume. Every field is `None` when the object
@@ -1354,147 +1178,23 @@ mod tests {
         );
     }
 
-    // ---- what WirePlumber kept from before 0.4.0
-
-    /// A `stream-properties` file as WirePlumber 0.5.17 writes it, with 0.3.0's sink at about
-    /// −24 dB — the line is copied from a real one.
-    const STREAM_PROPERTIES: &str = "\
-[stream-properties]
-Input/Audio:application.name:Noctalia\\sSpectrum={\"volume\":1.000000, \"channelMap\":[\"FL\", \"FR\"], \"mute\":false, \"channelVolumes\":[1.000000, 1.000000]}
-Audio/Sink:application.id:com.fxsound.FxSound={\"channelVolumes\":[0.064000, 0.064000], \"mute\":false, \"channelMap\":[\"FL\", \"FR\"], \"volume\":1.000000}
-Output/Audio:application.id:com.fxsound.FxSound={\"mute\":false, \"channelVolumes\":[1.000000, 1.000000], \"volume\":1.000000, \"channelMap\":[\"FL\", \"FR\"]}
-Audio/Source:application.id:com.fxsound.FxSound={\"mute\":true, \"channelVolumes\":[0.500000], \"volume\":0.500000}
-";
-
     #[test]
-    fn the_level_wireplumber_kept_for_fxsounds_sink_is_read_from_its_state_file() {
-        let sink = inherited(STREAM_PROPERTIES, DeviceDirection::Output).expect("an entry");
-        assert_eq!(sink.effective(2), vec![0.064, 0.064]);
-        assert!(!sink.mute);
-        assert_ne!(
-            sink.effective(2),
-            vec![1.0, 1.0],
-            "the playback stream's entry, under the same application.id, is not the sink's"
-        );
-        let source = inherited(STREAM_PROPERTIES, DeviceDirection::Input).expect("an entry");
-        assert_eq!(
-            source.effective(1),
-            vec![0.25],
-            "the master scalar folds in, as the adapter applied it"
-        );
-        assert!(source.mute);
-    }
-
-    #[test]
-    fn the_first_pair_after_an_upgrade_starts_at_the_level_0_3_0_left_not_at_unity() {
-        let sink = inherited(STREAM_PROPERTIES, DeviceDirection::Output);
-        let volume = for_new_pair(None, sink.as_ref(), 2);
-        assert_eq!(volume.effective(2), vec![0.064, 0.064]);
-        assert_eq!(volume.gains(2)[..2], [0.064, 0.064]);
-    }
-
-    #[test]
-    fn a_level_wireplumber_kept_above_unity_is_still_not_a_raise() {
-        let loud = "[stream-properties]\n\
-            Audio/Sink:application.id:com.fxsound.FxSound={\"channelVolumes\":[2.5, 2.5]}\n";
-        let sink = inherited(loud, DeviceDirection::Output);
-        assert_eq!(
-            for_new_pair(None, sink.as_ref(), 2).effective(2),
-            vec![1.0, 1.0]
-        );
-    }
-
-    #[test]
-    fn nothing_is_inherited_from_a_file_without_a_usable_entry_for_the_node() {
-        for text in [
-            "",
-            "[stream-properties]\n",
-            // The key in another group is not WirePlumber's stream memory.
-            "[default-routes]\n\
-             Audio/Sink:application.id:com.fxsound.FxSound={\"channelVolumes\":[0.1, 0.1]}\n",
-            // Not JSON, not an object, not numbers, below zero: no level anybody set.
-            "[stream-properties]\nAudio/Sink:application.id:com.fxsound.FxSound={broken\n",
-            "[stream-properties]\nAudio/Sink:application.id:com.fxsound.FxSound=[0.1]\n",
-            "[stream-properties]\n\
-             Audio/Sink:application.id:com.fxsound.FxSound={\"channelVolumes\":[\"loud\"]}\n",
-            "[stream-properties]\n\
-             Audio/Sink:application.id:com.fxsound.FxSound={\"channelVolumes\":[-0.5, 0.5]}\n",
-            "[stream-properties]\n\
-             Audio/Sink:application.id:com.fxsound.FxSound={\"volume\":-1.0}\n",
-            // A channel map alone says nothing about the level.
-            "[stream-properties]\n\
-             Audio/Sink:application.id:com.fxsound.FxSound={\"channelMap\":[\"FL\", \"FR\"]}\n",
-            // Another application's sink.
-            "[stream-properties]\n\
-             Audio/Sink:application.id:org.example.Other={\"channelVolumes\":[0.1, 0.1]}\n",
-        ] {
-            assert_eq!(inherited(text, DeviceDirection::Output), None, "{text}");
-        }
-    }
-
-    #[test]
-    fn a_key_file_is_read_as_glib_reads_it() {
-        let text = "\
-# a comment
-[other]
-Audio/Sink:application.id:com.fxsound.FxSound={\"channelVolumes\":[0.9, 0.9]}
-
-  [stream-properties]
-Audio/Sink:application.id:com.fxsound.FxSound = {\"channelVolumes\":[0.3, 0.3]}
-Audio/Sink:application.id:com.fxsound.FxSound=\\s{\"channelVolumes\":[0.2,\\t0.2], \"note\":\"a\\\\b\"}
-";
-        assert_eq!(
-            keyfile_value(
-                text,
-                "stream-properties",
-                &wireplumber_key(DeviceDirection::Output)
-            ),
-            Some(" {\"channelVolumes\":[0.2,\t0.2], \"note\":\"a\\b\"}".to_owned()),
-            "the later line, its escapes undone"
-        );
-        assert_eq!(
-            inherited(text, DeviceDirection::Output).map(|volume| volume.effective(2)),
-            Some(vec![0.2, 0.2])
-        );
-        assert_eq!(unescape_keyfile_value("a\\qb\\"), "a\\qb\\");
-    }
-
-    #[test]
-    fn wireplumbers_state_file_is_under_xdg_state_home_or_else_under_home() {
+    fn the_state_directory_is_xdg_state_home_or_else_under_home() {
         use std::ffi::OsStr;
 
         assert_eq!(
-            wireplumber_state_file_in(Some(OsStr::new("/state")), Some(OsStr::new("/home/u"))),
-            Some(PathBuf::from("/state/wireplumber/stream-properties"))
+            state_dir_in(Some(OsStr::new("/state")), Some(OsStr::new("/home/u"))),
+            Some(PathBuf::from("/state"))
         );
         for unusable in [None, Some(OsStr::new("")), Some(OsStr::new("relative"))] {
             assert_eq!(
-                wireplumber_state_file_in(unusable, Some(OsStr::new("/home/u"))),
-                Some(PathBuf::from(
-                    "/home/u/.local/state/wireplumber/stream-properties"
-                )),
+                state_dir_in(unusable, Some(OsStr::new("/home/u"))),
+                Some(PathBuf::from("/home/u/.local/state")),
                 "{unusable:?}"
             );
         }
-        assert_eq!(wireplumber_state_file_in(None, None), None);
-        assert_eq!(wireplumber_state_file_in(None, Some(OsStr::new(""))), None);
-    }
-
-    #[test]
-    fn a_state_file_that_is_not_there_leaves_both_lanes_nothing_to_inherit() {
-        let missing = inherited_from(Path::new("/nonexistent/fxsound/stream-properties"));
-        assert_eq!(missing.output, None);
-        assert_eq!(missing.input, None);
-
-        let dir = fxsound_core::test_support::ScratchDir::new("volume");
-        let path = dir.join(WIREPLUMBER_STATE);
-        std::fs::write(&path, STREAM_PROPERTIES).expect("the state file");
-        let read = inherited_from(&path);
-        assert_eq!(
-            read.output.map(|volume| volume.effective(2)),
-            Some(vec![0.064, 0.064])
-        );
-        assert_eq!(read.input.map(|volume| volume.mute), Some(true));
+        assert_eq!(state_dir_in(None, None), None);
+        assert_eq!(state_dir_in(None, Some(OsStr::new(""))), None);
     }
 
     // ---- the lane's atomics

@@ -191,13 +191,13 @@ pub fn new_preset_name(name: &str) -> String {
     name
 }
 
-/// The two prefixes an installed FxSound's presets are looked for under — only these, see the
+/// The two prefixes an installed CrossFX's presets are looked for under — only these, see the
 /// manual page's FILES — in their usual order.
 #[cfg(not(windows))]
 const INSTALL_PREFIXES: [&str; 2] = ["/usr", "/usr/local"];
 
-/// Where an installed FxSound keeps its shared presets, `<prefix>/share/fxsound`, in the order the
-/// stores search them: the prefix the running binary is installed under first, then the other.
+/// Where an installed CrossFX keeps its shared presets, `<prefix>/share/crossfx`
+/// ([`fxsound_core::identity::DIR_NAME`]), in the order the stores search them: the prefix the running binary is installed under first, then the other.
 ///
 /// The order decides which copy a binary gets when both prefixes hold presets — a distribution
 /// package under `/usr` and the tarball under `/usr/local`, say. A factory preset found in two
@@ -211,7 +211,7 @@ pub fn install_data_dirs() -> Vec<std::path::PathBuf> {
 }
 
 /// [`install_data_dirs`] for a binary at `exe`: on Windows, the directory the installer put
-/// `fxsound.exe` in, whose `presets` folder holds the factory presets beside it.
+/// `crossfx.exe` in, whose `presets` folder holds the factory presets beside it.
 #[cfg(windows)]
 fn install_data_dirs_for(exe: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
     exe.and_then(std::path::Path::parent)
@@ -224,34 +224,34 @@ fn install_data_dirs_for(exe: Option<&std::path::Path>) -> Vec<std::path::PathBu
 #[cfg(not(windows))]
 fn install_data_dirs_for(exe: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
     use std::path::Path;
-    // `<prefix>/bin/fxsound`: the prefix is two above the executable.
+    // `<prefix>/bin/crossfx`: the prefix is two above the executable.
     let own = exe.and_then(Path::parent).and_then(Path::parent);
     let mut prefixes = INSTALL_PREFIXES.map(Path::new);
     // Stable, so the prefix that is not the binary's keeps its place behind it.
     prefixes.sort_by_key(|prefix| Some(*prefix) != own);
     prefixes
         .into_iter()
-        .map(|prefix| prefix.join("share/fxsound"))
+        .map(|prefix| prefix.join("share").join(fxsound_core::identity::DIR_NAME))
         .collect()
 }
 
-/// The checkout a binary at `exe` runs from, if it runs from one: `<root>/target/debug/fxsound` or
-/// `<root>/target/release/fxsound`, where `cargo build` and `cargo run` put it, with `Cargo.toml` a
+/// The checkout a binary at `exe` runs from, if it runs from one: `<root>/target/debug/crossfx` or
+/// `<root>/target/release/crossfx`, where `cargo build` and `cargo run` put it, with `Cargo.toml` a
 /// file in `<root>` and `assets/presets` a directory. Its presets are then the ones a developer
 /// gets, before any an installed package left: both stores search it first
 /// (`PresetStore::with_default_dirs`, [`input::InputPreset::default_dirs`]), and it is the rule
-/// `fxsound --self-test` tells a development build from an installed one by, so the two agree.
+/// `crossfx --self-test` tells a development build from an installed one by, so the two agree.
 ///
 /// The directory names decide; the files only confirm that the checkout is there. A depth would
 /// not do: three directories above the Windows installers'
-/// `C:\Program Files\FxSound Port\fxsound.exe` is `C:\`, where every signed-in account may make a
+/// `C:\Program Files\CrossFX\crossfx.exe` is `C:\`, where every signed-in account may make a
 /// folder, and an `assets\presets` made there stood in for the installed presets of every account
 /// on the machine — a planted "General" or "Clean Voice", the default presets, played in their
 /// place, administrators' included. Nor would a `Cargo.toml` three directories up: only an
 /// administrator may make a file in `C:\`, but the root of a second drive formatted by Windows
 /// usually lets any account make one, and a copy from the .zip may be unpacked three levels below
 /// any folder. No installation has cargo's `target/<profile>` layout. (A cross build's
-/// `target/<triple>/<profile>/fxsound` is not recognised, and never was: three directories above
+/// `target/<triple>/<profile>/crossfx` is not recognised, and never was: three directories above
 /// it is `target`.)
 #[must_use]
 pub fn source_tree_of(exe: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -1165,77 +1165,87 @@ Band 10
         install_data_dirs_for(Some(std::path::Path::new(exe)))
     }
 
-    // Not on Windows, which installs FxSound in one folder (the twin below).
+    // Not on Windows, which installs CrossFX in one folder (the twin below).
     #[cfg(not(windows))]
     #[test]
     fn a_binary_under_usr_local_takes_its_own_presets_before_a_packages_under_usr() {
         // The tarball's binary beside a distribution package: the package's presets may be an
         // older release's, and the first directory's copy of a name is the one listed.
         assert_eq!(
-            data_dirs_for("/usr/local/bin/fxsound"),
-            ["/usr/local/share/fxsound", "/usr/share/fxsound"].map(std::path::PathBuf::from)
+            data_dirs_for("/usr/local/bin/crossfx"),
+            ["/usr/local/share/crossfx", "/usr/share/crossfx"].map(std::path::PathBuf::from)
         );
     }
 
-    // Not on Windows, which installs FxSound in one folder (the twin below).
+    // Not on Windows, which installs CrossFX in one folder (the twin below).
     #[cfg(not(windows))]
     #[test]
     fn a_binary_under_usr_takes_its_own_presets_before_those_under_usr_local() {
         assert_eq!(
-            data_dirs_for("/usr/bin/fxsound"),
-            ["/usr/share/fxsound", "/usr/local/share/fxsound"].map(std::path::PathBuf::from)
+            data_dirs_for("/usr/bin/crossfx"),
+            ["/usr/share/crossfx", "/usr/local/share/crossfx"].map(std::path::PathBuf::from)
         );
     }
 
-    // Not on Windows, which installs FxSound in one folder (the twin below).
+    // Not on Windows, which installs CrossFX in one folder (the twin below).
     #[cfg(not(windows))]
     #[test]
     fn a_binary_under_neither_prefix_searches_usr_then_usr_local() {
         for exe in [
-            "/home/someone/fxsound-linux/target/release/fxsound",
-            "/opt/fxsound/bin/fxsound",
-            "fxsound",
+            "/home/someone/CrossFX/target/release/crossfx",
+            "/opt/crossfx/bin/crossfx",
+            "crossfx",
         ] {
             assert_eq!(
                 data_dirs_for(exe),
-                ["/usr/share/fxsound", "/usr/local/share/fxsound"].map(std::path::PathBuf::from),
+                ["/usr/share/crossfx", "/usr/local/share/crossfx"].map(std::path::PathBuf::from),
                 "{exe}"
             );
         }
         assert_eq!(
             install_data_dirs_for(None),
-            ["/usr/share/fxsound", "/usr/local/share/fxsound"].map(std::path::PathBuf::from),
+            ["/usr/share/crossfx", "/usr/local/share/crossfx"].map(std::path::PathBuf::from),
             "no executable path to go by"
         );
     }
 
-    /// Windows: the factory presets are where the installer put `fxsound.exe`, wherever that is,
+    /// Windows: the factory presets are where the installer put `crossfx.exe`, wherever that is,
     /// and nowhere else; with no executable path to go by, nowhere.
     #[cfg(windows)]
     #[test]
     fn a_windows_binary_takes_the_presets_installed_beside_it() {
         assert_eq!(
-            data_dirs_for(r"C:\Program Files\FxSound\fxsound.exe"),
-            [std::path::PathBuf::from(r"C:\Program Files\FxSound")]
+            data_dirs_for(r"C:\Program Files\CrossFX\crossfx.exe"),
+            [std::path::PathBuf::from(r"C:\Program Files\CrossFX")]
         );
         assert_eq!(
-            data_dirs_for(r"D:\Portable\FxSound\fxsound.exe"),
-            [std::path::PathBuf::from(r"D:\Portable\FxSound")]
+            data_dirs_for(r"D:\Portable\CrossFX\crossfx.exe"),
+            [std::path::PathBuf::from(r"D:\Portable\CrossFX")]
         );
         assert_eq!(
             install_data_dirs_for(None),
             Vec::<std::path::PathBuf>::new()
         );
+        // CrossFX's own folder, never the original's: no part of it is `fxsound` in any case,
+        // which Windows would take for the original FxSound's.
+        for dir in data_dirs_for(r"C:\Program Files\CrossFX\crossfx.exe") {
+            assert!(
+                !dir.components()
+                    .any(|part| part.as_os_str().eq_ignore_ascii_case("fxsound")),
+                "{}",
+                dir.display()
+            );
+        }
     }
 
     #[test]
     fn a_checkout_is_a_cargo_toml_file_and_the_presets_three_directories_above_the_binary() {
         let this_one = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        assert!(source_tree_of(&this_one.join("target/release/fxsound")).is_some());
+        assert!(source_tree_of(&this_one.join("target/release/crossfx")).is_some());
 
         let tmp = fxsound_core::test_support::ScratchDir::new("preset-source-tree");
         let root = tmp.join("root");
-        let exe = root.join("target").join("release").join("fxsound");
+        let exe = root.join("target").join("release").join("crossfx");
         std::fs::create_dir_all(root.join("assets").join("presets").join("Factsoft"))
             .expect("mkdir");
         assert_eq!(
@@ -1255,7 +1265,7 @@ Band 10
         std::fs::remove_dir_all(root.join("assets")).expect("rm");
         assert_eq!(source_tree_of(&exe), None, "a manifest without presets");
         assert_eq!(
-            source_tree_of(std::path::Path::new("fxsound")),
+            source_tree_of(std::path::Path::new("crossfx")),
             None,
             "nothing three directories up to look at"
         );
@@ -1263,15 +1273,15 @@ Band 10
 
     #[test]
     fn the_shipped_presets_are_looked_for_in_a_checkout_only_when_the_binary_runs_from_one() {
-        // Three directories above `C:\Program Files\FxSound Port\fxsound.exe` is `C:\`, where any
+        // Three directories above `C:\Program Files\CrossFX\crossfx.exe` is `C:\`, where any
         // signed-in user may make `assets\presets\Factsoft`: searched before the installed
         // presets, a folder made there stood in for them for every user of the machine.
         let tmp = fxsound_core::test_support::ScratchDir::new("preset-shipped-dirs");
         let root = tmp.join("root");
         let exe = root
             .join("Program Files")
-            .join("FxSound Port")
-            .join("fxsound.exe");
+            .join("CrossFX")
+            .join("crossfx.exe");
         let presets = root.join("assets").join("presets");
         for kind in ["Factsoft", "BonusPresets", "Input"] {
             std::fs::create_dir_all(presets.join(kind)).expect("mkdir");
@@ -1296,7 +1306,7 @@ Band 10
             shipped_preset_dirs_for(Some(&exe), &["Factsoft", "BonusPresets"]),
             fac
         );
-        let dev = root.join("target").join("release").join("fxsound.exe");
+        let dev = root.join("target").join("release").join("crossfx.exe");
         let dev_installed = install_data_dirs_for(Some(&dev));
         let fac_in_checkout = shipped_preset_dirs_for(Some(&dev), &["Factsoft", "BonusPresets"]);
         assert_eq!(
