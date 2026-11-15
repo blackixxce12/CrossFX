@@ -935,6 +935,13 @@ pub enum UiToAudio {
     /// its call profile under WirePlumber 0.5, so a headset's microphone delivers audio too —
     /// about a second after the message, once the profile has switched. Kept until `false`,
     /// across devices and reconnects.
+    ///
+    /// On Windows the input lane plays into a virtual cable, and its microphone is open only while
+    /// an application records from the cable's recording side: the Windows face of the passive
+    /// stream. While this holds it, the engine opens the microphone and runs the lane into the
+    /// cable whether or not anything records there — which puts a Bluetooth headset in its call
+    /// profile there too — and after `false` it lets the microphone go once nothing has recorded
+    /// from the cable for three seconds. The recording default stays on the cable throughout.
     KeepInputAwake(bool),
     /// Every rule that gives an application a preset of its own, both lanes at once, running or
     /// not, and the rules that follow the lane where they outrank one of those
