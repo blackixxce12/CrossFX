@@ -148,7 +148,7 @@ pub struct UiState {
     ///
     /// Read for the equalizer. A band centred at or above half of it cannot be built, so the band
     /// is bypassed, and a bypassed band that still *looks* live is a control that silently does
-    /// nothing, which is the one thing this port keeps refusing to ship. And the response curve is
+    /// nothing, which is the one thing CrossFX keeps refusing to ship. And the response curve is
     /// designed at it, as the filters that play are.
     pub sample_rate: u32,
     /// Gain reduction of the three microphone stages, in dB, as positive numbers.
@@ -219,12 +219,11 @@ pub struct UiState {
     pub notice_clock: Option<(String, Instant)>,
     /// Suppresses every tooltip, matching the `hide_help_tooltips` setting.
     pub hide_tooltips: bool,
-    /// The level of «Как в Windows» / "Like FxSound for Windows" in force — the one the
-    /// application runs, Everything read from a later version's file already taken as Interface
-    /// and sound. From Interface on the window follows the Windows build in the rows of
-    /// [`WindowsLook`] ([`UiState::windows_look`]); from Interface and sound on the effect
-    /// sliders show and step through the stored values as the Windows build maps them
-    /// ([`UiState::dsp_compat`]).
+    /// The level of «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC" in force —
+    /// the one the application runs, Everything read from a later version's file already taken as
+    /// Interface and sound. From Interface on the window follows the original in the rows of
+    /// [`WindowsLook`] ([`UiState::windows_look`]); from Interface and sound on the effect sliders
+    /// show and step through the stored values as the original maps them ([`UiState::dsp_compat`]).
     pub windows_parity: WindowsParity,
 
     // ---- per-application presets -------------------------------------------------------------
@@ -291,40 +290,40 @@ impl Default for UiState {
 }
 
 impl UiState {
-    /// Whether the window follows the Windows build in `look` at the level in force.
+    /// Whether the window follows the original in `look` at the level in force.
     #[must_use]
     pub const fn windows_look(&self, look: WindowsLook) -> bool {
         self.windows_parity.windows_look(look)
     }
 
-    /// Whether a help tip the port added to a control the Windows build has is shown: not while
-    /// help tips are hidden, and not at «Как в Windows» = Interface and above, where only the
-    /// Windows build's own tips are ([`WindowsLook::WindowsTooltips`]).
+    /// Whether a help tip CrossFX added to a control the original has is shown: not while
+    /// help tips are hidden, and not at «Like the original FxSound LLC» = Interface and above,
+    /// where only the original's own tips are ([`WindowsLook::WindowsTooltips`]).
     #[must_use]
-    pub const fn port_tips_shown(&self) -> bool {
+    pub const fn crossfx_tips_shown(&self) -> bool {
         !self.hide_tooltips && !self.windows_look(WindowsLook::WindowsTooltips)
     }
 
-    /// [`Self::port_tips_shown`] for a control of the lane on screen: the level sliders, the
-    /// equalizer's bands and its wheels. The microphone lane is the port's own, with nothing in the
-    /// Windows build to set it back to, so there those tips go only with "Hide help tips".
+    /// [`Self::crossfx_tips_shown`] for a control of the lane on screen: the level sliders, the
+    /// equalizer's bands and its wheels. The microphone lane is CrossFX's own, with nothing in the
+    /// original to set it back to, so there those tips go only with "Hide help tips".
     #[must_use]
     pub const fn lane_tips_shown(&self) -> bool {
-        self.port_tips_shown()
+        self.crossfx_tips_shown()
             || (!self.hide_tooltips && matches!(self.direction, DeviceDirection::Input))
     }
 
     /// Whether the preset list, and what picks a preset in the window, is offered: always with the
-    /// power on, and with it off too except at «Как в Windows» = Interface and above
-    /// ([`WindowsLook::PresetsNeedPower`], 0.4.0 audit R7).
+    /// power on, and with it off too except at «Like the original FxSound LLC» = Interface and
+    /// above ([`WindowsLook::PresetsNeedPower`], 0.4.0 audit R7).
     #[must_use]
     pub const fn presets_offered(&self) -> bool {
         self.power || !self.windows_look(WindowsLook::PresetsNeedPower)
     }
 
-    /// Whose mapping of an effect slider to a stored value the window shows: the Windows build's
-    /// from «Like FxSound for Windows» = Interface and sound on (Ambience's straight line, audit
-    /// report #39), as the application reads and writes the values
+    /// Whose mapping of an effect slider to a stored value the window shows: the original's
+    /// from «Like the original FxSound LLC» = Interface and sound on (Ambience's straight line,
+    /// audit report #39), as the application reads and writes the values
     /// ([`fxsound_core::scale::slider_to_value_in`]).
     #[must_use]
     pub const fn dsp_compat(&self) -> DspCompat {

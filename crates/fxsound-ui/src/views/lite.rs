@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn with_the_power_off_the_preset_list_and_the_output_list_both_still_open() {
         // FxLiteView.cpp:57 gates `preset_list_` with the power and leaves the output list
-        // alone. The port leaves both live (0.4.0 audit R7): the command line picks a preset with
+        // alone. CrossFX leaves both live (0.4.0 audit R7): the command line picks a preset with
         // the power off, and so can the window.
         let state = UiState {
             power: false,
@@ -470,8 +470,8 @@ mod tests {
 
     #[test]
     fn at_interface_with_the_power_off_the_preset_list_stays_shut_as_on_windows() {
-        // FxLiteView.cpp:57 at «Как в Windows» = Interface (0.4.0 audit R7 set back): the preset
-        // list goes with the power, the output list does not.
+        // FxLiteView.cpp:57 at «Like the original FxSound LLC» = Interface (0.4.0 audit R7 set
+        // back): the preset list goes with the power, the output list does not.
         let off = UiState {
             power: false,
             windows_parity: fxsound_core::WindowsParity::Interface,

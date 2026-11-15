@@ -1,4 +1,4 @@
-//! The FxSound palette, fonts and the egui `Visuals` derived from them.
+//! The original's palette, the fonts, and the egui `Visuals` derived from them.
 //!
 //! The two palettes are transcribed verbatim from `FxTheme::theme_colors_`
 //! (`fxsound/Source/GUI/FxTheme.cpp:22-28`). The original stores them as 24-bit RGB and applies an
@@ -87,10 +87,10 @@ pub fn contrast_ratio(a: Color32, b: Color32) -> f32 {
 
 /// The active palette.
 ///
-/// The theme the window is drawn in: FxSound's dark or light table, and whether it is the Windows
-/// build's theme exactly as it is ([`Palette::windows`]), which «Как в Windows» = Interface and
-/// above ask for. Every colour the window paints comes through here, so this is also where a
-/// theme of a later version gives way to the Windows one at those levels
+/// The theme the window is drawn in: the original's dark or light table, and whether it is the
+/// original's theme exactly as it is ([`Palette::windows`]), which «Like the original FxSound LLC»
+/// = Interface and above ask for. Every colour the window paints comes through here, so this is
+/// also where a theme of a later version gives way to the original's at those levels
 /// ([`fxsound_core::LaterFeature::Themes`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
@@ -107,17 +107,17 @@ impl Palette {
         }
     }
 
-    /// The palette of FxSound for Windows exactly as it is, the two legibility repairs of 0.4.0
-    /// undone ([`fxsound_core::WindowsLook::Palette`], 0.4.0 audit #24 and #25): a graph that is
-    /// switched off greys by the original's `withSaturation(0)`, which turns the light theme's
-    /// blues white, and a rule or a menu's edge is `Outline`, `#fafafa` on the light window. The
-    /// dark palette is the same either way.
+    /// The palette of the original FxSound for Windows exactly as it is, the two legibility repairs
+    /// of 0.4.0 undone ([`fxsound_core::WindowsLook::Palette`], 0.4.0 audit #24 and #25): a graph
+    /// that is switched off greys by the original's `withSaturation(0)`, which turns the light
+    /// theme's blues white, and a rule or a menu's edge is `Outline`, `#fafafa` on the light
+    /// window. The dark palette is the same either way.
     #[must_use]
     pub const fn windows(self, windows: bool) -> Self {
         Self { windows, ..self }
     }
 
-    /// Whether this is the Windows build's theme as it is ([`Palette::windows`]).
+    /// Whether this is the original's theme as it is ([`Palette::windows`]).
     #[must_use]
     pub const fn is_windows(self) -> bool {
         self.windows
@@ -178,7 +178,7 @@ impl Palette {
     /// The light `Outline` is `#fafafa`, 1.04:1 on the `#f5f5f5` window, so the Settings rule and
     /// the hamburger menu's edge the original draws in it are not there at all (0.4.0 audit #25).
     /// The light palette's own `#c0c0c0` — its `PanelBackground` — is used instead; the palette
-    /// tables are left as the original's. The Windows theme ([`Palette::windows`]) keeps
+    /// tables are left as the original's. The original's theme ([`Palette::windows`]) keeps
     /// `Outline`.
     #[must_use]
     pub const fn divider(self) -> Color32 {
@@ -197,7 +197,8 @@ impl Palette {
     /// on a `#e0e0e0` panel, 1.3:1, and the graph is gone — "a real legibility bug", which 0.3.0
     /// reproduced (0.4.0 audit #24). There the grey is the colour's luma instead, and no lighter
     /// than [`LIGHT_GREY_LIMIT`], which still reads at 3:1 on the panel. Alpha is kept. The
-    /// Windows theme ([`Palette::windows`]) keeps the original's brightness in both palettes.
+    /// original's theme ([`Palette::windows`]) keeps the brightness, as the original does, in both
+    /// palettes.
     #[must_use]
     pub fn greyed(self, colour: Color32) -> Color32 {
         let [r, g, b, a] = colour.to_srgba_unmultiplied();
@@ -212,7 +213,7 @@ impl Palette {
         Color32::from_rgba_unmultiplied(grey, grey, grey, a)
     }
 
-    /// egui `Visuals` that make stock widgets look like the FxSound ones.
+    /// egui `Visuals` that make stock widgets look like the original's.
     ///
     /// Custom-painted widgets (sliders, the EQ, the visualizer, the title bar) do not read these;
     /// they take colours from the palette directly. This exists so that anything drawn with a
@@ -297,7 +298,7 @@ impl Default for Palette {
 pub use crate::typeface::families as fonts;
 
 /// The fonts of the face the interface is shown in while the original look is off: Manrope, or
-/// the Gilroy the user chose when FxSound found it, with the CJK, Arabic and Thai fallbacks
+/// the Gilroy the user chose when CrossFX found it, with the CJK, Arabic and Thai fallbacks
 /// behind either ([`crate::typeface`]).
 ///
 /// The semibold and bold weights are families of their own because the original picks a face per
@@ -343,10 +344,10 @@ pub fn nav_caption(size: f32, colour: egui::Color32) -> egui::TextFormat {
 
 /// Install fonts and visuals on a context. Call once at startup and again on a theme change.
 ///
-/// The face follows the palette: the Windows build's palette is the original look
-/// ([`Palette::is_windows`], «Like FxSound for Windows» = Interface and above), which is set in
-/// Gilroy when the user has it ([`crate::typeface::shown`]). From here on the Pro and Lite windows
-/// keep the face up to date by themselves, at the top of every frame they draw
+/// The face follows the palette: the original's palette is the original look
+/// ([`Palette::is_windows`], «Like the original FxSound LLC» = Interface and above), which is set
+/// in Gilroy when the user has it ([`crate::typeface::shown`]). From here on the Pro and Lite
+/// windows keep the face up to date by themselves, at the top of every frame they draw
 /// ([`crate::typeface::sync`]).
 pub fn apply(ctx: &egui::Context, palette: Palette) {
     crate::typeface::install(ctx, palette.is_windows());
@@ -376,7 +377,7 @@ mod tests {
             light.color(FxColor::WindowBackground),
             Color32::from_rgb(0xf5, 0xf5, 0xf5)
         );
-        // The FxSound red and its light-theme blue counterpart.
+        // The original's red and its light-theme blue counterpart.
         assert_eq!(
             dark.color(FxColor::TextButtonBackground),
             Color32::from_rgb(0xd5, 0x15, 0x35)
@@ -425,7 +426,7 @@ mod tests {
 
     #[test]
     fn the_windows_theme_keeps_the_originals_outline_and_greys_white_in_the_light_palette() {
-        // «Как в Windows» = Interface: 0.4.0 audit #24 and #25 set back.
+        // «Like the original FxSound LLC» = Interface: 0.4.0 audit #24 and #25 set back.
         let light = Palette::new(ThemeMode::Light).windows(true);
         assert!(light.is_windows() && !Palette::new(ThemeMode::Light).is_windows());
         assert_eq!(light.divider(), light.color(FxColor::Outline));

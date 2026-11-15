@@ -283,8 +283,8 @@ pub fn show(
     response
 }
 
-/// What the preset list says on hover **(port addition)**: the edit direction's applications that
-/// run a preset of their own, one `Battlefield 6 → Gaming` a line, in the order the engine
+/// What the preset list says on hover **(CrossFX addition)**: the edit direction's applications
+/// that run a preset of their own, one `Battlefield 6 → Gaming` a line, in the order the engine
 /// reported them (`docs/0.4.0-apps.md`, "Interface").
 ///
 /// `None` — no tooltip at all — while the lane has none, and while "Hide help tips" is ticked, as
@@ -764,9 +764,9 @@ fn input_meters(ui: &Ui, state: &UiState, palette: Palette, strip: Rect) {
     }
 }
 
-/// How the window's sliders paint their fill: as the original's `drawLinearSlider` does at «Как в
-/// Windows» = Interface and above ([`WindowsLook::SliderFill`], 0.4.0 audit #41), corrected
-/// otherwise.
+/// How the window's sliders paint their fill: as the original's `drawLinearSlider` does at «Like
+/// the original FxSound LLC» = Interface and above ([`WindowsLook::SliderFill`], 0.4.0 audit #41),
+/// corrected otherwise.
 #[must_use]
 pub fn slider_fidelity(state: &UiState) -> Fidelity {
     if state.windows_look(WindowsLook::SliderFill) {
@@ -820,7 +820,7 @@ fn audio_controls(
             equalizer_controls::DISABLED_BUTTON_OPACITY
         })
         .tooltip(&tip)
-        .hide_tooltips(!state.port_tips_shown())
+        .hide_tooltips(!state.crossfx_tips_shown())
         .show(
             ui,
             equalizer_controls::flip_button(column),
@@ -880,13 +880,13 @@ fn effect_column(
         // time (0.4.0 audit #14): the eleven positions stand over 128 values a preset can store.
         // A right-click switches the effect off, as it puts a level back to its neutral value on
         // the other face: the original gives only `FxAudioSlider` and `FxBalanceSlider` the reset
-        // (`docs/spec/03-controls.md` §3.5), and the port gives it these five too (0.4.0 audit R9).
+        // (`docs/spec/03-controls.md` §3.5), and CrossFX gives it these five too (0.4.0 audit R9).
         //
-        // At «Как в Windows» = Interface and above the original's again: no right-click reset
-        // ([`WindowsLook::EffectReset`]), no word of one in the tip, and the fill painted as
-        // `drawLinearSlider` paints it ([`WindowsLook::SliderFill`]). On a microphone the five
-        // are inert at every level — no reset, and the tip says why — so there is nothing of the
-        // port's own for Interface to keep on that lane.
+        // At «Like the original FxSound LLC» = Interface and above the original's again: no
+        // right-click reset ([`WindowsLook::EffectReset`]), no word of one in the tip, and the fill
+        // painted as `drawLinearSlider` paints it ([`WindowsLook::SliderFill`]). On a microphone
+        // the five are inert at every level — no reset, and the tip says why — so there is nothing
+        // of CrossFX's own for Interface to keep on that lane.
         let steps = StoredSteps(effect, state.dsp_compat());
         let slider = FxSlider::new(&mut value, 0.0, scale::SLIDER_MAX, 1.0)
             .fine_steps(&steps)
@@ -903,7 +903,7 @@ fn effect_column(
         if !state.hide_tooltips {
             let _ = if applies {
                 let tip = tr(effect.tooltip());
-                slider.on_hover_text(if state.port_tips_shown() {
+                slider.on_hover_text(if state.crossfx_tips_shown() {
                     crate::widgets::slider::with_reset_tip(Some(&tip))
                 } else {
                     tip
@@ -987,7 +987,7 @@ impl crate::widgets::slider::FineSteps for StoredSteps {
 
 /// Why the five effect sliders are grey while a microphone is selected.
 ///
-/// English keys, like every other string the port added that the Windows catalogues never had:
+/// English keys, like every other string CrossFX added that the original's catalogues never had:
 /// [`tr`] falls back to the key itself, so an untranslated build reads correctly rather than
 /// showing a placeholder.
 pub const MICROPHONE_INERT_CAPTION: &str = "Not used on a microphone";
@@ -1336,8 +1336,8 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_ambiences_readout_follows_the_windows_builds_positions() {
-        // Audit report #39 at «Like FxSound for Windows» = Interface and sound: stored 13 is
-        // Ambience's position 1 on Windows, where FxSound for Linux shows it as 0.3.
+        // Audit report #39 at «Like the original FxSound LLC» = Interface and sound: stored 13 is
+        // Ambience's position 1 in the original, where CrossFX shows it as 0.3.
         let compat = fxsound_core::DspCompat::Windows;
         let mut state = UiState {
             windows_parity: fxsound_core::WindowsParity::Sound,
@@ -1351,7 +1351,7 @@ mod tests {
         let shown: Vec<String> = texts(&shapes).into_iter().map(|(text, ..)| text).collect();
         assert_eq!(shown.iter().filter(|t| *t == "1").count(), 1, "{shown:?}");
         assert!(!shown.iter().any(|t| t == "1.0"), "{shown:?}");
-        // And a fine step goes to the next value a Windows preset stores, 14.
+        // And a fine step goes to the next value a preset of the original's stores, 14.
         let steps = StoredSteps(Effect::Ambience, compat);
         let next = crate::widgets::slider::FineSteps::step(
             &steps,
@@ -1402,8 +1402,8 @@ mod tests {
 
     #[test]
     fn shift_and_an_arrow_step_one_stored_value_where_an_arrow_steps_a_position() {
-        // 0.4.0 audit #14: the fine step reaches every value a preset can store, the Windows
-        // presets' 20 included, and the plain arrow keeps its whole positions.
+        // 0.4.0 audit #14: the fine step reaches every value a preset can store, the 20 of the
+        // original's presets included, and the plain arrow keeps its whole positions.
         let ctx = test_context();
         let mut scratch = ViewScratch::new();
         let mut assets = AssetCache::new();
@@ -1585,7 +1585,7 @@ mod tests {
         assert!(press(&mut harness, &off, track.center(), PointerButton::Secondary).is_empty());
     }
 
-    /// [`state`] at «Как в Windows» = Interface.
+    /// [`state`] at «Like the original FxSound LLC» = Interface.
     fn windows_state() -> UiState {
         UiState {
             windows_parity: fxsound_core::WindowsParity::Interface,
@@ -1597,7 +1597,7 @@ mod tests {
     fn at_interface_a_right_click_on_an_effect_is_a_press_like_any_other_as_on_windows() {
         // 0.4.0 audit R9 set back: the original gives the reset to the level sliders only, and a
         // JUCE slider with no popup menu takes the right button as it takes the left — the thumb
-        // goes to the pointer — where the port's right-click switches the effect off.
+        // goes to the pointer — where CrossFX's right-click switches the effect off.
         let mut harness = Harness::new(ThemeMode::Dark);
         let state = windows_state();
         harness.settle(&state);
@@ -1883,7 +1883,7 @@ mod tests {
     #[test]
     fn at_interface_a_band_tip_is_the_originals_alone_and_only_at_ten_bands() {
         // `FxEqualizer.cpp:326-343`: the description at ten bands, nothing at the others, and no
-        // word of the right-click or the solo (0.4.0 audit R9 and the port's tips set back).
+        // word of the right-click or the solo (0.4.0 audit R9 and CrossFX's tips set back).
         use crate::widgets::equalizer::{BAND_TOOLTIPS, EqLayout, SOLO_TIP};
         let panel = layout::pro::equalizer();
         for count in [10, 31] {

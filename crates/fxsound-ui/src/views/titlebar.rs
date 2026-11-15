@@ -101,7 +101,7 @@ pub fn bar_rect(origin: Pos2, window_width: f32) -> Rect {
 /// The one point rule under the bar (`FxWindow.cpp:141`).
 ///
 /// The original draws it from `shadow_width` to `getWidth() - shadow_width * 2`, which for a
-/// dialog overshoots by the shadow width; `docs/spec/01-window-layout.md` §3.3 asks the port to
+/// dialog overshoots by the shadow width; `docs/spec/01-window-layout.md` §3.3 asks CrossFX to
 /// draw the corrected version, and the main window's shadow width is zero anyway.
 #[must_use]
 pub fn divider_rect(origin: Pos2, window_width: f32) -> Rect {
@@ -227,7 +227,7 @@ pub fn show(
     let power_tip = TitleButton::Power.tip(state);
     if PowerButton::new(state.power)
         .tooltip(&power_tip)
-        .hide_tooltips(!state.port_tips_shown())
+        .hide_tooltips(!state.crossfx_tips_shown())
         .show(
             ui,
             at(origin, chrome.power.rect()),
@@ -375,15 +375,15 @@ impl TitleButton {
         Self::Close,
     ];
 
-    /// What the button's tooltip says, translated: what a click will do **(port addition)**.
+    /// What the button's tooltip says, translated: what a click will do **(CrossFX addition)**.
     ///
     /// The original gives each of them `setHelpText` — "Power Button", "Menu Button", "Resize
     /// Button", "Minimize Button" — which is accessibility text and never a hover bubble
     /// (`FxMainWindow.cpp:193-221`), so five small glyphs, two of which change what they mean
     /// with the state, went unexplained (0.4.0 audit #27). The power button's two are the tray
     /// menu's own, translated in every table. "Hide help tips" hides these as it hides the rest,
-    /// and «Как в Windows» = Interface and above leave them out, as the original does
-    /// ([`fxsound_core::WindowsLook::WindowsTooltips`]).
+    /// and «Like the original FxSound LLC» = Interface and above leave them out, as the original
+    /// does ([`fxsound_core::WindowsLook::WindowsTooltips`]).
     #[must_use]
     pub fn tip(self, state: &UiState) -> String {
         tr(match self {
@@ -420,7 +420,7 @@ fn icon(
     IconButton::new(normal)
         .hover(hover)
         .tooltip(tip)
-        .hide_tooltips(!state.port_tips_shown())
+        .hide_tooltips(!state.crossfx_tips_shown())
         .show(ui, rect, palette, assets, id_salt)
 }
 
@@ -434,7 +434,7 @@ fn close(ui: &mut Ui, state: &UiState, palette: Palette, rect: Rect, tip: &str) 
             Sense::click(),
         )
         .on_hover_cursor(CursorIcon::PointingHand);
-    if state.port_tips_shown() {
+    if state.crossfx_tips_shown() {
         response = response.on_hover_text(icon_button::tooltip_text(tip, palette));
     }
     paint_close_glyph(ui.painter(), rect, palette);
@@ -717,12 +717,16 @@ mod tests {
                     logo_colour(harness.palette, 0.0),
                     "{view:?} {level:?}"
                 );
-                // And nothing in the bar spells the original's name.
+                // And no artwork in the box: the original's logotype is not drawn under the name.
                 assert!(
-                    crate::views::testing::texts(&shapes)
-                        .iter()
-                        .all(|(text, ..)| !text.contains("FxSound")),
-                    "{view:?} {level:?}"
+                    shapes.iter().all(|clipped| match &clipped.shape {
+                        egui::Shape::Mesh(mesh) => {
+                            mesh.texture_id == egui::TextureId::default()
+                                || !mesh.calc_bounds().intersects(logo)
+                        }
+                        _ => true,
+                    }),
+                    "{view:?} {level:?}: an image in {logo:?}"
                 );
             }
         }
@@ -886,8 +890,8 @@ mod tests {
 
     #[test]
     fn at_interface_the_title_bars_buttons_have_no_tips_as_on_windows() {
-        // 0.4.0 audit #27 set back at «Как в Windows» = Interface: the original's `setHelpText`
-        // never shows as a bubble.
+        // 0.4.0 audit #27 set back at «Like the original FxSound LLC» = Interface: the original's
+        // `setHelpText` never shows as a bubble.
         for view in [ViewMode::Pro, ViewMode::Lite] {
             let state = UiState {
                 windows_parity: fxsound_core::WindowsParity::Interface,

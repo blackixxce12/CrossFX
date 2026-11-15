@@ -118,7 +118,7 @@ pub const CLOSE_GLYPH_THICKNESS: f32 = 0.08;
 ///
 /// `DropShadow`'s default — black at `0x90` — with only `radius` overridden (`FxWindow.cpp:125`).
 /// JUCE is not vendored in this tree, so this is the one number here read out of the framework
-/// rather than out of FxSound's own sources **[JUCE semantics]**.
+/// rather than out of the original's own sources **[JUCE semantics]**.
 pub const SHADOW_COLOUR: Color32 = Color32::from_black_alpha(0x90);
 
 /// The outer window size for a given content size (`docs/spec/06-dialogs.md` §0.2).
@@ -454,7 +454,7 @@ pub fn paint_close_glyph(painter: &Painter, rect: Rect, palette: Palette) {
 ///
 /// `FxTheme` overrides neither `drawButtonBackground` nor `drawButtonText`, and the JUCE modules
 /// are not vendored in this tree (`docs/spec/06-dialogs.md` Open question 1), so the four numbers
-/// below are the framework's, not FxSound's.
+/// below are the framework's, not the original's.
 pub const BUTTON_CORNER_RADIUS: f32 = 6.0;
 /// How far a pressed button's fill is moved towards its contrasting colour **[JUCE semantics]**.
 pub const BUTTON_DOWN_CONTRAST: f32 = 0.2;
@@ -477,8 +477,8 @@ pub fn perceived_brightness(colour: Color32) -> f32 {
 ///
 /// This is what makes a hovered or pressed `TextButton` change colour at all, so it is worth
 /// having exactly. The `withMultipliedSaturation(0.9f)` that `drawButtonBackground` applies first
-/// is deliberately **not** reproduced: it desaturates FxSound's brand red by a tenth, and every
-/// other surface in this port draws `TextButtonBackground` unmodified (`FxTheme.cpp:83`).
+/// is deliberately **not** reproduced: it desaturates the original's brand red by a tenth, and
+/// every other surface in CrossFX draws `TextButtonBackground` unmodified (`FxTheme.cpp:83`).
 #[must_use]
 pub fn contrasting(colour: Color32, amount: f32) -> Color32 {
     let t = amount.clamp(0.0, 1.0);
@@ -667,7 +667,7 @@ pub fn link(
     link_in(ui, rect, text, normal_font(), palette, align, id_salt)
 }
 
-/// [`link`] in `font`: the port's own links that share a row with a heading are set in the small
+/// [`link`] in `font`: CrossFX's own links that share a row with a heading are set in the small
 /// font, which leaves the heading its room.
 pub fn link_in(
     ui: &mut Ui,

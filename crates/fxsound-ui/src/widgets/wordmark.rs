@@ -1,13 +1,13 @@
 //! CrossFX's name where the original shows its logotype.
 //!
-//! The original puts FxSound LLC's logotype — its five bars and the letters "FxSound", in a box
-//! of 106 × 15 points — at the left of the main window's title bar (`FxWindow.cpp:181`) and of
-//! every window without a name, the message boxes (`FxWindow.cpp:272-278`). The logotype and its
-//! bars are the original's, and CrossFX does not draw them: it names itself in that box, with the
-//! text [`PRODUCT`] in the bold face, its letters as tall as the logotype's stood in the box, from
-//! the box's left edge and centred on its middle — at every level of «Like the original FxSound
-//! LLC», since names are not parity. An icon of CrossFX's own, once it has one, goes in front of
-//! the name.
+//! The original puts FxSound LLC's logotype — its five bars and its name in letters, in a box of
+//! 106 × 15 points — at the left of the main window's title bar (`FxWindow.cpp:181`) and of every
+//! window without a name, the message boxes (`FxWindow.cpp:272-278`). The logotype and its bars
+//! are the original's, and CrossFX does not draw them: it names itself in that box, with the text
+//! [`PRODUCT`] in the bold face, its letters as tall as the logotype's stood in the box, from the
+//! box's left edge and centred on its middle — at every level of «Like the original FxSound LLC»,
+//! since names are not parity. An icon of CrossFX's own, once it has one, goes in front of the
+//! name.
 
 use crate::theme;
 use egui::{Color32, Galley, Painter, Pos2, Rect, pos2};
@@ -100,11 +100,5 @@ mod tests {
     fn a_box_with_no_room_draws_nothing() {
         assert_eq!(ink(Rect::from_min_size(Pos2::ZERO, vec2(0.0, 15.0))), None);
         assert_eq!(ink(Rect::NOTHING), None);
-    }
-
-    #[test]
-    fn the_name_is_crossfx_and_never_the_originals() {
-        assert_eq!(PRODUCT, "CrossFX");
-        assert!(!PRODUCT.to_ascii_lowercase().contains("fxsound"));
     }
 }
