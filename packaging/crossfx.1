@@ -1,0 +1,1554 @@
+.\" Manual page for CrossFX.
+.\"
+.\" Kept in packaging/ rather than packaging/debian/ because every package installs it: the
+.\" systemd unit says Documentation=man:crossfx(1), and a unit that names a manual page nobody
+.\" ships is worse than no line at all. The option list is taken from
+.\" crates/fxsound-app/src/cli.rs; if an option is added there and not here, the two have
+.\" drifted and cli.rs is the one that is right. The D-Bus section follows
+.\" crates/fxsound-app/src/dbus.rs the same way. packaging/check-manpage.sh compares the page
+.\" with both files — ci.yml runs it on every push, release.yml before a tag is built — so the
+.\" drift is refused rather than hoped against.
+.\"
+.\" Copyright (C) 2026 CrossFX contributors
+.\" Licensed under the GNU Affero General Public License, version 3 or later.
+.TH CROSSFX 1 "2026-09-30" "crossfx 0.5.0" "User Commands"
+.SH NAME
+crossfx \- system-wide audio enhancement for PipeWire
+.SH SYNOPSIS
+.B crossfx
+.RI [ OPTION ]...
+.br
+.B crossfx
+.B \-\-status
+.RB [ \-\-json ]
+.br
+.B crossfx
+.B \-\-watch
+.RB [ \-\-json ]
+.RB [ \-\-meters ]
+.br
+.B crossfx
+.B \-\-self\-test
+.RB [ \-\-json ]
+.br
+.B crossfx
+.B \-\-list\-apps
+.RB [ \-\-json ]
+.SH DESCRIPTION
+.B crossfx
+presents itself to PipeWire as a virtual sink, processes everything
+applications play into it \(en a ten-band equalizer plus fidelity, ambience,
+surround, dynamic boost and bass \(en and forwards the result to the real
+output device. A second, independent lane does the same for a microphone: it
+runs a voice chain (denoise, high-pass, downward expander, equalizer,
+de-esser, compressor, makeup gain, look-ahead limiter) and publishes a virtual
+source. Both lanes can run at once; each has a device and a preset of its
+own, either can be detached, and one power switch covers both. An application
+can have a preset of its own on either lane: CrossFX runs that preset for it
+alone, beside the lane's, and remembers the choice.
+.PP
+Each device remembers the preset it was last used with, in both directions: a
+playback device its
+.I .fac
+preset, a microphone its voice preset. Whenever a lane moves to a device again
+\(en picked in the window or the tray, named by
+.BR \-\-output " or " \-\-input ,
+stepped to by
+.BR \-\-next\-output " or " \-\-next\-input ,
+or chosen by the priority list when it is plugged in, or, with Settings \(->
+Audio's
+.I Follow the system's default device
+on, picked in the desktop's sound settings, which CrossFX then follows even
+after a device was picked in CrossFX, and starts on the next time \(en the
+device brings its preset back; a device used for the first time leaves the
+preset alone.
+A lane that moves to a device of the same channel count and rate keeps
+CrossFX's own output or input, and replaces only its stream on the device, so
+an application playing or recording through CrossFX is never moved: it hears
+a gap of about a tenth of a second instead of a click.
+Settings \(-> Audio sets the preset of each playback device, and Settings \(->
+Microphone the voice preset of each microphone, in the device's row of its
+priority list; set on the device a lane is on, it takes over at once. A renamed
+preset takes its devices with it; a device whose preset was deleted keeps the
+preset the lane is running when it comes back.
+.PP
+Run with no options,
+.B crossfx
+starts and shows its window, unless it was last quit with its window hidden to
+the tray (see
+.BR \-\-run_minimized ).
+If an instance is already running, the second
+process does not start a second instance: it forwards its command line to the
+first over a control socket in
+.I $XDG_RUNTIME_DIR/crossfx
+and exits. Every option below therefore works both as a startup option and as
+a way to drive an instance that is already running. A start carries out the
+band lists, the effects and the preset commands too, on the preset it
+selects, where the original FxSound for Windows drops them at a start without a
+word. The one
+exception is
+.BR \-\-next\-output " and " \-\-next\-input :
+they step a lane from the device it is on, which a start does not have yet, so
+with no CrossFX running such a command line is refused and nothing starts.
+.PP
+Only what asks for the window brings it up: a command line with no options, as
+a launcher runs it,
+.BR \-\-show ,
+and
+.B \-\-view
+for a running instance.
+Every option that sets something \(en a preset, the power, a device, an effect,
+a band, a level, the language \(en does it without raising the window, so a
+keybinding that runs
+.B crossfx \-\-preset=Gaming
+leaves the game in front; add
+.B \-\-show
+to have the window too. When such a command line is what starts CrossFX, it
+starts in the tray; with no tray icon after a few seconds (GNOME without an
+AppIndicator extension) the window comes up minimised instead, so that CrossFX
+is not left running with nothing on screen. At a start,
+.B \-\-view
+sets the layout and the window follows the remembered tray state, unless
+.B \-\-show
+is given too. The original FxSound for Windows raises its window for every
+option but
+.BR \-\-status ,
+and so does CrossFX at \(lqLike the original FxSound LLC\(rq = interface and
+above
+.RB ( \-\-windows\-parity )
+for the options the original has, and a start from one of them shows the
+window unless CrossFX was last quit hidden. The keybinding options
+.RB ( \-\-toggle\-power ", " \-\-next\-preset ", " \-\-prev\-preset ", " \-\-next\-output ),
+the options only CrossFX has and D-Bus never raise it.
+.BR \-\-status ", " \-\-watch " and " \-\-list\-apps
+print and exit without touching the window, and
+.B \-\-self\-test
+never contacts a running instance at all.
+.PP
+This forwarding is what makes keyboard shortcuts possible. A Wayland client
+cannot grab global shortcuts, by design, so the compositor owns the binding and
+calls
+.B crossfx
+with the matching option; see
+.B EXAMPLES
+below. A status bar or a compositor script that would rather not spawn a
+process per query can use the D-Bus interface instead; see
+.BR D\-BUS .
+.SH OPTIONS
+.SS Processing
+.TP
+.BI \-\-power= 0|1|toggle
+Turn audio processing on or off, for both lanes. Off also hands the session's
+default output and input back to the real devices, so applications play and
+record past CrossFX until it is turned on again, which takes them back; an
+application with a preset of its own is moved back onto it then. Each
+application that is moved is faded out first and back in once it plays or
+records where it went: a gap of about a tenth of a second instead of a click.
+Now and then PipeWire itself plays a moment at full volume before the fade,
+and that one still clicks.
+Any non-zero integer means on;
+.B toggle
+inverts the current state.
+.TP
+.BI \-\-set_effect= NAME:VALUE[,NAME:VALUE...]
+Set effect levels on the slider scale,
+.RB 0 \(en 10 ,
+as the window's sliders read them: Dynamic Boost's and Ambience's ten
+positions run over the values that sound different, so a position means the
+same on the command line as in the window.
+Accepted names are
+.BR fidelity " (also " clarity "), " ambience ", " surround ", "
+.BR dynamicboost " (also " dynamic_boost ") and " bass " (also"
+.BR bassboost ", " bass_boost ).
+At most five pairs, since there are five effects. The music effects apply to
+the output lane only, whichever lane is being edited; a microphone uses the
+voice chain instead.
+.TP
+.BI \-\-num_bands= N
+Number of equalizer bands. Only 5, 10, 15, 20 and 31 are accepted; anything
+else is an error rather than a silent fallback. The curve is carried over to
+the new count by frequency rather than reset, and every output preset is then
+fitted onto this count: a ten-band preset picked on 31 bands stays on 31. On
+the speakers the count is a setting, not an edit to the selected preset.
+With
+.B \-\-edit=input
+it sets the voice preset's band count, and the speakers' setting is left as it
+is.
+.TP
+.BI \-\-set_band_freq= BAND:HZ[,BAND:HZ...]
+Move band centre frequencies. Band indices are 0-based. The outer bound is
+20\(en20000 Hz; each band also has its own range, the one its wheel in the
+window turns over, which
+.B \-\-status \-\-json
+reports as each band's
+.BR min_frequency " and " max_frequency .
+A frequency outside its band's range refuses the whole list, as a band the
+equalizer does not have does (below), where the original FxSound for Windows
+drops that pair without a word.
+.TP
+.BI \-\-set_band_gain= BAND:DB[,BAND:DB...]
+Set band gains in dB, 0-based band indices, gain
+.RB \-12 \(en+12 .
+.PP
+A band list that names a band the equalizer does not have is refused whole:
+nothing on it is set, and the command fails with the bands that are not there
+on standard error, as
+.B \-\-set_band_gain=3:4,12:2
+does on ten bands. A
+.B \-\-num_bands
+on the same command line sets the count first. The original FxSound for
+Windows drops such a list, or sets what it can of it, without a word. At
+\(lqLike the original FxSound LLC\(rq = interface and above, either list sets the
+pairs that fit and
+skips the others, naming them in a note on standard error, and succeeds.
+.TP
+.BI \-\-filter_q= Q
+Equalizer filter Q,
+.RB 1.0 \(en 3.0 ,
+rounded to the nearest 0.5 \(en the step size of the equivalent slider.
+With
+.B \-\-edit=input
+it sets the voice preset's own Q, which saving the preset keeps.
+.TP
+.BI \-\-balance= DB
+Stereo balance,
+.RB \-20 \(en+20
+dB, rounded to a whole number. Positive pans right. Output lane only,
+whichever lane is being edited.
+.TP
+.BI \-\-master_gain= DB
+Master gain,
+.RB \-20 \(en+20
+dB, rounded to a whole number.
+.TP
+.BI \-\-volume_leveling= AMOUNT
+Volume levelling amount,
+.RB 0.0 \(en 4.0 ,
+rounded to the nearest 0.5. Output lane only, whichever lane is being edited.
+The single-l American spelling is the original FxSound's and is kept verbatim.
+.TP
+.BI \-\-noise\-suppression= LEVEL
+Noise suppression for the microphone lane, as a control surface over RNNoise:
+.BR off ", " light " (also " mild ", as the window calls it), " medium " or " strong ,
+or
+.B preset
+to follow whatever the selected voice preset asks for, which is the default.
+The setting outlives the preset: pick a level here and every voice preset runs
+at it until it is set back to
+.BR preset .
+.SS Presets
+One of these per command line, and of
+.B \-\-next\-preset
+and
+.BR \-\-prev\-preset :
+a second one is an error (exit status 2) that names both, where the
+original FxSound took the first and dropped the rest without a word. So is an
+empty name,
+and a new name that has nothing left once the characters a preset name cannot
+hold are taken out (see below).
+.TP
+.BI \-\-preset= NAME
+Select a preset by its exact, case-sensitive name, in the edit direction's
+list: a
+.I .fac
+preset for the output lane, a voice preset for the input lane. An unknown name
+is an error, not a silent no-op; a name only the other lane has is refused with
+a note saying which
+.B \-\-edit
+reaches it. A device named on the same command line is selected first, so
+.B \-\-input=...\& \-\-preset=...
+finds the preset in the microphone's list. Naming the preset that is already
+selected changes nothing, as picking it again in the window does, and keeps
+its unsaved changes;
+.B \-\-undo_preset
+reads it back from its file.
+.TP
+.BI \-\-save_preset= NAME
+Save the current settings as a new user preset: its unsaved changes, or a copy
+of it when it has none. Refused with a name a preset already has (in any
+case), and at the user-preset limit
+.RB ( max_user_presets
+in the settings file, 10 to 1000). At \(lqLike the original FxSound LLC\(rq =
+interface and above a preset with no unsaved changes is refused, as in the
+original, and the menu's Save New Preset waits for changes too, while Export
+Presets and Import Presets wait for none.
+.TP
+.B \-\-overwrite_preset
+Overwrite the selected user preset with its unsaved changes. A factory preset
+is refused: save its changes as a new preset instead.
+.TP
+.B \-\-undo_preset
+Discard the selected preset's unsaved changes.
+.TP
+.BI \-\-rename_preset= NAME
+Rename the selected user preset. A factory preset, one with unsaved changes
+(save or undo them first) and a name another preset has are refused; a new
+spelling of the preset's own name, such as
+.B Rock
+for
+.BR rock ,
+is a rename.
+.TP
+.B \-\-delete_preset
+Delete the selected user preset: its file goes to the desktop's trash
+.RI ( $XDG_DATA_HOME/Trash ,
+or for a preset on another filesystem that filesystem's own,
+.I .Trash/UID
+or
+.I .Trash\-UID
+at the top of it), where a file manager can restore it, or stays beside
+itself as
+.I NAME.fac.1.bak
+(or the next free number) when no trash can take it. Its
+unsaved changes go the same way from
+.IR AutoSave/ ;
+restore both and the preset is back with them. A factory preset is refused.
+.PP
+Each of these is refused exactly where the window's menu greys its item out,
+with the reason on standard error. Like the window's preset list, its menu and
+the tray's preset menus, they also run while processing is off.
+.PP
+A preset name becomes a
+.I .fac
+filename, and preset files are meant to travel between Linux and Windows, so
+the Windows reserved characters
+.RB ( < " " > " " : " " \(dq " " / " " \e " " | " " ? " " * )
+are stripped from a name, each run of control characters (a line break, a
+tab) becomes one space, and the result is truncated to 64 characters. A new
+name is also cut to 126 bytes, on a character boundary, since the original
+FxSound for Windows reads a preset's name in that many: 63 Cyrillic letters.
+Voice presets follow
+the same rule with a
+.I .toml
+extension. A user preset saved over is written to the file it was listed
+from, whatever that file is called, such as one 0.3.0 saved under the name as
+written; its unsaved edits 0.3.0 kept in
+.I AutoSave/
+under that name are found there too.
+.SS Devices and directions
+.TP
+.BI \-\-output= DEVICE|off
+Select the playback device the output lane renders to, by its exact name. The
+name is the PipeWire
+.IR node.description ;
+.I node.name
+is accepted too, because that is what the settings file persists.
+.B off
+detaches the lane: CrossFX hands the session default back and removes that
+lane's nodes until a device is chosen again. Picking a device also makes that
+lane the edit direction. For compatibility with 0.3.0, naming a microphone here is treated as
+.B \-\-input
+with a note on standard error.
+A name that matches no device is an error, except before PipeWire has listed
+the devices, as at login: then the name is held, the lane becomes the edit
+direction at once, and the device is selected when the list arrives, keeping a
+preset picked for it in the meantime.
+A later
+.BR \-\-output ,
+.B off
+or
+.B \-\-next\-output
+replaces a held name.
+.TP
+.BI \-\-input= DEVICE|off
+The same for the microphone lane: select the capture device the voice chain
+reads from, or detach the lane with
+.BR off .
+A playback device named here is an error rather than a guess.
+.TP
+.BI \-\-forget\-device= DEVICE
+Forget a device that is not connected: drop it from its lane's device priority
+list (Settings \(-> Audio, Settings \(-> Microphone), and the preset remembered
+for it, as the \(mu beside its row there does. By
+.I node.name
+\(en that entry alone \(en or by description, which forgets every entry of
+either lane that has it, a dock's speakers and microphone alike.
+.B \-\-status \-\-json
+lists the entries under
+.BR output_device_list " and " input_device_list ,
+with whether each is
+.BR present .
+A device that is connected is refused, since CrossFX would learn it again at
+once. A CrossFX that has only just started (the bus may have started it for
+.BR ForgetDevice )
+holds the command for up to three seconds until PipeWire has listed the
+devices, and refuses it only if no list comes.
+With no CrossFX running, the device is forgotten from the settings file and
+nothing starts, and the exit status says whether it was: nothing is attached
+to any device then, so none counts as connected. Beside options that start
+CrossFX, it is done the same way before they are, and beside
+.B \-\-quit
+too, as a running CrossFX forgets the device before it quits. It cannot be
+combined with
+.BR \-\-status ", " \-\-watch ", " \-\-self\-test " or " \-\-list\-apps ,
+which run alone; such a command line is an error.
+.TP
+.BI \-\-edit= output|input
+Choose the edit direction: the lane the window shows and the preset and effect
+options above act on. The window's device combo and the tray menu
+change it too, as does
+.BR \-\-output " or " \-\-input
+on the same command line, which
+.B \-\-edit
+overrides. Without either, a forwarded command line acts on whichever direction
+the instance is already editing.
+.TP
+.BI \-\-view= 1|2
+Switch the window between the Lite (1) and Pro (2) layouts. A running
+instance shows its window too; at a start, the window follows the remembered
+tray state (see
+.BR \-\-run_minimized )
+unless
+.B \-\-show
+is given.
+.TP
+.BI \-\-language= CODE|system
+Display language:
+.B system
+to follow the desktop session (the default), or one of
+.BR ar ", " ba ", " bg ", " cs ", " de ", " en ", " es ", " fa ", " fi ", "
+.BR fr ", " hr ", " id ", " it ", " ja ", " ko ", " nl ", " no ", " pl ", "
+.BR pt ", " pt\-br ", " ro ", " ru ", " sl ", " sv ", " th ", " tr ", " ua ", "
+.BR vi ", " zh\-CN " and " zh\-TW ,
+in any case. The ISO codes the original spells otherwise are taken too
+.RB ( uk " for " ua ", " bs " for " ba ", " nb " and " nn " for " no ),
+and so is a locale such as
+.BR ru_RU.UTF\-8 .
+A language CrossFX has no translation for is an error, not a setting that
+quietly shows another language.
+.TP
+.BI \-\-windows\-parity= off|interface|sound
+\(lqLike the original FxSound LLC\(rq, the slider in Settings \(-> Experimental,
+saved like it:
+.B off
+(the default) is CrossFX as it is;
+.B interface
+brings the window and its controls back to the original's \(em the 2 dB
+steps of Master Gain and Balance, its readouts, tooltips and light theme, the
+equalizer's straight-line curve and one-way end wheels, the language order,
+and with the power off no preset picked from the window, its menu or the tray
+(the command line and D-Bus still pick them) \(em without changing the sound;
+.B sound
+adds the original's sound, so that a preset sounds as it does there.
+Each level includes the ones before it, none of them changes or deletes
+another setting, and
+.B off
+brings everything back as it was.
+.B sound
+plays Volume Leveling, Dynamic Boost, Ambience, the equalizer, the master gain
+and the balance as the original does, and reads a preset as it does \(en a
+curve of another band count by position, twenty bands on the original's
+ladder; switching to it and back while something plays glides over 20 ms,
+without a click.
+The level is saved and reported
+.RB ( windows_parity
+in
+.BR \-\-status ).
+The fourth level,
+.B full
+.RB ( everything ),
+which hides and stops what the original does not have, comes in a later
+version: this one refuses it with exit status 1, with or without
+.BR \-\-force ,
+and runs a
+.I settings.toml
+that says
+.B full
+as
+.BR sound ,
+keeping
+.B full
+in the file for the version that offers it.
+.TP
+.BR \-\-export\-unshifted [ =0|1 ]
+Where an exported preset puts its first and last equalizer band, as the tick box
+\(lqKeep the end bands where they are\(rq of the Export Presets window says;
+saved.
+.B 1
+(or no value) keeps them where they are, limited only to 10\ Hz\(en21\ kHz;
+.BR 0 ,
+the default, moves them back into the range the original FxSound for Windows
+tunes them in,
+as 0.4.0 does. Followed from
+.B \-\-windows\-parity=sound
+on, where the window offers the tick box; below it every export moves them and
+the choice waits.
+.TP
+.B \-\-force
+With
+.BR \-\-windows\-parity=full ,
+in the version that offers it: switch even when that takes something in use
+away. Refused along with
+.B full
+in this one.
+.TP
+.BR \-\-run_minimized ", " \-\-hide
+Start without showing the window, or hide the window of a running instance.
+This is what the autostart entry invokes. Without either, a start shows the
+window unless CrossFX was last quit with its window hidden to the tray, as the
+original does; such a start with no tray icon to be in after a few seconds
+(GNOME without an AppIndicator extension) brings the window up minimised.
+.TP
+.B \-\-activated
+Start without showing the window, as
+.B \-\-hide
+does; but when CrossFX is already running, exit at once with status 0 and
+forward nothing. This is what the systemd user unit and the D-Bus activation
+file invoke, so that a bus call arriving while an instance started from the
+launcher is still starting does not hide its window.
+.TP
+.B \-\-show
+Show and raise the window of the running instance \(en a minimised one
+included \(en or, starting CrossFX, show the window even though it was in the
+tray when CrossFX was last quit.
+.SS Applications
+.PP
+Every application that plays or records through CrossFX is remembered, and
+each can have a preset of its own per lane: a game on
+.IR Gaming ,
+a browser on
+.IR "Volume Boost" ,
+a voice chat's microphone on
+.IR Headset ,
+all at once. CrossFX moves the application's streams onto nodes of their own
+on the lane's device that run that preset, as
+.BR pavucontrol (1)
+moves a stream, and moves them back when the preset is taken away; the rest
+of the session keeps the lane's preset. With the power off none of them is
+moved: they play and record through the system's default devices like every
+other application until the power is turned on again, and one that holds on to
+its preset's node by itself stays there unprocessed. At most four presets of
+one lane run this way at a time. Settings \(-> Applications offers the same choices. None
+of these options raises the window.
+.TP
+.BI \-\-app\-preset= APP=PRESET
+Give an application a playback preset of its own.
+.I APP
+is a remembered application's Flatpak id, program or name, in any case, as
+.B \-\-list\-apps
+shows them: the first of the three that any remembered application has
+decides, and every application it names gets the preset, so
+.B firefox
+reaches both a native and a Flatpak Firefox. One playing or recording now is
+reached by its own as well, even while a rule written for another install
+covers it. One that CrossFX has not seen gets a rule for what
+.I APP
+looks like, which applies from the first time it plays: a Flatpak id for
+three or more parts between dots, such as
+.BR com.discordapp.Discord ;
+the name an application gives itself for text with a space, such as
+.BR "Battlefield 6" ;
+a program for anything else, such as
+.B bf6.exe
+or
+.BR firefox .
+A note on standard error says which, as a misspelt name would be new too.
+Given as CrossFX starts, such a name waits up to three seconds for CrossFX to
+hear which applications play and record, so one already playing is reached
+by its own name.
+.I PRESET
+is an output preset's exact name, or
+.BR default " (also " follow ,
+in any case, or nothing after the
+.BR = )
+to have the application follow the output lane's preset again. A preset the
+output lane does not have is an error. May be given more than once.
+.TP
+.BI \-\-app\-input\-preset= APP=PRESET
+The same for what an application records, with a voice preset.
+.TP
+.B \-\-list\-apps
+Print the applications CrossFX remembers and exit: the ones playing or
+recording now first, then the rest, the most recently heard first. One line
+per application of
+.I key=value
+pairs, spelled as
+.B \-\-watch
+spells them:
+.BR name " (the one the window shows), " binary ", " flatpak ", " running ,
+.BR output_preset " and " input_preset
+(empty while the application follows the lane),
+.BR routed.output " and " routed.input
+(the preset CrossFX runs it through now, empty on the lane's own). With
+.BR \-\-json ,
+one object:
+.B schema
+and
+.BR apps ,
+described under
+.BR "STATUS DOCUMENT" .
+With no CrossFX running, the list is read from the store,
+.IR ~/.config/crossfx/apps.toml ,
+nothing in it running, and nothing is started. Every other option on the
+same command line is ignored.
+.SS Shortcut targets
+.PP
+These exist so a compositor keybinding has something to call. They have no
+counterpart in the original FxSound for Windows, which registers global hotkeys
+itself.
+.TP
+.B \-\-toggle\-power
+Toggle audio processing, as
+.B \-\-power=toggle
+does.
+.TP
+.B \-\-toggle\-window
+Show the window if it is hidden, hide it if it is showing \(en the same toggle
+a left click on the tray icon performs. Starting CrossFX, it shows the window,
+as
+.B \-\-show
+does.
+.TP
+.B \-\-next\-preset
+Select the next preset of the edit direction, wrapping.
+.TP
+.B \-\-prev\-preset
+Select the previous preset of the edit direction, wrapping.
+.TP
+.B \-\-next\-output
+Cycle the output lane to the next usable playback device, wrapping, in the
+order of the device priority list (Settings \(-> Audio). Playback devices only:
+it never crosses into the microphones. With no CrossFX running there is no
+device to step from: the command line is refused (exit status 1) and nothing
+on it is done or started;
+.BI \-\-output= NAME
+starts CrossFX on a device. A CrossFX that has only just started (the bus
+may have started it for
+.BR NextOutput )
+holds the command for up to three seconds until PipeWire has listed the
+devices, and steps then.
+.TP
+.B \-\-next\-input
+Cycle the microphone lane to the next usable capture device, wrapping, in the
+order of the microphones' priority list (Settings \(-> Microphone). Capture
+devices only. With no CrossFX running it is refused as
+.B \-\-next\-output
+is, and a CrossFX that has only just started waits for the device list as
+.B \-\-next\-output
+does.
+.SS Control
+.TP
+.B \-\-status
+Print the running instance's state on standard output and exit, one
+.I key: value
+line per item: the version, whether processing is on, then
+.BR output ", " input ", " output_preset ", " input_preset " and " direction
+(the edit direction), the lines 0.3.0 printed, and last
+.BR noise_suppression ", " echo_cancel
+and the voice chain's telemetry as
+.B input_
+lines, with
+.B windows_parity
+after
+.BR theme .
+Every other option on the same command line is ignored.
+.TP
+.B \-\-json
+Print the
+.BR \-\-status ", " \-\-watch ", " \-\-self\-test " or " \-\-list\-apps
+report as JSON instead of as lines: one object for
+.B \-\-status
+(schema 3, described under
+.BR "STATUS DOCUMENT" ),
+for
+.B \-\-self\-test
+.RB ( version ", " checks ", " ok )
+and for
+.B \-\-list\-apps
+.RB ( schema " and " apps ),
+one object per line for
+.BR \-\-watch .
+Not the default: the line format is what existing scripts already grep.
+.TP
+.B \-\-watch
+Subscribe to the running instance and print one event per line until it
+quits or standard output is closed. The instance's last event before it quits
+is
+.BR quit ,
+and only then does
+.B \-\-watch
+exit 0; a stream that ends without it \(en the instance dropped a reader
+that fell too far behind, or it died \(en exits 1 with
+.I the event stream was cut off
+on standard error, so a loop that restarts
+.B \-\-watch
+until it succeeds keeps it running. The first event is
+.B status
+(the full
+.B \-\-status
+document); after that
+.BR power ", " preset_changed ", " device_changed ", " devices_changed ", "
+.BR audio_state ", " direction ", " notice ", " echo_cancel ", " calibrated ", "
+.BR app_routed ", " windows_parity ", " window " and " quit
+as they happen;
+.B windows_parity
+carries the new
+.BR level ;
+.B app_routed
+says where an application's streams went
+.RB ( app ", " binary ", " flatpak ", " direction ", " preset ,
+the preset being empty once they are back on the lane's own chain). Plain output is
+.I event key=value ...
+per line; with
+.B \-\-json
+each line is one object carrying
+.BR \(dqv\(dq:1 ", " \(dqevent\(dq " and " \(dqts\(dq
+(milliseconds since the epoch) plus the event's fields. This is what a status
+bar module should use instead of polling
+.BR \-\-status .
+.TP
+.B \-\-meters
+With
+.BR \-\-watch ,
+also stream the microphone lane's meters as
+.B input_meters
+events, at most four per second. Off by default because a bar that only wants
+to know the preset name should not be woken that often.
+.TP
+.B \-\-self\-test
+Check the installation and exit: the version; that the factory
+.I .fac
+presets and the voice presets are found under the install prefix and parse;
+that the settings file parses; an offline run of both processing chains with
+RNNoise instantiated; that the desktop entry, the icons (application and
+status), the systemd unit, the D-Bus activation file, this manual page and the
+AppStream metainfo are present, and that the unit and the activation file
+start this binary; that the runtime directory can be created. Run from a source tree,
+the install-only files are reported as
+.BR skip .
+PipeWire and the session bus are reported as
+.B skip
+rather than as failures when there is none, so the test is meaningful in a
+container with no session; when they are there, it only checks that something
+answers on their sockets. It writes nothing, not even a broken settings file
+aside. One
+.I name: ok|skip|fail detail
+line per check. It runs before the single-instance lock is taken,
+so it works beside a running CrossFX and never forwards anything to it. The
+exit status is 0 if and only if every check that was not skipped passed.
+.TP
+.B \-\-quit
+Quit the running instance, autosaving a modified preset first.
+.TP
+.BR \-h ", " \-\-help
+Print a usage summary and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.PP
+Options the original spells with underscores also accept the hyphenated
+form:
+.B \-\-num\-bands
+and
+.B \-\-num_bands
+are the same option. The hyphenated spellings are hidden from
+.BR \-\-help .
+.SH EXIT STATUS
+.TP
+.B 0
+Success. For a forwarded command line, this means the running instance accepted
+it, not that the effect is audible yet. For
+.BR \-\-self\-test ,
+every check that ran passed.
+.TP
+.B 1
+The command failed and standard error or the report says why: the running
+instance refused it (an unknown preset or device name, a factory preset to
+overwrite, a band the equalizer does not have, a device to forget that is
+connected, or
+.BR \-\-windows\-parity=full ,
+which comes in a later version, for example) or could
+not be reached, there is no running instance for
+.BR \-\-status " or " \-\-watch
+to ask or for
+.BR \-\-next\-output " or " \-\-next\-input
+to step, the
+.B \-\-watch
+stream was cut off without the instance's
+.B quit
+event,
+.B \-\-self\-test
+found at least one failing check,
+.B \-\-list\-apps
+with no CrossFX running found a store it could not read,
+.B \-\-forget\-device
+with no CrossFX running (on its own or beside
+.BR \-\-quit )
+found no such device or a settings file it could not read or write, or CrossFX
+itself could not start.
+.TP
+.B 2
+The command line could not be parsed \(en an unknown option, a value outside
+its range, an unknown language, two preset options, an empty preset name, an
+empty device name for
+.BR \-\-forget\-device ,
+or
+.B \-\-forget\-device
+beside
+.BR \-\-status ", " \-\-watch ", " \-\-self\-test " or " \-\-list\-apps .
+.SH STATUS DOCUMENT
+.B \-\-status \-\-json
+prints one JSON object. D-Bus
+.B GetStatus
+answers with the same object and
+.B \-\-watch
+opens with it. It carries every key 0.3.0 printed, with the same meaning,
+and every key the original FxSound for Windows writes for
+.B \-\-status
+(marked
+.IR original ),
+with the original's meaning and JSON type, so a client written for either reads
+it. Keys are only ever added; a key removed, renamed or given another meaning
+would change
+.B schema
+(see
+.B Compatibility
+below).
+The equalizer and
+.BR preset ", " presets " and " selected_preset
+are the edit direction's: the lane the window shows. The effects,
+.BR balance_db " and " volume_leveling
+exist on the output lane only and are always the output lane's.
+.TP
+.B schema
+3, the compatibility number described under
+.BR Compatibility .
+The 0.3.0 document had no number and is schema 1; 0.4.0's is 2, and 3 keeps
+every key of 2.
+.TP
+.BR version ", " power
+.RI ( original )
+The version, and whether processing is on.
+.TP
+.BR audio ", " preset ", " device ", " direction ", " edit_direction ", " view ", " theme
+The edit direction's lane
+.RB ( processing ", " idle " or " unavailable ),
+its preset with
+.B *
+for unsaved changes, its device by description, the edit direction
+.RB ( output " or " input ,
+under both names), and the window's view and theme.
+.TP
+.B effects
+.BR fidelity ", " ambience ", " surround ", " dynamic_boost " and " bass
+on their 0\(en10 scale, and
+.RI ( original )
+.BR clarity " and " dynamicboost ,
+the same values as
+.BR fidelity " and " dynamic_boost .
+Exact: a whole value is written as an integer, as 0.3.0 wrote every one, and
+any other with its fraction.
+.TP
+.BR master_gain_db ", " balance_db ", " volume_leveling ", " filter_q ", " eq
+The gain stage, and
+.BR eq :
+.BR enabled ", " bands " and " max_bands .
+.TP
+.BR format ", " ring
+The negotiated
+.BR sample_rate " and " channels ,
+and the ring between the two audio nodes since its stream was built:
+.BR dropped_frames ", " underrun_frames ", " resyncs " and " format_mismatches .
+.TP
+.BR output ", " input
+One object per lane:
+.BR enabled ", " device ", " node_name ", " preset " (without " * "), " modified
+and
+.BR active ;
+.B input
+adds
+.BR noise_suppression ", " denoise_level " and " hidden ,
+whether \(lqLike the original FxSound LLC\(rq at
+.B full
+hides the microphone lane (never in this version).
+A detached lane has
+.B null
+for its device.
+.TP
+.BR input_meters ", " echo_cancel
+The microphone's telemetry
+.RB ( voice_probability ,
+0 while the denoiser is not running;
+.BR noise_floor_db ,
+.B null
+until measured; the
+.B _reduction_db
+of the denoiser, gate, compressor and de-esser, the denoiser's 0 while it is
+not running; and whether the denoiser and
+the de-esser are running), and the echo canceller's
+.BR on " and " running .
+.TP
+.B presets
+.RI ( original )
+.B built_in
+and
+.BR user_defined :
+arrays of
+.BR name " and " modified ,
+in the order the preset list shows them.
+.BR output_presets " and " input_presets
+are the same for each lane, whichever the window shows.
+.TP
+.B selected_preset
+.RI ( original )
+The preset by the name
+.B \-\-preset
+takes, or
+.B null
+while the lane has none.
+.TP
+.BR output_devices ", " input_devices
+Arrays of names: the description of each device PipeWire has now, in the
+order of
+.BR output_device_list " and " input_device_list .
+.B output_devices
+is
+.IR original .
+.TP
+.BR output_device_list ", " input_device_list
+Arrays of
+.BR node_name ", " description " and " present :
+every device the lane's priority list knows, in its order, then any it has
+not learnt yet;
+.B present
+is whether PipeWire has it now, and a device that is not keeps the
+description it was last seen with.
+.TP
+.BR selected_output ", " selected_input
+Each lane's device by description, or
+.B null
+while the lane is detached.
+.B selected_output
+is
+.IR original .
+.TP
+.B equalizer
+.RI ( original )
+.BR num_bands ", " master_gain " (dB), " volume_leveling ", " filter_q ,
+.BR balance " (dB) and " bands :
+an array of
+.BR index ", " frequency " (Hz), " gain " (dB), " min_frequency " and " max_frequency ,
+the range the window's wheel tunes the band's frequency over, which the
+original leaves out. It is the original's wheel range, except that the first
+and last band reach half a band past the ladder's ends (46 Hz and 20 kHz on ten
+bands, where the original stops at 62.5 Hz and 16 kHz).
+.TP
+.B apps
+Every application CrossFX remembers, in the order
+.B \-\-list\-apps
+prints them: an array of
+.B name
+(the one the window shows, which
+.B \-\-app\-preset
+takes back),
+.B binary
+and
+.B flatpak
+(empty when PipeWire did not say),
+.B running
+(playing or recording now),
+.BR output_preset " and " input_preset
+(the preset of its own for each lane, as chosen, or
+.B null
+while it follows the lane) and
+.BR routed :
+an object of
+.BR output " and " input ,
+the preset CrossFX has moved its streams onto in each lane, or
+.B null
+while they run through the lane's own chain \(en it follows the lane, it is
+not playing or recording there, or its preset could not be run.
+.TP
+.BR windows_parity ", " apps_hidden
+The level of \(lqLike the original FxSound LLC\(rq
+.RB ( off ", " interface " or " sound ;
+.B full
+from the later version that offers it),
+and whether it hides the applications' presets, so that a status bar can grey
+its microphone and application parts instead of failing; always
+.B false
+in this version.
+.SS Compatibility
+The JSON CrossFX prints \(en this document and D-Bus
+.BR GetStatus ,
+the
+.BR ListPresets ", " ListDevices " and " ListApps
+answers and
+.B \-\-list\-apps \-\-json
+(which carry this document's
+.BR schema ),
+and the events of
+.B \-\-watch \-\-json
+(which carry
+.BR \(dqv\(dq )
+\(en follows one rule.
+.B schema
+and
+.B v
+are compatibility numbers, not versions. Adding a key or an event never
+changes them, so a later CrossFX may print keys this page does not list, and a
+client ignores what it does not know. Removing or
+renaming a key, or changing its meaning or its JSON type, raises the number by
+one; where a meaning has to change, the new meaning gets a key of its own and
+the old key keeps the old one, as
+.B edit_direction
+did beside
+.BR direction .
+A client written for schema 3 reads any document that says 3, and one that
+needs a key added later looks for the key rather than at the number.
+.B schema
+went from 1 to 2 and to 3 with keys that 0.4.0 and 0.5.0 added, before the
+rule was written; it stays 3 while keys are only added.
+.B \-\-self\-test \-\-json
+carries no number and follows the same rule: its
+.BR version ", " checks " (" name ", " status ", " detail ") and " ok
+keep their meaning, new checks may appear, and
+.B detail
+is words for a person, not for parsing.
+.SH D\-BUS
+A running instance also serves an interface on the session bus, for status
+bars, compositor scripts and anything else that would rather hold a connection
+than spawn a process per query. The command line stays on the control socket
+so that it keeps working without a session bus; both paths run exactly the
+same commands, so they cannot disagree.
+.TP
+Bus name
+.B io.github.blackixxce12.CrossFX
+(also the desktop-entry id, so a shell can associate the window with it).
+.TP
+Object path
+.I /io/github/blackixxce12/CrossFX
+.TP
+Interface
+.B io.github.blackixxce12.CrossFX
+.PP
+Methods:
+.PP
+.RS 4
+.EX
+TogglePower() \(-> b          SetPower(b)
+NextPreset()               PrevPreset()
+SetPreset(s)               GetPreset() \(-> s
+SetOutput(s)               SetInput(s)
+NextOutput()               NextInput()
+SetNoiseSuppression(s)     SetEditDirection(s)
+GetStatus() \(-> s            (the \-\-status \-\-json document)
+Show()                     Hide()
+ToggleWindow()             Quit()
+Apply(as argv) \(-> (b ok, s stdout, s stderr)
+ListPresets() \(-> s          ListDevices() \(-> s
+SetAppPreset(s app, s direction, s preset)
+ListApps() \(-> s             ForgetDevice(s)
+SetWindowsParity(s level, b force)
+.EE
+.RE
+.PP
+Each method does what the matching option does \(en
+.B TogglePower
+is
+.BR \-\-toggle\-power ,
+.B SetPreset
+is
+.BR \-\-preset ,
+.B SetEditDirection
+is
+.B \-\-edit
+\(en with the same words for its argument:
+.B SetOutput
+and
+.B SetInput
+take a
+.B node.name
+or a description, or
+.B off
+to detach the lane;
+.B SetEditDirection
+takes
+.BR output " or " input ;
+.B ForgetDevice
+is
+.BR \-\-forget\-device .
+.B SetWindowsParity
+is
+.BR \-\-windows\-parity ,
+and
+.I force
+is
+.BR \-\-force ;
+.B full
+is refused with
+.B io.github.blackixxce12.CrossFX.Error.Refused
+in this version.
+.B SetAppPreset
+is
+.BR \-\-app\-preset " and " \-\-app\-input\-preset :
+the application as they take it, the direction as
+.B SetEditDirection
+takes it, and the preset by name, or
+.BR default ", " follow
+or the empty string to have the application follow the lane again.
+Unlike a typed command line, no method raises the window but
+.BR Show " and " ToggleWindow .
+A command the running instance refuses fails with
+.B io.github.blackixxce12.CrossFX.Error.Refused
+and the message
+.B crossfx
+would print; an argument the option would not take either, with
+.BR org.freedesktop.DBus.Error.InvalidArgs ;
+a command it did not answer within four seconds, with
+.BR org.freedesktop.DBus.Error.Failed .
+.PP
+.B Apply
+runs a whole command line and answers with what
+.B crossfx
+given it would: whether it succeeded, and what it printed on standard output
+and on standard error.
+.I argv
+holds the options without the program name; a leading
+.B crossfx
+is taken too. A line that does not parse, or that the instance refuses,
+answers
+.B false
+with the reason rather than failing the call, and only no answer within four
+seconds fails it. Like the other methods, it leaves the window alone unless
+the line says
+.BR \-\-show ", " \-\-toggle\-window " or " \-\-hide .
+.B ListPresets
+answers with the
+.BR schema ", " edit_direction ", " selected_preset ", " presets ", "
+.BR output_presets " and " input_presets
+of the status document, and
+.B ListDevices
+with its
+.BR schema ", " selected_output ", " selected_input ", "
+.BR output_device_list " and " input_device_list ,
+each as one JSON object.
+.B ListApps
+answers with what
+.B \-\-list\-apps \-\-json
+prints: the
+.BR schema " and " apps
+of the status document.
+.PP
+Properties:
+.BR Version " (s, constant), " Power " (b), " Preset " (s), "
+.BR Output " (s), " Input " (s), " Direction " (s) and " WindowsParity " (s)."
+.B Preset
+is the edit direction's preset, without the
+.B *
+for unsaved changes;
+.B Output
+and
+.B Input
+are the lanes' devices by description, empty while a lane is detached;
+.B Direction
+is the edit direction;
+.B WindowsParity
+is the level of \(lqLike the original FxSound LLC\(rq, as
+.B SetWindowsParity
+takes it.
+.PP
+Signals:
+.BR PowerChanged (b),
+.BR PresetChanged (s\ direction,\ s\ name),
+.BR DeviceChanged (s\ direction,\ s\ node_name,\ s\ description),
+.BR AudioStateChanged (s\ json),
+.BR Notice (s\ message)
+and
+.BR AppRouted (s\ app,\ s\ direction,\ s\ preset).
+They follow the
+.B \-\-watch
+events
+.BR power ", " preset_changed ", " device_changed ", " audio_state ", " notice
+and
+.BR app_routed ;
+.B AppRouted
+names the application as the window does, and its preset is empty once its
+streams are back on the lane's own chain;
+.B AudioStateChanged
+carries the line
+.B \-\-watch \-\-json
+prints, and a preset that only gains unsaved changes sends no
+.BR PresetChanged .
+A name is empty for a lane that has no preset or no device.
+.PP
+If the name is already taken on the bus, the instance logs that and serves the
+control socket only. Any call made while CrossFX is not running starts it
+first, in the tray, a property read included: the bus reads
+.I /usr/share/dbus\-1/services/io.github.blackixxce12.CrossFX.service
+and hands the start to the systemd user unit,
+.IR crossfx.service ,
+or runs
+.B crossfx \-\-activated
+itself where the bus has no systemd. A
+.BR NextOutput ", " NextInput " or " ForgetDevice
+call that starts CrossFX this way waits, up to three seconds, for PipeWire to
+list the devices, and then steps or forgets as it would in an instance that
+had been running; with no CrossFX running,
+.BR \-\-next\-output " and " \-\-next\-input
+are refused instead. A started CrossFX takes over the
+session's default devices, so anything that only reads or polls \(en a status
+bar module above all \(en must ask the bus not to start it, or it will bring
+CrossFX back seconds after the user quit it:
+.B busctl \-\-auto\-start=no call
+does, as does the message flag
+.B NO_AUTO_START
+in any other client. A property is read that way with
+.BR org.freedesktop.DBus.Properties " " Get ,
+as below:
+.B busctl get\-property
+and
+.B busctl introspect
+start CrossFX whatever
+.B \-\-auto\-start
+says (systemd 262). At most 32 calls are answered at once; past that a call
+is refused with
+.BR io.github.blackixxce12.CrossFX.Error.Refused ,
+as a command line past the control socket's limit is. With
+.BR busctl (1):
+.PP
+.RS 4
+.EX
+busctl \-\-user call io.github.blackixxce12.CrossFX \e
+    /io/github/blackixxce12/CrossFX io.github.blackixxce12.CrossFX \e
+    SetPreset s Music
+busctl \-\-user call io.github.blackixxce12.CrossFX \e
+    /io/github/blackixxce12/CrossFX io.github.blackixxce12.CrossFX \e
+    Apply as 2 \-\- \-\-preset=Music \-\-set_effect=bass:7.5
+busctl \-\-user \-\-auto\-start=no call io.github.blackixxce12.CrossFX \e
+    /io/github/blackixxce12/CrossFX org.freedesktop.DBus.Properties \e
+    Get ss io.github.blackixxce12.CrossFX Power
+busctl \-\-user monitor io.github.blackixxce12.CrossFX
+.EE
+.RE
+.SH ENVIRONMENT
+.TP
+.B XDG_RUNTIME_DIR
+Holds the instance lock and the control socket. When the session provides none,
+.IB /tmp/crossfx- uid
+is used instead.
+.TP
+.B XDG_CONFIG_HOME
+Settings live under
+.IR $XDG_CONFIG_HOME/crossfx ,
+defaulting to
+.IR ~/.config/crossfx .
+.TP
+.B XDG_DATA_HOME
+User presets live under
+.IR $XDG_DATA_HOME/crossfx/presets ,
+defaulting to
+.IR ~/.local/share/crossfx/presets .
+.TP
+.B DBUS_SESSION_BUS_ADDRESS
+Where the D-Bus interface is served. Unset, the instance runs socket-only and
+.B \-\-self\-test
+reports the bus as skipped.
+.TP
+.B RUST_LOG
+Log filter, in the usual
+.B env_logger
+syntax, for example
+.BR RUST_LOG=debug .
+.SH FILES
+.TP
+.I /usr/share/crossfx/presets/Factsoft/
+Factory presets, in the
+.I .fac
+format shared with the original FxSound for Windows.
+.TP
+.I /usr/share/crossfx/presets/BonusPresets/
+Bonus presets, same format.
+.TP
+.I /usr/share/crossfx/presets/Input/
+Voice presets for the microphone chain, in TOML. They are TOML rather than
+.I .fac
+because the
+.I .fac
+format is a byte-for-byte contract with the original FxSound for Windows and
+has nowhere to put a gate threshold.
+.PP
+Only
+.I /usr
+and
+.I /usr/local
+are searched for these directories, the one the binary is installed under
+first: a binary under
+.I /usr/local
+uses the presets installed with it even where a distribution package has left
+others, perhaps an older release's, under
+.IR /usr .
+An install under any other prefix starts with an empty preset list.
+.TP
+.I ~/.local/share/crossfx/presets/
+Imported and user-saved presets; voice presets under
+.IR Input/ .
+.TP
+.I ~/.config/crossfx/settings.toml
+Settings. A corrupt file is never fatal: the defaults are used and the audio
+still comes up. One that does not load \(en it does not parse, is not UTF-8, or
+may not be read \(en is moved aside to
+.I settings.toml.bad
+first, or to
+.I settings.toml.2.bad
+and so on, never over an earlier one. The original's keys CrossFX does not use
+\(en the hotkey chords, the window position, always-on-top and the update
+check \(en are read from an older file without complaint and not written back.
+Keys this version does not know, such as those a later version wrote, are kept
+and written back as they were, at the top of the file and inside a device's entry
+or the calibration record.
+.B windows_parity
+and
+.B export_unshifted
+are written only when they are not the default.
+This file,
+.I apps.toml
+and a preset may be symbolic links, as a dotfile manager leaves them: a save
+replaces the file the link points to and keeps the link.
+A link to a read-only file, or to one in a directory the user may not write,
+is never saved through, so every save of that file fails; home-manager's
+default links into
+.I /nix/store
+are such links, and its
+.B \%mkOutOfStoreSymlink
+makes one CrossFX can save through.
+.TP
+.I ~/.config/crossfx/apps.toml
+The applications CrossFX remembers, at most 500, and the preset each has of
+its own. Past 500, those that only follow the lanes are forgotten first, seen
+longest ago first; one with a preset of its own goes only when there are more
+than 500 of those. One that does not load is moved aside to
+.I apps.toml.bad
+(or
+.I apps.toml.2.bad
+and so on, never over an earlier one) when CrossFX starts, and the list starts
+empty.
+.TP
+.I ~/.local/state/crossfx/handover.toml
+The volume of each application CrossFX is fading out to move it, from before
+the fade, while the move lasts. It is there only for a tenth of a second or so;
+one left behind by a CrossFX that was killed then is read at the next start,
+which gives each application found silent its volume back. Under
+.I $XDG_STATE_HOME/crossfx/
+when that is set.
+.TP
+.I ~/.local/share/wireplumber/scripts/crossfx/fade-on-move.lua
+.TQ
+.I ~/.config/wireplumber/wireplumber.conf.d/90-crossfx-fade-on-move.conf
+CrossFX's hook in WirePlumber, there only while \(lqSmooth moves in
+WirePlumber\(rq in Settings \(-> Experimental is ticked: a WirePlumber 0.5
+script that fades each playing stream WirePlumber moves, and the fragment that
+makes it an optional component, which WirePlumber skips, logging why, when it
+cannot load it. The silence the script holds a stream in, and a point of its
+fades reported on the way, never reach the volume WirePlumber keeps for the
+application's next start; while it holds a stream, the script says so in the
+.B default
+metadata, under the stream's id, as
+.BR crossfx.held ,
+and CrossFX's own fade leaves the stream to it. A stream whose new link failed
+gets its volume back only once it has a link again. WirePlumber reads
+them when it starts. Unticking deletes both;
+CrossFX brings them up to its own version when it starts, and deletes them
+under a WirePlumber older than 0.5. Under
+.I $XDG_DATA_HOME
+and
+.I $XDG_CONFIG_HOME
+when those are set.
+No package removes them, since the package manager does not touch files in
+your home: untick the box before uninstalling CrossFX, or else delete both files
+and run
+.BR "systemctl \-\-user restart wireplumber" .
+.TP
+.I $XDG_RUNTIME_DIR/crossfx/instance.lock
+Holds the running instance's pid under an exclusive
+.BR flock (2).
+.TP
+.I $XDG_RUNTIME_DIR/crossfx/instance.sock
+The control socket. One JSON line per request, one per reply; a
+.B \-\-watch
+connection stays open and receives one JSON line per event.
+.TP
+.I /usr/lib/systemd/user/crossfx.service
+A systemd user unit, installed but not enabled. See
+.B NOTES
+below.
+.TP
+.I /usr/share/dbus\-1/services/io.github.blackixxce12.CrossFX.service
+Starts CrossFX, through that unit, when a D-Bus call arrives for it and it is
+not running. See
+.BR D\-BUS .
+.TP
+.I /usr/share/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX\-{off,on,processing}.svg
+The tray icon's three states, looked up by name by the StatusNotifier host.
+The binary carries the same three and offers them as pixmaps too, for a host
+that does not look icons up in the theme.
+.TP
+.I /usr/share/icons/hicolor/{256x256,32x32}/apps/io.github.blackixxce12.CrossFX.png
+The application icon, under the application id: the icon name the desktop
+entry, the notifications and CrossFX's streams in the sound settings carry.
+.SH EXAMPLES
+Bind the shortcut targets in the compositor, here on Super+Alt, which few
+desktops and no applications use \(en in Hyprland:
+.PP
+.RS 4
+.EX
+bind = SUPER ALT, P, exec, crossfx \-\-toggle\-power
+bind = SUPER ALT, W, exec, crossfx \-\-toggle\-window
+bind = SUPER ALT, bracketright, exec, crossfx \-\-next\-preset
+bind = SUPER ALT, bracketleft, exec, crossfx \-\-prev\-preset
+bind = SUPER ALT, O, exec, crossfx \-\-next\-output
+.EE
+.RE
+.PP
+and in sway:
+.PP
+.RS 4
+.EX
+bindsym $mod+Mod1+p exec crossfx \-\-toggle\-power
+bindsym $mod+Mod1+w exec crossfx \-\-toggle\-window
+bindsym $mod+Mod1+bracketright exec crossfx \-\-next\-preset
+bindsym $mod+Mod1+bracketleft exec crossfx \-\-prev\-preset
+bindsym $mod+Mod1+o exec crossfx \-\-next\-output
+.EE
+.RE
+.PP
+A compositor binding takes its chord from every application, so leave the
+chords of the original FxSound for Windows alone: Ctrl+Shift+Q, its power
+toggle, is how Chromium quits, and Ctrl+Shift+E, Ctrl+Shift+A, Ctrl+Shift+Z and
+Ctrl+Shift+W
+mean something in browsers and editors too.
+.PP
+A worked set of these, with the window rules, is installed at
+.IR /usr/share/doc/crossfx/hyprland.conf.example
+.RI ( examples/hyprland.conf.example
+on Debian).
+.PP
+Ask a running instance what it is doing:
+.PP
+.RS 4
+.EX
+crossfx \-\-status \-\-json | jq .
+.EE
+.RE
+.PP
+Feed a status bar without polling: one JSON object per line, starting with
+the full status.
+.PP
+.RS 4
+.EX
+crossfx \-\-watch \-\-json | jq \-\-unbuffered \-r '.event'
+.EE
+.RE
+.PP
+Point the microphone lane at a headset and quieten a fan:
+.PP
+.RS 4
+.EX
+crossfx \-\-input='Jabra Evolve2' \-\-preset='Gaming Headset' \e
+    \-\-noise\-suppression=strong
+.EE
+.RE
+.PP
+Give a game and a browser presets of their own, and a voice chat's
+microphone a voice preset \(en by program, by program and by Flatpak id, even
+before any of them has run \(en then check what runs where:
+.PP
+.RS 4
+.EX
+crossfx \-\-app\-preset='bf6.exe=Gaming' \-\-app\-preset='brave=Volume Boost' \e
+    \-\-app\-input\-preset='com.discordapp.Discord=Headset'
+crossfx \-\-list\-apps
+.EE
+.RE
+.PP
+Select a preset and lift the bass on the speakers without opening the window:
+.PP
+.RS 4
+.EX
+crossfx \-\-edit=output \-\-preset=Music \-\-set_effect=bass:7,ambience:3
+.EE
+.RE
+.PP
+Check an installation, for example from a package's post-install test:
+.PP
+.RS 4
+.EX
+crossfx \-\-self\-test \-\-json
+.EE
+.RE
+.SH NOTES
+The window's close button, like the compositor's close request, hides the
+window and keeps processing: the tray's
+.BR Exit " and " \-\-quit
+are the ways out. With a tray icon on screen the minimise button hides the
+window into the tray as well; without one \(en GNOME without an AppIndicator
+extension \(en it minimises the window, as the original's does, so that
+the window cannot vanish with nothing left to bring it back. Where a window was
+hidden or minimised with no tray icon,
+.B crossfx \-\-show
+or launching CrossFX again brings it back; on Wayland, where an application
+cannot take its own window out of the minimised state, as a fresh window in its
+place. The tray menu lists the playback
+devices under
+.B Playback Device Select
+and the microphones under
+.BR "Recording Device Select" ,
+a long name shortened in its middle so that the part that tells two devices of
+one card apart stays; at \(lqLike the original FxSound LLC\(rq = interface and
+above a playback device's name is cut after 30 characters, as the original
+cuts it, and with the power off the preset submenus are left out, as there.
+.PP
+The systemd user unit is installed but deliberately not enabled. The desktop
+entry already starts CrossFX when you launch it, and an enabled user unit on
+top of that puts two processes in a race for the control socket; the loser
+exits, but which one that is depends on the session's startup order. To have
+CrossFX come up with the session instead of on demand:
+.PP
+.RS 4
+.EX
+systemctl \-\-user enable \-\-now crossfx
+.EE
+.RE
+.PP
+CrossFX started by the user unit \(en enabled, or by a D-Bus call \(en runs in
+the systemd user manager's environment, not the compositor's. Where the
+compositor does not import
+.B WAYLAND_DISPLAY
+into it (sway, and Hyprland without uwsm), that CrossFX has no display: it runs
+in the tray, and asking for its window brings a notification that it could not
+be opened instead; quit it and start it again once the variable is imported.
+A window raised only because \(lqLike the original FxSound LLC\(rq is on (for a
+forwarded command line, as the original raises it) that cannot be opened is
+just logged, and CrossFX keeps running, with or without a tray.
+Import it when the compositor starts, in sway with:
+.PP
+.RS 4
+.EX
+exec dbus\-update\-activation\-environment \-\-systemd WAYLAND_DISPLAY DISPLAY
+.EE
+.RE
+.PP
+and in Hyprland with the same command after
+.BR exec\-once\ = .
+.PP
+Switching the session's default sink onto the CrossFX sink is a session-manager
+operation. Without
+.BR wireplumber (1)
+or an equivalent, the sink appears in the graph and nothing moves onto it.
+.PP
+The preset import and export dialogs are XDG portal calls. They need a portal
+backend that implements the file chooser (the GTK, GNOME or KDE one);
+wlroots' own backend does not.
+.SH SEE ALSO
+.BR pipewire (1),
+.BR wireplumber (1),
+.BR pw\-cli (1),
+.BR busctl (1),
+.BR systemctl (1)
+.PP
+.I /usr/share/doc/crossfx/README.md
+(gzipped on Debian and Ubuntu).
+.SH BUGS
+Report at
+.UR https://github.com/blackixxce12/CrossFX/issues
+.UE .

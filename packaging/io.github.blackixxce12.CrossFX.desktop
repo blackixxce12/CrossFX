@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=FxSound
+Name=CrossFX
 GenericName=Audio Enhancer
 GenericName[ru]=Улучшение звука
 GenericName[de]=Klangverbesserung
@@ -13,11 +13,11 @@ Comment[de]=Systemweite Klangverbesserung: EQ, Ambience, Surround, Bass und Dyna
 Comment[fr]=Amélioration audio pour tout le système : égaliseur, ambiance, surround, basses et dynamique
 Comment[es]=Mejora de audio para todo el sistema: ecualizador, ambiente, surround, graves y dinámica
 Comment[uk]=Покращення звуку для всієї системи: еквалайзер, об'єм, surround, бас і динамічне підсилення
-Exec=fxsound
-Icon=fxsound
+Exec=crossfx
+Icon=io.github.blackixxce12.CrossFX
 Terminal=false
 Categories=AudioVideo;Audio;Mixer;
 Keywords=equalizer;audio;dsp;sound;enhancer;pipewire;
 StartupNotify=true
-StartupWMClass=com.fxsound.FxSound
+StartupWMClass=io.github.blackixxce12.CrossFX
 SingleMainWindow=true
