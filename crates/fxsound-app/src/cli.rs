@@ -116,7 +116,7 @@ pub const MAX_EFFECT_PAIRS: usize = Effect::COUNT;
 /// `docs/spec/07-startup-tray.md` §4.7.
 #[derive(Debug, Clone, Default, Parser)]
 #[command(
-    name = "fxsound",
+    name = "crossfx",
     version,
     about = "System-wide audio enhancement: EQ, ambience, surround, bass and dynamic boost",
     long_about = "Run with no options to start FxSound, or to raise the window of an instance \
@@ -3104,6 +3104,22 @@ mod tests {
                 .iter()
                 .all(|command| command.parity_class() != ParityClass::Sound)
         );
+    }
+
+    /// `crossfx --version` prints `crossfx <version>`, which every package's and installer's
+    /// version check reads (`packaging/`), and the usage line names the same command.
+    #[test]
+    fn the_command_is_crossfx_and_its_version_line_says_so() {
+        use clap::CommandFactory as _;
+        use fxsound_core::identity::BINARY;
+        let mut command = Cli::command();
+        assert_eq!(command.get_name(), BINARY);
+        assert_eq!(
+            command.render_version().trim_end(),
+            format!("{BINARY} {}", env!("CARGO_PKG_VERSION"))
+        );
+        let usage = command.render_usage().to_string();
+        assert!(usage.starts_with(&format!("Usage: {BINARY} ")), "{usage}");
     }
 
     /// The Windows build's help says the Windows facts — the control pipe, no socket, bus,
