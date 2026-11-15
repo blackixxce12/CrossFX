@@ -37,7 +37,7 @@
 //! (`FxProView.cpp:112-122`) — a mutation inside a paint routine. In immediate mode the same thing
 //! falls out for free: [`UiState::controls_enabled`] is read each frame, and the two device
 //! combos and the preset list are the controls deliberately left live with the power off — the
-//! preset list as a port departure (0.4.0 audit R7, [`views::preset_combo`]).
+//! preset list as a departure of CrossFX's (0.4.0 audit R7, `views::preset_combo`).
 
 use crate::assets::{AssetCache, FxImage};
 use crate::layout;

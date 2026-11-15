@@ -64,9 +64,9 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 /// Font family names registered with egui.
 pub mod families {
     /// The semibold weight's family: labels and values, and the dialogs' normal font.
-    pub const SEMIBOLD: &str = "FxSound-SemiBold";
+    pub const SEMIBOLD: &str = "CrossFX-SemiBold";
     /// The bold weight's family: headings and the preset name.
-    pub const BOLD: &str = "FxSound-Bold";
+    pub const BOLD: &str = "CrossFX-Bold";
 }
 
 /// One of the three weights the window is set in. The original picks a face per control rather
@@ -772,7 +772,7 @@ struct Installed {
 }
 
 fn installed_id() -> egui::Id {
-    egui::Id::unique("fxsound-typeface-installed")
+    egui::Id::unique("crossfx-typeface-installed")
 }
 
 /// Install the face shown at `original_look` on `ctx`, and remember it for [`sync`].

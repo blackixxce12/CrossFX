@@ -175,15 +175,15 @@ fn problems(
 
 /// The cuts the design makes on purpose.
 ///
-/// - The Applications pane's "FxSound's preset" in the narrow combo of a row: fifteen languages
-///   are cut there, each listed and held exactly by the pane's own test
+/// - The Applications pane's "CrossFX's preset" in the narrow combo of a row: the languages
+///   `FOLLOW_PRESET_ELIDED` lists are cut there, each held exactly by the pane's own test
 ///   (`dialogs::settings::tests::FOLLOW_PRESET_ELIDED`).
 /// - "Select preset", the placeholder of a device row's 150-point preset combo
 ///   (`FxOutputPreference.cpp`): the original's combos cut a label too long for them
 ///   (`FxTheme.cpp:130`), and twenty-one languages are — the same twenty-one in Gilroy as in
 ///   Manrope, each a little shorter in Manrope.
-/// - From «Like FxSound for Windows» = Interface on, the Settings tabs the original has are
-///   captioned on one line in the original's box and cut there, as on Windows (#29).
+/// - From «Like the original FxSound LLC» = Interface on, the Settings tabs the original has are
+///   captioned on one line in the original's box and cut there, as in the original (#29).
 /// - Polish "Duplicate presets not imported" over the import summary's second list: the
 ///   original's own table makes it too long even for JUCE's squeeze, and it is cut at seven
 ///   tenths as it is there (the summary's own test says so too).
@@ -509,13 +509,17 @@ fn every_language_fits_what_the_general_pane_says_about_gilroy() {
     in_every_language(|code| {
         let mut found = Vec::new();
         for platform in [Platform::LINUX, Platform::WINDOWS] {
+            let system = if platform == Platform::LINUX {
+                "linux"
+            } else {
+                "windows"
+            };
             for case in &cases {
                 let mut state = settings_state(platform, SettingsTab::General, case.parity);
                 state.settings.interface_font = case.font;
                 state.font = case.pane.clone();
                 let window = format!(
-                    "{code} {:?} settings-general {} {}",
-                    platform.original,
+                    "{code} {system} settings-general {} {}",
                     case.what,
                     parity_name(case.parity)
                 );

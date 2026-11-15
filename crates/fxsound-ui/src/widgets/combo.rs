@@ -290,7 +290,7 @@ const MIN_ROWS_BELOW: f32 = 3.0;
 /// its height.
 ///
 /// Under the box when all of it fits there, and over the box when all of it fits there instead,
-/// as egui's own popup flips. A longer list scrolls: under the box while [`MIN_ROWS_BELOW`] rows
+/// as egui's own popup flips. A longer list scrolls: under the box while `MIN_ROWS_BELOW` rows
 /// fit there, and otherwise from as low as it goes in the bounds, over the box, the way a JUCE
 /// menu covers its box. That is the Lite window's two lists: 34 points under their boxes, and
 /// never over the title bar, where egui had pushed them (E6b).
@@ -1712,7 +1712,7 @@ mod tests {
         ctx.set_fonts(theme::font_definitions());
         ctx.run_ui(Default::default(), |ui| {
             let font = theme::semibold(FONT);
-            let text = "FxSound's preset";
+            let text = "CrossFX's preset";
             let width = ui
                 .painter()
                 .layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER)

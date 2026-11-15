@@ -24,11 +24,11 @@
 //! `--detached` (both lanes off), `--levels` (start with the effect column turned over to the
 //! equalizer's controls), `--eq-off` (the equalizer switched off), `--curve` (a curve of boosts and
 //! cuts rather than a flat one, to see the response drawn), `--power-off`, `--stored` (the
-//! effects as a Windows preset stores them, between the sliders' positions), `--lang=CODE`
+//! effects as a preset of the original's stores them, between the sliders' positions), `--lang=CODE`
 //! (one of the translation tables' codes; English otherwise), `--apps[=empty]` (Settings ▸
 //! Applications over a made-up list of applications, or none), `--settings=TAB` (Settings on
 //! `audio`, `general`, `help`, `microphone`, `applications` or `experimental`),
-//! `--parity=LEVEL` (the level of «Like FxSound for Windows», `off`, `interface` or `sound`:
+//! `--parity=LEVEL` (the level of «Like the original FxSound LLC», `off`, `interface` or `sound`:
 //! what the Experimental pane's slider stands at, and what the main window's readouts, fine
 //! steps and `--stored` sliders follow, with or without `--settings`; `full` shows as `sound`, as
 //! the app runs a `settings.toml` that says it), `--wireplumber-hook=STATE` (the Experimental
@@ -182,12 +182,12 @@ fn main() -> eframe::Result<()> {
             .with_resizable(false)
             .with_decorations(false)
             .with_transparent(true)
-            .with_app_id("com.fxsound.FxSound.preview"),
+            .with_app_id(format!("{}.preview", fxsound_core::identity::APP_ID)),
         ..Default::default()
     };
 
     eframe::run_native(
-        "FxSound preview",
+        "CrossFX preview",
         options,
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx, preview.palette());

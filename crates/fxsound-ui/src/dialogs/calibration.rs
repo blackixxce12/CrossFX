@@ -281,7 +281,7 @@ pub mod wizard {
 }
 
 /// The introduction.
-pub const INTRO_TEXT: &str = "Stay quiet, then speak normally, then speak loudly. FxSound measures \
+pub const INTRO_TEXT: &str = "Stay quiet, then speak normally, then speak loudly. CrossFX measures \
 your microphone and suggests voice settings for it.";
 /// The three measurements' instructions. Written out rather than built from a number, so that
 /// each translation can put its own plural on its own count.

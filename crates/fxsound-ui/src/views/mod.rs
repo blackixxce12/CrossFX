@@ -254,7 +254,7 @@ pub(crate) fn preset_combo(
 /// profile — only by something recording from FxSound (Input); picked and never recorded from,
 /// it neither sounds nor costs anything, which is exactly what looks broken without a word.
 pub const BLUETOOTH_MICROPHONE_TIP: &str = "A Bluetooth microphone wakes only while an application \
-     records from FxSound (Input), and then switches its headset to call quality.";
+     records from CrossFX (Input), and then switches its headset to call quality.";
 
 /// Whether `device` is a Bluetooth headset's microphone: under WirePlumber 0.4 the headset's own
 /// `bluez_input.<address>.0`, under 0.5 the loopback `bluez_input.<address>` in front of it. The
