@@ -60,7 +60,7 @@ impl ChromeButton {
 /// The chrome shared by both views, parameterised by window width.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chrome {
-    /// FxSound wordmark.
+    /// The wordmark: CrossFX's name ([`crate::widgets::wordmark`]).
     pub logo: ChromeButton,
     /// Hamburger menu.
     pub menu: ChromeButton,

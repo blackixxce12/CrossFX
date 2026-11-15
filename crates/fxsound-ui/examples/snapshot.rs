@@ -16,9 +16,9 @@
 //! Flags: `--out=DIR` (default `target/snapshots`), `--lang=CODE,…` (default `en,de,ru,fi,pl,ua,fr`:
 //! English and the languages whose labels run longest), `--scale=N` (pixels per point, default 1),
 //! `--light`, `--platform=linux|windows` (whose Settings to draw: this build's by default),
-//! `--parity=off|interface|sound` (the level of «Like FxSound for Windows»), and
+//! `--parity=off|interface|sound` (the level of «Like the original FxSound LLC»), and
 //! `--gilroy=PATH,…` — Gilroy files, or folders of them, that the user licensed: the windows are
-//! then drawn in Gilroy as well, each file read as the application reads one. FxSound has no
+//! then drawn in Gilroy as well, each file read as the application reads one. CrossFX has no
 //! Gilroy of its own to draw them in. Without it, the General pane is also drawn with Gilroy
 //! chosen and not found.
 //!

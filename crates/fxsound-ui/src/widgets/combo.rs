@@ -1,13 +1,13 @@
 //! The themed combo box.
 //!
-//! Three drop-downs in FxSound share one control: the preset list, the playback-device list and
-//! the EQ band-count list. All three are `FxComboBox`, a thin `juce::ComboBox` subclass
+//! Three drop-downs in the original share one control: the preset list, the playback-device list
+//! and the EQ band-count list. All three are `FxComboBox`, a thin `juce::ComboBox` subclass
 //! (`fxsound/Source/GUI/FxComboBox.cpp:24-83`) whose entire appearance comes from
 //! `FxTheme::drawComboBox` (`fxsound/Source/GUI/FxTheme.cpp:135-164`) and
-//! `FxTheme::positionComboBoxText` (`FxTheme.cpp:128-133`). egui's own
-//! [`egui::ComboBox`] paints from `Visuals`, which cannot express the `height / 5` corner, the
-//! 37-point right gutter or the SVG arrow, so the control is rebuilt here the same way every other
-//! widget in this crate is: absolute rectangles and a [`egui::Painter`].
+//! `FxTheme::positionComboBoxText` (`FxTheme.cpp:128-133`). egui's own [`egui::ComboBox`] paints
+//! from `Visuals`, which cannot express the `height / 5` corner, the 37-point right gutter or the
+//! SVG arrow, so the control is rebuilt here the same way every other widget in this crate is:
+//! absolute rectangles and a [`egui::Painter`].
 //!
 //! ## What the original actually is
 //!
@@ -37,10 +37,10 @@
 //! trace of them in the combo is the `*` that [`preset_label`] appends while a preset is modified.
 //! A widget that grew its own save button would put the control in two places at once.
 //!
-//! ## Section headers **(port addition)**
+//! ## Section headers **(CrossFX addition)**
 //!
-//! The Windows build's device list holds playback endpoints only; the PipeWire port lists capture
-//! devices in the same box, so the user can put FxSound in front of a microphone as easily as in
+//! The original's device list holds playback endpoints only; CrossFX lists capture
+//! devices in the same box, so the user can put CrossFX in front of a microphone as easily as in
 //! front of the speakers. [`FxComboBox::headers`] draws a [`SectionHeader`] above the first item
 //! of each run — `Output`, `Input`, from `DeviceDirection::label()` — as a non-interactive row:
 //! smaller semibold type in `MenuText` at reduced alpha, at the same x as the item text, about
@@ -67,12 +67,12 @@
 //!   still reserved, which is what keeps the row text at the original's x.
 //! * **No disabled items.** `FxComboBox::highlightText` returns early with the default text colour
 //!   when the selected item is disabled (`FxComboBox.cpp:36-54`); the only disabled item in the
-//!   app is an unavailable playback device, which this port reports through
+//!   app is an unavailable playback device, which CrossFX reports through
 //!   [`FxComboBox::error`] instead.
 //!
 //! JUCE is not vendored in this tree, so everything that comes from `LookAndFeel_V4` rather than
-//! from FxSound's own sources is marked **[JUCE semantics]** below and, where it is a number,
-//! exposed as a builder ([`FxComboBox::row_height`]) so a pixel diff against the Windows build can
+//! from the original's own sources is marked **[JUCE semantics]** below and, where it is a number,
+//! exposed as a builder ([`FxComboBox::row_height`]) so a pixel diff against the original can
 //! settle it without touching this file.
 
 use crate::assets::{AssetCache, FxImage};
@@ -126,15 +126,15 @@ pub const SEPARATOR_ALPHA: f32 = 0.3;
 pub const SEPARATOR_INSET: f32 = 5.0;
 /// What `" *"` marks: a preset with unsaved changes (`FxView.cpp:213`).
 pub const MODIFIED_SUFFIX: &str = " *";
-/// A section header is this fraction of an item row tall **(port addition)** — see the module
+/// A section header is this fraction of an item row tall **(CrossFX addition)** — see the module
 /// docs; the original has no headers to measure against.
 pub const HEADER_HEIGHT_RATIO: f32 = 0.7;
-/// A section header's title is the item font scaled by this **(port addition)**.
+/// A section header's title is the item font scaled by this **(CrossFX addition)**.
 pub const HEADER_FONT_RATIO: f32 = 0.75;
-/// A section header's title is `MenuText` at this alpha **(port addition)**: legible, but clearly
-/// not one of the things that can be picked.
+/// A section header's title is `MenuText` at this alpha **(CrossFX addition)**: legible, but
+/// clearly not one of the things that can be picked.
 pub const HEADER_TEXT_ALPHA: f32 = 0.6;
-/// The edit direction's device list is outlined in `HighlightedText` at this alpha **(port
+/// The edit direction's device list is outlined in `HighlightedText` at this alpha **(CrossFX
 /// addition, 0.4.0 design §1.4)** — see [`FxComboBox::accent`].
 pub const ACCENT_ALPHA: f32 = 0.6;
 
@@ -228,7 +228,7 @@ pub fn ideal_item_width(text_width: f32, row_height: f32) -> f32 {
     text_width + row_height * 2.0
 }
 
-/// The height of a section header row **(port addition)**: [`HEADER_HEIGHT_RATIO`] of an item,
+/// The height of a section header row **(CrossFX addition)**: [`HEADER_HEIGHT_RATIO`] of an item,
 /// rounded to whole points so the item rows under it stay on the pixel grid — 27 under a 38-point
 /// row, 34 under the Lite view's 48.
 #[must_use]
@@ -236,7 +236,7 @@ pub fn popup_header_height(row_height: f32) -> f32 {
     (row_height * HEADER_HEIGHT_RATIO).round().max(1.0)
 }
 
-/// The font a section header's title is set in **(port addition)**: the item font at
+/// The font a section header's title is set in **(CrossFX addition)**: the item font at
 /// [`HEADER_FONT_RATIO`], so it shrinks with the items in a short-rowed menu.
 #[must_use]
 pub fn popup_header_font_size(row_height: f32) -> f32 {
@@ -290,7 +290,7 @@ const MIN_ROWS_BELOW: f32 = 3.0;
 /// its height.
 ///
 /// Under the box when all of it fits there, and over the box when all of it fits there instead,
-/// as egui's own popup flips. A longer list scrolls: under the box while [`MIN_ROWS_BELOW`] rows
+/// as egui's own popup flips. A longer list scrolls: under the box while `MIN_ROWS_BELOW` rows
 /// fit there, and otherwise from as low as it goes in the bounds, over the box, the way a JUCE
 /// menu covers its box. That is the Lite window's two lists: 34 points under their boxes, and
 /// never over the title bar, where egui had pushed them (E6b).
@@ -347,7 +347,7 @@ pub fn outline_colour(palette: Palette, error: Option<bool>, focused: bool) -> C
     }
 }
 
-/// The outline actually stroked: [`outline_colour`], with the accent **(port addition)** in
+/// The outline actually stroked: [`outline_colour`], with the accent **(CrossFX addition)** in
 /// between.
 ///
 /// Keyboard focus still wins, and so does a real error — an unavailable device is the one thing
@@ -381,7 +381,7 @@ pub fn text_colour(palette: Palette, enabled: bool, hovered: bool) -> Color32 {
     }
 }
 
-/// A section title drawn above one item **(port addition)** — see the module docs.
+/// A section title drawn above one item **(CrossFX addition)** — see the module docs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SectionHeader<'a> {
     /// The index of the first item under the title.
@@ -397,7 +397,7 @@ impl<'a> SectionHeader<'a> {
     }
 }
 
-/// A drop-down drawn like FxSound's.
+/// A drop-down drawn like the original's.
 pub struct FxComboBox<'a> {
     items: &'a [String],
     selected: Option<usize>,
@@ -434,8 +434,8 @@ impl<'a> FxComboBox<'a> {
         }
     }
 
-    /// A suffix that is never elided **(port addition)**: an item ending in it that does not fit is
-    /// cut before it, `Evening Headphones M… *`, not after. The preset list passes
+    /// A suffix that is never elided **(CrossFX addition)**: an item ending in it that does not fit
+    /// is cut before it, `Evening Headphones M… *`, not after. The preset list passes
     /// [`MODIFIED_SUFFIX`] (0.4.0 audit #26).
     #[must_use]
     pub fn keep_suffix(mut self, suffix: &'a str) -> Self {
@@ -443,7 +443,7 @@ impl<'a> FxComboBox<'a> {
         self
     }
 
-    /// Outline the box as the one the window is editing **(port addition)**.
+    /// Outline the box as the one the window is editing **(CrossFX addition)**.
     ///
     /// The Pro view has a device list per lane, and the preset list and the equalizer address
     /// whichever lane is being edited; this is how the window says which. See
@@ -472,7 +472,7 @@ impl<'a> FxComboBox<'a> {
     }
 
     /// What the closed box shows when no item is selected and yet something is current: a device
-    /// a lane is on that the list does not carry right now **(port addition)**. Drawn as a
+    /// a lane is on that the list does not carry right now **(CrossFX addition)**. Drawn as a
     /// selected item is, not dimmed as the placeholder, which means nothing is chosen.
     #[must_use]
     pub fn current(mut self, text: Option<&'a str>) -> Self {
@@ -500,7 +500,7 @@ impl<'a> FxComboBox<'a> {
         self
     }
 
-    /// Draw a section title above each `header.before` item **(port addition)**.
+    /// Draw a section title above each `header.before` item **(CrossFX addition)**.
     ///
     /// The device list passes one per direction it holds, so a list of playback devices alone
     /// is titled `Output` and nothing else. A header whose index is past the end of `items` is
@@ -514,8 +514,8 @@ impl<'a> FxComboBox<'a> {
 
     /// Override the popup's row height, which otherwise follows [`popup_row_height`].
     ///
-    /// The default is derived from JUCE rather than from FxSound's own sources; this is the escape
-    /// hatch for correcting it against a screenshot.
+    /// The default is derived from JUCE rather than from the original's own sources; this is the
+    /// escape hatch for correcting it against a screenshot.
     #[must_use]
     pub fn row_height(mut self, height: f32) -> Self {
         self.row_height = Some(height);
@@ -866,7 +866,7 @@ fn separator(ui: &mut Ui, palette: Palette, width: f32, row_height: f32) {
     );
 }
 
-/// A section title **(port addition)**: a row that is read, never picked.
+/// A section title **(CrossFX addition)**: a row that is read, never picked.
 ///
 /// It is allocated with no sense at all, so egui never reports a click or a hover highlight on
 /// it, and — unlike the item rows — it keeps the arrow cursor: `preparePopupMenuWindow`'s hand
@@ -1712,7 +1712,7 @@ mod tests {
         ctx.set_fonts(theme::font_definitions());
         ctx.run_ui(Default::default(), |ui| {
             let font = theme::semibold(FONT);
-            let text = "FxSound's preset";
+            let text = "CrossFX's preset";
             let width = ui
                 .painter()
                 .layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER)

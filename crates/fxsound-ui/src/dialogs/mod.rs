@@ -51,9 +51,10 @@ pub use settings::{
     SettingsDialog, SettingsState, SettingsTab,
 };
 
-use crate::assets::{AssetCache, FxImage};
+use crate::assets::AssetCache;
 use crate::theme::{self, FxColor, Palette};
-use crate::widgets::icon_button::{art_size, fitted_rect, hit_rect, paint_image};
+use crate::widgets::icon_button::hit_rect;
+use crate::widgets::wordmark;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Painter, Rect, Sense, Shadow, Stroke,
@@ -105,14 +106,10 @@ pub const WINDOW_CORNER_RADIUS: f32 = 21.0;
 pub const TITLE_BAR_BAND: f32 = 57.0;
 /// The title-bar component itself is one point shorter (`FxWindow.cpp:29`).
 pub const TITLE_BAR_HEIGHT: f32 = TITLE_BAR_BAND - 1.0;
-/// `TitleBar::ICON_WIDTH` (`FxWindow.h:71`) — the wordmark shown by a window with no name.
+/// `TitleBar::ICON_WIDTH` (`FxWindow.h:71`) — the box of the wordmark a window with no name shows.
 pub const ICON_WIDTH: f32 = 106.0;
 /// `TitleBar::ICON_HEIGHT` (`FxWindow.h:72`).
 pub const ICON_HEIGHT: f32 = 15.0;
-/// A *named* window draws the narrow bars logo one point shorter (`FxWindow.cpp:280`).
-pub const TITLE_ICON_HEIGHT: f32 = ICON_HEIGHT - 1.0;
-/// Gap between that logo and the title text (`FxWindow.cpp:283`, `.withX(width + 2)`).
-pub const TITLE_TEXT_GAP: f32 = 2.0;
 /// Thickness of the close button's "X", as a fraction of the square it is fitted into
 /// (`FxWindow.cpp:163-164`, `Path::addLineSegment(…, 0.08f)`).
 pub const CLOSE_GLYPH_THICKNESS: f32 = 0.08;
@@ -121,7 +118,7 @@ pub const CLOSE_GLYPH_THICKNESS: f32 = 0.08;
 ///
 /// `DropShadow`'s default — black at `0x90` — with only `radius` overridden (`FxWindow.cpp:125`).
 /// JUCE is not vendored in this tree, so this is the one number here read out of the framework
-/// rather than out of FxSound's own sources **[JUCE semantics]**.
+/// rather than out of the original's own sources **[JUCE semantics]**.
 pub const SHADOW_COLOUR: Color32 = Color32::from_black_alpha(0x90);
 
 /// The outer window size for a given content size (`docs/spec/06-dialogs.md` §0.2).
@@ -192,37 +189,29 @@ pub fn close_button_rect(title_bar: Rect) -> Rect {
     Align2::RIGHT_CENTER.align_size_within_rect(size, title_bar)
 }
 
-/// The wordmark a window constructed with an **empty** name shows (`FxWindow.cpp:272-278`).
+/// The box of the wordmark a window constructed with an **empty** name shows
+/// (`FxWindow.cpp:272-278`): CrossFX's name ([`crate::widgets::wordmark`]) where the original
+/// shows its logotype.
 ///
 /// The original anchors it `xLeft | yTop`, which puts a 15-point logo at the very top of a
 /// 56-point bar. `docs/spec/06-dialogs.md` §0.3 describes it as vertically centred and that is
-/// what it should be, so the port centres it — one of the four quirks §7 of the spec's Open
+/// what it should be, so CrossFX centres it — one of the four quirks §7 of the spec's Open
 /// questions asks to be decided deliberately rather than by accident.
 #[must_use]
 pub fn logo_rect(title_bar: Rect) -> Rect {
-    let box_ = Align2::LEFT_CENTER.align_size_within_rect(vec2(ICON_WIDTH, ICON_HEIGHT), title_bar);
-    // The wordmark is a hair wider than 7:1 while its box is 106 × 15, so fitting it leaves a
-    // point of slack; `xLeft` puts that slack on the right, not half of it on each side.
-    let art = fitted_rect(box_, art_size(FxImage::DefaultLogo));
-    Align2::LEFT_CENTER.align_size_within_rect(art.size(), box_)
+    Align2::LEFT_CENTER.align_size_within_rect(vec2(ICON_WIDTH, ICON_HEIGHT), title_bar)
 }
 
-/// The narrow bars logo a *named* window shows, scaled to `ICON_HEIGHT - 1` = 14
-/// (`FxWindow.cpp:280-282`). Vertically centred, for the same reason as [`logo_rect`].
-#[must_use]
-pub fn title_icon_rect(title_bar: Rect) -> Rect {
-    let art = art_size(FxImage::IconLogo);
-    let width = TITLE_ICON_HEIGHT * art.x / art.y;
-    Align2::LEFT_CENTER.align_size_within_rect(vec2(width, TITLE_ICON_HEIGHT), title_bar)
-}
-
-/// Where a named window's title text goes: `icon.right + 2`, filling the rest of the bar up to the
-/// close button (`FxWindow.cpp:283`).
+/// Where a named window's title text goes: from the left of the bar, filling it up to the close
+/// button.
+///
+/// The original puts its bars logo in front of the title, 14 points tall, and starts the text two
+/// points after it (`FxWindow.cpp:280-283`). The bars are FxSound LLC's, not CrossFX's, so the
+/// title starts where they did.
 #[must_use]
 pub fn title_text_rect(title_bar: Rect) -> Rect {
-    let left = title_icon_rect(title_bar).right() + TITLE_TEXT_GAP;
     Rect::from_min_max(
-        pos2(left, title_bar.top()),
+        title_bar.min,
         pos2(close_button_rect(title_bar).left(), title_bar.bottom()),
     )
 }
@@ -300,7 +289,7 @@ pub struct ChromeResponse {
 ///
 /// Constructed with a title for the three big dialogs (`"Settings"`, `"Import Presets"`,
 /// `"Export Presets"`) and without one for the message boxes, which is what selects between the
-/// narrow bars logo plus title text and the full wordmark (`FxWindow.cpp:270-284`).
+/// title text and the wordmark (`FxWindow.cpp:270-284`).
 pub struct DialogChrome<'a> {
     title: Option<&'a str>,
     draggable: bool,
@@ -314,8 +303,8 @@ impl Default for DialogChrome<'_> {
 }
 
 impl<'a> DialogChrome<'a> {
-    /// A window with no name: the wordmark fills the left of the title bar and there is no title
-    /// text (`FxMessage`, `FxConfirmationMessage`, `FxImportCompleteMessage`).
+    /// A window with no name: the wordmark — CrossFX's name — fills the left of the title bar and
+    /// there is no title text (`FxMessage`, `FxConfirmationMessage`, `FxImportCompleteMessage`).
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -325,7 +314,7 @@ impl<'a> DialogChrome<'a> {
         }
     }
 
-    /// A named window: narrow logo, then the title in `getNormalFont()`.
+    /// A named window: the title in `getNormalFont()`, from the left of the title bar.
     #[must_use]
     pub fn titled(title: &'a str) -> Self {
         Self {
@@ -352,13 +341,15 @@ impl<'a> DialogChrome<'a> {
     /// Paint the frame into `outer` and report the content area.
     ///
     /// `outer` is the whole window including the 5-point shadow gutter, i.e. [`outer_size`] of the
-    /// dialog's content size.
+    /// dialog's content size. The chrome draws no artwork of its own — the wordmark and the ✕ are
+    /// text and strokes — so `_assets` goes unused; it is taken all the same, as every window of
+    /// this module takes the cache it draws from.
     pub fn show(
         self,
         ui: &mut Ui,
         outer: Rect,
         palette: Palette,
-        assets: &mut AssetCache,
+        _assets: &mut AssetCache,
         id_salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> ChromeResponse {
         let Self {
@@ -395,23 +386,14 @@ impl<'a> DialogChrome<'a> {
         );
 
         match title {
-            None => paint_image(
-                ui,
+            // CrossFX's name as the main window's title bar shows it at rest: the logotype's plain
+            // colour, which the original's message boxes show their logotype in.
+            None => wordmark::paint(
+                ui.painter(),
                 logo_rect(title_bar),
-                FxImage::DefaultLogo,
-                palette.mode(),
-                assets,
-                1.0,
+                palette.color(FxColor::HighlightedText),
             ),
             Some(text) => {
-                paint_image(
-                    ui,
-                    title_icon_rect(title_bar),
-                    FxImage::IconLogo,
-                    palette.mode(),
-                    assets,
-                    1.0,
-                );
                 draw_truncated(
                     ui.painter(),
                     text,
@@ -473,7 +455,7 @@ pub fn paint_close_glyph(painter: &Painter, rect: Rect, palette: Palette) {
 ///
 /// `FxTheme` overrides neither `drawButtonBackground` nor `drawButtonText`, and the JUCE modules
 /// are not vendored in this tree (`docs/spec/06-dialogs.md` Open question 1), so the four numbers
-/// below are the framework's, not FxSound's.
+/// below are the framework's, not the original's.
 pub const BUTTON_CORNER_RADIUS: f32 = 6.0;
 /// How far a pressed button's fill is moved towards its contrasting colour **[JUCE semantics]**.
 pub const BUTTON_DOWN_CONTRAST: f32 = 0.2;
@@ -496,8 +478,8 @@ pub fn perceived_brightness(colour: Color32) -> f32 {
 ///
 /// This is what makes a hovered or pressed `TextButton` change colour at all, so it is worth
 /// having exactly. The `withMultipliedSaturation(0.9f)` that `drawButtonBackground` applies first
-/// is deliberately **not** reproduced: it desaturates FxSound's brand red by a tenth, and every
-/// other surface in this port draws `TextButtonBackground` unmodified (`FxTheme.cpp:83`).
+/// is deliberately **not** reproduced: it desaturates the original's brand red by a tenth, and
+/// every other surface in CrossFX draws `TextButtonBackground` unmodified (`FxTheme.cpp:83`).
 #[must_use]
 pub fn contrasting(colour: Color32, amount: f32) -> Color32 {
     let t = amount.clamp(0.0, 1.0);
@@ -686,7 +668,7 @@ pub fn link(
     link_in(ui, rect, text, normal_font(), palette, align, id_salt)
 }
 
-/// [`link`] in `font`: the port's own links that share a row with a heading are set in the small
+/// [`link`] in `font`: CrossFX's own links that share a row with a heading are set in the small
 /// font, which leaves the heading its room.
 pub fn link_in(
     ui: &mut Ui,
@@ -752,7 +734,7 @@ pub(crate) fn draw_truncated(
 /// egui cannot squeeze glyphs sideways, so the whole line is set smaller instead — what the
 /// Settings tabs do with their captions ([`settings::nav_caption_font`]). The original's labels
 /// that forbid the squeeze (`setMinimumHorizontalScale(1.0)`: a combo's text, a device's name, a
-/// notice) keep [`draw_truncated`].
+/// notice) keep `draw_truncated`.
 pub const MIN_FIT_SCALE: f32 = 0.7;
 
 /// `font`, or the largest size in half points down to [`MIN_FIT_SCALE`] of it at which `text`
@@ -786,7 +768,7 @@ pub fn fitted_font(ctx: &egui::Context, text: &str, font: FontId, room: f32) -> 
     FontId::new(size, font.family)
 }
 
-/// [`draw_truncated`] in the [`fitted_font`]: a line too long for `rect` is set smaller before
+/// `draw_truncated` in the [`fitted_font`]: a line too long for `rect` is set smaller before
 /// anything of it is cut.
 pub fn draw_fitted(
     painter: &Painter,
@@ -952,25 +934,62 @@ mod tests {
     }
 
     #[test]
-    fn a_nameless_window_shows_the_wordmark_and_a_named_one_the_narrow_bars() {
+    fn a_nameless_window_shows_the_wordmark_and_a_named_one_its_title_from_the_left() {
         let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(600.0, 510.0)));
         let bar = title_bar_rect(outer);
 
-        // The 106 x 15 box, aspect-fitted: the wordmark is 526.19 x 75.15, i.e. very slightly
-        // wider than 7:1, so the height binds and the glyph stops a point short of 106.
+        // The wordmark's 106 × 15 box, at the left of the bar and centred on it.
         let logo = logo_rect(bar);
-        assert!((logo.height() - ICON_HEIGHT).abs() < 0.01, "{logo:?}");
-        assert!(logo.width() <= ICON_WIDTH + 0.01 && logo.width() > ICON_WIDTH - 2.0);
+        assert!((logo.height() - ICON_HEIGHT).abs() < 1e-4, "{logo:?}");
+        assert!((logo.width() - ICON_WIDTH).abs() < 1e-4, "{logo:?}");
         assert!((logo.left() - bar.left()).abs() < 1e-4);
         assert!((logo.center().y - bar.center().y).abs() < 1e-4);
 
-        // The named variant is 14 tall and much narrower, and the title starts two points after it.
-        let icon = title_icon_rect(bar);
-        assert!((icon.height() - 14.0).abs() < 1e-4, "{icon:?}");
-        assert!(icon.width() < ICON_WIDTH);
-        assert!((title_text_rect(bar).left() - (icon.right() + TITLE_TEXT_GAP)).abs() < 1e-4);
-        // …and it never runs under the close button.
+        // A named window's title starts where the original's bars logo stood…
+        assert!((title_text_rect(bar).left() - bar.left()).abs() < 1e-4);
+        // …and never runs under the close button.
         assert!(title_text_rect(bar).right() <= close_button_rect(bar).left() + 1e-4);
+    }
+
+    #[test]
+    fn a_message_box_names_crossfx_and_a_named_window_only_its_title() {
+        // The original's logotype and bars are FxSound LLC's: CrossFX's windows show neither.
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(450.0, 142.0)));
+        let bar = title_bar_rect(outer);
+        for title in [None, Some("Settings")] {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let chrome = match title {
+                    None => DialogChrome::new(),
+                    Some(title) => DialogChrome::titled(title),
+                };
+                let _ = chrome.show(ui, outer, Palette::default(), &mut assets, "names");
+            });
+            let shapes = std::mem::take(&mut output.shapes);
+            output.drop_without_applying_deltas();
+            let texts = crate::views::testing::texts(&shapes);
+            let words: Vec<&str> = texts.iter().map(|(text, ..)| text.as_str()).collect();
+            let expected = title.unwrap_or(fxsound_core::identity::PRODUCT);
+            assert_eq!(words, [expected], "{title:?}");
+            // The name stands in the wordmark's box; a title from the bar's left.
+            let (_, rect, _) = &texts[0];
+            assert!(
+                (rect.left() - bar.left()).abs() <= 1.0,
+                "{title:?}: {rect:?} in {bar:?}"
+            );
+            if title.is_none() {
+                assert!(logo_rect(bar).expand(1.0).contains_rect(*rect), "{rect:?}");
+            }
+            // No artwork at all: the frame, its rule and the ✕ are shapes, the rest text.
+            assert!(
+                shapes
+                    .iter()
+                    .all(|clipped| !matches!(&clipped.shape, egui::Shape::Mesh(mesh)
+                        if mesh.texture_id != egui::TextureId::default())),
+                "{title:?} painted an image"
+            );
+        }
     }
 
     #[test]

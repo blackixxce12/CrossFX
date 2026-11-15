@@ -105,7 +105,7 @@ pub mod import {
     use egui::{Vec2, vec2};
 
     /// What the original reserves for the embedded file browser
-    /// (`FxPresetImportDialog.h:51-52`). Kept for the record: the port does not use it.
+    /// (`FxPresetImportDialog.h:51-52`). Kept for the record: CrossFX does not use it.
     pub const ORIGINAL_CONTENT_SIZE: Vec2 = vec2(400.0, 400.0);
     /// The content size once the browser is replaced by a portal folder picker.
     pub const CONTENT_SIZE: Vec2 = vec2(400.0, 180.0);
@@ -533,9 +533,9 @@ pub mod export {
 
 /// `"Select the presets to export..."` (`FxPresetExportDialog.cpp:78`).
 pub const SELECT_PRESETS_LABEL: &str = "Select the presets to export...";
-/// The export window's choice from «Like FxSound for Windows» = Interface and sound on (roadmap
-/// 0.5.0 §14 #56): ticked, a `.fac` keeps its first and last band where they are; unticked, as
-/// in 0.4.0, they go back into the range the Windows build tunes them in (0.4.0 audit R6).
+/// The export window's choice from «Like the original FxSound LLC» = Interface and sound on
+/// (roadmap 0.5.0 §14 #56): ticked, a `.fac` keeps its first and last band where they are;
+/// unticked, as in 0.4.0, they go back into the range the original tunes them in (0.4.0 audit R6).
 pub const END_BANDS_AS_THEY_ARE: &str = "Keep the end bands where they are";
 /// `"Presets are exported successfully!"` (`FxPresetExportDialog.cpp:195`).
 pub const EXPORT_SUCCEEDED: &str = "Presets are exported successfully!";
@@ -589,8 +589,8 @@ pub struct ExportState {
     /// closes either way (`:199-200`).
     pub finished: Option<bool>,
     /// Whether the window offers [`END_BANDS_AS_THEY_ARE`]: for the speakers' presets from «Like
-    /// FxSound for Windows» = Interface and sound on. Below it, and for a voice preset, which has
-    /// no Windows reader, the window is the original's.
+    /// the original FxSound LLC» = Interface and sound on. Below it, and for a voice preset, which
+    /// the original has no reader for, the window is the original's.
     pub end_bands_offered: bool,
     /// Whether it is ticked: the `export_unshifted` setting.
     pub end_bands_as_they_are: bool,
@@ -1044,7 +1044,7 @@ mod tests {
 
     #[test]
     fn the_end_bands_choice_sits_between_the_shortened_list_and_the_progress_bar() {
-        // «Like FxSound for Windows» = Interface and sound (roadmap 0.5.0 §14 #56): the list
+        // «Like the original FxSound LLC» = Interface and sound (roadmap 0.5.0 §14 #56): the list
         // gives up a row, and the progress bar and the Export button keep the original's places.
         let content = export_content();
         let (list, row) = (
@@ -1134,7 +1134,7 @@ mod tests {
         assert!((outer_size(import::CONTENT_SIZE) - import::WINDOW_SIZE).length() < 1e-4);
         assert!((outer_size(summary::CONTENT_SIZE) - summary::WINDOW_SIZE).length() < 1e-4);
         assert!((outer_size(export::CONTENT_SIZE) - export::WINDOW_SIZE).length() < 1e-4);
-        // The original import window is the one size this port deliberately changes: same width,
+        // The original import window is the one size CrossFX deliberately changes: same width,
         // much shorter, because the 310 point file browser is gone.
         let (shrunk, original) = (import::CONTENT_SIZE, import::ORIGINAL_CONTENT_SIZE);
         assert!((outer_size(original) - vec2(410.0, 487.0)).length() < 1e-4);

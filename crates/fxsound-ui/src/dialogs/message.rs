@@ -458,7 +458,7 @@ mod tests {
 
     /// Names a preset can have: one of ordinary words, one of sixty-four characters, and the
     /// widest the name field lets through — sixty-four capital Ws, and the 126 bytes of Cyrillic
-    /// and of CJK a Windows FxSound reads a name in.
+    /// and of CJK the original FxSound for Windows reads a name in.
     fn preset_names() -> [String; 5] {
         [
             "Rock Ballad Extended Night".to_owned(),

@@ -1,12 +1,12 @@
-//! The interface's typeface: Manrope, which FxSound ships, or the Gilroy the user licensed.
+//! The interface's typeface: Manrope, which CrossFX ships, or the Gilroy the user licensed.
 //!
 //! ## Manrope, fitted to Gilroy's measurements
 //!
-//! FxSound for Windows sets its window in Gilroy, Radomir Tinkov's commercial typeface, and every
-//! box in the window was measured in it (`docs/spec/01-window-layout.md` §2.3). Gilroy cannot be
-//! redistributed, so FxSound ships Manrope instead (Mikhail Sharanda, The Manrope Project
-//! Authors, SIL OFL 1.1): a geometric face close to it, but drawn larger on the same em. Its
-//! x-height is 1080 units of 2000 against Gilroy's 500 of 1000, its capitals and letters a few
+//! The original FxSound for Windows sets its window in Gilroy, Radomir Tinkov's commercial
+//! typeface, and every box in the window was measured in it (`docs/spec/01-window-layout.md` §2.3).
+//! Gilroy cannot be redistributed, so CrossFX ships Manrope instead (Mikhail Sharanda, The Manrope
+//! Project Authors, SIL OFL 1.1): a geometric face close to it, but drawn larger on the same em.
+//! Its x-height is 1080 units of 2000 against Gilroy's 500 of 1000, its capitals and letters a few
 //! per cent wider, and its line — ascent and descent, 2732 units, 1.37 em — far taller than
 //! Gilroy's 1.20. Set at the sizes the window asks for, Manrope's text runs out of the boxes
 //! Gilroy's fitted, and a one-line label in a 14-point box lays out 19 points tall.
@@ -36,20 +36,20 @@
 //!
 //! ## Gilroy, when the user has it
 //!
-//! FxSound neither ships nor downloads Gilroy. The application finds a Gilroy the user added in
-//! Settings (FxSound's own data folder) or installed on the system, reads each file with
+//! CrossFX neither ships nor downloads Gilroy. The application finds a Gilroy the user added in
+//! Settings (CrossFX's own data folder) or installed on the system, reads each file with
 //! [`read_face`] and hands what it found to [`set_gilroy`] as a [`GilroyFaces`]: Regular,
 //! SemiBold — or Medium in its place — and Bold, all three or none. Behind Gilroy, Manrope stands
 //! first in every family's fallbacks, so a letter Gilroy lacks comes from the face fitted to it;
 //! and a language whose letters Gilroy does not have is set in Manrope whole
-//! ([`GilroyFaces::sets`]) — the Windows build did the same for Vietnamese, in another face.
+//! ([`GilroyFaces::sets`]) — the original did the same for Vietnamese, in another face.
 //!
 //! ## Which face is installed
 //!
 //! Like the language in force (`fxsound_core::i18n`), the choice is the process's: the
 //! application says what the user chose ([`set_choice`]) and what it found ([`set_gilroy`]), and
 //! a window shows the face [`shown`] gives: Gilroy when it is chosen, or when the original look
-//! is (`Palette::is_windows`, «Like FxSound for Windows» = Interface and above), and a whole
+//! is (`Palette::is_windows`, «Like the original FxSound LLC» = Interface and above), and a whole
 //! Gilroy is there for the language; Manrope otherwise, never a face that is not there.
 //! [`install`] puts that face into a context ([`crate::theme::apply`] calls it), and [`sync`],
 //! which the Pro and Lite windows call at the top of every frame they draw
@@ -64,9 +64,9 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 /// Font family names registered with egui.
 pub mod families {
     /// The semibold weight's family: labels and values, and the dialogs' normal font.
-    pub const SEMIBOLD: &str = "FxSound-SemiBold";
+    pub const SEMIBOLD: &str = "CrossFX-SemiBold";
     /// The bold weight's family: headings and the preset name.
-    pub const BOLD: &str = "FxSound-Bold";
+    pub const BOLD: &str = "CrossFX-Bold";
 }
 
 /// One of the three weights the window is set in. The original picks a face per control rather
@@ -231,10 +231,10 @@ fn noto() -> &'static [Arc<FontData>; 4] {
 }
 
 /// The ligatures Manrope's standard set (`liga`) makes of `--`, `---`, `->`, `<-` and `<->`:
-/// a dash and arrows, where a command line (`fxsound --next-preset`) and a device's or a
+/// a dash and arrows, where a command line (`crossfx --next-preset`) and a device's or a
 /// preset's name have to show the characters typed. egui shapes with every default feature on,
 /// so the feature is renamed out of the shaper's way ([`without_features`]). Its `fi` and `ff`
-/// go with it, as they never were in the Windows build, whose JUCE did not shape.
+/// go with it, as they never were in the original, whose JUCE did not shape.
 const MANROPE_OFF: [[u8; 4]; 1] = [*b"liga"];
 
 /// One of Manrope's faces as egui is given it: [`MANROPE`]'s line written into its metrics, its
@@ -674,8 +674,8 @@ pub fn gilroy() -> Option<GilroyFaces> {
 }
 
 /// The face the window is set in: Gilroy when `choice` is Gilroy or the original look is asked
-/// for — «Like FxSound for Windows» = Interface and above — and `gilroy` is a whole Gilroy that has
-/// `language`'s letters ([`GilroyFaces::sets`]); Manrope otherwise.
+/// for — «Like the original FxSound LLC» = Interface and above — and `gilroy` is a whole Gilroy
+/// that has `language`'s letters ([`GilroyFaces::sets`]); Manrope otherwise.
 #[must_use]
 pub fn shown(
     choice: InterfaceFont,
@@ -772,7 +772,7 @@ struct Installed {
 }
 
 fn installed_id() -> egui::Id {
-    egui::Id::unique("fxsound-typeface-installed")
+    egui::Id::unique("crossfx-typeface-installed")
 }
 
 /// Install the face shown at `original_look` on `ctx`, and remember it for [`sync`].
@@ -963,7 +963,7 @@ pub(crate) mod tests {
     #[test]
     fn a_command_line_is_drawn_as_typed_without_manropes_dash_and_arrow_ligatures() {
         // As Manrope ships, `liga` draws `--` as one dash and `->` as an arrow; the shortcut
-        // table's `fxsound --toggle-power` has to read as it is typed.
+        // table's `crossfx --toggle-power` has to read as it is typed.
         let glyphs = |defs: FontDefinitions, text: &str| {
             measure(&context(defs), |ui| {
                 let galley = ui.painter().layout_no_wrap(
@@ -1172,7 +1172,7 @@ pub(crate) mod tests {
     fn a_gilroy_without_a_languages_letters_leaves_that_language_in_manrope() {
         let manrope = |letter| has_char(MANROPE_FILES[0], letter);
         // Vietnamese's letters are Manrope's, so a Gilroy with Latin and Cyrillic only — the one
-        // the Windows build embedded — leaves Vietnamese in Manrope and keeps Russian.
+        // the original embedded — leaves Vietnamese in Manrope and keeps Russian.
         let vietnamese = letters_of(fxsound_core::i18n::language("vi").expect("vi"));
         assert!(vietnamese.contains(&'ế'), "{vietnamese:?}");
         assert!(manrope('ế') && manrope('ж') && manrope('ğ'));
@@ -1272,7 +1272,7 @@ pub(crate) mod tests {
     fn a_users_font_is_read_by_the_skrifa_egui_loads_it_with() {
         // `read_face` vouches for the files egui is handed. egui panics on a font it cannot
         // parse, and the release build aborts on a panic: were the two parsers of different
-        // versions, a file one took and the other refused would stop FxSound at every start.
+        // versions, a file one took and the other refused would stop CrossFX at every start.
         let lock =
             std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock"))
                 .expect("the workspace's Cargo.lock");

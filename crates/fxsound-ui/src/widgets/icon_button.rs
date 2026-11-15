@@ -1,6 +1,6 @@
 //! The shared title-bar icon button.
 //!
-//! Every button in the FxSound title bar except the power toggle and the ✕ is a JUCE
+//! Every button in the original's title bar except the power toggle and the ✕ is a JUCE
 //! `DrawableButton` in `ImageFitted` style with exactly two drawables — a normal one and a hover
 //! one — swapped by the button's own state machine (`FxMainWindow.cpp:331-364`). The theme decides
 //! *which* SVG each of those names resolves to, so this widget only has to know the two
@@ -11,8 +11,8 @@
 //! `DrawableButton::getImageBounds()` reduces the button by `jmin(edgeIndent, 30 % of the side)`
 //! on each axis before fitting the drawable into what is left, and `edgeIndent` defaults to 3.
 //! JUCE is not vendored in this tree, so [`EDGE_INDENT`] is the one number here that is derived
-//! from the framework rather than read out of FxSound's own sources — hence
-//! [`IconButton::edge_indent`], so a pixel diff against the Windows build can settle it without
+//! from the framework rather than read out of the original's own sources — hence
+//! [`IconButton::edge_indent`], so a pixel diff against the original can settle it without
 //! touching this file. `docs/spec/01-window-layout.md §4.2` describes the same step in its shorter
 //! form: "scales the SVG to fit the button rect preserving aspect, centred".
 //!
@@ -61,7 +61,7 @@ const UV_FULL: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
 pub const ART_SIZES: [Vec2; NUM_IMAGES] = [
     vec2(526.19, 75.15),  // DefaultLogo — logo-white.svg / logo-black.svg
     vec2(526.19, 75.15),  // HighlightedLogo — logo-red.svg / logo-blue.svg
-    vec2(299.83, 219.26), // IconLogo — FxSound {White,Black} Bars.svg
+    vec2(299.83, 219.26), // IconLogo — FxSound White Bars.svg / FxSound Black Bars.svg
     vec2(30.0, 31.0),     // PowerOnButton — power_on.svg / power_on_blue.svg
     vec2(30.0, 31.0),     // PowerOffButton — power_off.svg / power_off_black.svg
     vec2(30.0, 31.0),     // DonateButton
@@ -229,7 +229,7 @@ impl<'a> IconButton<'a> {
     /// A hover tooltip in the app's own tooltip style (`FxTheme::drawTooltip`).
     ///
     /// The original's title-bar buttons carry `setHelpText` only, which is accessibility text
-    /// rather than a bubble (`FxMainWindow.cpp:194-221`); the port gives them, the card's flip
+    /// rather than a bubble (`FxMainWindow.cpp:194-221`); CrossFX gives them, the card's flip
     /// and Restore Defaults a tooltip each (0.4.0 audit #27).
     #[must_use]
     pub fn tooltip(mut self, text: &'a str) -> Self {
@@ -436,8 +436,8 @@ mod tests {
 
     #[test]
     fn the_close_button_gets_a_bigger_hit_area_than_its_glyph() {
-        // FxWindow.cpp:188 sizes the glyph 15 x 15; docs/spec/01-window-layout.md §4.2 allows the
-        // port to widen the hit rect.
+        // FxWindow.cpp:188 sizes the glyph 15 x 15; docs/spec/01-window-layout.md §4.2 allows
+        // CrossFX to widen the hit rect.
         let close = Chrome::PRO.close.rect();
         assert_eq!(close.size(), vec2(15.0, 15.0));
         let hit = hit_rect(close, MIN_HIT_SIZE);

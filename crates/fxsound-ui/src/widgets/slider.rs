@@ -1,7 +1,7 @@
 //! The shared horizontal slider.
 //!
-//! Every linear slider in FxSound — the five effect knobs, master gain, volume levelling, filter
-//! width and balance — is the same 160 × 18 JUCE `LinearHorizontal` slider drawn by
+//! Every linear slider in the original — the five effect knobs, master gain, volume levelling,
+//! filter width and balance — is the same 160 × 18 JUCE `LinearHorizontal` slider drawn by
 //! `FxTheme::drawLinearSlider` (`fxsound/Source/GUI/FxTheme.cpp:217-250`). Reproducing that one
 //! painter gets the whole control surface right.
 //!
@@ -21,10 +21,10 @@
 //!
 //! None of the sliders customise JUCE's defaults, so: clicking the track jumps to that position
 //! and starts a drag, the wheel steps by the interval, the arrow keys step by the interval, and
-//! **double-click does nothing** — FxSound has no double-click-to-reset. Right-click resets to the
-//! default on the audio sliders and on balance, and — a port addition (0.4.0 audit R9) — on the
-//! five effect sliders too, which the original leaves without it; every slider's tooltip says so
-//! ([`RESET_TIP`]), since nothing else would.
+//! **double-click does nothing** — the original has no double-click-to-reset. Right-click resets to
+//! the default on the audio sliders and on balance, and — a CrossFX addition (0.4.0 audit R9) — on
+//! the five effect sliders too, which the original leaves without it; every slider's tooltip says
+//! so ([`RESET_TIP`]), since nothing else would.
 //!
 //! Two departures (0.4.0 audit #14). On **every** slider a press on the thumb moves nothing until
 //! the pointer does, where JUCE jumps to the pointer there too: a value can sit between a
@@ -61,16 +61,16 @@ pub enum Fidelity {
     /// the minimum and runs 8 px past the track at the maximum (`FxTheme.cpp:230-237`), and ends
     /// the balance gradient eight points short of the track (`FxBalanceSlider.cpp:89`).
     ///
-    /// What «Как в Windows» = Interface and above paint (`fxsound_core::WindowsLook::SliderFill`),
-    /// and a reference to compare against the Windows build.
+    /// What «Like the original FxSound LLC» = Interface and above paint
+    /// (`fxsound_core::WindowsLook::SliderFill`), and a reference to compare against the original.
     Faithful,
     /// Fill the track from its start to the thumb and run the balance gradient to the track's
     /// end, which is what the original clearly meant (D-2 and D-3,
     /// `docs/spec/00-architecture.md` §9).
     ///
-    /// The default (0.4.0 audit #41). On Windows the 16-point thumb covers most of the overshoot;
-    /// here the overshoot showed round a thumb drawn a quarter of its size (#40), and D-2 and D-3
-    /// were listed as fixed while every slider still drew them.
+    /// The default (0.4.0 audit #41). In the original the 16-point thumb covers most of the
+    /// overshoot; here the overshoot showed round a thumb drawn a quarter of its size (#40), and
+    /// D-2 and D-3 were listed as fixed while every slider still drew them.
     #[default]
     Corrected,
 }
@@ -98,7 +98,7 @@ pub trait FineSteps {
     fn nearest(&self, value: f32) -> f32;
 }
 
-/// A horizontal slider drawn like FxSound's.
+/// A horizontal slider drawn like the original's.
 pub struct FxSlider<'a> {
     value: &'a mut f32,
     min: f32,
@@ -147,9 +147,9 @@ impl<'a> FxSlider<'a> {
         self
     }
 
-    /// Enable right-click-to-reset, which `FxAudioSlider` and `FxBalanceSlider` have, and which the
-    /// port gives the five effect sliders too (0.4.0 audit R9). A slider with it should say so in
-    /// its tooltip ([`with_reset_tip`]).
+    /// Enable right-click-to-reset, which `FxAudioSlider` and `FxBalanceSlider` have, and which
+    /// CrossFX gives the five effect sliders too (0.4.0 audit R9). A slider with it should say so
+    /// in its tooltip ([`with_reset_tip`]).
     #[must_use]
     pub fn reset_on_secondary_click(mut self, reset: bool) -> Self {
         self.reset_on_secondary_click = reset;

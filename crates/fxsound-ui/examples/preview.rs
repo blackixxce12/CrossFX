@@ -24,21 +24,19 @@
 //! `--detached` (both lanes off), `--levels` (start with the effect column turned over to the
 //! equalizer's controls), `--eq-off` (the equalizer switched off), `--curve` (a curve of boosts and
 //! cuts rather than a flat one, to see the response drawn), `--power-off`, `--stored` (the
-//! effects as a Windows preset stores them, between the sliders' positions), `--lang=CODE`
-//! (one of the translation tables' codes; English otherwise), `--apps[=empty]` (Settings ▸
-//! Applications over a made-up list of applications, or none), `--settings=TAB` (Settings on
-//! `audio`, `general`, `help`, `microphone`, `applications` or `experimental`),
-//! `--parity=LEVEL` (the level of «Like FxSound for Windows», `off`, `interface` or `sound`:
-//! what the Experimental pane's slider stands at, and what the main window's readouts, fine
-//! steps and `--stored` sliders follow, with or without `--settings`; `full` shows as `sound`, as
-//! the app runs a `settings.toml` that says it), `--wireplumber-hook=STATE` (the Experimental
-//! pane's "Smooth moves in WirePlumber": `off`, `on`, `due`, `failed` or `old`, a WirePlumber
-//! older than 0.5; available and off otherwise),
-//! `--message[=TEXT]` (the Yes/No message box over the window: `TEXT` is translated, and its `%s`
-//! is a long preset name; the
-//! export's overwrite question otherwise), `--exit-after-paint`. Keys while it
-//! runs: `I` switches the edit direction, `N` puts a notice up, `L` flips Pro/Lite, `T` flips the
-//! palette, `Esc` quits.
+//! effects as a preset of the original's stores them, between the sliders' positions),
+//! `--lang=CODE` (one of the translation tables' codes; English otherwise), `--apps[=empty]`
+//! (Settings ▸ Applications over a made-up list of applications, or none), `--settings=TAB`
+//! (Settings on `audio`, `general`, `help`, `microphone`, `applications` or `experimental`),
+//! `--parity=LEVEL` (the level of «Like the original FxSound LLC», `off`, `interface` or `sound`:
+//! what the Experimental pane's slider stands at, and what the main window's readouts, fine steps
+//! and `--stored` sliders follow, with or without `--settings`; `full` shows as `sound`, as the app
+//! runs a `settings.toml` that says it), `--wireplumber-hook=STATE` (the Experimental pane's
+//! "Smooth moves in WirePlumber": `off`, `on`, `due`, `failed` or `old`, a WirePlumber older than
+//! 0.5; available and off otherwise), `--message[=TEXT]` (the Yes/No message box over the window:
+//! `TEXT` is translated, and its `%s` is a long preset name; the export's overwrite question
+//! otherwise), `--exit-after-paint`. Keys while it runs: `I` switches the edit direction, `N` puts
+//! a notice up, `L` flips Pro/Lite, `T` flips the palette, `Esc` quits.
 //!
 //! The made-up state has Battlefield 6 on its own preset on the speakers and Discord on the
 //! microphone, so resting the pointer on the Pro window's preset list shows the edit direction's
@@ -182,12 +180,12 @@ fn main() -> eframe::Result<()> {
             .with_resizable(false)
             .with_decorations(false)
             .with_transparent(true)
-            .with_app_id("com.fxsound.FxSound.preview"),
+            .with_app_id(format!("{}.preview", fxsound_core::identity::APP_ID)),
         ..Default::default()
     };
 
     eframe::run_native(
-        "FxSound preview",
+        "CrossFX preview",
         options,
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx, preview.palette());
@@ -447,7 +445,7 @@ struct Preview {
 }
 
 impl Preview {
-    /// The palette the application would hand the views: the Windows theme from Interface on.
+    /// The palette the application would hand the views: the original's theme from Interface on.
     fn palette(&self) -> Palette {
         Palette::new(self.state.theme)
             .windows(self.state.windows_look(fxsound_core::WindowsLook::Palette))

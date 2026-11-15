@@ -80,11 +80,14 @@ fn main() -> eframe::Result<()> {
             .with_resizable(false)
             .with_decorations(false)
             .with_transparent(true)
-            .with_app_id("com.fxsound.FxSound.microphone-preview"),
+            .with_app_id(format!(
+                "{}.microphone-preview",
+                fxsound_core::identity::APP_ID
+            )),
         ..Default::default()
     };
     eframe::run_native(
-        "FxSound microphone preview",
+        "CrossFX microphone preview",
         options,
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx, Palette::new(preview.theme));
@@ -115,7 +118,7 @@ fn demo_state() -> SettingsState {
         connected,
         present,
     };
-    // The voice presets FxSound ships, in the store's order.
+    // The voice presets CrossFX ships, in the store's order.
     let voices = [
         "Bright Voice",
         "Broadcaster",

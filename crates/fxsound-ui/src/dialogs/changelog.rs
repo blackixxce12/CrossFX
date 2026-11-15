@@ -1,7 +1,7 @@
 //! The bundled changelog, opened from Settings ▸ Help.
 //!
 //! The original's "Changelog" row is a hyperlink to `https://www.fxsound.com/changelog`
-//! (`FxSettingsDialog.cpp:474-475`). This fork never sends the user to the upstream site, so the
+//! (`FxSettingsDialog.cpp:474-475`). CrossFX never sends the user to the original's site, so the
 //! row opens the package's own `CHANGELOG.md` in a pane with the same chrome as Settings. The
 //! text is Markdown of the Keep-a-Changelog kind and is rendered with the four things such a file
 //! actually uses — headings, bullets, emphasis and links — rather than with a Markdown engine.

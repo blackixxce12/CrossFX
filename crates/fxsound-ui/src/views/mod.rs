@@ -2,7 +2,7 @@
 //!
 //! `FxMainWindow` is one frameless desktop component whose *content* is swapped between
 //! `FxProView` and `FxLiteView` (`fxsound/Source/GUI/FxWindow.cpp:41-83`); the 56 point title bar
-//! above the swap is identical in both. That shape survives the port: [`titlebar::show`] paints the
+//! above the swap is identical in both. CrossFX keeps that shape: [`titlebar::show`] paints the
 //! chrome, [`pro::show`] and [`lite::show`] paint a content area under it, and [`show`] picks the
 //! one [`UiState::view`] asks for.
 //!
@@ -168,9 +168,9 @@ pub fn first_user_preset(presets: &[PresetEntry]) -> Option<usize> {
     (first < presets.len()).then_some(first)
 }
 
-/// How the device list is cut into its `Output` and `Input` runs **(port addition)**.
+/// How the device list is cut into its `Output` and `Input` runs **(CrossFX addition)**.
 ///
-/// The Windows build lists playback endpoints only (`FxView.cpp:88-96`); the port lists capture
+/// The original lists playback endpoints only (`FxView.cpp:88-96`); CrossFX lists capture
 /// devices in the same box, and the audio engine publishes them grouped — every
 /// [`DeviceDirection::Output`] device first, then every [`DeviceDirection::Input`] one — so the
 /// two runs can be titled and ruled apart without reordering anything. The indices here are
@@ -216,8 +216,8 @@ pub fn device_sections(devices: &[AudioDevice]) -> DeviceSections {
 /// then. It lists the edit direction's presets, and a long name is cut before its `*`, never
 /// the `*` itself (audit #26). The box's response is handed back for a tooltip.
 ///
-/// At «Как в Windows» = Interface and above both are the original's again: the list goes grey
-/// with the power ([`WindowsLook::PresetsNeedPower`]) and a long name is cut with its `*`
+/// At «Like the original FxSound LLC» = Interface and above both are the original's again: the list
+/// goes grey with the power ([`WindowsLook::PresetsNeedPower`]) and a long name is cut with its `*`
 /// ([`WindowsLook::ModifiedMarkCut`]).
 pub(crate) fn preset_combo(
     ui: &mut Ui,
@@ -249,12 +249,12 @@ pub(crate) fn preset_combo(
 }
 
 /// What a microphone picker says on hover while it shows a Bluetooth headset's microphone
-/// **(port addition, `docs/0.4.0-upstream.md` U9)**. FxSound's capture of a microphone is passive
-/// (U19), so a headset's microphone is woken — and the headset switched from music to its call
-/// profile — only by something recording from FxSound (Input); picked and never recorded from,
+/// **(CrossFX addition, `docs/0.4.0-upstream.md` U9)**. CrossFX's capture of a microphone is
+/// passive (U19), so a headset's microphone is woken — and the headset switched from music to its
+/// call profile — only by something recording from CrossFX (Input); picked and never recorded from,
 /// it neither sounds nor costs anything, which is exactly what looks broken without a word.
 pub const BLUETOOTH_MICROPHONE_TIP: &str = "A Bluetooth microphone wakes only while an application \
-     records from FxSound (Input), and then switches its headset to call quality.";
+     records from CrossFX (Input), and then switches its headset to call quality.";
 
 /// Whether `device` is a Bluetooth headset's microphone: under WirePlumber 0.4 the headset's own
 /// `bluez_input.<address>.0`, under 0.5 the loopback `bluez_input.<address>` in front of it. The
@@ -278,7 +278,7 @@ pub fn device_tip(state: &UiState, direction: DeviceDirection) -> Option<String>
         .map(|_| tr(BLUETOOTH_MICROPHONE_TIP))
 }
 
-/// One row of a device menu **(port addition)**.
+/// One row of a device menu **(CrossFX addition)**.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceRow {
     /// `Off`: detach this lane.
@@ -287,9 +287,9 @@ pub enum DeviceRow {
     Device(usize),
 }
 
-/// What a device picker lists, and what each row stands for **(port addition)**.
+/// What a device picker lists, and what each row stands for **(CrossFX addition)**.
 ///
-/// The Windows build's list is its playback endpoints and nothing else (`FxView.cpp:88-96`). With
+/// The original's list is its playback endpoints and nothing else (`FxView.cpp:88-96`). With
 /// two lanes a device list also has to be able to say *none*: every lane's run of devices starts
 /// with an `Off` row that detaches it, and a detached lane's box shows `Off` as its placeholder —
 /// dimmed, as the original dims an empty box (`FxTheme.cpp:166-179`).
@@ -446,7 +446,7 @@ impl DeviceMenu {
     }
 }
 
-/// The Pro view's two device pickers, one per lane **(port addition, 0.4.0 design §1.4)**.
+/// The Pro view's two device pickers, one per lane **(CrossFX addition, 0.4.0 design §1.4)**.
 ///
 /// Each lists its own direction only. Clicking one — to look, to pick, or to turn its lane off —
 /// makes its lane the edit direction, and the box of the edit direction carries the accent
@@ -1177,8 +1177,8 @@ mod tests {
 
     #[test]
     fn a_long_modified_preset_keeps_its_mark_at_off_and_loses_it_with_the_name_at_interface() {
-        // 0.4.0 audit #26, and set back at «Как в Windows» = Interface (`FxTheme.cpp:128-133`
-        // cuts the whole label).
+        // 0.4.0 audit #26, and set back at «Like the original FxSound LLC» = Interface
+        // (`FxTheme.cpp:128-133` cuts the whole label).
         use crate::layout;
         use crate::widgets::combo;
         use fxsound_core::{ThemeMode, WindowsParity};

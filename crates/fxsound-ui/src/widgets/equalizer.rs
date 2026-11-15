@@ -380,13 +380,13 @@ pub fn snap_gain(gain_db: f32) -> f32 {
 
 /// How far band `band`'s wheel tunes it, in Hz: [`fxsound_core::eq::band_frequency_range`].
 ///
-/// The Windows ranges (`GraphicEqGet.cpp:105-168`) sit at the *geometric midpoints* of the generic
-/// log-spaced grid, with a `+1` below a kilohertz and `+10` above it as the dead zone that stops two
-/// bands ever reaching the same frequency, and pin each end band at its ladder's edge: band 1 of
-/// the five- and ten-band EQ sits at 62.5 Hz, the very bottom of its own range, and could only be
-/// turned up, the last band only down. Here the two end bands reach half a band past the edges
-/// (0.4.0 audit R6), so both wheels start part-way round and turn either way; every other band
-/// keeps the Windows range.
+/// The original's ranges (`GraphicEqGet.cpp:105-168`) sit at the *geometric midpoints* of the
+/// generic log-spaced grid, with a `+1` below a kilohertz and `+10` above it as the dead zone that
+/// stops two bands ever reaching the same frequency, and pin each end band at its ladder's edge:
+/// band 1 of the five- and ten-band EQ sits at 62.5 Hz, the very bottom of its own range, and could
+/// only be turned up, the last band only down. Here the two end bands reach half a band past the
+/// edges (0.4.0 audit R6), so both wheels start part-way round and turn either way; every other
+/// band keeps the original's range.
 #[must_use]
 pub fn band_frequency_range(band: usize, num_bands: usize) -> (f32, f32) {
     fxsound_core::eq::band_frequency_range(band, num_bands)
@@ -426,7 +426,7 @@ pub fn default_band_frequency(band: usize, num_bands: usize) -> f32 {
 }
 
 /// How far band `band`'s wheel turns, standing at `center_hz`: [`band_frequency_range`], or at
-/// «Как в Windows» = Interface and above (`windows`) the Windows build's range
+/// «Like the original FxSound LLC» = Interface and above (`windows`) the original's range
 /// ([`fxsound_core::eq::windows_band_frequency_range`], [`WindowsLook::EndBandWheels`], R6 set
 /// back), in which the five- and ten-band equalizer's end bands turn one way only. A band a
 /// preset or the command line has already put past that range stays where it is, and the range
@@ -505,7 +505,7 @@ pub fn gain_label(gain_db: f32) -> String {
 
 /// `printf("%.Nf", v)` with MSVC's rounding.
 ///
-/// The Windows build rounds halves away from zero, so 62.5 Hz prints as `63`; Rust's own `{:.0}`
+/// The original rounds halves away from zero, so 62.5 Hz prints as `63`; Rust's own `{:.0}`
 /// rounds to even and would print `62`. Band 1 of the ten-band EQ is exactly 62.5 Hz, so this is
 /// visible on the default layout — see `docs/spec/04-equalizer-visualizer.md`, open question 1.
 fn fixed(value: f32, decimals: usize) -> String {
@@ -625,9 +625,9 @@ pub fn response_curve(
     points
 }
 
-/// The curve as the Windows build draws it: straight segments from one fader's gain to the
+/// The curve as the original draws it: straight segments from one fader's gain to the
 /// next, one point a band, the filter width and the bands adding up left out
-/// (`FxEqualizer.cpp:350-370`). What «Как в Windows» = Interface and above draw
+/// (`FxEqualizer.cpp:350-370`). What «Like the original FxSound LLC» = Interface and above draw
 /// ([`WindowsLook::CurveThroughBands`], 0.4.0 audit R8 set back).
 #[must_use]
 pub fn band_polyline(
@@ -1166,9 +1166,9 @@ impl<'a> EqualizerWidget<'a> {
             // `FxEqualizer::paint` re-applies the per-band tooltips every frame, and only ever at
             // ten bands (`FxEqualizer.cpp:326-343`). Under them, and alone at the other counts,
             // the right-click reset nothing else mentions (0.4.0 audit R9) and the solo — except
-            // at «Как в Windows» = Interface and above, which keep the original's alone
-            // ([`WindowsLook::WindowsTooltips`]) on the playback lane; the microphone's is the
-            // port's own and keeps them ([`UiState::lane_tips_shown`]).
+            // at «Like the original FxSound LLC» = Interface and above, which keep the original's
+            // alone ([`WindowsLook::WindowsTooltips`]) on the playback lane; the microphone's is
+            // CrossFX's own and keeps them ([`UiState::lane_tips_shown`]).
             if !state.hide_tooltips
                 && let Some(tip) = band_tooltip(
                     band,
@@ -1194,8 +1194,8 @@ impl<'a> EqualizerWidget<'a> {
         };
 
         let centres: Vec<f32> = state.eq_bands.iter().map(|band| band.center_hz).collect();
-        // At «Как в Windows» = Interface and above the original's straight line through the
-        // bands, not the response that plays ([`WindowsLook::CurveThroughBands`], R8).
+        // At «Like the original FxSound LLC» = Interface and above the original's straight line
+        // through the bands, not the response that plays ([`WindowsLook::CurveThroughBands`], R8).
         let curve = if state.windows_look(WindowsLook::CurveThroughBands) {
             curve_points(&layout, &band_polyline(&layout, &centres, &gains))
         } else {
@@ -1750,9 +1750,9 @@ fn wheel(
     }
 
     if !state.hide_tooltips {
-        // The right-click under the original's tip, but not on the playback lane at «Как в
-        // Windows» = Interface and above ([`WindowsLook::WindowsTooltips`]); the microphone's
-        // wheels are the port's own and keep it ([`UiState::lane_tips_shown`]).
+        // The right-click under the original's tip, but not on the playback lane at «Like the
+        // original FxSound LLC» = Interface and above ([`WindowsLook::WindowsTooltips`]); the
+        // microphone's wheels are CrossFX's own and keep it ([`UiState::lane_tips_shown`]).
         let _ = wheel_response.on_hover_text(wheel_tooltip(interactive && state.lane_tips_shown()));
     }
 
@@ -2056,8 +2056,8 @@ mod tests {
         assert_eq!(band_frequency_range(30, 31), (17835.0, 20000.0));
     }
 
-    /// Audit report R6: on Windows the first wheel of five and ten bands starts at its minimum and
-    /// the last at its maximum, so each turns one way only.
+    /// Audit report R6: in the original the first wheel of five and ten bands starts at its minimum
+    /// and the last at its maximum, so each turns one way only.
     #[test]
     fn the_end_wheels_of_five_and_ten_bands_start_part_way_round() {
         for count in [5, 10] {
@@ -2092,7 +2092,7 @@ mod tests {
     #[test]
     fn at_interface_the_end_wheels_have_the_windows_range_and_reach_out_only_to_where_a_band_is() {
         // 0.4.0 audit R6 set back: the first band of ten tunes up from 62.5 Hz only, the last
-        // down from 16 kHz only; the inner bands' ranges are the Windows ones at either level.
+        // down from 16 kHz only; the inner bands' ranges are the original's at either level.
         for count in [5, 10] {
             for band in 0..count {
                 let windows = fxsound_core::eq::windows_band_frequency_range(band, count);
@@ -3508,7 +3508,7 @@ mod tests {
 
         #[test]
         fn the_first_wheel_of_ten_bands_turns_below_the_ladder() {
-            // 0.4.0 audit R6: on Windows band 1's wheel starts at its minimum, 62.5 Hz.
+            // 0.4.0 audit R6: in the original band 1's wheel starts at its minimum, 62.5 Hz.
             let state = UiState::default();
             let layout = EqLayout::new(10);
             let wheel = layout
@@ -3543,7 +3543,7 @@ mod tests {
         #[test]
         fn at_interface_the_first_wheel_of_ten_bands_turns_only_up_as_on_windows() {
             // 0.4.0 audit R6 set back: band 1's wheel starts at its minimum, 62.5 Hz, and the
-            // same drag the port lets below it tunes nothing.
+            // same drag CrossFX lets below it tunes nothing.
             let state = UiState {
                 windows_parity: fxsound_core::WindowsParity::Interface,
                 ..UiState::default()
@@ -3627,7 +3627,7 @@ mod tests {
         #[test]
         fn at_interface_a_wheels_tip_is_the_originals_alone_and_off_it_names_the_right_click() {
             // `FxEqualizer.cpp:326-343` gives the wheel its description and nothing under it; the
-            // right-click line is the port's (0.4.0 audit R9), set back at Interface.
+            // right-click line is CrossFX's (0.4.0 audit R9), set back at Interface.
             let off = over_wheel(&UiState::default());
             assert!(off.contains(&wheel_tooltip(true)), "{off:?}");
             assert!(wheel_tooltip(true).ends_with(slider::RESET_TIP));
@@ -3646,7 +3646,7 @@ mod tests {
 
         #[test]
         fn at_interface_the_microphones_bands_and_wheels_still_name_the_right_click_and_the_solo() {
-            // The microphone lane is the port's own: nothing in the Windows build to set it back
+            // The microphone lane is CrossFX's own: nothing in the original to set it back
             // to, as with its level sliders.
             let windows = UiState {
                 windows_parity: fxsound_core::WindowsParity::Interface,

@@ -3,9 +3,9 @@
 //! The column in the Pro window is a two-sided card (`docs/spec/03-controls.md` §1). Face A is the
 //! five effect sliders; the flip button in the card's top-right corner turns it over to this face,
 //! which holds what the equalizer is run *with* rather than the curve itself: the band count, the
-//! master gain, the volume leveling, the filter width, the balance and Restore Defaults. Upstream
-//! moved these out of the Settings dialog onto the main window in 1.2.12 (f58a423); before this
-//! module the port could reach them only from the command line.
+//! master gain, the volume leveling, the filter width, the balance and Restore Defaults. The
+//! original moved these out of the Settings dialog onto the main window in 1.2.12 (f58a423); before
+//! this module CrossFX could reach them only from the command line.
 //!
 //! ```text
 //! column   (0,   0, 168, 257)   ControlBackground, radius 8 — FxAudioControls::paint
@@ -25,7 +25,7 @@
 //!
 //! Every control writes through the same [`UiAction`] the command line uses, so what a control does
 //! is the controller's business: the band count carries the curve over rather than flattening it
-//! (upstream 182a329), and Restore Defaults puts back no leveling, a centred balance, the
+//! (the original's 182a329), and Restore Defaults puts back no leveling, a centred balance, the
 //! narrowest filter and no gain, and keeps the band count and the curve, which are the user's and
 //! the preset's and not defaults (`FxEqualizerControl::restoreDefaults`,
 //! `FxAudioControls.cpp:529-544`, which also put back ten bands; 0.4.0 audit R5). The ranges and the
@@ -56,11 +56,11 @@
 //!
 //! ## Greyed while the equalizer is off
 //!
-//! Upstream aad64c1 made the equalizer's switch the whole block's: with the EQ off, the master
-//! gain, the balance and the leveling are bypassed with it. A control that silently does nothing
-//! is the one thing this port keeps refusing to ship, so while the EQ is off the sliders whose
-//! stage is bypassed are drawn grey — and stay live, like the equalizer's own faders, so a setting
-//! can be made before the EQ is switched back on. The power switch still greys and disables
+//! The original's aad64c1 made the equalizer's switch the whole block's: with the EQ off, the
+//! master gain, the balance and the leveling are bypassed with it. A control that silently does
+//! nothing is the one thing CrossFX keeps refusing to ship, so while the EQ is off the sliders
+//! whose stage is bypassed are drawn grey — and stay live, like the equalizer's own faders, so a
+//! setting can be made before the EQ is switched back on. The power switch still greys and disables
 //! everything, as `FxProView::paint` does in the original (`docs/spec/03-controls.md` §6).
 
 use crate::assets::{AssetCache, FxImage};
@@ -235,7 +235,7 @@ pub fn band_count_label(count: usize) -> String {
 
 /// The row of the combo that shows `count`, when it is one of the five.
 ///
-/// `selectEqualizerBands` shows 10 for any other count (`FxAudioControls.cpp:509-527`); the port
+/// `selectEqualizerBands` shows 10 for any other count (`FxAudioControls.cpp:509-527`); CrossFX
 /// shows the count itself instead (see [`show`]), since a box that names a band count the curve
 /// does not have is a box that misreports it.
 #[must_use]
@@ -309,9 +309,9 @@ impl Level {
     }
 
     /// The range the window's slider has for the state in force: [`Level::range`], except that at
-    /// «Как в Windows» = Interface and above the speakers' Master Gain and Balance step by two
-    /// decibels, as the Windows sliders do ([`WindowsLook::LevelSteps`], 0.4.0 audit #22). The
-    /// microphone's Makeup Gain, which Windows does not have, keeps its one.
+    /// «Like the original FxSound LLC» = Interface and above the speakers' Master Gain and Balance
+    /// step by two decibels, as the original's sliders do ([`WindowsLook::LevelSteps`], 0.4.0
+    /// audit #22). The microphone's Makeup Gain, which the original does not have, keeps its one.
     #[must_use]
     pub const fn range_in(self, state: &UiState) -> LevelRange {
         let mut range = self.range(state.direction);
@@ -382,8 +382,9 @@ impl Level {
     }
 
     /// The readout the window shows for the state in force: [`Level::readout`], except that at
-    /// «Как в Windows» = Interface and above Volume Leveling says `dB` after its amount again, as
-    /// the original's `%.1f dB` does ([`WindowsLook::LevelingUnit`], 0.4.0 audit #23).
+    /// «Like the original FxSound LLC» = Interface and above Volume Leveling says `dB` after its
+    /// amount again, as the original's `%.1f dB` does ([`WindowsLook::LevelingUnit`], 0.4.0
+    /// audit #23).
     #[must_use]
     pub fn readout_in(self, value: f32, state: &UiState) -> String {
         let text = self.readout(value);
@@ -397,8 +398,8 @@ impl Level {
     /// Whether the stage this slider sets is in the signal path right now.
     ///
     /// The filter width is the equalizer's and the volume leveller is in its block, so both go
-    /// with its switch (upstream aad64c1). The master gain and the balance do not: the engine
-    /// plays them whatever the equalizer's switch says (0.4.0 audit R3), where upstream took
+    /// with its switch (the original's aad64c1). The master gain and the balance do not: the engine
+    /// plays them whatever the equalizer's switch says (0.4.0 audit R3), where the original took
     /// them out with the block. On a microphone the makeup gain is a stage of its own.
     #[must_use]
     pub const fn in_path(self, state: &UiState) -> bool {
@@ -482,9 +483,10 @@ pub fn show(
             response.push(level.action(value));
         }
         // The original has no tooltip here, and so nothing that tells of the right-click reset
-        // (0.4.0 audit R9); "Hide help tips" hides it with the rest, and «Как в Windows» =
-        // Interface and above go without it as the original does. The microphone's levels are
-        // the port's own, with no Windows original to follow, and keep theirs at every level.
+        // (0.4.0 audit R9); "Hide help tips" hides it with the rest, and «Like the original FxSound
+        // LLC» = Interface and above go without it as the original does. The microphone's levels
+        // are CrossFX's own, with nothing in the original to follow, and keep theirs at every
+        // level.
         if state.lane_tips_shown() {
             let _ = slider.on_hover_text(slider::with_reset_tip(None));
         }
@@ -861,8 +863,9 @@ mod tests {
 
     #[test]
     fn at_interface_the_master_gain_and_the_balance_step_by_two_decibels_as_on_windows() {
-        // «Как в Windows» = Interface sets 0.4.0 audit #22 back (`FxAudioControls.cpp:312`,
-        // `FxBalanceSlider.cpp:36`); Off keeps the whole decibel (the test above).
+        // «Like the original FxSound LLC» = Interface sets 0.4.0 audit #22 back
+        // (`FxAudioControls.cpp:312`, `FxBalanceSlider.cpp:36`); Off keeps the whole decibel (the
+        // test above).
         for level in [WindowsParity::Interface, WindowsParity::Sound] {
             let state = UiState {
                 windows_parity: level,
@@ -871,14 +874,14 @@ mod tests {
             for row in [Level::MasterGain, Level::Balance] {
                 let r = row.range_in(&state);
                 assert_eq!((r.min, r.max, r.step, r.default), (-20.0, 20.0, 2.0, 0.0));
-                // A --master_gain=3 goes to 4 or 2 at an arrow, as the Windows slider snaps it.
+                // A --master_gain=3 goes to 4 or 2 at an arrow, as the original's slider snaps it.
                 assert_eq!(slider::step_towards(3.0, r.min, r.step, true), 4.0);
                 assert_eq!(slider::step_towards(4.0, r.min, r.step, true), 6.0);
             }
             for row in [Level::VolumeLeveling, Level::FilterQ] {
                 assert_eq!(row.range_in(&state), row.range(DeviceDirection::Output));
             }
-            // The microphone's Makeup Gain has no Windows original and keeps its decibel.
+            // The microphone's Makeup Gain is not in the original and keeps its decibel.
             let microphone = UiState {
                 direction: DeviceDirection::Input,
                 ..state
@@ -1258,8 +1261,8 @@ mod tests {
 
     #[test]
     fn at_interface_no_level_slider_says_a_right_click_resets_it_and_the_right_click_still_does() {
-        // The original has no tip on these (0.4.0 audit R9 set back at «Как в Windows» =
-        // Interface); the reset itself is the original's and stays.
+        // The original has no tip on these (0.4.0 audit R9 set back at «Like the original FxSound
+        // LLC» = Interface); the reset itself is the original's and stays.
         let windows = UiState {
             windows_parity: WindowsParity::Interface,
             ..speakers()
@@ -1282,7 +1285,7 @@ mod tests {
 
     #[test]
     fn at_interface_every_microphone_level_slider_still_says_a_right_click_resets_it() {
-        // The input lane is the port's own: nothing in the Windows build to set it back to.
+        // The input lane is CrossFX's own: nothing in the original to set it back to.
         let windows = UiState {
             windows_parity: WindowsParity::Interface,
             ..microphone()
@@ -1310,7 +1313,7 @@ mod tests {
     #[test]
     fn at_interface_a_click_on_the_master_gains_track_lands_on_an_even_decibel() {
         // 32 % of the way along is -7.2 dB: -7 on the whole-decibel step, -8 at Interface, the
-        // Windows slider's nearest two-decibel position (0.4.0 audit #22 set back).
+        // nearest two-decibel position of the original's slider (0.4.0 audit #22 set back).
         let mut harness = turned_over(ThemeMode::Dark);
         let state = UiState {
             windows_parity: WindowsParity::Interface,

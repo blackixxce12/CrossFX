@@ -4,9 +4,9 @@
 //! changes (`fxsound/Source/GUI/FxTheme.cpp:31-56`). The names and their order are transcribed from
 //! `FxTheme.h`'s `FxImage` enum so the two tables can be diffed side by side.
 //!
-//! Every file is embedded in the binary. FxSound ships its artwork as SVG, so rasterising at the
-//! exact size a control needs — including the compositor's fractional scale — costs nothing extra
-//! and looks correct at any scale, which a bundled PNG would not.
+//! Every file is embedded in the binary. The original ships its artwork as SVG, so rasterising at
+//! the exact size a control needs — including the compositor's fractional scale — costs nothing
+//! extra and looks correct at any scale, which a bundled PNG would not.
 
 use egui::{Color32, ColorImage, Context, TextureHandle, TextureOptions};
 use fxsound_core::ThemeMode;
@@ -144,7 +144,7 @@ pub fn svg_bytes(image: FxImage, theme: ThemeMode) -> &'static [u8] {
 ///
 /// JUCE's `Drawable::drawWithin` fits `getDrawableBounds()`, which for a parsed SVG is the union
 /// of what its elements draw. For every image but one that is the `viewBox` give or take a point,
-/// and the rest of the port fits the `viewBox` as it always has. The exception is the lit slider
+/// and the rest of CrossFX fits the `viewBox` as it always has. The exception is the lit slider
 /// thumb: `Slider_Thumb.svg` and its blue twin draw a 16 × 16 circle at (24, 20) in a 64 × 64
 /// `viewBox`, so fitted by the `viewBox` the thumb came out a quarter of its size, a 4-point dot,
 /// and grew fourfold when the power went off, since the grey thumb's `viewBox` is its 16 × 16
