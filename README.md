@@ -467,8 +467,8 @@ once it sends sound.
 
 ### Voice presets
 
-Thirteen ship, in TOML rather than `.fac`: a `.fac` is a byte-for-byte contract with the original
-FxSound and has nowhere to put a gate threshold. A stage that is switched off has no table in the
+Thirteen ship, in TOML rather than `.fac`: a `.fac` is a byte-for-byte contract with the
+original FxSound and has nowhere to put a gate threshold. A stage that is switched off has no table in the
 file, so there is no way to ship a full set of numbers that nothing reads.
 
 | Preset | For |
