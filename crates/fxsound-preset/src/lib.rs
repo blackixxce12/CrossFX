@@ -67,6 +67,12 @@ pub enum PresetError {
     /// Writing the second would replace the first's file, or share its autosave when the first is
     /// a factory preset kept under a numbered name, and the list would show one name where two
     /// had been saved. [`crate::Store::save_as`] and [`crate::Store::rename`] refuse it instead.
+    ///
+    /// Or the volume finds a file under the name that it keeps under another: on Windows
+    /// `ROCKCO~1.fac` once NTFS has given `Rock Concert Live.fac` that 8.3 short name. Then
+    /// `existing` is the listed preset whose file, autosave or export that is, or, when it is no
+    /// listed preset's, the file's own name; [`crate::Store::autosave`] and
+    /// [`crate::Store::export`] refuse to write over it too.
     #[error("{name:?} and {existing:?} would share the file {file}")]
     SharedFile {
         name: String,
