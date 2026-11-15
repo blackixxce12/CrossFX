@@ -48,10 +48,10 @@
 # tree does not pretend otherwise. See README.Debian for the `cargo vendor`
 # route, which gets as far as an offline, self-contained build without
 # attempting the archive's crate-per-package model.
-Source: fxsound-linux
+Source: crossfx
 Section: sound
 Priority: optional
-Maintainer: FxSound Linux port contributors <blackixxce12@users.noreply.github.com>
+Maintainer: CrossFX contributors <blackixxce12@users.noreply.github.com>
 Build-Depends:
  debhelper-compat (= 13),
  pkg-config,
@@ -66,15 +66,15 @@ Build-Depends:
  cargo (>= 1.98.1~),
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
-Homepage: https://github.com/blackixxce12/fxsound-linux
-Vcs-Git: https://github.com/blackixxce12/fxsound-linux.git
-Vcs-Browser: https://github.com/blackixxce12/fxsound-linux
+Homepage: https://github.com/blackixxce12/CrossFX
+Vcs-Git: https://github.com/blackixxce12/CrossFX.git
+Vcs-Browser: https://github.com/blackixxce12/CrossFX
 
-Package: fxsound-linux
+Package: crossfx
 Architecture: any
 # Most of the graphics stack is opened with dlopen() rather than linked, so
 # dpkg-shlibdeps cannot see it and every one of those libraries has to be named
-# here by hand. `objdump -p target/release/fxsound` lists only libpipewire-0.3,
+# here by hand. `objdump -p target/release/crossfx` lists only libpipewire-0.3,
 # libgcc_s, libm and libc; everything below that line is a string inside the
 # binary that libloading resolves at startup. Drop one of them and the package
 # installs cleanly and then fails to open a window, which is the worst of both
@@ -85,7 +85,7 @@ Architecture: any
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
-# The daemon, not just the client library: FxSound creates a virtual sink in
+# The daemon, not just the client library: CrossFX creates a virtual sink in
 # the PipeWire graph and has nothing to do without one.
  pipewire (>= 1.0),
 # dlopen: libEGL.so.1 / libGL.so.1, through glutin.
@@ -113,7 +113,7 @@ Depends:
  libdbus-1-3,
 Recommends:
 # Switching the session's default sink is a session-manager operation; without
-# one, FxSound creates its sink and nothing moves onto it.
+# one, CrossFX creates its sink and nothing moves onto it.
  wireplumber,
 # Native file dialogs for preset import and export, through the portal. The
 # portal itself only routes the request: a *backend* has to implement the file
@@ -132,24 +132,22 @@ Recommends:
 Suggests:
 # Only relevant if something on the machine still speaks PulseAudio.
  pipewire-pulse,
-Provides: fxsound
-Conflicts: fxsound
-Replaces: fxsound
 Description: system-wide audio enhancement for PipeWire
- FxSound processes everything the machine plays — a ten-band equalizer plus
+ CrossFX processes everything the machine plays — a ten-band equalizer plus
  fidelity, ambience, surround, dynamic boost and bass — by presenting itself to
  PipeWire as a virtual sink that applications play into and forwarding the
  processed result to the real device. Pointing it at a microphone instead runs
  a separate voice chain (denoise, high-pass, expander, EQ, de-esser, compressor,
  limiter) and publishes a virtual source.
  .
- This is a native Linux port of the Windows application, written in Rust with
- egui. It is a fork rather than a wrapper: the GUI, the device layer and the
- persistence are new, but the DSP is ported line by line from the original C,
- with some of its defects fixed, so a preset voiced on Windows sounds slightly
- different here. The factory and bonus .fac presets are installed alongside it
- and are the upstream files unchanged.
+ This is a native Linux port of FxSound, FxSound LLC's audio enhancer for
+ Windows, written in Rust with egui. It is a fork rather than a wrapper: the
+ GUI, the device layer and the persistence are new, but the DSP is ported line
+ by line from the original C, with some of its defects fixed, so a preset
+ voiced in the original sounds slightly different here. The factory and bonus
+ .fac presets are installed alongside it and are the original's files
+ unchanged.
  .
  A Wayland client cannot grab global shortcuts, so the keyboard bindings live
  in the compositor and call back into the running instance over a control
- socket; fxsound(1) documents the command line that makes that work.
+ socket; crossfx(1) documents the command line that makes that work.

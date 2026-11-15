@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Build a .deb from an already-built fxsound binary using only ar, tar and gzip.
+# Build a .deb from an already-built crossfx binary using only ar, tar and gzip.
 #
 # A .deb is not a dpkg-specific container. It is an ar archive with exactly
 # three members, in this order:
@@ -25,7 +25,7 @@
 # debian/changelog and the dependency fields come from debian/control, so the
 # two cannot drift apart without this script noticing.
 #
-# Copyright (C) 2026 FxSound Linux port contributors
+# Copyright (C) 2026 CrossFX contributors
 # Licensed under the GNU Affero General Public License, version 3 or later.
 
 set -eu
@@ -40,7 +40,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO=$(CDPATH= cd -- "$script_dir/.." && pwd)
 DEBIAN_DIR="$REPO/packaging/debian"
 
-BINARY="$REPO/target/release/fxsound"
+BINARY="$REPO/target/release/crossfx"
 OUTDIR="$REPO/dist"
 ARCH=""
 STRIP=1
@@ -51,11 +51,11 @@ usage() {
     cat <<USAGE
 Usage: $PROG [options]
 
-Assemble a .deb from a built fxsound binary using ar, tar and gzip only.
+Assemble a .deb from a built crossfx binary using ar, tar and gzip only.
 
 Options:
-  --binary PATH     the fxsound executable to package
-                    (default: target/release/fxsound)
+  --binary PATH     the crossfx executable to package
+                    (default: target/release/crossfx)
   --output DIR      where to write the .deb (default: dist/)
   --arch ARCH       Debian architecture name; guessed from the machine when
                     dpkg is absent (amd64, arm64, ...)
@@ -97,7 +97,7 @@ done
 
 [ -f "$DEBIAN_DIR/control" ] || die "$DEBIAN_DIR/control is missing"
 [ -f "$DEBIAN_DIR/changelog" ] || die "$DEBIAN_DIR/changelog is missing"
-[ -f "$BINARY" ] || die "no binary at $BINARY — run: cargo build --release --bin fxsound"
+[ -f "$BINARY" ] || die "no binary at $BINARY — run: cargo build --release --bin crossfx"
 [ -x "$BINARY" ] || die "$BINARY is not executable"
 
 # ---------------------------------------------------------------------------
@@ -301,13 +301,13 @@ fi
 # Staging
 #
 # The layout below is packaging/PKGBUILD's and debian/rules', and the one part
-# of it that is not a matter of taste is /usr/share/fxsound/presets: that path
-# is hardcoded in crates/fxsound-preset/src/store.rs:65 as one of two search
-# prefixes. Put the presets anywhere else and the application starts with an
+# of it that is not a matter of taste is /usr/share/crossfx/presets: that is one
+# of the two places install_data_dirs in crates/fxsound-preset/src/lib.rs
+# searches. Put the presets anywhere else and the application starts with an
 # empty preset list.
 # ---------------------------------------------------------------------------
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/fxsound-deb.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/crossfx-deb.XXXXXX")
 cleanup() {
     if [ "$KEEP" -eq 1 ]; then
         echo "$PROG: staging left at $WORK" >&2
@@ -321,10 +321,10 @@ DATA="$WORK/data"
 CTRL="$WORK/control"
 mkdir -p "$DATA" "$CTRL"
 
-install -D -m 0755 "$BINARY" "$DATA/usr/bin/fxsound"
+install -D -m 0755 "$BINARY" "$DATA/usr/bin/crossfx"
 if [ "$STRIP" -eq 1 ]; then
     if command -v strip >/dev/null 2>&1; then
-        strip --strip-unneeded "$DATA/usr/bin/fxsound"
+        strip --strip-unneeded "$DATA/usr/bin/crossfx"
     else
         warn "strip not found; the package will carry the unstripped binary"
     fi
@@ -334,53 +334,50 @@ fi
 # a zip of the same presets and a stray text file called MeaningfulPresets, and
 # neither belongs in a package.
 for dir in Factsoft BonusPresets; do
-    mkdir -p "$DATA/usr/share/fxsound/presets/$dir"
+    mkdir -p "$DATA/usr/share/crossfx/presets/$dir"
     for f in "$REPO/assets/presets/$dir"/*.fac; do
         [ -f "$f" ] || continue
-        install -m 0644 "$f" "$DATA/usr/share/fxsound/presets/$dir/"
+        install -m 0644 "$f" "$DATA/usr/share/crossfx/presets/$dir/"
     done
 done
 
 # The voice presets are TOML rather than .fac: the .fac format is a
-# byte-for-byte contract with the Windows build and has nowhere to put a gate
-# threshold.
-mkdir -p "$DATA/usr/share/fxsound/presets/Input"
+# byte-for-byte contract with the original FxSound for Windows and has nowhere
+# to put a gate threshold.
+mkdir -p "$DATA/usr/share/crossfx/presets/Input"
 for f in "$REPO/assets/presets/Input"/*.toml; do
     [ -f "$f" ] || continue
-    install -m 0644 "$f" "$DATA/usr/share/fxsound/presets/Input/"
+    install -m 0644 "$f" "$DATA/usr/share/crossfx/presets/Input/"
 done
 
-install -D -m 0644 "$REPO/packaging/fxsound.desktop" \
-    "$DATA/usr/share/applications/com.fxsound.FxSound.desktop"
-install -D -m 0644 "$REPO/packaging/fxsound.service" \
-    "$DATA/usr/lib/systemd/user/fxsound.service"
-# D-Bus activation: a call to org.fxsound.FxSound starts FxSound through that
-# unit (SystemdService=fxsound.service).
-install -D -m 0644 "$REPO/packaging/org.fxsound.FxSound.service" \
-    "$DATA/usr/share/dbus-1/services/org.fxsound.FxSound.service"
+install -D -m 0644 "$REPO/packaging/io.github.blackixxce12.CrossFX.desktop" \
+    "$DATA/usr/share/applications/io.github.blackixxce12.CrossFX.desktop"
+install -D -m 0644 "$REPO/packaging/crossfx.service" \
+    "$DATA/usr/lib/systemd/user/crossfx.service"
+# D-Bus activation: a call to io.github.blackixxce12.CrossFX starts CrossFX
+# through that unit (SystemdService=crossfx.service).
+install -D -m 0644 "$REPO/packaging/io.github.blackixxce12.CrossFX.service" \
+    "$DATA/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
+# The application icon under the application id, the one name the desktop entry,
+# the notifications (crates/fxsound-app/src/notify.rs) and the sound settings
+# look it up by.
 install -D -m 0644 "$REPO/assets/images/fxsound_large.png" \
-    "$DATA/usr/share/icons/hicolor/256x256/apps/fxsound.png"
+    "$DATA/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
 install -D -m 0644 "$REPO/assets/images/fxsound.png" \
-    "$DATA/usr/share/icons/hicolor/32x32/apps/fxsound.png"
-# The same two under the application id, the icon name every notification is
-# sent with (crates/fxsound-app/src/notify.rs).
-install -D -m 0644 "$REPO/assets/images/fxsound_large.png" \
-    "$DATA/usr/share/icons/hicolor/256x256/apps/com.fxsound.FxSound.png"
-install -D -m 0644 "$REPO/assets/images/fxsound.png" \
-    "$DATA/usr/share/icons/hicolor/32x32/apps/com.fxsound.FxSound.png"
+    "$DATA/usr/share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png"
 
 # The tray icon's three states. A StatusNotifier host resolves an icon *name*
 # through the theme, so without these under hicolor's status context the tray
 # shows a blank where the icon should be.
 mkdir -p "$DATA/usr/share/icons/hicolor/scalable/status"
-for f in "$REPO/assets/icons/status"/com.fxsound.FxSound-*.svg; do
+for f in "$REPO/assets/icons/status"/io.github.blackixxce12.CrossFX-*.svg; do
     [ -f "$f" ] || die "no status icons under assets/icons/status/"
     install -m 0644 "$f" "$DATA/usr/share/icons/hicolor/scalable/status/"
 done
 
 # AppStream metadata, so GNOME Software and Discover list the package.
-install -D -m 0644 "$REPO/packaging/com.fxsound.FxSound.metainfo.xml" \
-    "$DATA/usr/share/metainfo/com.fxsound.FxSound.metainfo.xml"
+install -D -m 0644 "$REPO/packaging/io.github.blackixxce12.CrossFX.metainfo.xml" \
+    "$DATA/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml"
 
 DOCDIR="$DATA/usr/share/doc/$PACKAGE"
 mkdir -p "$DOCDIR/examples"
@@ -390,7 +387,7 @@ mkdir -p "$DOCDIR/examples"
 # Files under examples/ are left alone, also as dh_compress leaves them.
 install -m 0644 "$DEBIAN_DIR/copyright" "$DOCDIR/copyright"
 install -m 0644 "$REPO/packaging/hyprland.conf.example" "$DOCDIR/examples/"
-install -m 0644 "$REPO/packaging/fxsound-autostart.desktop" "$DOCDIR/examples/"
+install -m 0644 "$REPO/packaging/crossfx-autostart.desktop" "$DOCDIR/examples/"
 
 # Policy wants the upstream changelog at changelog.gz and the Debian one at
 # changelog.Debian.gz. -n keeps the source filename and timestamp out of the
@@ -406,10 +403,10 @@ fi
 
 # The page lives beside the other packaging files, not under debian/, because
 # every package ships it now; the unit's Documentation= line depends on it.
-[ -f "$REPO/packaging/fxsound.1" ] || die "packaging/fxsound.1 is missing"
+[ -f "$REPO/packaging/crossfx.1" ] || die "packaging/crossfx.1 is missing"
 mkdir -p "$DATA/usr/share/man/man1"
-gzip -9nc "$REPO/packaging/fxsound.1" > "$DATA/usr/share/man/man1/fxsound.1.gz"
-chmod 0644 "$DATA/usr/share/man/man1/fxsound.1.gz"
+gzip -9nc "$REPO/packaging/crossfx.1" > "$DATA/usr/share/man/man1/crossfx.1.gz"
+chmod 0644 "$DATA/usr/share/man/man1/crossfx.1.gz"
 
 if [ -f "$DEBIAN_DIR/$PACKAGE.lintian-overrides" ]; then
     install -D -m 0644 "$DEBIAN_DIR/$PACKAGE.lintian-overrides" \
@@ -518,8 +515,8 @@ ar p "$DEB" debian-binary | grep -qx '2.0' \
 ar p "$DEB" control.tar.gz | tar tz 2>/dev/null | grep -qx './control' \
     || die "control.tar.gz has no ./control"
 
-ar p "$DEB" data.tar.gz | tar tz 2>/dev/null | grep -qx './usr/bin/fxsound' \
-    || die "data.tar.gz has no ./usr/bin/fxsound"
+ar p "$DEB" data.tar.gz | tar tz 2>/dev/null | grep -qx './usr/bin/crossfx' \
+    || die "data.tar.gz has no ./usr/bin/crossfx"
 
 file_count=$(ar p "$DEB" data.tar.gz | tar tz 2>/dev/null | grep -cv '/$' || true)
 

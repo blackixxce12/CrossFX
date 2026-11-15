@@ -3,4 +3,4 @@
 # looks like; neither is read by the application, so neither belongs anywhere
 # but the examples directory.
 packaging/hyprland.conf.example
-packaging/fxsound-autostart.desktop
+packaging/crossfx-autostart.desktop

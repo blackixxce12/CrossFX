@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 # -*- makefile -*-
 #
-# Debian packaging for the FxSound Linux port.
+# Debian packaging for CrossFX.
 #
 # This is a plain dh sequence with the cargo steps overridden by hand. dh-cargo
 # is deliberately not used: it expects every dependency to exist as a
@@ -57,7 +57,7 @@ endif
 override_dh_auto_configure:
 
 override_dh_auto_build:
-	cargo build $(CARGO_FLAGS) --bin fxsound
+	cargo build $(CARGO_FLAGS) --bin crossfx
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
@@ -72,88 +72,85 @@ override_dh_auto_clean:
 	rm -rf $(CURDIR)/target
 
 # Staged into debian/tmp rather than installed straight into the package,
-# because three of these files are renamed on the way in and dh_install cannot
-# rename. debian/fxsound-linux.install then picks the whole tree up, and
-# dh_missing will complain if anything staged here is left behind.
+# because the application icon is renamed on the way in and dh_install cannot
+# rename. debian/crossfx.install then picks the whole tree up, and dh_missing
+# will complain if anything staged here is left behind.
 #
 # The layout follows packaging/PKGBUILD, which is the authority on it. One part
-# is not a matter of taste: /usr/share/fxsound/presets is hardcoded in
-# crates/fxsound-preset/src/store.rs:65 and crates/fxsound-preset/src/input.rs:181
-# as one of two search prefixes. Move the presets to a path derived from the
-# package name and the application starts with an empty preset list.
+# is not a matter of taste: /usr/share/crossfx/presets is one of the two places
+# install_data_dirs in crates/fxsound-preset/src/lib.rs searches. Move the
+# presets anywhere else and the application starts with an empty preset list.
 override_dh_auto_install:
-	install -D -m 0755 target/release/fxsound \
-		debian/tmp/usr/bin/fxsound
+	install -D -m 0755 target/release/crossfx \
+		debian/tmp/usr/bin/crossfx
 
 	# `*.fac` and not the whole directory: assets/presets/BonusPresets also
 	# carries a zip of the same presets and a stray text file called
 	# MeaningfulPresets, and neither belongs in a package.
 	set -e; for dir in Factsoft BonusPresets; do \
-		install -d debian/tmp/usr/share/fxsound/presets/$$dir; \
+		install -d debian/tmp/usr/share/crossfx/presets/$$dir; \
 		install -m 0644 assets/presets/$$dir/*.fac \
-			-t debian/tmp/usr/share/fxsound/presets/$$dir/; \
+			-t debian/tmp/usr/share/crossfx/presets/$$dir/; \
 	done
 
 	# The voice presets are TOML, not .fac: the .fac format is a byte-for-byte
-	# contract with the Windows build and has nowhere to put a gate threshold.
-	install -d debian/tmp/usr/share/fxsound/presets/Input
+	# contract with the original FxSound for Windows and has nowhere to put a
+	# gate threshold.
+	install -d debian/tmp/usr/share/crossfx/presets/Input
 	install -m 0644 assets/presets/Input/*.toml \
-		-t debian/tmp/usr/share/fxsound/presets/Input/
+		-t debian/tmp/usr/share/crossfx/presets/Input/
 
-	install -D -m 0644 packaging/fxsound.desktop \
-		debian/tmp/usr/share/applications/com.fxsound.FxSound.desktop
+	install -D -m 0644 packaging/io.github.blackixxce12.CrossFX.desktop \
+		debian/tmp/usr/share/applications/io.github.blackixxce12.CrossFX.desktop
 
 	# /usr/lib/systemd/user is where debhelper 13 puts user units, and it is
 	# correct for both Debian 13 and Ubuntu 24.04. See the note on
 	# dh_installsystemduser below for why this is installed by hand.
-	install -D -m 0644 packaging/fxsound.service \
-		debian/tmp/usr/lib/systemd/user/fxsound.service
+	install -D -m 0644 packaging/crossfx.service \
+		debian/tmp/usr/lib/systemd/user/crossfx.service
 
-	# D-Bus activation: a call to org.fxsound.FxSound starts FxSound through
-	# that unit (SystemdService=fxsound.service).
-	install -D -m 0644 packaging/org.fxsound.FxSound.service \
-		debian/tmp/usr/share/dbus-1/services/org.fxsound.FxSound.service
+	# D-Bus activation: a call to io.github.blackixxce12.CrossFX starts CrossFX
+	# through that unit (SystemdService=crossfx.service).
+	install -D -m 0644 packaging/io.github.blackixxce12.CrossFX.service \
+		debian/tmp/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service
 
+	# The application icon under the application id, the one name the desktop
+	# entry, the notifications (crates/fxsound-app/src/notify.rs) and the
+	# sound settings look it up by.
 	install -D -m 0644 assets/images/fxsound_large.png \
-		debian/tmp/usr/share/icons/hicolor/256x256/apps/fxsound.png
+		debian/tmp/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
 	install -D -m 0644 assets/images/fxsound.png \
-		debian/tmp/usr/share/icons/hicolor/32x32/apps/fxsound.png
-	# The same two under the application id, the icon name every
-	# notification is sent with (crates/fxsound-app/src/notify.rs).
-	install -D -m 0644 assets/images/fxsound_large.png \
-		debian/tmp/usr/share/icons/hicolor/256x256/apps/com.fxsound.FxSound.png
-	install -D -m 0644 assets/images/fxsound.png \
-		debian/tmp/usr/share/icons/hicolor/32x32/apps/com.fxsound.FxSound.png
+		debian/tmp/usr/share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png
 
 	# The tray icon's three states. A StatusNotifier host resolves an icon
 	# *name* through the theme, so without these under hicolor's status
 	# context the tray shows a blank where the icon should be.
 	install -d debian/tmp/usr/share/icons/hicolor/scalable/status
-	install -m 0644 assets/icons/status/com.fxsound.FxSound-*.svg \
+	install -m 0644 assets/icons/status/io.github.blackixxce12.CrossFX-*.svg \
 		-t debian/tmp/usr/share/icons/hicolor/scalable/status/
 
 	# AppStream metadata, so GNOME Software and Discover list the package.
-	install -D -m 0644 packaging/com.fxsound.FxSound.metainfo.xml \
-		debian/tmp/usr/share/metainfo/com.fxsound.FxSound.metainfo.xml
+	install -D -m 0644 packaging/io.github.blackixxce12.CrossFX.metainfo.xml \
+		debian/tmp/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml
 
 	# The manual page is not staged here: dh_installman takes it straight
-	# from packaging/fxsound.1 (see debian/fxsound-linux.manpages) and
+	# from packaging/crossfx.1 (see debian/crossfx.manpages) and
 	# compresses it itself.
 
 override_dh_installchangelogs:
 	dh_installchangelogs CHANGELOG.md
 
 # dh_installsystemduser would want the unit at
-# debian/fxsound-linux.fxsound.user.service — a second copy of
-# packaging/fxsound.service that would quietly drift out of sync with the one
+# debian/crossfx.crossfx.user.service — a second copy of
+# packaging/crossfx.service that would quietly drift out of sync with the one
 # the Arch package and the release tarball ship. It is installed in
 # override_dh_auto_install instead.
 #
 # The other half of this decision: the unit is not enabled on install. The
-# desktop entry already starts FxSound, and an enabled user unit on top of it
+# desktop entry already starts CrossFX, and an enabled user unit on top of it
 # puts two instances in a race for the control socket in
-# $XDG_RUNTIME_DIR/fxsound — the loser exits, but which one that is depends on
-# the session's startup order. debian/fxsound-linux.postrm still cleans up
+# $XDG_RUNTIME_DIR/crossfx — the loser exits, but which one that is depends on
+# the session's startup order. debian/crossfx.postrm still cleans up
 # after someone who enabled it by hand.
 override_dh_installsystemduser:
 

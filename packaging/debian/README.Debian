@@ -1,5 +1,5 @@
-fxsound-linux for Debian and Ubuntu
-===================================
+crossfx for Debian and Ubuntu
+=============================
 
 Two things about this tree are unusual and both have reasons.
 
@@ -13,7 +13,7 @@ PKGBUILD, the two AUR recipes, the desktop entry, the systemd unit — and
 putting a bare debian/ at the root next to Cargo.toml would be the one
 exception. So: symlink it before building.
 
-    cd /path/to/fxsound-linux
+    cd /path/to/CrossFX
     ln -sfn packaging/debian debian
     dpkg-buildpackage -us -uc -b
 
@@ -75,7 +75,7 @@ without any part of dpkg being installed. It exists for two situations: a
 developer on a non-Debian machine who wants to hand someone a .deb, and a CI
 runner where installing debhelper is more trouble than it is worth.
 
-    cargo build --release --bin fxsound
+    cargo build --release --bin crossfx
     ./packaging/build-deb.sh
 
 The result lands in dist/. It reads its version from debian/changelog and its
@@ -88,18 +88,18 @@ and no dbgsym. Run `./packaging/build-deb.sh --help` for the options.
 Decisions you might otherwise have to rediscover
 ------------------------------------------------
 
-* /usr/share/fxsound/presets is not a name this packaging chose. It is
-  hardcoded in crates/fxsound-preset/src/store.rs:65 and input.rs:181 as one of
-  two search prefixes (the other is /usr/local/share/fxsound). Install the
-  presets under a path derived from the package name instead and you get an
-  application that starts fine and has no presets.
+* /usr/share/crossfx/presets is not a name this packaging chose. It is one
+  of the two places install_data_dirs in crates/fxsound-preset/src/lib.rs
+  searches (the other is /usr/local/share/crossfx). Install the presets
+  anywhere else and you get an application that starts fine and has no
+  presets.
 
 * The systemd user unit is installed and deliberately not enabled. The desktop
-  entry already starts FxSound; an enabled user unit on top of that puts two
-  processes in a race for the control socket in $XDG_RUNTIME_DIR/fxsound. The
+  entry already starts CrossFX; an enabled user unit on top of that puts two
+  processes in a race for the control socket in $XDG_RUNTIME_DIR/crossfx. The
   loser exits cleanly, but which one loses depends on the session's startup
   order, which is not a thing to leave to chance. `systemctl --user enable
-  --now fxsound` turns it on for anyone who wants it, and debian/*.postrm
+  --now crossfx` turns it on for anyone who wants it, and debian/*.postrm
   cleans up after them on removal.
 
 * LICENSE is not installed into /usr/share/doc. The Arch package installs it
@@ -118,11 +118,11 @@ Decisions you might otherwise have to rediscover
   all that is needed to activate them.
 
 * Almost the whole graphics stack is dlopen()ed rather than linked.
-  `objdump -p usr/bin/fxsound` lists five NEEDED entries; libEGL, libGL, the
+  `objdump -p usr/bin/crossfx` lists five NEEDED entries; libEGL, libGL, the
   Wayland client libraries, libxkbcommon and the X11 libraries are strings
   inside the binary that libloading resolves at startup. dpkg-shlibdeps cannot
   see any of them, which is why debian/control names them by hand. If the
   package ever installs cleanly and then fails to open a window, that list is
   the first place to look.
 
- -- FxSound Linux port contributors <blackixxce12@users.noreply.github.com>  Mon, 21 Sep 2026 02:00:00 +0400
+ -- CrossFX contributors <blackixxce12@users.noreply.github.com>  Mon, 21 Sep 2026 02:00:00 +0400

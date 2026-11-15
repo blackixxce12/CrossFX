@@ -1,3 +1,11 @@
+crossfx (0.5.0-1) UNRELEASED; urgency=medium
+
+  * Renamed from fxsound-linux: binary crossfx, desktop and AppStream id
+    io.github.blackixxce12.CrossFX, D-Bus name and activation file,
+    crossfx.service, crossfx(1), /usr/share/crossfx.
+
+ -- CrossFX contributors <blackixxce12@users.noreply.github.com>  Sun, 15 Nov 2026 23:44:08 +0400
+
 fxsound-linux (0.5.0-1) unstable; urgency=medium
 
   * New upstream release. «Like FxSound for Windows», a new Experimental

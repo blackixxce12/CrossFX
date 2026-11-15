@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: fxsound-linux
-Upstream-Contact: https://github.com/blackixxce12/fxsound-linux/issues
-Source: https://github.com/blackixxce12/fxsound-linux
+Upstream-Name: CrossFX
+Upstream-Contact: https://github.com/blackixxce12/CrossFX/issues
+Source: https://github.com/blackixxce12/CrossFX
 Comment:
  A note on what this file does and does not cover. Everything described below
  is a file that is actually in the source tarball, and three parts of it are
@@ -11,7 +11,7 @@ Comment:
  reproduce their notices and licences, which is what both licences make the
  condition of shipping it.
  .
- Gilroy, the face of FxSound for Windows, is not in the tree and the binary
+ Gilroy, the face of the original FxSound, is not in the tree and the binary
  neither carries nor downloads it: it is Radomir Tinkov's commercial typeface,
  which the interface uses only when the user adds the files they licensed
  themselves.
@@ -30,28 +30,31 @@ Comment:
 
 Files: *
 Copyright:
- 2025-2026 FxSound Linux port contributors
+ 2025-2026 CrossFX contributors
  2025 FxSound LLC
 License: AGPL-3.0-or-later
 Comment:
- The port is a fork of FxSound rather than a wrapper around it, and two parts
- of it are upstream's work carried across rather than rewritten:
+ CrossFX is a fork of the original FxSound rather than a wrapper around it,
+ and two parts of it are the original's work carried across rather than
+ rewritten:
  .
    * The DSP under crates/fxsound-dsp is a line-by-line port of the C sources
-     in the upstream tree, filter designs and coefficient mappings included.
+     in the original FxSound's tree, filter designs and coefficient mappings
+     included.
    * The .fac presets under assets/presets/Factsoft and
-     assets/presets/BonusPresets are upstream's own files, byte for byte, so
-     that a preset means the same thing on both platforms.
+     assets/presets/BonusPresets are the original FxSound's own files, byte
+     for byte, so that a preset means the same thing in both programs.
  .
- Both inherit upstream's terms, which are the same terms the port uses.
+ Both inherit the original FxSound's terms, which are the same terms CrossFX
+ uses.
 
 Files: assets/presets/Input/*
-Copyright: 2026 FxSound Linux port contributors
+Copyright: 2026 CrossFX contributors
 License: AGPL-3.0-or-later
 Comment:
- The voice presets are new in the Linux port and have no upstream counterpart:
- the .fac format is a byte-for-byte contract with the Windows build and has
- nowhere to put a gate threshold, so these are TOML.
+ The voice presets are new in CrossFX and have no counterpart in the original:
+ the .fac format is a byte-for-byte contract with the original FxSound for
+ Windows and has nowhere to put a gate threshold, so these are TOML.
 
 Files: crates/fxsound-rnnoise/*
 Copyright:
@@ -60,12 +63,12 @@ Copyright:
  2007-2017 Jean-Marc Valin
  2005-2017 Xiph.Org Foundation
  2003-2004 Mark Borgerding
- 2026 FxSound Linux port contributors
+ 2026 CrossFX contributors
 License: BSD-3-Clause
 Comment:
  Joe Neeman's nnnoiseless 0.5.2, a pure-Rust port of Xiph's RNNoise, vendored
  with its COPYING, its AUTHORS and its model, src/weights.rnn, which is
- compiled into the binary. The port's changes to it are marked `// fxsound:`
+ compiled into the binary. CrossFX's changes to it are marked `// crossfx:`
  in the source, listed in its README.md, and under the same licence.
 
 Files: assets/fonts/Noto* assets/fonts/OFL.txt
@@ -96,7 +99,7 @@ Comment:
  as OFL.manrope.
 
 Files: debian/*
-Copyright: 2026 FxSound Linux port contributors
+Copyright: 2026 CrossFX contributors
 License: AGPL-3.0-or-later
 
 License: AGPL-3.0-or-later
