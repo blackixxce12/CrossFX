@@ -607,7 +607,7 @@ fn a_flatpak_that_follows_beside_the_native_rule_on_a_preset_stays_on_its_lane()
     app.set_named_app_preset("org.mozilla.firefox", IN, Some("Headset"))
         .expect("set");
     assert_eq!(app.app_rules().apps.len(), 2);
-    // Then "FxSound's preset" on its row's output.
+    // Then "CrossFX's preset" on its row's output.
     app.set_app_preset(&flatpak_firefox(), OUT, None)
         .expect("set");
     assert_eq!(app.app_preset(&flatpak_firefox(), OUT), AppPreset::Follow);
@@ -1037,9 +1037,9 @@ fn moving_a_level_the_speakers_share_resends_the_playback_routes_with_it() {
 #[test]
 fn interface_and_sound_resends_the_playback_routes_on_the_windows_dsp_and_leaves_the_voices_alone()
 {
-    // «Like FxSound for Windows» = Interface and sound plays the Windows build's DSP on the
-    // output lane and on every application's output route; the voice chain has no Windows
-    // original, so a recording route's snapshot does not move.
+    // «Like the original FxSound LLC» = Interface and sound plays the original's DSP on the
+    // output lane and on every application's output route; the voice chain has no counterpart in
+    // the original, so a recording route's snapshot does not move.
     use fxsound_core::{DspCompat, WindowsParity};
     let (mut app, engine, _dir) = routed();
     let game = |routes: &[AppRoute]| output(route_of(routes, &battlefield(), OUT));
@@ -1054,7 +1054,7 @@ fn interface_and_sound_resends_the_playback_routes_on_the_windows_dsp_and_leaves
     );
     assert!(
         routes_sent(&engine).is_empty(),
-        "Interface plays FxSound for Linux's DSP"
+        "Interface plays CrossFX's DSP"
     );
 
     assert_eq!(app.set_windows_parity(WindowsParity::Sound, false), Ok(()));
@@ -1106,8 +1106,8 @@ fn a_microphone_setting_reaches_the_recording_routes() {
 
 #[test]
 fn turning_the_power_off_takes_every_route_away_and_turning_it_on_brings_them_back() {
-    // Power off hands both defaults back so that nothing passes through FxSound (U12): a game
-    // left on `FxSound (Output) · Gaming` would stay on the lane's device, at FxSound's volume,
+    // Power off hands both defaults back so that nothing passes through CrossFX (U12): a game
+    // left on `CrossFX (Output) · Gaming` would stay on the lane's device, at CrossFX's volume,
     // when the user moves the system's default somewhere else.
     let (mut app, engine, _dir) = routed();
     let before = app.app_routes().to_vec();
@@ -1223,7 +1223,7 @@ fn a_start_with_the_power_off_sends_no_route_until_it_is_turned_on() {
     );
     assert!(
         routes_sent(&engine).iter().all(Vec::is_empty),
-        "a game started while FxSound is off is moved nowhere"
+        "a game started while CrossFX is off is moved nowhere"
     );
 
     app.handle(&[UiAction::TogglePower]);
@@ -1347,7 +1347,7 @@ fn a_choice_the_disk_would_not_take_is_written_on_the_way_out_with_nothing_playi
     let due = app.next_deadline().expect("the store is still due");
     assert!(due >= before + SAVE_RETRY_DELAY, "{due:?}");
 
-    // The trouble clears; the game has quit and nothing plays; FxSound exits.
+    // The trouble clears; the game has quit and nothing plays; CrossFX exits.
     std::fs::remove_file(&config).expect("out of the way");
     app.shutdown();
     assert_eq!(
@@ -1808,7 +1808,7 @@ fn choosing_in_the_pane_routes_the_application_at_once_and_the_row_says_so() {
         }]
     );
 
-    // "FxSound's preset": back on the lane.
+    // "CrossFX's preset": back on the lane.
     app.handle_settings(
         &SettingsAction::SetAppPreset {
             app: battlefield(),

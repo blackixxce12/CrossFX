@@ -4,7 +4,7 @@
 //! Three things meet here:
 //!
 //! - the **store**, `apps.toml` ([`AppRules`]): what the user chose for each application, and
-//!   every application FxSound has seen play or record, so the Applications list can offer a
+//!   every application CrossFX has seen play or record, so the Applications list can offer a
 //!   preset for a game that is not running;
 //! - the **streams** the engine reports, whole, whenever they change
 //!   ([`AudioToUi::AppStreams`](fxsound_core::AudioToUi::AppStreams)):
@@ -31,7 +31,7 @@
 //!   the speakers' filter width, master gain, balance and volume leveller;
 //! - a recording route runs the voice preset with the Settings pane's microphone settings written
 //!   over it, and the voice chain it names;
-//! - there are none while the power is off: power off takes FxSound out of the path (U12), and
+//! - there are none while the power is off: power off takes CrossFX out of the path (U12), and
 //!   the engine moves every routed stream back when it is given no routes. They are switched off
 //!   first, for the one it keeps under a stream it cannot move ([`App::refresh_app_routes`]);
 //! - a system going to sleep silences them with their lane, which is the engine's to do
@@ -45,7 +45,7 @@
 //! a stream came or went. A preset renamed in the window carries every rule to its new name; one
 //! deleted there returns every rule that named it to following the lane, and the window says so
 //! once. A rule naming a preset the store does not have — a hand edit, a file removed behind
-//! FxSound's back — follows the lane without being rewritten, so the preset coming back brings the
+//! CrossFX's back — follows the lane without being rewritten, so the preset coming back brings the
 //! route back; the window says so once a session, when the application plays or records.
 //!
 //! `app_routed` on the event stream is the engine's word, not the rules': it says where the engine
@@ -84,7 +84,7 @@ pub(super) const SEEN_SAVE_DELAY: Duration = Duration::from_secs(5 * 60);
 pub(super) const SAVE_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 /// How long a cold start waits to hear which applications play and record before it keeps a
-/// preset named for an application FxSound does not remember ([`App::hold_app_presets`]). The
+/// preset named for an application CrossFX does not remember ([`App::hold_app_presets`]). The
 /// engine reports every stream within a supervisor tick of meeting it, but reports nothing at all
 /// while nothing plays, so the wait cannot be for the report alone.
 pub(super) const STREAMS_PATIENCE: Duration = Duration::from_secs(3);
@@ -122,7 +122,7 @@ pub(super) struct AppPresets {
     /// While a cold start waits to hear which applications play and record: until when
     /// ([`STREAMS_PATIENCE`]).
     holding: Option<Instant>,
-    /// The presets named in the meantime for applications FxSound does not remember, in the order
+    /// The presets named in the meantime for applications CrossFX does not remember, in the order
     /// they were named: `(text, lane, preset)`.
     held: Vec<(String, DeviceDirection, String)>,
     /// Per lane and application, the route the engine last reported its streams on, in the order
@@ -135,7 +135,7 @@ pub(super) struct AppPresets {
 }
 
 impl AppPresets {
-    /// The store at `~/.config/fxsound/apps.toml`, written back there.
+    /// The store at `~/.config/crossfx/apps.toml`, written back there.
     pub(super) fn load() -> Self {
         Self::load_from(AppRules::config_path())
     }
@@ -200,7 +200,7 @@ impl std::error::Error for AppRuleRefusal {}
 /// preset was deleted, or is not there to run.
 pub(super) fn followed_notice(preset: &str) -> String {
     tr_args(
-        "Applications that used %s now follow FxSound's preset",
+        "Applications that used %s now follow CrossFX's preset",
         &[preset],
     )
 }
@@ -212,18 +212,18 @@ pub struct NamedAppRule {
     /// it reached none. Empty when it reached none and there was nothing to choose, or the choice
     /// is held.
     pub apps: Vec<AppKey>,
-    /// Whether the name reached no application FxSound has seen, so that the preset was kept
-    /// under [`unseen_key`], or is held until FxSound has heard which applications run.
+    /// Whether the name reached no application CrossFX has seen, so that the preset was kept
+    /// under [`unseen_key`], or is held until CrossFX has heard which applications run.
     pub unseen: bool,
-    /// Whether the choice is held until FxSound has heard which applications play and record
-    /// ([`App::hold_app_presets`]): the name reached no application FxSound remembers, and one
+    /// Whether the choice is held until CrossFX has heard which applications play and record
+    /// ([`App::hold_app_presets`]): the name reached no application CrossFX remembers, and one
     /// that runs now may still answer to it.
     pub held: bool,
     /// Whether the store changed.
     pub changed: bool,
 }
 
-/// The key a preset named for `text` is kept under when no application FxSound has seen answers
+/// The key a preset named for `text` is kept under when no application CrossFX has seen answers
 /// to it: `text` in the identifier it looks like. Each identifier of a rule is compared with the
 /// same one of a stream only ([`AppKey::matches`]), so a Flatpak id kept as a program would never
 /// reach the Flatpak.
@@ -563,7 +563,7 @@ impl App {
     ///
     /// A blank `text` (or one that is only a path's separators), and a preset `direction`'s store
     /// does not have, are refused and change nothing — not even a rule added for an application
-    /// FxSound has not seen.
+    /// CrossFX has not seen.
     pub fn set_named_app_preset(
         &mut self,
         text: &str,
@@ -624,12 +624,12 @@ impl App {
         })
     }
 
-    /// Hold every preset [`App::set_named_app_preset`] is given for an application FxSound does
+    /// Hold every preset [`App::set_named_app_preset`] is given for an application CrossFX does
     /// not remember until the engine has said which applications play and record: what a cold
     /// start does before it runs the command line's `--app-preset` and `--app-input-preset`,
     /// since those run before any stream is known. An application that plays now under a name the
-    /// store does not know — a Firefox started before FxSound, whose program is `firefox-bin`,
-    /// named `Firefox` — is then reached through its streams, as a running FxSound reaches it,
+    /// store does not know — a Firefox started before CrossFX, whose program is `firefox-bin`,
+    /// named `Firefox` — is then reached through its streams, as a running CrossFX reaches it,
     /// rather than given a rule that guesses at its identifiers ([`unseen_key`]).
     ///
     /// The wait ends with the engine's first report of the streams, or `STREAMS_PATIENCE` after
@@ -651,7 +651,7 @@ impl App {
         for (text, direction, preset) in std::mem::take(&mut self.apps.held) {
             match self.set_named_app_preset(&text, direction, Some(&preset)) {
                 Ok(done) if done.unseen => log::info!(
-                    "no application FxSound knows or hears is called {text:?}: {preset} is kept \
+                    "no application CrossFX knows or hears is called {text:?}: {preset} is kept \
                      for {}",
                     done.apps
                         .first()
@@ -708,7 +708,7 @@ impl App {
     /// Forget the rule for the application `app` names — the ✕ on its row. Returns whether one
     /// was forgotten; the store is written at once.
     ///
-    /// An application that is playing or recording now is still one FxSound has seen, so it is
+    /// An application that is playing or recording now is still one CrossFX has seen, so it is
     /// remembered again at once, following both lanes: forgetting a running application takes its
     /// presets away, and it stays in the list as it came in.
     pub fn forget_app(&mut self, app: &AppKey) -> bool {
@@ -824,7 +824,7 @@ impl App {
     /// of its lane's kind that nothing runs.
     ///
     /// While the power is off the engine is given no routes at all, whatever is resolved: power
-    /// off takes FxSound out of the path (U12), and a route is a path through FxSound too. The
+    /// off takes CrossFX out of the path (U12), and a route is a path through CrossFX too. The
     /// engine moves every routed stream back — it deletes the `target.object` keys it wrote — so
     /// a game with a preset of its own follows the system's default device like everything else,
     /// and a stream that starts meanwhile is moved nowhere. The rules and what they resolve to
@@ -1078,11 +1078,11 @@ impl App {
     /// band count, with the speakers' levels, as the output lane's own snapshot is built — the
     /// shared [`preset_params`], which the bit-exactness harness and the offline renderers use too.
     ///
-    /// The ladder is the engine's own for the band count, in the DSP the level of «Like FxSound for
-    /// Windows» plays ([`MusicLevels::ladder`]). The lane fits a preset of another count
-    /// onto the centres its window holds at that moment, which are the same ones unless the
-    /// preset showing moved a band's frequency; a route does not hang on what the window happens
-    /// to show.
+    /// The ladder is the engine's own for the band count, in the DSP the level of «Like the
+    /// original FxSound LLC» plays ([`MusicLevels::ladder`]). The lane fits a preset of another
+    /// count onto the centres its window holds at that moment, which are the same ones unless the
+    /// preset showing moved a band's frequency; a route does not hang on what the window happens to
+    /// show.
     fn music_route_params(&self, preset: &Preset) -> DspParams {
         let count = (self.settings.num_bands as usize).clamp(1, fxsound_core::eq::MAX_BANDS);
         let levels = MusicLevels::of(&self.settings);

@@ -2,7 +2,7 @@
 //!
 //! The same path serves three callers: the cold start, a second invocation forwarded over the
 //! control socket, and a compositor keybind (which is just the second case). That is deliberate —
-//! `hyprctl`-driven shortcuts and `fxsound --bass 8` must mean exactly the same thing, and the
+//! `hyprctl`-driven shortcuts and `crossfx --bass 8` must mean exactly the same thing, and the
 //! original has the same property through its `applyConfig` (`FxController.cpp:344-602`).
 //!
 //! Ordering inside a single invocation is the original's, but for the devices coming before the
@@ -36,9 +36,9 @@ pub struct WindowRequest {
     pub hide: bool,
     pub toggle: bool,
     pub quit: bool,
-    /// `show` is only the window «Like FxSound for Windows» raises for a forwarded line that
+    /// `show` is only the window «Like the original FxSound LLC» raises for a forwarded line that
     /// sets something ([`run_forwarded`]): nobody asked for the window itself, so one that cannot
-    /// be opened — no display in FxSound's environment — is no reason to stop the sound.
+    /// be opened — no display in CrossFX's environment — is no reason to stop the sound.
     pub raised_like_windows: bool,
 }
 
@@ -55,8 +55,8 @@ impl WindowRequest {
         self.raised_like_windows = false;
     }
 
-    /// Both requests at once. The window shown is only raised like Windows while no side asked
-    /// for it itself.
+    /// Both requests at once. The window shown is only raised like the original's while no side
+    /// asked for it itself.
     pub const fn merge(&mut self, other: Self) {
         let asked =
             (self.show && !self.raised_like_windows) || (other.show && !other.raised_like_windows);
@@ -120,14 +120,15 @@ pub fn run(app: &mut App, commands: &[Command]) -> Outcome {
     outcome
 }
 
-/// Execute a command line a second `fxsound` forwarded over the control socket, or D-Bus handed
-/// over: [`run`], and then the window the Windows build raises for it.
+/// Execute a command line a second `crossfx` forwarded over the control socket, or D-Bus handed
+/// over: [`run`], and then the window the original raises for it.
 ///
 /// `raises_like_windows` is [`crate::cli::Cli::raises_like_windows`] for a line from the socket
-/// and `false` for D-Bus, whose calls come from keybinds and status bars. At «Как в Windows» =
-/// Interface and above such a line raises the window, as step 11 of `applyConfig` does for every
-/// forwarded line (`FxController.cpp:523-531`, 0.4.0 audit R11) — at the level the line leaves
-/// in force, since `--windows-parity` runs first on its line. `--quit` on the same line wins.
+/// and `false` for D-Bus, whose calls come from keybinds and status bars. At «Как в оригинальном
+/// FxSound LLC» = Interface and above such a line raises the window, as step 11 of `applyConfig`
+/// does for every forwarded line (`FxController.cpp:523-531`, 0.4.0 audit R11) — at the level the
+/// line leaves in force, since `--windows-parity` runs first on its line. `--quit` on the same line
+/// wins.
 pub fn run_forwarded(app: &mut App, commands: &[Command], raises_like_windows: bool) -> Outcome {
     let mut outcome = run(app, commands);
     if raises_like_windows && app.windows_parity().interface() && !outcome.window.quit {
@@ -170,7 +171,7 @@ fn run_one(app: &mut App, command: &Command) -> Outcome {
         Command::Watch { .. } => {
             return Outcome::refused(
                 "--watch is a stream: subscribe with a watch request on the control socket, as \
-                 `fxsound --watch` does",
+                 `crossfx --watch` does",
             );
         }
 
@@ -192,7 +193,8 @@ fn run_one(app: &mut App, command: &Command) -> Outcome {
             };
             if want != app.state.power {
                 app.handle(&[UiAction::TogglePower]);
-                // `TRANS("FxSound is %s.")` is the command-line path's toast (`FxController.cpp:1933`).
+                // The original's status line, read under CrossFX's key, is the command-line path's
+                // toast (`FxController.cpp:1933`).
                 app.notify_power();
             }
         }
@@ -266,9 +268,9 @@ fn run_one(app: &mut App, command: &Command) -> Outcome {
         // word, and one with fewer set what it could and passed the rest to a setter that ignores
         // them, also without a word.
         //
-        // At «Как в Windows» = Interface and above the pairs that fit are set and the rest skipped
-        // (the approved contract, `docs/0.5.0-windows-parity.md` §2), with a note rather than a
-        // failure ([`set_the_pairs_that_fit`]).
+        // At «Как в оригинальном FxSound LLC» = Interface and above the pairs that fit are set and
+        // the rest skipped (the approved contract, `docs/0.5.0-windows-parity.md` §2), with a note
+        // rather than a failure ([`set_the_pairs_that_fit`]).
         Command::BandFrequencies(pairs) if app.windows_parity().interface() => {
             return set_the_pairs_that_fit(app, "--set_band_freq", pairs);
         }
@@ -313,11 +315,11 @@ fn run_one(app: &mut App, command: &Command) -> Outcome {
     outcome
 }
 
-/// `--set_band_freq` or `--set_band_gain` (`option`) at «Как в Windows» = Interface and above:
-/// every pair whose band the edit direction's equalizer has — and, for a frequency, whose centre
-/// lies in that band's tuning range — is set, and the others are skipped (0.4.0 audit #51, the
-/// Windows side of it). The Windows build says nothing about a pair it drops; the skipped pairs
-/// are named on stderr here, and the command still succeeds.
+/// `--set_band_freq` or `--set_band_gain` (`option`) at «Как в оригинальном FxSound LLC» =
+/// Interface and above: every pair whose band the edit direction's equalizer has — and, for a
+/// frequency, whose centre lies in that band's tuning range — is set, and the others are skipped
+/// (0.4.0 audit #51, the original's side of it). The original says nothing about a pair it drops;
+/// the skipped pairs are named on stderr here, and the command still succeeds.
 fn set_the_pairs_that_fit(app: &mut App, option: &str, pairs: &[(usize, f32)]) -> Outcome {
     let frequencies = option == "--set_band_freq";
     let count = app.state.eq_bands.len();
@@ -527,7 +529,7 @@ fn run_device(app: &mut App, lane: DeviceDirection, command: &DeviceCommand) -> 
 /// The device `--next-output` or `--next-input` should move `lane` to: the next one of that
 /// direction, wrapping, or the first when the lane is detached; `None` when there is nowhere else
 /// to go. "Next" in the order of the lane's device priority list, which is the order the list
-/// is kept in (U4, `crate::priority::sort_by_rank`), as upstream's `CMD_NEXT_OUTPUT` walks its
+/// is kept in (U4, `crate::priority::sort_by_rank`), as the original's `CMD_NEXT_OUTPUT` walks its
 /// sorted output list (`FxController.cpp:1983-2011`).
 ///
 /// Each keybind cycles its own lane and never crosses into the other: flipping the microphone
@@ -594,9 +596,9 @@ fn run_preset(app: &mut App, command: &PresetCommand) -> Outcome {
 ///
 /// A preset `lane`'s list does not have is refused, with a word on where it is when the other
 /// lane's list has it, as `--preset` says it. A name no remembered application answers to is not
-/// an error — FxSound keeps the preset for the Flatpak id, program or name the text looks like
+/// an error — CrossFX keeps the preset for the Flatpak id, program or name the text looks like
 /// ([`crate::app::unseen_key`]), the game that has not been started yet — but it is said, on
-/// stderr, since a mistyped name is just as new to FxSound. So is a choice a cold start holds
+/// stderr, since a mistyped name is just as new to CrossFX. So is a choice a cold start holds
 /// until it has heard which applications play and record ([`App::hold_app_presets`]).
 fn run_app_preset(
     app: &mut App,
@@ -611,9 +613,9 @@ fn run_app_preset(
     match app.set_named_app_preset(name, lane, preset.name()) {
         Ok(done) if done.held => Outcome {
             stderr: format!(
-                "note: FxSound remembers no application called {name:?}; it chooses the preset \
+                "note: CrossFX remembers no application called {name:?}; it chooses the preset \
                  once it has heard which applications play and record, for one of them that \
-                 answers to the name or else for {} (--list-apps shows the applications FxSound \
+                 answers to the name or else for {} (--list-apps shows the applications CrossFX \
                  knows)",
                 crate::app::unseen_description(&crate::app::unseen_key(name))
             ),
@@ -621,15 +623,15 @@ fn run_app_preset(
         },
         Ok(done) if done.apps.is_empty() => Outcome {
             stderr: format!(
-                "note: FxSound has not seen an application called {name:?}, so it follows \
-                 FxSound's preset already"
+                "note: CrossFX has not seen an application called {name:?}, so it follows \
+                 CrossFX's preset already"
             ),
             ..Outcome::default()
         },
         Ok(done) if done.unseen => Outcome {
             stderr: format!(
-                "note: FxSound has not seen an application called {name:?}; the preset is kept for \
-                 {} and runs once it {runs} (--list-apps shows the applications FxSound knows)",
+                "note: CrossFX has not seen an application called {name:?}; the preset is kept for \
+                 {} and runs once it {runs} (--list-apps shows the applications CrossFX knows)",
                 done.apps
                     .first()
                     .map_or_else(|| format!("{name:?}"), crate::app::unseen_description)
@@ -676,7 +678,7 @@ pub struct AppStatus {
     pub routed: RoutedStatus,
 }
 
-/// Per lane, the preset of the route FxSound has moved an application's streams onto — what
+/// Per lane, the preset of the route CrossFX has moved an application's streams onto — what
 /// `app_routed` last said. `null` while they are on the lane's own chain: it follows the lane,
 /// it is not playing or recording there, or its route could not be made.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -730,7 +732,7 @@ pub fn app_statuses(rules: &AppRules, streams: &[AppStream]) -> Vec<AppStatus> {
 }
 
 /// What `--list-apps` prints for `apps`: [`AppListing`] as one JSON object, or one line per
-/// application of `key=value` pairs, spelled as `fxsound --watch` spells them — a value with a
+/// application of `key=value` pairs, spelled as `crossfx --watch` spells them — a value with a
 /// space in it quoted, `null` left empty:
 ///
 /// ```text
@@ -772,7 +774,7 @@ pub fn app_listing(apps: Vec<AppStatus>, json: bool) -> String {
     lines.join("\n")
 }
 
-/// `--list-apps` with no FxSound running: the store at `path` listed as [`app_listing`] lists
+/// `--list-apps` with no CrossFX running: the store at `path` listed as [`app_listing`] lists
 /// it, with nothing running and nothing routed.
 ///
 /// Read only: a file that does not load is reported and left where it is, rather than moved
@@ -799,23 +801,23 @@ pub fn store_listing(path: &Path, json: bool) -> Outcome {
     }
 }
 
-/// What `fxsound` says when it cannot find a running FxSound to answer.
-pub const NOT_RUNNING: &str = "FxSound is not running";
+/// What `crossfx` says when it cannot find a running CrossFX to answer.
+pub const NOT_RUNNING: &str = "CrossFX is not running";
 
-/// The answer to a command line that has no FxSound to ask, or `None` when it starts one.
+/// The answer to a command line that has no CrossFX to ask, or `None` when it starts one.
 ///
 /// `main` asks this once it holds the lock, before the engine starts, with the line's
 /// [`Cli::commands`](crate::cli::Cli::commands): the same list a running instance would run, so a
-/// line means the same thing whether FxSound runs or not. `--watch --list-apps` is the listing
+/// line means the same thing whether CrossFX runs or not. `--watch --list-apps` is the listing
 /// either way, and so is `--quit --list-apps`.
 ///
 /// * `--list-apps` is answered from the store at `store` ([`store_listing`]), and nothing
 ///   starts.
-/// * `--status` and `--watch` have nobody to ask, and starting FxSound to answer would be the
+/// * `--status` and `--watch` have nobody to ask, and starting CrossFX to answer would be the
 ///   opposite of what was asked: [`NOT_RUNNING`], and a failure.
 /// * `--quit` has nothing to stop: [`NOT_RUNNING`] too, but what was asked for is true already,
 ///   so not a failure. A `--forget-device` on that line is still done to the settings file, as a
-///   running FxSound forgets the device before it quits (0.4.0 review FA), and its refusal is
+///   running CrossFX forgets the device before it quits (0.4.0 review FA), and its refusal is
 ///   the line's; the rest of the line is not carried out.
 /// * `--next-output` and `--next-input` step a lane from the device it is on, and a start has
 ///   none: the lane attaches to its device only once PipeWire has listed them, and to which one
@@ -824,8 +826,8 @@ pub const NOT_RUNNING: &str = "FxSound is not running";
 ///   something is carried out by the start (`Command::honoured_at_cold_start`).
 /// * `--forget-device` alone is done to the settings file at `settings`
 ///   ([`forget_in_the_settings_file`]), and nothing starts: the script or keybind that ran it
-///   hears whether it worked and goes on, rather than becoming FxSound. Beside options that
-///   start FxSound it is done the same way before they do (`main`), so it is not here. Beside
+///   hears whether it worked and goes on, rather than becoming CrossFX. Beside options that
+///   start CrossFX it is done the same way before they do (`main`), so it is not here. Beside
 ///   `--status`, `--watch`, `--self-test` or `--list-apps` it is a parse error, since a report
 ///   runs alone and would drop it (`Cli`).
 ///
@@ -867,24 +869,24 @@ pub fn answer_without_an_instance(
             };
             Some(Outcome::refused(format!(
                 "{NOT_RUNNING}, so {option} has no device to step from; nothing on the command \
-                 line was done and nothing was started (start FxSound first, or name the \
+                 line was done and nothing was started (start CrossFX first, or name the \
                  device with {pick})"
             )))
         }),
     }
 }
 
-/// Every `--forget-device` in `commands`, done to the settings file at `path` with no FxSound
+/// Every `--forget-device` in `commands`, done to the settings file at `path` with no CrossFX
 /// running (0.4.0 audit #34): what [`App::forget_device`] does, less its two waits.
 ///
-/// A running FxSound refuses a device that is plugged in, since it would learn it again at once,
+/// A running CrossFX refuses a device that is plugged in, since it would learn it again at once,
 /// and refuses every name until PipeWire has listed the devices. With none running, nothing is
-/// attached to any device and nothing will learn one until FxSound starts, which is then a start
+/// attached to any device and nothing will learn one until CrossFX starts, which is then a start
 /// like the first one for that device: so every entry counts as unplugged, and the name is
 /// forgotten from the file at once ([`crate::app::forget_device_in`]). A name neither priority
 /// list has is refused as the instance refuses it.
 ///
-/// Called only while `main` holds the instance lock, so no FxSound writes the file meanwhile. A
+/// Called only while `main` holds the instance lock, so no CrossFX writes the file meanwhile. A
 /// file that does not load is reported and left where it is, as [`store_listing`] leaves the
 /// store; a missing file knows no device. The file is written only when something was forgotten.
 #[must_use]
@@ -930,7 +932,7 @@ pub fn forget_in_the_settings_file(commands: &[Command], path: &Path) -> Outcome
     }
 }
 
-/// How long a running FxSound holds a forwarded line with a `--forget-device`, a `--next-output`
+/// How long a running CrossFX holds a forwarded line with a `--forget-device`, a `--next-output`
 /// or a `--next-input` in it for PipeWire's first device list ([`waits_for_the_device_list`]):
 /// long enough for a PipeWire that answers at all, and a second short of
 /// [`crate::ipc::HANDLER_TIMEOUT`], so the caller still hears back rather than its own timeout
@@ -940,8 +942,8 @@ pub const DEVICE_LIST_WAIT: std::time::Duration = std::time::Duration::from_secs
 /// Whether `commands` should wait for the device list before `app` runs them: a
 /// `--forget-device`, `--next-output` or `--next-input` (or D-Bus `ForgetDevice`, `NextOutput`,
 /// `NextInput`) that reaches an instance so young that PipeWire has not listed the devices yet — a
-/// call that started FxSound through the bus (`--activated`), or a script that runs
-/// `fxsound --next-output` right after `fxsound &`. [`App::forget_device`] can only refuse then,
+/// call that started CrossFX through the bus (`--activated`), or a script that runs
+/// `crossfx --next-output` right after `crossfx &`. [`App::forget_device`] can only refuse then,
 /// and a step has no list to step through, so it went nowhere and still succeeded (0.4.0); held
 /// until the list is in, for at most [`DEVICE_LIST_WAIT`], each does what it says. Without an
 /// engine no list will come, and the line runs at once.
@@ -966,10 +968,10 @@ pub fn waits_for_the_device_list(app: &App, commands: &[Command]) -> bool {
 /// the number; removing or renaming a key, or changing its meaning or its JSON type, raises it by
 /// one — and a meaning that has to change gets a new key beside the old one instead, as
 /// `edit_direction` beside `direction`. 0.3.0's document had no number and is schema 1; 2 is
-/// 0.4.0's, every key of 1 kept and upstream's `printStatus` keys added; 3 is 0.5.0's, every key
-/// of 2 kept and «Как в Windows» added (`windows_parity`, `apps_hidden`, `input.hidden`). Those
-/// two raises came with additions, before the rule was written down; from 3 on, keys are added
-/// under 3.
+/// 0.4.0's, every key of 1 kept and the original's `printStatus` keys added; 3 is 0.5.0's, every
+/// key of 2 kept and «Как в оригинальном FxSound LLC» added (`windows_parity`, `apps_hidden`,
+/// `input.hidden`). Those two raises came with additions, before the rule was written down; from 3
+/// on, keys are added under 3.
 pub const STATUS_SCHEMA: u32 = 3;
 
 /// Everything `--status` reports, in the shape `--status --json` prints it.
@@ -977,11 +979,11 @@ pub const STATUS_SCHEMA: u32 = 3;
 /// Every key 0.3.0 printed is still here and still means what it meant, read for the **edit
 /// direction** where 0.3.0 had a single selection — `preset`, `device` and `direction` are what the
 /// window shows. 0.4.0 adds a block per lane, the microphone's telemetry and the echo canceller,
-/// and is a superset of the document upstream's `--status` writes (`FxController::printStatus`,
+/// and is a superset of the document the original's `--status` writes (`FxController::printStatus`,
 /// `FxController.cpp:609-683`; review item U14): `presets`, `selected_preset`,
-/// `output_devices`, `selected_output`, `equalizer` and upstream's names in `effects` mean what
+/// `output_devices`, `selected_output`, `equalizer` and the original's names in `effects` mean what
 /// they mean there and have the JSON kinds they have there, so a client written against the
-/// Windows build (`fxmcp`'s `status.go`) reads this one. What upstream's names cannot carry goes
+/// original (`fxmcp`'s `status.go`) reads this one. What the original's names cannot carry goes
 /// under names of its own: each device's `node_name` and whether it is present, in
 /// `output_device_list` and `input_device_list`. Public so the event stream's `status` event and
 /// D-Bus `GetStatus` send this same document.
@@ -1016,7 +1018,7 @@ pub struct StatusDocument {
     pub input: InputLaneStatus,
     pub input_meters: InputMeters,
     pub echo_cancel: EchoCancelStatus,
-    /// The edit direction's presets, as upstream lists its one set: factory and bonus presets
+    /// The edit direction's presets, as the original lists its one set: factory and bonus presets
     /// under `built_in`, the user's own under `user_defined`.
     pub presets: PresetLists,
     /// The edit direction's preset by the name `--preset` takes; `null` while the lane has none.
@@ -1026,7 +1028,7 @@ pub struct StatusDocument {
     /// The microphone's voice presets, whichever lane the window is editing.
     pub input_presets: PresetLists,
     /// The playback devices PipeWire has now, by description, in `output_device_list`'s order:
-    /// upstream's list, an array of names (`FxController.cpp:638-644`), which `status.go` reads
+    /// the original's list, an array of names (`FxController.cpp:638-644`), which `status.go` reads
     /// as `[]string`.
     pub output_devices: Vec<String>,
     /// The same for the microphones.
@@ -1036,19 +1038,20 @@ pub struct StatusDocument {
     pub output_device_list: Vec<DeviceStatus>,
     /// The same for the microphones.
     pub input_device_list: Vec<DeviceStatus>,
-    /// The output lane's device by description, as upstream names it; `null` while detached.
+    /// The output lane's device by description, as the original names it; `null` while detached.
     pub selected_output: Option<String>,
     /// The input lane's microphone by description; `null` while detached.
     pub selected_input: Option<String>,
     /// The edit direction's equalizer and gain stage, band by band.
     pub equalizer: Equalizer,
-    /// Every application FxSound remembers, the ones playing or recording now first, with the
+    /// Every application CrossFX remembers, the ones playing or recording now first, with the
     /// presets of their own and what they run through now (`docs/0.4.0-apps.md`).
     pub apps: Vec<AppStatus>,
-    /// «Как в Windows» / "Like FxSound for Windows": `off`, `interface`, `sound` or `full`.
+    /// «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC": `off`, `interface`,
+    /// `sound` or `full`.
     pub windows_parity: &'static str,
-    /// Whether the applications' own presets are hidden by «Как в Windows» = Everything, so a
-    /// panel widget can grey its part for them rather than fail.
+    /// Whether the applications' own presets are hidden by «Как в оригинальном FxSound LLC» =
+    /// Everything, so a panel widget can grey its part for them rather than fail.
     pub apps_hidden: bool,
 }
 
@@ -1056,11 +1059,11 @@ pub struct StatusDocument {
 /// without a fraction.
 ///
 /// 0.3.0 printed the effect levels rounded to whole numbers, and a reader that decodes them into
-/// an integer — Go's `encoding/json` into an `int`, for one — rejects `7.0`. Upstream prints them
-/// as they are, and `--set_effect=bass:7.5` read back as 8 here (review item U14). So a whole
+/// an integer — Go's `encoding/json` into an `int`, for one — rejects `7.0`. The original prints
+/// them as they are, and `--set_effect=bass:7.5` read back as 8 here (review item U14). So a whole
 /// number goes out as `7`, which both kinds of reader take, and anything else as the shortest
-/// decimal of the `f32` the controller holds rather than the noise of its widening
-/// (`0.93_f32 as f64` is `0.9300000071525574`).
+/// decimal of the `f32` the controller holds rather than the noise of its widening (`0.93_f32 as
+/// f64` is `0.9300000071525574`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Level(pub f32);
 
@@ -1102,8 +1105,8 @@ pub(crate) fn exact(value: f32) -> f64 {
     }
 }
 
-/// The five effect sliders, on their `0..=10` scale: 0.3.0's names, then upstream's names for the
-/// two it calls otherwise (`FxController.cpp:666-670`), with the same values.
+/// The five effect sliders, on their `0..=10` scale: 0.3.0's names, then the original's names for
+/// the two it calls otherwise (`FxController.cpp:666-670`), with the same values.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct EffectLevels {
     pub fidelity: Level,
@@ -1111,13 +1114,13 @@ pub struct EffectLevels {
     pub surround: Level,
     pub dynamic_boost: Level,
     pub bass: Level,
-    /// `fidelity`, by upstream's name.
+    /// `fidelity`, by the original's name.
     pub clarity: Level,
-    /// `dynamic_boost`, by upstream's name.
+    /// `dynamic_boost`, by the original's name.
     pub dynamicboost: Level,
 }
 
-/// One lane's presets, split as upstream splits them (`FxController.cpp:616-634`).
+/// One lane's presets, split as the original splits them (`FxController.cpp:616-634`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct PresetLists {
     pub built_in: Vec<PresetStatus>,
@@ -1142,7 +1145,7 @@ pub struct DeviceStatus {
     pub present: bool,
 }
 
-/// Upstream's `equalizer` block (`FxController.cpp:647-663`), for the edit direction.
+/// The original's `equalizer` block (`FxController.cpp:647-663`), for the edit direction.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Equalizer {
     pub num_bands: usize,
@@ -1155,7 +1158,7 @@ pub struct Equalizer {
     pub bands: Vec<BandStatus>,
 }
 
-/// One equalizer band, with the range its frequency can be tuned over — what upstream's
+/// One equalizer band, with the range its frequency can be tuned over — what the original's
 /// frequency slider allows (`GraphicEqGet.cpp:105-168`), which its `printStatus` leaves out.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct BandStatus {
@@ -1218,7 +1221,7 @@ pub struct InputLaneStatus {
     pub noise_suppression: &'static str,
     /// The level the denoiser runs at once the override is applied.
     pub denoise_level: &'static str,
-    /// Whether the microphone lane is hidden by «Как в Windows» = Everything.
+    /// Whether the microphone lane is hidden by «Как в оригинальном FxSound LLC» = Everything.
     pub hidden: bool,
 }
 
@@ -1414,7 +1417,7 @@ fn device_list(app: &App, direction: DeviceDirection) -> Vec<DeviceStatus> {
     list
 }
 
-/// Upstream's `output_devices`: of `list`, the devices present, by the name the combo shows,
+/// The original's `output_devices`: of `list`, the devices present, by the name the combo shows,
 /// in its order.
 fn device_names(list: &[DeviceStatus]) -> Vec<String> {
     list.iter()
@@ -1423,10 +1426,10 @@ fn device_names(list: &[DeviceStatus]) -> Vec<String> {
         .collect()
 }
 
-/// Upstream's `equalizer` block, from the edit direction's controls. The bands' ranges are the
+/// The original's `equalizer` block, from the edit direction's controls. The bands' ranges are the
 /// ones the window's wheels tune them over ([`fxsound_core::eq::band_frequency_range`]): the
-/// Windows ranges, with the first and last band reaching half a band past the ladder (0.4.0 audit
-/// R6).
+/// original's ranges, with the first and last band reaching half a band past the ladder (0.4.0
+/// audit R6).
 fn equalizer(state: &UiState) -> Equalizer {
     let count = state.eq_bands.len();
     Equalizer {
@@ -1538,7 +1541,7 @@ fn status_report(app: &App) -> String {
         doc.eq.max_bands
     );
 
-    // How the ring between the two audio nodes is coping. Collected since the port began and
+    // How the ring between the two audio nodes is coping. Collected since CrossFX began and
     // published nowhere until 0.3.0, so nothing could assert on it and nobody whose audio
     // crackled could say how often. All four are cumulative since the stream was built.
     let _ = writeln!(out, "sample_rate: {} Hz", doc.format.sample_rate);
@@ -1852,7 +1855,7 @@ mod tests {
 
     #[test]
     fn a_next_output_or_next_input_waits_for_the_first_device_list_and_then_steps() {
-        // 0.4.0: a D-Bus `NextOutput` that started FxSound through the bus reached an instance
+        // 0.4.0: a D-Bus `NextOutput` that started CrossFX through the bus reached an instance
         // with no list to step through, went nowhere, and still succeeded.
         let next_output = [Command::Output(OutputCommand::Next)];
         let next_input = [Command::Input(InputCommand::Next)];
@@ -1925,7 +1928,7 @@ mod tests {
 
     #[test]
     fn status_reports_how_the_ring_is_coping() {
-        // Four counters that were collected correctly since the port began and then thrown away:
+        // Four counters that were collected correctly since CrossFX began and then thrown away:
         // they crossed no process boundary and appeared in no message, so nothing could assert on
         // them and nobody whose audio crackled could say how often.
         let mut a = app();
@@ -2213,8 +2216,9 @@ mod tests {
         }
     }
 
-    /// What `fxmcp`'s `status.go` decodes (upstream `fxmcp/internal/fxsound/status.go:18-72`), by
-    /// JSON kind: every key `FxController::printStatus` writes.
+    /// What `fxmcp`'s `status.go` decodes (the original's
+    /// `fxmcp/internal/fxsound/status.go:18-72`), by JSON kind: every key
+    /// `FxController::printStatus` writes.
     fn assert_upstream_shape(json: &Value) {
         assert!(json["version"].is_string(), "version: {json}");
         assert!(json["power"].is_boolean(), "power: {json}");
@@ -2282,9 +2286,9 @@ mod tests {
         assert_upstream_shape(&status(&mut bare));
     }
 
-    /// `fxmcp`'s `Status` (upstream `fxmcp/internal/fxsound/status.go:18-72`), field for field,
-    /// in the serde types that take what the Go types take: a key of another JSON kind fails the
-    /// decode, as it fails `json.Unmarshal` of the whole document. Go reads a `null` string as
+    /// `fxmcp`'s `Status` (the original's `fxmcp/internal/fxsound/status.go:18-72`), field for
+    /// field, in the serde types that take what the Go types take: a key of another JSON kind fails
+    /// the decode, as it fails `json.Unmarshal` of the whole document. Go reads a `null` string as
     /// the empty one, hence the `Option`s.
     #[derive(Debug, serde::Deserialize)]
     #[allow(dead_code, reason = "decoding is the test; nothing reads the fields")]
@@ -2512,7 +2516,7 @@ mod tests {
                 .iter()
                 .all(|(name, ..)| name.starts_with("alsa_input."))
         );
-        // Upstream's lists: the names of the devices there are, the unplugged one left out.
+        // The original's lists: the names of the devices there are, the unplugged one left out.
         assert_eq!(
             json["output_devices"],
             serde_json::json!(["Ryzen HD Audio Controller Analogue Stereo"])
@@ -2573,13 +2577,13 @@ mod tests {
                 "Ryzen HD Audio Controller Analogue Stereo",
                 "fifine Microphone Analogue Stereo"
             ]),
-            "upstream's list, in the same order"
+            "the original's list, in the same order"
         );
     }
 
     #[test]
     fn the_first_and_last_band_report_the_wider_range_the_window_tunes_them_over() {
-        // 0.4.0 audit R6: 46..85 Hz and 11768..20000 Hz on ten bands, where Windows reports
+        // 0.4.0 audit R6: 46..85 Hz and 11768..20000 Hz on ten bands, where the original reports
         // 62.5..85 and 11768..16000.
         let mut a = app();
         run(&mut a, &[Command::NumBands(10)]);
@@ -2592,7 +2596,7 @@ mod tests {
         assert_eq!(
             bands[1]["min_frequency"].as_f64(),
             Some(86.0),
-            "inner bands as on Windows"
+            "inner bands as in the original"
         );
     }
 
@@ -3304,12 +3308,12 @@ mod tests {
 
     #[test]
     fn a_line_with_a_device_and_a_preset_puts_the_preset_on_that_device_lane() {
-        // `fxsound --input=… --preset='Gaming Headset'`, the man page's own example: the device
+        // `crossfx --input=… --preset='Gaming Headset'`, the man page's own example: the device
         // runs first, so the preset is looked up in the microphone's list.
         let mut a = app_with_presets("device-then-preset");
         a.state.devices = mixed_devices();
         let cli = crate::cli::Cli::try_parse_from([
-            "fxsound",
+            "crossfx",
             "--preset=Flat Voice",
             "--input=alsa_input.pci",
         ])
@@ -3326,7 +3330,7 @@ mod tests {
     /// Parse a command line and run it, as a cold start or a forwarded one would.
     fn run_line(a: &mut App, args: &[&str]) -> Outcome {
         let cli =
-            crate::cli::Cli::try_parse_from(std::iter::once("fxsound").chain(args.iter().copied()))
+            crate::cli::Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
                 .expect("parses");
         run(a, &cli.commands())
     }
@@ -4338,7 +4342,7 @@ mod tests {
         assert!(
             outcome
                 .stderr
-                .starts_with("note: FxSound has not seen an application called \"bf6.exe\"")
+                .starts_with("note: CrossFX has not seen an application called \"bf6.exe\"")
                 && outcome
                     .stderr
                     .contains("kept for the program \"bf6.exe\" and runs once it plays"),
@@ -4421,7 +4425,7 @@ mod tests {
         assert!(
             outcome
                 .stderr
-                .starts_with("note: FxSound remembers no application called \"Firefox\"")
+                .starts_with("note: CrossFX remembers no application called \"Firefox\"")
                 && outcome
                     .stderr
                     .contains("or else for the program \"Firefox\""),
@@ -4454,7 +4458,7 @@ mod tests {
         let outcome = run_line(&mut a, &["--app-preset=ghost=default"]);
         assert!(!outcome.failed);
         assert!(
-            outcome.stderr.contains("follows FxSound's preset already"),
+            outcome.stderr.contains("follows CrossFX's preset already"),
             "{}",
             outcome.stderr
         );
@@ -4666,10 +4670,10 @@ mod tests {
         assert!(!AppRules::bad_path(&path).exists(), "not moved aside");
     }
 
-    /// What `main` does with `args` once it holds the lock and so knows no FxSound runs.
+    /// What `main` does with `args` once it holds the lock and so knows no CrossFX runs.
     fn without_an_instance(args: &[&str], store: &Path) -> Option<Outcome> {
         let cli =
-            crate::cli::Cli::try_parse_from(std::iter::once("fxsound").chain(args.iter().copied()))
+            crate::cli::Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
                 .expect("parses");
         answer_without_an_instance(
             &cli.commands(),
@@ -4681,7 +4685,7 @@ mod tests {
     /// [`without_an_instance`] for a line about devices: the settings file is `settings`.
     fn forget_without_an_instance(args: &[&str], settings: &Path) -> Option<Outcome> {
         let cli =
-            crate::cli::Cli::try_parse_from(std::iter::once("fxsound").chain(args.iter().copied()))
+            crate::cli::Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
                 .expect("parses");
         answer_without_an_instance(
             &cli.commands(),
@@ -4710,10 +4714,10 @@ mod tests {
     }
 
     #[test]
-    fn forget_device_with_no_fxsound_running_forgets_from_the_settings_file_and_starts_nothing() {
+    fn forget_device_with_no_crossfx_running_forgets_from_the_settings_file_and_starts_nothing() {
         // 0.4.0 finisher F8: at a cold start `--forget-device` used to be run by the new instance
         // before PipeWire had listed a device, refused, and the script's process stayed on as
-        // FxSound. Now it is answered from the file, with an exit status, and nothing starts.
+        // CrossFX. Now it is answered from the file, with an exit status, and nothing starts.
         let dir = tempfile::tempdir().expect("scratch directory");
         let path = dir.path().join("settings.toml");
         settings_with_a_dock(&path);
@@ -4735,7 +4739,7 @@ mod tests {
     }
 
     #[test]
-    fn forget_device_by_description_with_no_fxsound_running_forgets_both_lanes_entries() {
+    fn forget_device_by_description_with_no_crossfx_running_forgets_both_lanes_entries() {
         let dir = tempfile::tempdir().expect("scratch directory");
         let path = dir.path().join("settings.toml");
         settings_with_a_dock(&path);
@@ -4755,8 +4759,8 @@ mod tests {
     }
 
     #[test]
-    fn with_no_fxsound_running_every_device_counts_as_unplugged() {
-        // Nothing is attached to the speakers while FxSound is not running, and the next start
+    fn with_no_crossfx_running_every_device_counts_as_unplugged() {
+        // Nothing is attached to the speakers while CrossFX is not running, and the next start
         // learns them as a first start would: the running instance's "unplug it first" has no
         // reason here.
         let dir = tempfile::tempdir().expect("scratch directory");
@@ -4773,7 +4777,7 @@ mod tests {
     }
 
     #[test]
-    fn forget_device_with_no_fxsound_running_refuses_a_name_neither_list_has_and_writes_nothing() {
+    fn forget_device_with_no_crossfx_running_refuses_a_name_neither_list_has_and_writes_nothing() {
         let dir = tempfile::tempdir().expect("scratch directory");
         let path = dir.path().join("settings.toml");
         settings_with_a_dock(&path);
@@ -4818,16 +4822,16 @@ mod tests {
     }
 
     #[test]
-    fn forget_device_beside_options_that_start_fxsound_starts_it_and_is_done_to_the_file_first() {
+    fn forget_device_beside_options_that_start_crossfx_starts_it_and_is_done_to_the_file_first() {
         let dir = tempfile::tempdir().expect("scratch directory");
         let path = dir.path().join("settings.toml");
         settings_with_a_dock(&path);
         let args = ["--forget-device=USB Dock", "--power=on"];
         assert!(
             forget_without_an_instance(&args, &path).is_none(),
-            "FxSound starts"
+            "CrossFX starts"
         );
-        let cli = crate::cli::Cli::try_parse_from(std::iter::once("fxsound").chain(args))
+        let cli = crate::cli::Cli::try_parse_from(std::iter::once("crossfx").chain(args))
             .expect("parses");
         // What `main` does before it reads the settings.
         let forgotten = forget_in_the_settings_file(&cli.commands(), &path);
@@ -4854,7 +4858,7 @@ mod tests {
 
     #[test]
     fn quit_beside_forget_device_without_an_instance_forgets_the_device_and_says_not_running() {
-        // FA: a running FxSound forgets the device and then quits; with none running the line
+        // FA: a running CrossFX forgets the device and then quits; with none running the line
         // was answered by `--quit` alone, exit 0, and the device stayed in the settings file.
         let dir = tempfile::tempdir().expect("scratch directory");
         let path = dir.path().join("settings.toml");
@@ -4894,7 +4898,7 @@ mod tests {
         // FA: `--status --forget-device=Dock` printed the status, exit 0, and forgot nothing.
         for report in ["--status", "--watch", "--list-apps", "--self-test"] {
             let parsed =
-                crate::cli::Cli::try_parse_from(["fxsound", report, "--forget-device=Dock"]);
+                crate::cli::Cli::try_parse_from(["crossfx", report, "--forget-device=Dock"]);
             let err = parsed.expect_err(report);
             assert_eq!(err.exit_code(), 2, "{report}: {err}");
         }
@@ -4963,7 +4967,7 @@ mod tests {
     }
 
     #[test]
-    fn a_line_that_does_something_starts_fxsound_when_none_runs() {
+    fn a_line_that_does_something_starts_crossfx_when_none_runs() {
         let path = Path::new("/nonexistent/apps.toml");
         for args in [
             &[][..],
@@ -4980,9 +4984,9 @@ mod tests {
     }
 
     #[test]
-    fn next_output_or_next_input_with_no_fxsound_running_is_refused_and_starts_nothing() {
+    fn next_output_or_next_input_with_no_crossfx_running_is_refused_and_starts_nothing() {
         // A start has no device to step from: its lanes attach once PipeWire has listed the
-        // devices, to the device their own rules pick. The line used to start FxSound and drop the
+        // devices, to the device their own rules pick. The line used to start CrossFX and drop the
         // step without a word.
         let path = Path::new("/nonexistent/apps.toml");
         for (args, option, pick) in [
@@ -5016,16 +5020,16 @@ mod tests {
 
     #[test]
     fn a_start_carries_out_the_band_lists_the_effects_and_the_preset_commands() {
-        // What `main` runs in step 4 for a keybind's `fxsound --next-preset --set_band_gain=0:3
-        // --set_effect=bass:5` that finds no FxSound running, on the preset the start selected.
-        // The Windows build's `initConfig` drops all three without a word, and so did this port.
+        // What `main` runs in step 4 for a keybind's `crossfx --next-preset --set_band_gain=0:3
+        // --set_effect=bass:5` that finds no CrossFX running, on the preset the start selected.
+        // The original's `initConfig` drops all three without a word, and so did CrossFX.
         let mut a = app_with_presets("cold-start");
         run(
             &mut a,
             &[Command::Preset(PresetCommand::Select("Alpha".to_owned()))],
         );
         let cli = crate::cli::Cli::try_parse_from([
-            "fxsound",
+            "crossfx",
             "--next-preset",
             "--set_band_gain=0:3",
             "--set_effect=bass:5",
@@ -5040,7 +5044,7 @@ mod tests {
         assert_eq!(a.state.effect(Effect::Bass), 5.0);
     }
 
-    // ---- «Как в Windows» (A9) ---------------------------------------------------------------
+    // ---- «Как в оригинальном FxSound LLC» (A9) --------------------------------------------------
 
     use fxsound_core::WindowsParity;
     use fxsound_core::parity::{FULL_NOT_YET, FULL_REFUSAL};
@@ -5188,7 +5192,7 @@ mod tests {
     #[test]
     fn a_line_with_windows_parity_sets_it_before_anything_else_on_it() {
         let cli = crate::cli::Cli::try_parse_from([
-            "fxsound",
+            "crossfx",
             "--power=1",
             "--language=fr",
             "--windows-parity=sound",
@@ -5236,20 +5240,21 @@ mod tests {
         assert!(!outcome.failed, "{}", outcome.stderr);
         assert_eq!(a.windows_parity(), WindowsParity::Full);
     }
-    // ---- «Как в Windows» = Interface: the command line (W3) ------------------------------------
+    // ---- «Как в оригинальном FxSound LLC» = Interface: the command line (W3) --------------------
 
-    /// [`run_forwarded`] for `args` as the control socket hands them over from a second `fxsound`.
+    /// [`run_forwarded`] for `args` as the control socket hands them over from a second `crossfx`.
     fn forward_line(a: &mut App, args: &[&str]) -> Outcome {
         let cli =
-            crate::cli::Cli::try_parse_from(std::iter::once("fxsound").chain(args.iter().copied()))
+            crate::cli::Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
                 .expect("parses");
         run_forwarded(a, &cli.commands(), cli.raises_like_windows())
     }
 
     #[test]
     fn at_interface_a_forwarded_line_with_an_option_windows_has_raises_the_window() {
-        // 0.4.0 audit R11 at «Как в Windows» = Interface: step 11 of applyConfig raises the
-        // window for every forwarded line (`FxController.cpp:523-531`). At Off it stays down.
+        // 0.4.0 audit R11 at «Как в оригинальном FxSound LLC» = Interface: step 11 of applyConfig
+        // raises the window for every forwarded line (`FxController.cpp:523-531`). At Off it stays
+        // down.
         let mut a = app();
         assert!(
             forward_line(&mut a, &["--balance=3"]).window.is_empty(),
@@ -5261,7 +5266,7 @@ mod tests {
             (&["--balance=2"][..], true),
             (&["--set_effect=bass:7"][..], true),
             (&["--master_gain=-3", "--toggle-power"][..], true),
-            // The keybind options stand in for hotkeys, which raise nothing on Windows either.
+            // The keybind options stand in for hotkeys, which raise nothing in the original either.
             (&["--toggle-power"][..], false),
             (&["--next-output"][..], false),
             (&["--output=off"][..], false),
@@ -5293,8 +5298,8 @@ mod tests {
 
     #[test]
     fn at_interface_a_band_list_sets_the_pairs_that_fit_and_skips_the_rest() {
-        // 0.4.0 audit #51 at «Как в Windows» = Interface, as the approved contract words it:
-        // apply the valid pairs, skip the rest. At Off the whole list is refused (above).
+        // 0.4.0 audit #51 at «Как в оригинальном FxSound LLC» = Interface, as the approved contract
+        // words it: apply the valid pairs, skip the rest. At Off the whole list is refused (above).
         let mut a = app();
         a.set_windows_parity(WindowsParity::Interface, false)
             .expect("offered");
@@ -5339,8 +5344,8 @@ mod tests {
 
     #[test]
     fn at_interface_save_preset_on_a_preset_with_no_unsaved_changes_is_refused_as_on_windows() {
-        // 0.4.0 audit #17 at «Как в Windows» = Interface: `--save_preset` saves only unsaved
-        // changes (`FxController.cpp:405-411`). At Off it saves a copy (above).
+        // 0.4.0 audit #17 at «Как в оригинальном FxSound LLC» = Interface: `--save_preset` saves
+        // only unsaved changes (`FxController.cpp:405-411`). At Off it saves a copy (above).
         let tag = "save-no-copy-at-interface";
         let mut a = app_with_presets(tag);
         let user = a.user_dir();
