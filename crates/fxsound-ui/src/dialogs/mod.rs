@@ -386,7 +386,8 @@ impl<'a> DialogChrome<'a> {
         );
 
         match title {
-            // The main window's wordmark at rest, in the logotype's plain colour.
+            // CrossFX's name as the main window's title bar shows it at rest: the logotype's plain
+            // colour, which the original's message boxes show their logotype in.
             None => wordmark::paint(
                 ui.painter(),
                 logo_rect(title_bar),
