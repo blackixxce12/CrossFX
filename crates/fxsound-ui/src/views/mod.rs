@@ -696,6 +696,7 @@ mod tests {
             is_default: false,
             direction,
             form_factor: "speaker".into(),
+            is_virtual: false,
         }
     }
 

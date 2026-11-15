@@ -159,4 +159,6 @@ countries: ir
 "Plus the original's sound: presets sound the same." = "به‌علاوهٔ صدای نسخهٔ اصلی: پیش‌تنظیم‌ها همان صدا را دارند."
 "Only what the original has; the rest is hidden." = "فقط آنچه نسخهٔ اصلی دارد؛ بقیه پنهان است."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "هیچ دستگاه پخش مجازی وجود ندارد: درایور FxSound یا VB-CABLE را نصب کنید"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "هیچ کابل مجازی برای میکروفون باقی نمانده است: VB-CABLE را نصب کنید، یا اگر خروجی FxSound از یکی استفاده می‌کند، کابل دومی نصب کنید"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "کابل مجازی به‌عنوان خروجی FxSound یا دستگاه پیش‌فرض در حال استفاده است: دستگاه دیگری را انتخاب کنید یا کابل دومی برای میکروفون نصب کنید"
 "The Windows audio service is not available" = "سرویس صوتی Windows در دسترس نیست"

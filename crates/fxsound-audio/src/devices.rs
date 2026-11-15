@@ -1008,6 +1008,8 @@ impl DeviceInfo {
             is_default: default_for_direction == Some(self.name.as_str()),
             direction: self.direction,
             form_factor: self.form_factor.key().to_owned(),
+            // FxSound's own nodes are never offered, and a virtual sink is a device like any other.
+            is_virtual: false,
         }
     }
 

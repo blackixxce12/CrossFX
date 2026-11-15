@@ -18,6 +18,14 @@
 //! application — and that FxSound did not take back as a pick is theirs for as long as the claim
 //! stands: it is neither claimed again nor written back ([`Claim::yield_role`]).
 //!
+//! Not every default is the user's, though. Windows moves them by itself: a virtual cable just
+//! installed is given the first chance at every role of its direction, and a device that goes has
+//! its roles fall back to another. A default on a cable that nothing says the user chose is
+//! Windows' (`super`, "Whose default it is"), no device the user hears and nothing they chose: it
+//! is never remembered as theirs, where it was before is kept ([`Placements`]) for putting it back,
+//! and a claim that finds it on its own cable adopts it — gives it back to a real device — rather
+//! than leaving it there as theirs.
+//!
 //! Pure: the writes themselves are `super::com::PolicyConfig`'s.
 
 use std::collections::VecDeque;
@@ -88,13 +96,68 @@ impl Defaults {
     /// The default the device list marks and the settings remember: `eMultimedia`'s, the role the
     /// original read the default from (`sndDevices_GetAll.cpp:126-133`), then `eConsole`'s.
     pub(crate) fn main(&self) -> Option<&str> {
-        self.get(Role::Multimedia)
-            .or_else(|| self.get(Role::Console))
+        self.main_role().and_then(|role| self.get(role))
+    }
+
+    /// The role [`Self::main`] reads the default of: `eMultimedia`, or `eConsole` when that has
+    /// none; `None` when neither has.
+    pub(crate) fn main_role(&self) -> Option<Role> {
+        [Role::Multimedia, Role::Console]
+            .into_iter()
+            .find(|&role| self.get(role).is_some())
     }
 
     /// Whether any role's default is `id`.
     pub(crate) fn any_is(&self, id: &str) -> bool {
         Role::ALL.iter().any(|&role| self.get(role) == Some(id))
+    }
+}
+
+/// A role's default moved onto a virtual cable by Windows rather than the user, and where it was
+/// before (`super`, "Whose default it is"): the cable just installed, which Windows gives the first
+/// chance at every role of its direction; a fallback onto it from a device that went; a move onto a
+/// cable one of FxSound's lanes stands on; one made while the original FxSound ran; or one onto an
+/// endpoint that could not be read in time, which is Windows' if it turns out to be a cable. A
+/// default found on a cable at the start has none: the engine never saw it anywhere else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Placed {
+    /// The endpoint Windows put the role on.
+    pub(crate) endpoint: String,
+    /// Where the role was before, as Windows last reported it — a chain of Windows' moves from one
+    /// cable to the next followed back to where the user had it; `None` for no default at all.
+    pub(crate) before: Option<String>,
+}
+
+/// One direction's roles whose default Windows moved onto a virtual cable ([`Placed`]), for as long
+/// as each stays there: where each goes back to. Not whose a default on a cable is — that is
+/// Windows' wherever nothing says the user chose the cable (`super::Engine::windows_default`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Placements([Option<Placed>; 3]);
+
+impl Placements {
+    pub(crate) fn get(&self, role: Role) -> Option<&Placed> {
+        self.0[role.index()].as_ref()
+    }
+
+    pub(crate) fn set(&mut self, role: Role, placed: Option<Placed>) {
+        self.0[role.index()] = placed;
+    }
+
+    /// Whether Windows put `role`'s default on `id`.
+    pub(crate) fn is(&self, role: Role, id: &str) -> bool {
+        self.get(role).is_some_and(|placed| placed.endpoint == id)
+    }
+
+    /// Forget each role's placement that `current` no longer has the role on: the role has moved
+    /// since, and every move is decided anew (`super::Engine::decide_default`). Not for a role
+    /// `deciding` says has a move still to be decided, though: that decision reads the placement,
+    /// Windows moving a role off a cable it had put it on itself being the same placement.
+    pub(crate) fn keep_current(&mut self, current: &Defaults, deciding: impl Fn(Role) -> bool) {
+        for role in Role::ALL {
+            if !deciding(role) && !current.get(role).is_some_and(|id| self.is(role, id)) {
+                self.set(role, None);
+            }
+        }
     }
 }
 
@@ -111,8 +174,9 @@ pub(crate) struct Claim {
     /// playback device picked while a ranking decides the lane's. Theirs until the claim ends.
     yielded: [bool; 3],
     /// The roles the claim found on its endpoint already, the user's own: a cable they had made
-    /// their default, which no run of FxSound's put there ([`Self::finding_theirs`]). Neither
-    /// adopted nor given back — theirs before FxSound, and after it.
+    /// their default, which neither a run of FxSound's nor Windows by itself put there
+    /// ([`Self::finding_theirs`]). Neither adopted nor given back — theirs before FxSound, and
+    /// after it.
     theirs: [bool; 3],
 }
 
@@ -129,14 +193,16 @@ impl Claim {
     }
 
     /// A new claim on `endpoint`, a cable's side no run of FxSound's is known to have left a
-    /// default on, as `current` stands: every role already on it is the user's own. A user who
-    /// plays into "CABLE Input" for a streaming program, or records the desktop from "CABLE
-    /// Output", made it their default; the lane standing on that cable takes nothing from them,
-    /// and gives nothing of theirs away when it ends.
-    pub(crate) fn finding_theirs(endpoint: String, current: &Defaults) -> Self {
+    /// default on, `theirs` holding the roles the user put there themselves: every one of them
+    /// already on it is the user's own. A user who plays into "CABLE Input" for a streaming
+    /// program, or records the desktop from "CABLE Output", made it their default; the lane
+    /// standing on that cable takes nothing from them, and gives nothing of theirs away when it
+    /// ends. A role Windows put on the cable by itself is not among `theirs` ([`Placements`]): the
+    /// claim adopts it, as it adopts one a killed run left, and gives it back to a real device.
+    pub(crate) fn finding_theirs(endpoint: String, theirs: &Defaults) -> Self {
         let mut claim = Self::new(endpoint);
         for role in Role::ALL {
-            claim.theirs[role.index()] = current.get(role) == Some(claim.endpoint.as_str());
+            claim.theirs[role.index()] = theirs.get(role) == Some(claim.endpoint.as_str());
         }
         claim
     }
@@ -178,23 +244,30 @@ impl Claim {
 
 /// The roles among `roles` ([`Role::claimed_by`]) whose default is not `endpoint` yet, and that
 /// the user has not taken from the claim: what a claim, or a claim taken back after a desktop pick,
-/// writes. Each of them is first remembered in `claim`, unless what it holds is a virtual device's
-/// (`is_virtual`): the default from before FxSound is never FxSound's.
+/// writes. Each of them is first remembered in `claim`, as `remembered` says for the default the
+/// role has now: that default, for a device of the user's; nothing for a virtual device's — the
+/// default from before FxSound is never FxSound's — and, for one Windows put on a cable by itself
+/// ([`Placements`]), where it was before, if anywhere. A role on `endpoint` already is written
+/// nothing, and remembered only where `remembered` has something for it: a role Windows put on the
+/// cable the claim stands on, adopted, goes back where it was.
 pub(crate) fn claim_roles(
     current: &Defaults,
     endpoint: &str,
     roles: &[Role],
     claim: &mut Claim,
-    is_virtual: impl Fn(&str) -> bool,
+    remembered: impl Fn(Role, &str) -> Option<String>,
 ) -> Vec<Role> {
     let mut writes = Vec::new();
     for &role in roles {
-        let now = current.get(role);
-        if now == Some(endpoint) || claim.has_yielded(role) {
+        if claim.has_yielded(role) {
             continue;
         }
-        if let Some(now) = now.filter(|now| !is_virtual(now)) {
-            claim.before.set(role, Some(now.to_owned()));
+        let now = current.get(role);
+        if let Some(before) = now.and_then(|now| remembered(role, now)) {
+            claim.before.set(role, Some(before));
+        }
+        if now == Some(endpoint) {
+            continue;
         }
         // Written by FxSound, so FxSound's from here on, whoever had it there before.
         claim.theirs[role.index()] = false;
@@ -311,11 +384,17 @@ mod tests {
         Claim::new(FX.to_owned())
     }
 
+    /// What a claim remembers of a role's default with FxSound's the only virtual device and every
+    /// other default the user's: that default, unless it is FxSound's.
+    fn users(_: Role, id: &str) -> Option<String> {
+        (id != FX).then(|| id.to_owned())
+    }
+
     #[test]
     fn a_claim_takes_every_role_and_remembers_each_one_s_default() {
         let current = defaults(SPEAKERS, SPEAKERS, HEADSET);
         let mut claim = fresh_claim();
-        let writes = claim_roles(&current, FX, &Role::ALL, &mut claim, |id| id == FX);
+        let writes = claim_roles(&current, FX, &Role::ALL, &mut claim, users);
         assert_eq!(writes, Role::ALL);
         assert_eq!(
             claim.before, current,
@@ -338,7 +417,7 @@ mod tests {
             FX,
             Role::claimed_by(DeviceDirection::Output),
             &mut claim,
-            |id| id == FX,
+            users,
         );
         assert_eq!(writes, [Role::Console, Role::Multimedia]);
         assert_eq!(claim.before.get(Role::Communications), None);
@@ -359,17 +438,95 @@ mod tests {
         let current = defaults(SPEAKERS, FX, "");
         let mut claim = fresh_claim();
         assert_eq!(
-            claim_roles(&current, FX, &Role::ALL, &mut claim, |id| id == FX),
+            claim_roles(&current, FX, &Role::ALL, &mut claim, users),
             [Role::Console, Role::Communications]
         );
         assert_eq!(claim.before, defaults(SPEAKERS, "", ""));
         // A default on another virtual device is not the user's device either.
         let mut claim = fresh_claim();
         let current = defaults("cable", "cable", "cable");
-        claim_roles(&current, FX, &Role::ALL, &mut claim, |id| {
-            id == FX || id == "cable"
+        claim_roles(&current, FX, &Role::ALL, &mut claim, |_, id| {
+            (id != FX && id != "cable").then(|| id.to_owned())
         });
         assert_eq!(claim.before, Defaults::default());
+    }
+
+    #[test]
+    fn a_role_windows_put_on_the_claim_s_cable_is_adopted_and_goes_back_where_it_was() {
+        const CABLE: &str = "cable-out";
+        const MICROPHONE: &str = "microphone";
+        // Windows gave a cable just installed every recording role, from the microphone; the
+        // calls' role it had found there at the start, from nowhere the engine saw.
+        let mut placements = Placements::default();
+        for role in Role::ALL {
+            placements.set(
+                role,
+                Some(Placed {
+                    endpoint: CABLE.to_owned(),
+                    before: (role != Role::Communications).then(|| MICROPHONE.to_owned()),
+                }),
+            );
+        }
+        let current = defaults(CABLE, CABLE, CABLE);
+        // Nothing of it is the user's: the claim adopts every role.
+        let theirs = Defaults::default();
+        let mut claim = Claim::finding_theirs(CABLE.to_owned(), &theirs);
+        let remembered = |role: Role, id: &str| {
+            if placements.is(role, id) {
+                placements
+                    .get(role)
+                    .and_then(|placed| placed.before.clone())
+            } else {
+                (id != CABLE).then(|| id.to_owned())
+            }
+        };
+        assert!(
+            claim_roles(&current, CABLE, &Role::ALL, &mut claim, remembered).is_empty(),
+            "nothing to write: the roles are on the cable already"
+        );
+        assert_eq!(claim.before, defaults(MICROPHONE, MICROPHONE, ""));
+        assert!(claim.holds(&current), "FxSound's to give back");
+        assert_eq!(
+            hand_back(&current, &claim, Some(MICROPHONE), |_| true),
+            [
+                (Role::Console, MICROPHONE.to_owned()),
+                (Role::Multimedia, MICROPHONE.to_owned()),
+                (Role::Communications, MICROPHONE.to_owned()),
+            ]
+        );
+        // The same cable made the user's default by the user: theirs, kept and never given away.
+        let mut claim = Claim::finding_theirs(CABLE.to_owned(), &current);
+        assert!(
+            claim_roles(&current, CABLE, &Role::ALL, &mut claim, |_, id| {
+                (id != CABLE).then(|| id.to_owned())
+            })
+            .is_empty()
+        );
+        assert!(!claim.holds(&current));
+        assert!(hand_back(&current, &claim, Some(MICROPHONE), |_| true).is_empty());
+    }
+
+    #[test]
+    fn a_placement_is_forgotten_once_its_role_has_moved() {
+        let mut placements = Placements::default();
+        placements.set(
+            Role::Multimedia,
+            Some(Placed {
+                endpoint: "cable".to_owned(),
+                before: Some(SPEAKERS.to_owned()),
+            }),
+        );
+        assert!(placements.is(Role::Multimedia, "cable"));
+        assert!(!placements.is(Role::Multimedia, SPEAKERS));
+        assert!(!placements.is(Role::Console, "cable"));
+        placements.keep_current(&defaults(FX, "cable", SPEAKERS), |_| false);
+        assert!(placements.is(Role::Multimedia, "cable"), "still there");
+        // Moved, with the move still to be decided: the decision reads where Windows had put it.
+        let moved = defaults(FX, "other cable", SPEAKERS);
+        placements.keep_current(&moved, |role| role == Role::Multimedia);
+        assert!(placements.is(Role::Multimedia, "cable"));
+        placements.keep_current(&moved, |_| false);
+        assert_eq!(placements, Placements::default());
     }
 
     #[test]
@@ -380,7 +537,7 @@ mod tests {
             FX,
             &Role::ALL,
             &mut claim,
-            |id| id == FX,
+            users,
         );
         let present = |_: &str| true;
         assert_eq!(
@@ -409,7 +566,7 @@ mod tests {
             FX,
             &Role::ALL,
             &mut claim,
-            |id| id == FX,
+            users,
         );
         let headset_unplugged = |id: &str| id != HEADSET;
         assert_eq!(
@@ -450,7 +607,7 @@ mod tests {
             FX,
             &Role::ALL,
             &mut claim,
-            |id| id == FX,
+            users,
         );
         assert_eq!(
             hand_back(&defaults(FX, FX, FX), &claim, Some("headphones"), |_| true),
@@ -477,7 +634,7 @@ mod tests {
         let mut claim = fresh_claim();
         let current = defaults(SPEAKERS, SPEAKERS, HEADSET);
         assert_eq!(
-            claim_roles(&current, FX, &Role::ALL, &mut claim, |id| id == FX).len(),
+            claim_roles(&current, FX, &Role::ALL, &mut claim, users).len(),
             3
         );
         // The user puts calls on the speakers while FxSound holds every role.
@@ -486,7 +643,7 @@ mod tests {
         assert!(!claim.has_yielded(Role::Console));
         let now = defaults(FX, FX, SPEAKERS);
         assert!(
-            claim_roles(&now, FX, &Role::ALL, &mut claim, |id| id == FX).is_empty(),
+            claim_roles(&now, FX, &Role::ALL, &mut claim, users).is_empty(),
             "a later run of the rules takes nothing back"
         );
         assert_eq!(claim.before.get(Role::Communications), Some(HEADSET));
@@ -533,6 +690,16 @@ mod tests {
         assert!(!Role::Communications.is_pick());
         let current = defaults(SPEAKERS, "", HEADSET);
         assert_eq!(current.main(), Some(SPEAKERS));
+        assert_eq!(
+            current.main_role(),
+            Some(Role::Console),
+            "read from eConsole here"
+        );
+        assert_eq!(
+            defaults(FX, SPEAKERS, "").main_role(),
+            Some(Role::Multimedia)
+        );
+        assert_eq!(defaults("", "", HEADSET).main_role(), None);
         assert!(current.any_is(HEADSET));
         assert!(!current.any_is(FX));
     }

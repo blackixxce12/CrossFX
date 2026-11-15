@@ -161,4 +161,6 @@ countries: it
 "Plus the original's sound: presets sound the same." = "Più il suono dell'originale: preimpostazioni uguali."
 "Only what the original has; the rest is hidden." = "Solo ciò che ha l'originale; il resto è nascosto."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Nessun dispositivo di riproduzione virtuale: installa il driver di FxSound o VB-CABLE"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "Non resta alcun cavo virtuale per il microfono: installa VB-CABLE, o un secondo cavo se l'uscita di FxSound ne usa già uno"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "Il cavo virtuale è in uso come uscita di FxSound o come dispositivo predefinito: scegline un altro o installa un secondo cavo per il microfono"
 "The Windows audio service is not available" = "Il servizio audio di Windows non è disponibile"

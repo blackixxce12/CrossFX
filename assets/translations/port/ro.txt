@@ -159,4 +159,6 @@ countries: ro
 "Plus the original's sound: presets sound the same." = "Plus sunetul originalului: presetările sună la fel."
 "Only what the original has; the rest is hidden." = "Doar ce are originalul; restul e ascuns."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Niciun dispozitiv de redare virtual: instalați driverul FxSound sau VB-CABLE"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "Nu a mai rămas niciun cablu virtual pentru microfon: instalați VB-CABLE sau un al doilea cablu, dacă ieșirea FxSound folosește deja unul"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "Cablul virtual este folosit ca ieșire FxSound sau ca dispozitiv implicit: alegeți altul sau instalați un al doilea cablu pentru microfon"
 "The Windows audio service is not available" = "Serviciul audio Windows nu este disponibil"

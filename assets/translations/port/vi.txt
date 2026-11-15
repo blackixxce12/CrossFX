@@ -158,4 +158,6 @@ countries: vn
 "Plus the original's sound: presets sound the same." = "Thêm âm thanh bản gốc: preset nghe giống hệt."
 "Only what the original has; the rest is hidden." = "Chỉ những gì bản gốc có; phần còn lại bị ẩn."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Không có thiết bị phát ảo: hãy cài trình điều khiển FxSound hoặc VB-CABLE"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "Không còn cáp ảo nào cho micrô: hãy cài VB-CABLE, hoặc cài thêm cáp thứ hai nếu đầu ra của FxSound đã dùng một cáp"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "Cáp ảo đang được dùng làm đầu ra của FxSound hoặc làm thiết bị mặc định: hãy chọn thiết bị khác hoặc cài thêm cáp thứ hai cho micrô"
 "The Windows audio service is not available" = "Dịch vụ âm thanh của Windows không khả dụng"

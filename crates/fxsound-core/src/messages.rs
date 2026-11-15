@@ -935,6 +935,16 @@ pub enum UiToAudio {
     /// its call profile under WirePlumber 0.5, so a headset's microphone delivers audio too —
     /// about a second after the message, once the profile has switched. Kept until `false`,
     /// across devices and reconnects.
+    ///
+    /// On Windows the input lane plays into a virtual cable, and its microphone is open only while
+    /// an application records from the cable's recording side: the Windows face of the passive
+    /// stream. While this holds it, and the lane stands on its cable with the power on — holding
+    /// the recording default there, open or closed — the engine opens the microphone and runs the
+    /// lane into the cable whether or not anything records there, which puts a Bluetooth headset
+    /// in its call profile there too. With the power off the lane holds no default and opens
+    /// nothing, held or not; nor does a lane without a cable. After `false` the microphone stays
+    /// open three seconds more — or, while an application records from the cable, until three
+    /// seconds after the last one stops — and is then let go.
     KeepInputAwake(bool),
     /// Every rule that gives an application a preset of its own, both lanes at once, running or
     /// not, and the rules that follow the lane where they outrank one of those
@@ -988,7 +998,9 @@ pub enum AudioToUi {
     /// `direction`, and the lane, which follows the system's default device (no ranking), takes it
     /// as the user's pick and moves there. The app keeps it as the lane's device, so the next start
     /// begins where the desktop left it. Never sent for a move the engine makes on its own — a
-    /// device gone, and the lane falling back to another — which leaves the saved device as it is.
+    /// device gone, and the lane falling back to another — which leaves the saved device as it is;
+    /// nor, on Windows, for one Windows makes by itself, a virtual cable just installed given the
+    /// default.
     DesktopPick {
         direction: DeviceDirection,
         node_name: String,

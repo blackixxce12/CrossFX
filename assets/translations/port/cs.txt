@@ -157,4 +157,6 @@ countries: cz
 "Plus the original's sound: presets sound the same." = "Navíc zvuk originálu: předvolby zní stejně."
 "Only what the original has; the rest is hidden." = "Jen to, co má originál; zbytek je skrytý."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Chybí virtuální přehrávací zařízení: nainstalujte ovladač FxSound nebo VB-CABLE"
+"No virtual cable left for the microphone: install VB-CABLE, or a second cable if FxSound's output already uses one" = "Pro mikrofon nezbyl žádný virtuální kabel: nainstalujte VB-CABLE, nebo druhý kabel, pokud už jeden používá výstup FxSound"
+"The virtual cable is in use as FxSound's output or a default device: choose another, or install a second cable for the microphone" = "Virtuální kabel se používá jako výstup FxSound nebo jako výchozí zařízení: zvolte jiné, nebo pro mikrofon nainstalujte druhý kabel"
 "The Windows audio service is not available" = "Zvuková služba Windows není k dispozici"

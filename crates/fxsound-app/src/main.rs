@@ -3544,6 +3544,7 @@ mod calibration_tests {
             is_default: true,
             direction: DeviceDirection::Input,
             form_factor: "microphone".to_owned(),
+            is_virtual: false,
         }]));
         if with_microphone {
             engine.feed(AudioToUi::Attached {
@@ -4363,6 +4364,7 @@ mod forget_device_tests {
             is_default: true,
             direction: DeviceDirection::Output,
             form_factor: "speaker".to_owned(),
+            is_virtual: false,
         }
     }
 

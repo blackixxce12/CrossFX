@@ -35,16 +35,63 @@
 //! Virtual Audio Cable ([`endpoints`], which says how each is found). The input lane needs a cable
 //! of its own besides. With none for a lane the lane is not half-run: it reports
 //! [`AudioError::NoVirtualDevice`] (the output lane) or [`AudioError::NoVirtualInputDevice`] (the
-//! input lane) and processes nothing. No endpoint of FxSound's driver, and neither side of a cable
-//! a lane stands on, is ever offered as a device to pick; a cable no lane stands on is offered like
-//! any other device, as every endpoint but its driver's is to the original, and a user's own
-//! default there is remembered, played to and given back there. The device rules come to such a
-//! cable only where the user chose it, though — picked it, made it the system's default, or had
-//! it remembered ([`Engine::device_infos`]): a cable just installed is never "a device just added",
-//! nor the "first device there is" of a lane or of a hand-back, which would send the system's sound
+//! input lane) — or [`AudioError::VirtualInputDeviceInUse`], when the input lane's cable is there
+//! but the user's — and processes nothing. No endpoint of FxSound's driver, and neither side of a
+//! cable a lane stands on, is ever offered as a device to pick; a cable no lane stands on is offered
+//! like any other device, as every endpoint but its driver's is to the original: a user who picks
+//! one in FxSound has it played to, and the default given back there. The device rules come to such
+//! a cable only where the user chose it, though — picked it, had the settings remember it, or made
+//! it the system's default themselves ([`Engine::device_infos`], "Whose default it is"): a cable
+//! just installed is never "a device just added", nor the "first device there is" of a lane or of a
+//! hand-back, nor the session default Windows gave it, any of which would send the system's sound
 //! into it. The microphone never takes a cable the user has in use, and a default the speakers'
-//! lane finds on its cable already, put there by the user rather than by a run of FxSound's,
-//! stays theirs.
+//! lane finds on its cable already, put there by the user rather than by a run of FxSound's or by
+//! Windows, stays theirs.
+//!
+//! # Whose default it is
+//!
+//! Windows moves defaults by itself. A device just installed is given the first chance at every
+//! role of its direction — an endpoint that has never been the default is compared first
+//! (Microsoft's "Default Audio Endpoint Selection") — so a virtual cable installed for FxSound's
+//! microphone can take the speakers' default and the microphone's, and the machine falls silent;
+//! and a device that goes has its roles fall back to another, a cable among them. Neither is the
+//! user's choice, and on a cable neither is a device anyone hears. A cable's being the default is
+//! therefore never taken for the user's choice of it by itself: a default on a cable is the user's
+//! only on evidence that they chose it ([`Engine::windows_default`]), and Windows' otherwise.
+//!
+//! The evidence is that the user picked the cable in FxSound — the saved device the app announces
+//! at the start is such a pick — that the settings remember it as the default from before FxSound
+//! ([`Engine::remembers`]), or that a run of FxSound saw the desktop move that role's default onto
+//! it: from a device still there, onto a cable listed for longer than [`PICK_WAIT`] already and no
+//! lane of FxSound stands on, and not while the original FxSound ran ([`Engine::decide_default`]).
+//! That last is the user's word on one role, which FxSound's record keeps across runs for as long
+//! as the role stays there ([`record`]). Following the system's default, the lane follows such a
+//! pick of a playback role, and the app saves it as the lane's device; while a ranking decides the
+//! lane's device, the pick is left with the user, on the cable, through the run and after it. A
+//! later start takes the roles its lane takes for FxSound, as it takes any default, and gives them
+//! back to the lane's own device as it ends; what stays the user's is the cable — remembered as
+//! the default from before FxSound, and left alone by the microphone — and any role FxSound does
+//! not take, left on it. What the rules chose, played to or found the default on by themselves
+//! says nothing: a cable they came to by mistake would otherwise be the user's for good.
+//!
+//! So a default found on a cable at the start with none of that, one moved onto a cable as the
+//! cable arrived, as a fallback, onto a cable a lane stands on, or while the original runs, and one
+//! moved to an endpoint that could not be read in time and turns out to be a cable, are Windows' —
+//! where each role was before kept ([`defaults::Placements`]). A move of Windows' is no pick: no
+//! lane follows it, nothing is saved ([`AudioToUi::DesktopPick`] is never sent for it), and the
+//! cable is free for FxSound's lanes, as any cable nobody uses is. Wherever FxSound is in such a
+//! default's path — the lane of its direction holds its claim, or the cable is one a lane stands
+//! on, whatever plays into which is recorded with the voice, or whose recording side records the
+//! desktop the speakers' lane sends into it — FxSound puts it back, while the lane runs and as it
+//! ends ([`Engine::put_placements_back`]): a role the claim holds is taken back, any other goes back
+//! where it was, and, with nowhere known, where the defaults are given back to; never onto a cable
+//! nobody chose. One found so at the start waits for the app's first word, which may be the
+//! settings' word that the cable is the user's. A lane that stands on such a cable adopts the roles
+//! it finds on its endpoint, as it adopts the default a killed run left, and gives them back to a
+//! real device; neither the settings ([`AudioToUi::RememberedDefault`]) nor a hand-back ever names a
+//! cable nobody chose, and where the role was before is the session default the device rules
+//! read. A default Windows put on a cable no lane uses, in a direction whose lane holds nothing, is
+//! left where Windows put it: FxSound is not in that path.
 //!
 //! # The default devices
 //!
@@ -71,30 +118,37 @@
 //! rules remember, the default the settings remembered ([`UiToAudio::SeedRememberedDefaults`])
 //! among them, by the `sndDevicesRestoreDefaultDevice` order — and one a lane does stand behind is
 //! adopted. "Left" is what FxSound's own record says ([`record`]): every claim is written down
-//! before its first write and struck out after its hand-back, so that a cable the user made their
-//! default themselves is never taken for one a killed run left. A default on FxSound's own driver
-//! needs no record: nothing plays it while neither FxSound runs.
+//! before its first write and struck out after its hand-back, so that a default on a cable FxSound
+//! never held — the user's, or Windows' — is never taken for one a killed run left. A default on
+//! FxSound's own driver needs no record: nothing plays it while neither FxSound runs.
 //!
 //! The desktop picking another default while a lane holds it is the user picking a device, as the
 //! original takes it (`sndDevicesDeviceCallbacks.cpp:95-156`): a lane that follows the system's
 //! default device moves there ([`AudioToUi::DesktopPick`]) and takes the default back, as the Linux
-//! engine does (`docs/spec/12-audio-io.md` §21, 4a). A role moved that the lane does not follow —
-//! calls sent to a headset, or any pick while a ranking decides the lane's device — is left with
-//! the user until the claim ends. FxSound's own writes are told apart from the user's by their
-//! echoes ([`defaults::Echoes`]), and the original FxSound's, while it runs, are its own. Every
-//! other change is decided against the endpoints as read after it ([`Engine::decide_default`]): a
-//! device plugged in and made the default arrives in one burst of notifications, and decided
-//! against the list from before it, the user's pick of it would read as a pick of nothing the lane
-//! can follow. A change off an endpoint that has gone — unplugged, disabled — is Windows' own
-//! fallback and no pick: the device the user saved stays theirs.
+//! engine does (`docs/spec/12-audio-io.md` §21, 4a) — and so with the power off, the lane holding
+//! nothing: the pick is where it plays once it is on. A role moved that the lane does not follow —
+//! calls sent to a headset, a cable's recording side made the default for the user's recorders, or
+//! any pick while a ranking decides the lane's device — is left with the user until the claim ends.
+//! FxSound's own writes are told apart from the user's by their echoes ([`defaults::Echoes`]), and
+//! the original FxSound's, while it runs, are its own. Every other change is decided against the
+//! endpoints as read after it ([`Engine::decide_default`]): a device plugged in and made the
+//! default arrives in one burst of notifications, and decided against the list from before it, the
+//! user's pick of it would read as a pick of nothing the lane can follow. A change off an endpoint
+//! that has gone — unplugged, disabled — is Windows' own fallback and no pick: the device the user
+//! saved stays theirs. Nor is a cable just installed taking the default, nor a default moved onto
+//! a cable a lane stands on ("Whose default it is").
 //!
 //! # The original FxSound
 //!
 //! While FxSound LLC's FxSound runs ([`original`]) it holds the virtual device: the output lane
 //! neither takes the default nor processes, a default it held is left to the original rather than
 //! handed back into a fight, and the user is told ([`crate::ORIGINAL_FXSOUND_RUNNING`]). The lane
-//! picks up once the original has quit. The input lane is not affected: the original has no
-//! microphone path and never touches a cable.
+//! picks up once the original has quit. Its moves of the playback default — its claim, its
+//! hand-back — are no picks of the user's, and nothing moved meanwhile is taken for one; but Windows
+//! moves defaults while it runs as at any other time, and where Windows put one is decided on all
+//! the same ("Whose default it is"): a cable installed meanwhile is the microphone's to take, and
+//! the roles Windows gave it are put back once FxSound is in their path. The input lane is not
+//! affected: the original has no microphone path and never touches a cable.
 //!
 //! It is looked for only where it can run, with an endpoint of its driver listed, and without
 //! reading the process list — a snapshot of every process and thread, milliseconds of CPU — on a
@@ -174,8 +228,8 @@ use crate::{
 
 pub use probe::probe;
 
-use defaults::{Claim, Defaults, Echoes, Role};
-use endpoints::{Endpoint, VirtualDevice};
+use defaults::{Claim, Defaults, Echoes, Placed, Placements, Role};
+use endpoints::{Endpoint, VirtualDevice, VirtualKind};
 use stream::{Ended, LeftBehind, Opened, Outcome, StartFailure, StreamPlan, StreamShared, Totals};
 
 /// How often the control thread looks at everything whether or not anything woke it: the Linux
@@ -310,6 +364,9 @@ struct PendingDefault {
     before: Option<String>,
     /// When it was heard.
     since: Instant,
+    /// It was heard while the original FxSound ran — a playback role, which the original moves as
+    /// it starts and as it quits: decided on for where Windows put it, never as a pick.
+    original: bool,
 }
 
 /// The GUI's end of the control channel.
@@ -527,6 +584,12 @@ pub(crate) trait System {
     fn claimed(&mut self) -> PerDirection<Option<String>>;
     /// Keep `claimed` as the record, replacing what it held.
     fn keep_claimed(&mut self, claimed: &PerDirection<Option<String>>);
+    /// The defaults the user put on a virtual cable themselves while a run of FxSound watched,
+    /// role by role, as FxSound's record keeps them ([`record`]): what a later start knows to be
+    /// theirs.
+    fn users_cables(&mut self) -> PerDirection<Defaults>;
+    /// Keep `cables` as the record's word on the user's own cable defaults, replacing what it held.
+    fn keep_users_cables(&mut self, cables: &PerDirection<Defaults>);
     /// Start a lane's stream.
     ///
     /// # Errors
@@ -622,6 +685,8 @@ struct Windows {
     own_pid: u32,
     own_image: Option<String>,
     record: record::Record,
+    /// What the record holds, as read at the start and kept since: every keeping writes it whole.
+    kept: record::Kept,
     /// The original FxSound once found, watched through its process, and as the log names it:
     /// while it runs, it is looked at without the process list.
     original: Option<(com::ProcessWatch, String)>,
@@ -643,6 +708,8 @@ impl Windows {
             })
             .ok();
         let own_pid = com::own_pid();
+        let record = record::Record::of_user();
+        let kept = record.read();
         Ok(Self {
             enumerator,
             _watch: watch,
@@ -650,7 +717,8 @@ impl Windows {
             events,
             own_pid,
             own_image: com::process_image(own_pid),
-            record: record::Record::of_user(),
+            record,
+            kept,
             original: None,
             sessions: HashMap::new(),
             recorders: None,
@@ -774,11 +842,21 @@ impl System for Windows {
     }
 
     fn claimed(&mut self) -> PerDirection<Option<String>> {
-        self.record.read()
+        self.kept.claimed.clone()
     }
 
     fn keep_claimed(&mut self, claimed: &PerDirection<Option<String>>) {
-        self.record.write(claimed);
+        self.kept.claimed = claimed.clone();
+        self.record.write(&self.kept);
+    }
+
+    fn users_cables(&mut self) -> PerDirection<Defaults> {
+        self.kept.users.clone()
+    }
+
+    fn keep_users_cables(&mut self, cables: &PerDirection<Defaults>) {
+        self.kept.users = cables.clone();
+        self.record.write(&self.kept);
     }
 
     fn start_stream(
@@ -924,7 +1002,8 @@ struct Lane {
     /// next run of the rules, whether the lane moves or already plays there.
     reclaim: bool,
     /// The device the lane is on was the rules' last resort — nothing remembered, and the default
-    /// on a virtual device, as a killed run leaves it — so the default the settings remember
+    /// on a virtual device, as a killed run leaves it, or on a cable Windows gave it by itself
+    /// (module docs, "Whose default it is") — so the default the settings remember
     /// ([`UiToAudio::SeedRememberedDefaults`]) still outranks it when it arrives after the rules
     /// first ran, as it would have had it arrived before.
     blind: bool,
@@ -1030,6 +1109,36 @@ pub(crate) struct Engine<S: System> {
     reported: Option<PerDirection<Defaults>>,
     /// Changes of a default not decided on yet, each role's last ([`Self::decide_defaults`]).
     pending: PerDirection<Vec<(Role, PendingDefault)>>,
+    /// Where each role was before Windows moved it onto a virtual cable by itself (module docs,
+    /// "Whose default it is") — as the cable arrived, as a fallback, onto a cable a lane stands on,
+    /// while the original FxSound ran, or onto an endpoint that could not be read in time — for as
+    /// long as the role stays there: where a default nobody chose goes back to
+    /// ([`Self::put_placements_back`]).
+    placed: PerDirection<Placements>,
+    /// Per role, the virtual cable the user made its default themselves while FxSound ran — the
+    /// desktop moving it there, from a device still there, onto a cable listed for longer than
+    /// [`PICK_WAIT`] that no lane stands on, the original FxSound not running
+    /// ([`Self::decide_default`]) — in this run, or in one before it, as FxSound's record keeps it
+    /// ([`record`]): what says that default is theirs.
+    users_cables: PerDirection<Defaults>,
+    /// The default from before FxSound as the settings file has it: the app's word
+    /// ([`UiToAudio::SeedRememberedDefaults`]), or what this run has told it since
+    /// ([`AudioToUi::RememberedDefault`]), which the app writes there. The settings' word on a
+    /// cable is the user's ([`Self::remembers`]).
+    settings_default: PerDirection<String>,
+    /// Until when a default found on a cable at the start — of Windows' or the user's, with
+    /// nothing yet to tell which — waits for the app's first word before FxSound moves it as
+    /// Windows' ([`Self::put_placements_back`]): the settings may remember the cable as the
+    /// user's. `None` once the app has spoken, or the wait is up ([`REPAIR_PATIENCE`]).
+    waiting_for_app: Option<Instant>,
+    /// Something changed what Windows' defaults on the cables are, or whether FxSound may move
+    /// them — a placement decided on, an endpoint listed for the first time, the app's first word:
+    /// they are looked at again once the rules have run ([`Self::settle`]).
+    placements_due: bool,
+    /// When each endpoint listed was first listed in this run — `None` for one listed by the first
+    /// read, there before FxSound — for telling Windows giving a cable just installed the default
+    /// from the user picking one that was there ([`Self::decide_default`]).
+    arrived: HashMap<String, Option<Instant>>,
     echoes: PerDirection<Echoes>,
     lanes: PerDirection<Lane>,
     memory: PerDirection<SelectionMemory>,
@@ -1105,6 +1214,7 @@ impl<S: System> Engine<S> {
                 );
             }
         }
+        let users_cables = system.users_cables();
         let mut engine = Self {
             system,
             notify,
@@ -1113,6 +1223,12 @@ impl<S: System> Engine<S> {
             defaults: PerDirection::default(),
             reported: None,
             pending: PerDirection::default(),
+            placed: PerDirection::default(),
+            users_cables,
+            settings_default: PerDirection::default(),
+            waiting_for_app: None,
+            placements_due: false,
+            arrived: HashMap::new(),
             echoes: PerDirection::default(),
             lanes: PerDirection {
                 output: Lane::new(options.output_enabled, options.want_default, output),
@@ -1216,6 +1332,7 @@ impl<S: System> Engine<S> {
     /// — the first device list; the output lane's first stream, when it is on.
     fn start(&mut self, now: Instant) {
         self.repair_due = Some(now + REPAIR_PATIENCE);
+        self.waiting_for_app = Some(now + REPAIR_PATIENCE);
         self.settle(now);
         self.tick(now);
     }
@@ -1246,8 +1363,47 @@ impl<S: System> Engine<S> {
         }
         // Windows' reports take over from the first read: what each role was before a change is
         // what the last report said, never a read made after the change (`PendingDefault`).
-        if self.reported.is_none() {
+        let first = self.reported.is_none();
+        if first {
             self.reported = Some(self.defaults.clone());
+            self.forget_users_cables_moved_since();
+        }
+        let mut arrived = HashMap::with_capacity(self.endpoints.len());
+        for endpoint in &self.endpoints {
+            let at = match self.arrived.get(&endpoint.id) {
+                Some(&at) => at,
+                None if first => None,
+                None => {
+                    // Listed for the first time: a cable Windows put a default on before it could
+                    // be read is looked at now (`decide_default`).
+                    self.placements_due = true;
+                    Some(now)
+                }
+            };
+            arrived.insert(endpoint.id.clone(), at);
+        }
+        self.arrived = arrived;
+        for direction in DeviceDirection::ALL {
+            let defaults = self.defaults.get(direction).clone();
+            let deciding = self.deciding(direction);
+            // A placement made on an endpoint that could not be read yet is Windows' only if that
+            // turns out to be a cable (`decide_default`).
+            let readable: Vec<Role> = Role::ALL
+                .into_iter()
+                .filter(|&role| {
+                    self.placed.get(direction).get(role).is_some_and(|placed| {
+                        self.endpoints
+                            .iter()
+                            .any(|endpoint| endpoint.id == placed.endpoint)
+                            && !self.is_cable(&placed.endpoint)
+                    })
+                })
+                .collect();
+            let placed = self.placed.get_mut(direction);
+            placed.keep_current(&defaults, |role| deciding.contains(&role));
+            for role in readable {
+                placed.set(role, None);
+            }
         }
         for endpoint in &self.endpoints {
             let next = u32::try_from(self.ids.len()).unwrap_or(u32::MAX);
@@ -1289,9 +1445,10 @@ impl<S: System> Engine<S> {
     /// into it, or records from it has it played to and their default given back there. But the
     /// rules never come to it by themselves: installed, it would be "a device just added" (rule 5)
     /// — or, listed before the speakers, the "first device there is" (rule 7, and the hand-back's
-    /// last resort) — and the system's sound would go into it, where nobody hears it, with the
-    /// default handed to it at the exit; and a cable installed for the microphone's lane would be
-    /// the speakers' device, which the microphone never mixes into.
+    /// last resort), or the session default Windows gave it as it arrived (rules 2 and 6) — and the
+    /// system's sound would go into it, where nobody hears it, with the default handed to it at the
+    /// exit; and a cable installed for the microphone's lane would be the speakers' device, which
+    /// the microphone never mixes into.
     fn device_infos(&self) -> Vec<DeviceInfo> {
         self.offered_infos(|endpoint| {
             endpoint.virtual_kind().is_none() || self.chosen(endpoint.direction, &endpoint.id)
@@ -1311,25 +1468,123 @@ impl<S: System> Engine<S> {
     }
 
     /// Whether the user has chosen `id` as the device of the lane of `direction`, as far as the
-    /// engine can tell: picked it — in FxSound's list, or as the system's default the lane followed
-    /// (`SelectionMemory::user_selected`) — has it as the system's default device, unless FxSound's
-    /// record says a run of its own left the default there ([`record`]), or has the rules remember
-    /// it: a device the lane was on, or the default from before FxSound, the settings' word on it
-    /// among them (`SelectionMemory`'s other slots).
+    /// engine can tell: picked it, or has the settings remember it ([`Self::remembers`]), or has
+    /// made it the system's default device themselves — never Windows by itself (module docs,
+    /// "Whose default it is"), and not a run of FxSound's that FxSound's record says left the
+    /// default there ([`record`]).
     fn chosen(&self, direction: DeviceDirection, id: &str) -> bool {
-        let memory = self.memory.get(direction);
-        let default = self.defaults.get(direction).main() == Some(id)
-            && self.claimed.get(direction).as_deref() != Some(id);
-        default
-            || [
-                &memory.user_selected,
-                &memory.most_recent_playback,
-                &memory.most_recent_default,
-                &memory.prior_default,
-                &memory.original_default,
-            ]
-            .into_iter()
-            .any(|remembered| remembered.as_str() == id)
+        let defaults = self.defaults.get(direction);
+        let default = defaults.main_role().is_some_and(|role| {
+            defaults.get(role) == Some(id) && !self.windows_default(direction, role, id)
+        }) && self.claimed.get(direction).as_deref() != Some(id);
+        default || self.remembers(direction, id)
+    }
+
+    /// Whether the user's own word names `id` as the device, or the default, of the lane of
+    /// `direction`: they picked it — in FxSound's list, the saved device the app announces among
+    /// such picks, or as the system's default the lane followed — or the settings remember it as
+    /// the default from before FxSound ([`Self::settings_default`]). What the rules chose, played
+    /// to or found the default on by themselves is not among it ([`SelectionMemory`]'s other
+    /// slots): a cable they came to by mistake would otherwise be the user's for good.
+    fn remembers(&self, direction: DeviceDirection, id: &str) -> bool {
+        !id.is_empty()
+            && (self.memory.get(direction).user_selected == id
+                || self.settings_default.get(direction) == id)
+    }
+
+    /// Whether `role`'s default of `direction`, on `id`, is the user's own on a virtual cable: they
+    /// made it the default themselves while FxSound ran ([`Self::users_cables`]), or chose the cable
+    /// ([`Self::remembers`]).
+    fn users_cable(&self, direction: DeviceDirection, role: Role, id: &str) -> bool {
+        self.users_cables.get(direction).get(role) == Some(id) || self.remembers(direction, id)
+    }
+
+    /// Whether `role`'s default of `direction`, on `id`, is Windows' rather than the user's (module
+    /// docs, "Whose default it is"): `id` is a side of a virtual cable, and nothing says the user
+    /// chose it ([`Self::users_cable`]). A default anywhere else is the user's, or FxSound's own.
+    fn windows_default(&self, direction: DeviceDirection, role: Role, id: &str) -> bool {
+        self.is_cable(id) && !self.users_cable(direction, role, id)
+    }
+
+    /// Record what the user made `role`'s default of `direction`, as a decided change of it says
+    /// ([`Self::decide_default`]): the cable, when they moved it onto one; nothing when it went
+    /// anywhere else, or by anyone else's hand. Kept in FxSound's record when it changed.
+    fn users_chose(&mut self, direction: DeviceDirection, role: Role, cable: Option<String>) {
+        let cables = self.users_cables.get_mut(direction);
+        if cables.get(role) == cable.as_deref() {
+            return;
+        }
+        cables.set(role, cable);
+        let cables = self.users_cables.clone();
+        self.system.keep_users_cables(&cables);
+    }
+
+    /// At the first read: forget each role's cable the record says the user chose, when the role
+    /// is on some other endpoint now — moved while no FxSound ran — unless that endpoint is
+    /// FxSound's own, where a run that was killed holding the role left it.
+    fn forget_users_cables_moved_since(&mut self) {
+        let mut cables = self.users_cables.clone();
+        for direction in DeviceDirection::ALL {
+            let current = self.defaults.get(direction);
+            for role in Role::ALL {
+                let Some(cable) = cables.get(direction).get(role) else {
+                    continue;
+                };
+                let moved = match current.get(role) {
+                    None => true,
+                    Some(now) if now == cable => false,
+                    Some(now) => {
+                        !self.is_driver(now) && self.claimed.get(direction).as_deref() != Some(now)
+                    }
+                };
+                if moved {
+                    log::info!(
+                        "{} lane: the {role:?} default the user had on {cable} has moved since",
+                        direction.key()
+                    );
+                    cables.get_mut(direction).set(role, None);
+                }
+            }
+        }
+        if cables != self.users_cables {
+            self.users_cables = cables;
+            self.system.keep_users_cables(&self.users_cables);
+        }
+    }
+
+    /// Whether `id` is a side of a virtual cable one of FxSound's lanes stands on now — plays
+    /// through, or holds its claim on — and so FxSound's own, never a device of the user's: what
+    /// plays into the input lane's cable is recorded with the voice, and the recording side of the
+    /// output lane's records the desktop's sound.
+    fn stands_on(&self, id: &str) -> bool {
+        self.lanes.iter().any(|(_, lane)| {
+            lane.enabled
+                && (lane.stream.is_some() || lane.claim.is_some())
+                && lane.virtual_device.as_ref().is_some_and(|device| {
+                    device.kind.is_cable()
+                        && (device.capture.as_deref() == Some(id)
+                            || endpoints::device_of(&device.render, &self.endpoints)
+                                .iter()
+                                .any(|side| side == id))
+                })
+        })
+    }
+
+    /// Whether a default of `direction` may be given to `id`: a device the rules may choose
+    /// ([`Self::device_infos`]) — a real one that is there, or a cable the user chose — and never
+    /// FxSound's own endpoint, nor a cable nobody chose.
+    fn may_hold_default(&self, direction: DeviceDirection, id: &str) -> bool {
+        self.device_infos()
+            .iter()
+            .any(|info| info.direction == direction && info.name == id)
+    }
+
+    /// Whether `id` is a side of a virtual cable: listed, and of a cable's kind — never FxSound's
+    /// driver, whose defaults are FxSound's or the original's.
+    fn is_cable(&self, id: &str) -> bool {
+        self.endpoints.iter().any(|endpoint| {
+            endpoint.id == id && endpoint.virtual_kind().is_some_and(VirtualKind::is_cable)
+        })
     }
 
     /// FxSound's own endpoints, never a device (`endpoints::fxsound_endpoints`): its driver's, and
@@ -1383,21 +1638,24 @@ impl<S: System> Engine<S> {
     }
 
     /// Whether `id` is in the user's own use, so that the input lane takes no cable either side of
-    /// which it is (`endpoints::plan`): the real device the output lane plays to — a cable it
-    /// plays into — or a default the user has there, which no claim of a lane's and no record of
-    /// FxSound's put there.
+    /// which it is (`endpoints::plan`): the real device the output lane plays to — a cable the user
+    /// picked for it — or a default of the user's there (module docs, "Whose default it is"),
+    /// which no claim of a lane's and no record of FxSound's put there. A cable Windows made the
+    /// default by itself, as it was installed, is the microphone's to take.
     fn in_users_use(&self, id: &str) -> bool {
         let played_to =
             self.lanes.output.enabled && self.lanes.output.target.as_deref() == Some(id);
         played_to
             || DeviceDirection::ALL.into_iter().any(|direction| {
-                self.defaults.get(direction).any_is(id)
-                    && self
-                        .lanes
-                        .get(direction)
-                        .claim
-                        .as_ref()
-                        .is_none_or(|claim| claim.endpoint != id)
+                Role::ALL.into_iter().any(|role| {
+                    self.defaults.get(direction).get(role) == Some(id)
+                        && !self.windows_default(direction, role, id)
+                }) && self
+                    .lanes
+                    .get(direction)
+                    .claim
+                    .as_ref()
+                    .is_none_or(|claim| claim.endpoint != id)
                     && self.claimed.get(direction).as_deref() != Some(id)
             })
     }
@@ -1475,6 +1733,11 @@ impl<S: System> Engine<S> {
 
     /// Act on one control message. Everything but `Shutdown`, which ends the loop in [`run`].
     pub(crate) fn control(&mut self, message: UiToAudio, now: Instant) {
+        // The app has spoken — the settings' word first (`startup_messages`): a default found on
+        // a cable at the start is known by now to be the user's, or Windows'.
+        if self.waiting_for_app.take().is_some() {
+            self.placements_due = true;
+        }
         match message {
             UiToAudio::SelectDevice {
                 node_name,
@@ -1531,6 +1794,13 @@ impl<S: System> Engine<S> {
                     if name.is_empty() || self.is_virtual(&name) {
                         continue;
                     }
+                    if self.is_cable(&name) {
+                        // A cable the settings remember is the user's, whatever its default was
+                        // taken for at the start (module docs, "Whose default it is"): what the
+                        // lanes may do with it has changed.
+                        self.mark_enabled_lanes();
+                    }
+                    self.settings_default.get_mut(direction).clone_from(&name);
                     self.seed_remembered_default(direction, name);
                 }
             }
@@ -1606,15 +1876,17 @@ impl<S: System> Engine<S> {
     }
 
     /// Record what a run of the rules chose for a lane (`devices::commit`), and whether the choice
-    /// was blind ([`Lane::blind`]): made with nothing remembered and no real device the default —
-    /// or after such a choice, with nothing learnt since.
+    /// was blind ([`Lane::blind`]): made with nothing remembered and no device of the user's the
+    /// default — a virtual device the default, or a cable Windows made it (module docs, "Whose
+    /// default it is") — or after such a choice, with nothing learnt since.
     fn commit(&mut self, direction: DeviceDirection, selection: &Selection) {
+        let defaults = self.defaults.get(direction);
         let knew = selection.write_previous_default
-            || self
-                .defaults
-                .get(direction)
-                .main()
-                .is_some_and(|default| !self.is_virtual(default));
+            || defaults.main_role().is_some_and(|role| {
+                defaults.get(role).is_some_and(|default| {
+                    !self.is_virtual(default) && !self.windows_default(direction, role, default)
+                })
+            });
         let memory = self.memory.get_mut(direction);
         let empty = *memory == SelectionMemory::default();
         devices::commit(memory, selection);
@@ -1934,15 +2206,17 @@ impl<S: System> Engine<S> {
     }
 
     /// A default changed: FxSound's own write coming back, the original FxSound's, Windows' own
-    /// fallback, or the user picking a device (module docs, "The default devices").
+    /// fallback, Windows giving a cable just installed the default, or the user picking a device
+    /// (module docs, "The default devices", "Whose default it is").
     ///
-    /// Only FxSound's echoes and the original's moves are told apart here. Everything else is
-    /// decided once the endpoints have been read again ([`Self::decide_defaults`]): the
-    /// notifications arrive in bursts, a device plugged in is a dozen state changes and then its
-    /// default, and the list the engine last read may not have the device the default went to —
-    /// the user's pick of it would be taken for a pick of something the lane cannot follow, and
-    /// the role left with the user for as long as the claim stood. Nor can a fallback be told from
-    /// a pick but by whether the endpoint the role was on is still there.
+    /// Only FxSound's echoes are told apart here, and the original's moves marked as heard while
+    /// it runs. Everything else is decided once the endpoints have been read again
+    /// ([`Self::decide_defaults`]): the notifications arrive in bursts, a device plugged in is a
+    /// dozen state changes and then its default, and the list the engine last read may not have
+    /// the device the default went to — the user's pick of it would be taken for a pick of
+    /// something the lane cannot follow, and the role left with the user for as long as the claim
+    /// stood. Nor can a fallback be told from a pick but by whether the endpoint the role was on is
+    /// still there, nor Windows' own default for a cable but by when the cable arrived.
     fn default_changed(
         &mut self,
         direction: DeviceDirection,
@@ -1970,15 +2244,18 @@ impl<S: System> Engine<S> {
             self.check_original(now);
         }
         // The original FxSound moves the playback default as it starts and as it quits — its
-        // claim and its hand-back — and neither is the user's pick.
-        if direction == DeviceDirection::Output && self.original.is_some() {
-            return;
-        }
+        // claim and its hand-back — and neither is the user's pick. Windows moves defaults while it
+        // runs as much as at any other time, though: a cable just installed is given every role,
+        // and where Windows put one is decided on all the same (`decide_default`).
+        let original = direction == DeviceDirection::Output && self.original.is_some();
         let pending = self.pending.get_mut(direction);
         // A role moved twice before the decision was moved from where it was before the first.
-        let before = match pending.iter().position(|(pending, _)| *pending == role) {
-            Some(at) => pending.remove(at).1.before,
-            None => before,
+        let (before, original) = match pending.iter().position(|(pending, _)| *pending == role) {
+            Some(at) => {
+                let earlier = pending.remove(at).1;
+                (earlier.before, earlier.original || original)
+            }
+            None => (before, original),
         };
         pending.push((
             role,
@@ -1986,9 +2263,19 @@ impl<S: System> Engine<S> {
                 id,
                 before,
                 since: now,
+                original,
             },
         ));
         self.devices_dirty = true;
+    }
+
+    /// The roles of `direction` with a change of their default heard and not decided on yet.
+    fn deciding(&self, direction: DeviceDirection) -> Vec<Role> {
+        self.pending
+            .get(direction)
+            .iter()
+            .map(|(role, _)| *role)
+            .collect()
     }
 
     /// Decide on every change of a default heard since the endpoints were read last — called right
@@ -2010,15 +2297,31 @@ impl<S: System> Engine<S> {
     ///
     /// * The role has moved on since, or has no default: nothing to decide — a later report says
     ///   where it went.
+    /// * The endpoint the role went to is not listed yet: it waits for it, [`PICK_WAIT`] at most.
+    ///   One that could not be read by then is no pick of the user's, whatever it turns out to be:
+    ///   were it a cable listed later, Windows put the role there ([`Placements`]), and where the
+    ///   role was before is kept for putting it back.
     /// * The endpoint the role was on is gone: Windows' fallback (the device unplugged, disabled,
     ///   its driver reinstalled), not a pick. The saved device stays as it is, as for any device
     ///   the lane loses ([`AudioToUi::DesktopPick`] is never sent for it), and the lane's rules run
     ///   on the new default as on any change of the devices. A fallback onto a virtual device that
     ///   nothing plays — the power off, the default left behind on FxSound's driver — has the
-    ///   default given back at once ([`Self::repair_defaults`]): nothing would be heard.
+    ///   default given back at once ([`Self::repair_defaults`]): nothing would be heard. A fallback
+    ///   onto a cable is Windows' placement besides.
+    /// * The role went to a cable that arrived with the change, or less than [`PICK_WAIT`] before
+    ///   it — Windows giving a device just installed the first chance at the default (module docs,
+    ///   "Whose default it is") — or to a side of a cable one of FxSound's lanes stands on, never a
+    ///   device of the user's whoever moved it there: Windows' placement, not a pick either.
+    /// * The original FxSound runs, and the role is a playback role: the original's own claim or
+    ///   hand-back, or Windows moving a default meanwhile. Where it went is decided on as above —
+    ///   a cable just installed is Windows' placement still — but nothing is followed or yielded.
     /// * Otherwise it is the desktop's pick: a playback role the lane follows moves the lane and is
     ///   taken back ([`Self::follow_desktop_pick`]); any other role moved off the lane's endpoint is
-    ///   the user's for as long as the claim stands ([`Claim::yield_role`]).
+    ///   the user's for as long as the claim stands ([`Claim::yield_role`]); and a role moved onto
+    ///   a cable makes that cable the user's for it ([`Self::users_cables`]).
+    ///
+    /// Windows' placements in FxSound's path are put back once the rules have run
+    /// ([`Self::put_placements_back`]).
     fn decide_default(
         &mut self,
         direction: DeviceDirection,
@@ -2029,20 +2332,77 @@ impl<S: System> Engine<S> {
         if self.defaults.get(direction).get(role) != change.id.as_deref() {
             return None;
         }
-        let id = change.id.clone()?;
+        // A report of the default the role had already moves nothing, and leaves whose it is as it
+        // was.
+        if change.before == change.id {
+            return None;
+        }
+        let Some(id) = change.id.clone() else {
+            self.placed.get_mut(direction).set(role, None);
+            self.users_chose(direction, role, None);
+            return None;
+        };
+        // Windows moving a role off a cable it had put it on itself is one placement: what it was
+        // before is where the role was before that, where the user had it — never that cable.
+        let before = match self.placed.get(direction).get(role) {
+            Some(earlier)
+                if change.before.as_deref() == Some(earlier.endpoint.as_str())
+                    && !self.users_cable(direction, role, &earlier.endpoint) =>
+            {
+                earlier.before.clone()
+            }
+            _ => change.before.clone(),
+        };
         let listed = |id: &str| self.endpoints.iter().any(|endpoint| endpoint.id == id);
         if !listed(&id) {
             if now.saturating_duration_since(change.since) < PICK_WAIT {
                 return Some(change);
             }
             log::info!(
-                "{} lane: the {role:?} default went to {id}, which never became readable; left \
-                 alone",
+                "{} lane: the {role:?} default went to {id}, which could not be read in time; no \
+                 pick of the user's",
+                direction.key()
+            );
+            self.users_chose(direction, role, None);
+            self.placed.get_mut(direction).set(
+                role,
+                Some(Placed {
+                    endpoint: id,
+                    before,
+                }),
+            );
+            return None;
+        }
+        let fallback = !change.before.as_deref().is_some_and(listed);
+        let arriving = self
+            .arrived
+            .get(&id)
+            .copied()
+            .flatten()
+            .is_some_and(|arrived| change.since < arrived + PICK_WAIT);
+        let cable = self.is_cable(&id);
+        let ours = cable && self.stands_on(&id);
+        let windows = cable && (fallback || arriving || ours || change.original);
+        self.users_chose(direction, role, (cable && !windows).then(|| id.clone()));
+        self.placed.get_mut(direction).set(
+            role,
+            windows.then(|| Placed {
+                endpoint: id.clone(),
+                before,
+            }),
+        );
+        if windows {
+            self.placements_due = true;
+        }
+        if change.original {
+            log::info!(
+                "{} lane: the {role:?} default went to {id} while the original FxSound runs; no \
+                 pick of the user's",
                 direction.key()
             );
             return None;
         }
-        if !change.before.as_deref().is_some_and(listed) {
+        if fallback {
             log::info!(
                 "{} lane: Windows moved the {role:?} default to {id}, the device it was on having \
                  gone; no pick of the user's",
@@ -2053,6 +2413,22 @@ impl<S: System> Engine<S> {
                 && self.left_behind(direction, &current).is_some()
             {
                 self.repair_due = Some(now);
+            }
+            return None;
+        }
+        if windows {
+            if ours {
+                log::info!(
+                    "{} lane: the {role:?} default went to {id}, a side of a cable FxSound stands \
+                     on; no pick of the user's",
+                    direction.key()
+                );
+            } else {
+                log::info!(
+                    "{} lane: Windows gave the {role:?} default to {id}, a cable just installed; \
+                     no pick of the user's",
+                    direction.key()
+                );
             }
             return None;
         }
@@ -2077,14 +2453,120 @@ impl<S: System> Engine<S> {
         None
     }
 
+    /// Put every default of `direction` that is Windows' (module docs, "Whose default it is") and
+    /// lies in FxSound's path back on a device the user hears — `ending`, the lane of that
+    /// direction when one is ending: nothing it found is left behind, and nothing goes back to the
+    /// claim it is giving up.
+    ///
+    /// FxSound is in the path of a default of `direction` while the lane of that direction holds
+    /// its claim — FxSound keeps that direction's defaults right, as it keeps the ones it took —
+    /// and whatever the claims, of a default on a cable one of its lanes stands on: what plays into
+    /// the input lane's cable is recorded with the voice, and the recording side of the output
+    /// lane's records the desktop's sound. A default on the endpoint a claim holds is the claim's,
+    /// adopted, and given back with it; one of the user's is theirs; and one Windows put on a cable
+    /// no lane uses, in a direction whose lane holds nothing, is left where Windows put it.
+    ///
+    /// A role the claim holds is taken back. Any other goes back where it was before Windows put it
+    /// there, while that is the claim's own endpoint or a device a default may be given to
+    /// ([`Self::may_hold_default`]) — never the cable a chain of Windows' moves started on — and
+    /// otherwise where the defaults of `direction` are given back to ([`Self::give_back_device`]).
+    /// One found on a cable at the start, with nothing to say where it was before, waits for the
+    /// app's first word ([`Self::waiting_for_app`]): the settings may name that cable the user's.
+    /// A lane ending waits for nothing: it is the last chance it has.
+    fn put_placements_back(&mut self, direction: DeviceDirection, ending: Option<DeviceDirection>) {
+        let current = self.system.defaults(direction);
+        *self.defaults.get_mut(direction) = current.clone();
+        let deciding = self.deciding(direction);
+        self.placed
+            .get_mut(direction)
+            .keep_current(&current, |role| deciding.contains(&role));
+        let waited = ending.is_some() || self.waiting_for_app.is_none();
+        let ends = ending == Some(direction);
+        for role in Role::ALL {
+            let Some(on) = current.get(role).map(str::to_owned) else {
+                continue;
+            };
+            if deciding.contains(&role) || !self.windows_default(direction, role, &on) {
+                continue;
+            }
+            let claim = self.lanes.get(direction).claim.as_ref();
+            let claim_endpoint = claim.map(|claim| claim.endpoint.clone());
+            if claim_endpoint.as_deref() == Some(on.as_str())
+                || (claim.is_none() && !self.stands_on(&on))
+            {
+                continue;
+            }
+            // Taken back by a claim that stands; a claim being given up gives it to the device its
+            // other roles go back to.
+            let claim_endpoint = claim_endpoint.filter(|_| !ends);
+            let held = claim
+                .filter(|claim| {
+                    !ends
+                        && Role::claimed_by(direction).contains(&role)
+                        && !claim.has_yielded(role)
+                        && self
+                            .endpoints
+                            .iter()
+                            .any(|endpoint| endpoint.id == claim.endpoint)
+                })
+                .map(|claim| claim.endpoint.clone());
+            let placed = self
+                .placed
+                .get(direction)
+                .get(role)
+                .filter(|placed| placed.endpoint == on)
+                .cloned();
+            if held.is_none() && placed.is_none() && !waited {
+                continue;
+            }
+            let leaving = endpoints::device_of(&on, &self.endpoints);
+            let before = placed.and_then(|placed| placed.before).filter(|before| {
+                !leaving.contains(before)
+                    && (claim_endpoint.as_deref() == Some(before.as_str())
+                        || self.may_hold_default(direction, before)
+                        // While the original FxSound runs its driver is where it plays from.
+                        || (direction == DeviceDirection::Output
+                            && self.original.is_some()
+                            && self.is_driver(before)))
+            });
+            let Some(target) = held
+                .or(before)
+                .or_else(|| self.give_back_device(direction, &leaving))
+            else {
+                log::warn!(
+                    "{} lane: the {role:?} default is on {on}, a cable nobody chose for it, and \
+                     there is nowhere to move it to",
+                    direction.key()
+                );
+                continue;
+            };
+            log::info!(
+                "{} lane: the {role:?} default is on {on}, a cable nobody chose for it; it goes \
+                 to {target}",
+                direction.key()
+            );
+            self.write_default(direction, &target, role);
+        }
+    }
+
     /// The desktop picked `picked` as the default device of `direction`: whether the lane takes it
     /// as the user's own pick and follows it there — it is a real device, the lane is on and
     /// follows the system's default device, with no ranking (`docs/spec/12-audio-io.md` §21, 4a).
+    ///
+    /// The power may be off, and the lane hold no claim: a pick made then is the device the lane
+    /// plays to once it is on, as on Linux. Never the recording side of a cable, for the input
+    /// lane: that records what plays into the cable's other side, and taken for the microphone it
+    /// would send that on into the lane's own cable — a user who records from a cable makes it
+    /// their default for their recorders, which is theirs, and left to them ([`Claim::yield_role`]).
+    /// Nor is a move Windows made by itself ever asked about here ([`Self::decide_default`]).
     fn follow_desktop_pick(&mut self, direction: DeviceDirection, picked: Option<&str>) -> bool {
         let Some(picked) = picked else {
             return false;
         };
         if self.is_virtual(picked) || !self.is_listed(direction, picked) {
+            return false;
+        }
+        if direction == DeviceDirection::Input && self.is_cable(picked) {
             return false;
         }
         let lane = self.lanes.get(direction);
@@ -2226,6 +2708,13 @@ impl<S: System> Engine<S> {
                 self.apply_rules(direction, now);
             }
         }
+        // Windows' defaults on the cables, against the lanes as their rules have left them: a claim
+        // made just now has looked at them already.
+        if std::mem::take(&mut self.placements_due) && self.endpoint_retry.is_none() {
+            for direction in DeviceDirection::ALL {
+                self.put_placements_back(direction, None);
+            }
+        }
         // A lane that moved onto a cable, or off one, changed what the lists offer; the input lane
         // detached, or held by the power, has no recorders to watch for.
         self.publish_devices();
@@ -2354,6 +2843,12 @@ impl<S: System> Engine<S> {
             self.repair_due = None;
             self.repair_defaults();
         }
+        if self.waiting_for_app.is_some_and(|until| now >= until) {
+            // The app has had its moment and said nothing: a default found on a cable at the start
+            // is Windows', as nothing says otherwise.
+            self.waiting_for_app = None;
+            self.placements_due = true;
+        }
         // Who records from the input lane's cable: asked on every tick where its changes are not
         // heard, and otherwise every `RECORDERS_CHECK` — and a microphone kept open for a recorder
         // that has stopped is let go of once its moment is up (module docs, "The microphone").
@@ -2388,14 +2883,35 @@ impl<S: System> Engine<S> {
 
     // ---- the device rules --------------------------------------------------------------------
 
+    /// The system's default of `direction` as the device rules take it (`devices::choose_device`,
+    /// rules 2 and 6): the main role's default — or, where that is Windows' on a cable (module
+    /// docs, "Whose default it is"), where the role was before Windows put it there, the default
+    /// the user had. A cable just installed takes the lane's own endpoint's place as the default
+    /// on a machine whose lane stands on it, and the device the user listened to is what the
+    /// rules are to find.
+    fn rules_default(&self, direction: DeviceDirection) -> Option<String> {
+        let defaults = self.defaults.get(direction);
+        let role = defaults.main_role()?;
+        let id = defaults.get(role)?;
+        if !self.windows_default(direction, role, id) {
+            return Some(id.to_owned());
+        }
+        self.placed
+            .get(direction)
+            .get(role)
+            .filter(|placed| placed.endpoint == id)
+            .and_then(|placed| placed.before.clone())
+    }
+
     /// Ask the device rules for a lane's device, and remember what they saw.
     fn choose(&mut self, direction: DeviceDirection, ours: &str) -> Choice {
         let devices = self.device_infos();
+        let current = self.rules_default(direction);
         let selection = devices::choose_device(
             &devices,
             direction,
             ours,
-            self.defaults.get(direction).main(),
+            current.as_deref(),
             &self.lanes.get(direction).previous_names,
             self.memory.get(direction),
             self.preference.get(direction),
@@ -2475,6 +2991,10 @@ impl<S: System> Engine<S> {
                 direction,
                 match direction {
                     DeviceDirection::Output => AudioError::NoVirtualDevice,
+                    // There is a cable, the user's: they need to know to free it, not to install one.
+                    DeviceDirection::Input if plan.input_in_use => {
+                        AudioError::VirtualInputDeviceInUse
+                    }
                     DeviceDirection::Input => AudioError::NoVirtualInputDevice,
                 },
             );
@@ -2786,30 +3306,39 @@ impl<S: System> Engine<S> {
         };
         let current = self.system.defaults(direction);
         *self.defaults.get_mut(direction) = current.clone();
+        let deciding = self.deciding(direction);
+        self.placed
+            .get_mut(direction)
+            .keep_current(&current, |role| deciding.contains(&role));
         // What a new claim finds on the endpoint is FxSound's to adopt — on its driver, which
-        // nothing plays while neither FxSound runs, or where the record says a run left it — and
-        // otherwise the user's own: a cable they made their default (`Claim::finding_theirs`).
+        // nothing plays while neither FxSound runs, where the record says a run left it, or where
+        // Windows put it by itself — and otherwise the user's own: a cable they made their default
+        // (`Claim::finding_theirs`; module docs, "Whose default it is").
         let adopts = self.is_driver(&endpoint)
             || self.claimed.get(direction).as_deref() == Some(endpoint.as_str());
+        let mut theirs = Defaults::default();
+        for role in Role::ALL {
+            if !adopts
+                && current.get(role) == Some(endpoint.as_str())
+                && !self.windows_default(direction, role, &endpoint)
+            {
+                theirs.set(role, Some(endpoint.clone()));
+            }
+        }
         let lane = self.lanes.get_mut(direction);
         lane.reclaim = false;
         let mut claim = lane
             .claim
             .take()
             .filter(|claim| claim.endpoint == endpoint)
-            .unwrap_or_else(|| {
-                if adopts {
-                    Claim::new(endpoint.clone())
-                } else {
-                    Claim::finding_theirs(endpoint.clone(), &current)
-                }
-            });
+            .unwrap_or_else(|| Claim::finding_theirs(endpoint.clone(), &theirs));
+        let known = claim.before.main().map(str::to_owned);
         let roles = defaults::claim_roles(
             &current,
             &endpoint,
             Role::claimed_by(direction),
             &mut claim,
-            |id| self.is_virtual(id),
+            |role, now| self.remembered_before(direction, role, now),
         );
         // Written down before the first write, so that a run killed at any point after it is
         // known to have left the default here (`record`) — and only for a claim that holds
@@ -2824,26 +3353,36 @@ impl<S: System> Engine<S> {
                 direction.key()
             );
         }
-        if !roles.is_empty() {
-            // Said out loud, so that it reaches the settings file: this memory is exactly what a
-            // kill destroys.
-            if let Some(before) = claim
-                .before
-                .main()
-                .filter(|before| self.is_listed(direction, before))
-                .map(str::to_owned)
-            {
-                let memory = self.memory.get_mut(direction);
-                if memory.original_default.is_empty() {
-                    memory.original_default.clone_from(&before);
-                }
-                memory.most_recent_default.clone_from(&before);
-                self.lanes.get_mut(direction).blind = false;
-                self.notify(AudioToUi::RememberedDefault {
-                    direction,
-                    node_name: before,
-                });
+        if let Some(role) = Role::ALL.into_iter().find(|&role| {
+            current.get(role) == Some(endpoint.as_str())
+                && self.windows_default(direction, role, &endpoint)
+        }) {
+            log::info!(
+                "{} lane: Windows had put the {role:?} default on {endpoint} by itself; FxSound \
+                 holds it, and gives it back to a real device",
+                direction.key()
+            );
+        }
+        // Said out loud, so that it reaches the settings file: this memory is exactly what a kill
+        // destroys — whether the claim wrote its roles, or adopted them where Windows had put them
+        // and learnt where they were before that.
+        let learnt = claim.before.main().map(str::to_owned);
+        if (!roles.is_empty() || learnt != known)
+            && let Some(before) = learnt.filter(|before| self.is_listed(direction, before))
+        {
+            let memory = self.memory.get_mut(direction);
+            if memory.original_default.is_empty() {
+                memory.original_default.clone_from(&before);
             }
+            memory.most_recent_default.clone_from(&before);
+            self.lanes.get_mut(direction).blind = false;
+            self.settings_default.get_mut(direction).clone_from(&before);
+            self.notify(AudioToUi::RememberedDefault {
+                direction,
+                node_name: before,
+            });
+        }
+        if !roles.is_empty() {
             for role in roles {
                 self.write_default(direction, &endpoint, role);
             }
@@ -2853,11 +3392,46 @@ impl<S: System> Engine<S> {
             );
         }
         self.lanes.get_mut(direction).claim = Some(claim);
+        // FxSound is in the path of this direction's defaults now, and stands on this cable.
+        for each in DeviceDirection::ALL {
+            self.put_placements_back(each, None);
+        }
     }
 
-    /// Give a lane's claim back (module docs, "The default devices"). A lane holding nothing
-    /// writes nothing.
+    /// What a claim of the lane of `direction` remembers as `role`'s default from before FxSound,
+    /// that default being `now` (`defaults::claim_roles`): `now` itself, for a device of the
+    /// user's; nothing, for one of FxSound's own; and for one of Windows' on a cable, where the
+    /// role was before Windows put it there, while that is a device a default may be given to — so
+    /// that neither the settings ([`AudioToUi::RememberedDefault`]) nor the hand-back ever name a
+    /// cable nobody chose (module docs, "Whose default it is").
+    fn remembered_before(
+        &self,
+        direction: DeviceDirection,
+        role: Role,
+        now: &str,
+    ) -> Option<String> {
+        if self.windows_default(direction, role, now) {
+            return self
+                .placed
+                .get(direction)
+                .get(role)
+                .filter(|placed| placed.endpoint == now)
+                .and_then(|placed| placed.before.clone())
+                .filter(|before| self.may_hold_default(direction, before));
+        }
+        (!self.is_virtual(now)).then(|| now.to_owned())
+    }
+
+    /// Give a lane's claim back (module docs, "The default devices"), and with it whatever default
+    /// of Windows' lies in FxSound's path ([`Self::put_placements_back`]): nothing the lane found
+    /// on a cable is left there as it ends. A lane holding nothing writes nothing.
     fn release(&mut self, direction: DeviceDirection) {
+        if self.lanes.get(direction).claim.is_none() {
+            return;
+        }
+        for each in DeviceDirection::ALL {
+            self.put_placements_back(each, Some(direction));
+        }
         let Some(claim) = self.lanes.get_mut(direction).claim.take() else {
             return;
         };
@@ -2876,29 +3450,7 @@ impl<S: System> Engine<S> {
         *self.defaults.get_mut(direction) = current.clone();
         let leaving = endpoints::device_of(&claim.endpoint, &self.endpoints);
         let elsewhere = |id: &str| !leaving.iter().any(|side| side == id);
-        let infos: Vec<DeviceInfo> = self
-            .device_infos()
-            .into_iter()
-            .filter(|info| elsewhere(&info.name))
-            .collect();
-        let device =
-            devices::restore_default_candidate(self.memory.get(direction), &infos, direction)
-                .or_else(|| {
-                    // Nothing remembered is here: the device the lane was on, or failing that the
-                    // first real device. A default left on the virtual device swallows every sound,
-                    // which is worse than any real device.
-                    self.lanes
-                        .get(direction)
-                        .target
-                        .clone()
-                        .filter(|target| self.is_listed(direction, target) && elsewhere(target))
-                        .or_else(|| {
-                            infos
-                                .iter()
-                                .find(|device| device.direction == direction)
-                                .map(|device| device.name.clone())
-                        })
-                });
+        let device = self.give_back_device(direction, &leaving);
         let writes = defaults::hand_back(&current, claim, device.as_deref(), |id| {
             self.is_listed(direction, id) && elsewhere(id)
         });
@@ -2919,6 +3471,37 @@ impl<S: System> Engine<S> {
         }
     }
 
+    /// The device a default of `direction` goes back to when it leaves the endpoints `leaving`
+    /// (`devices::restore_default_candidate`): the one the rules remember first — the user's pick,
+    /// the device the lane played to, a default from before FxSound — and with nothing remembered
+    /// here, the device the lane is on, or failing that the first real device. A default left on a
+    /// virtual device swallows every sound, which is worse than any real device; and none of these
+    /// is ever a cable the user has not chosen ([`Self::device_infos`]), Windows having made it the
+    /// default or not.
+    fn give_back_device(&self, direction: DeviceDirection, leaving: &[String]) -> Option<String> {
+        let elsewhere = |id: &str| !leaving.iter().any(|side| side == id);
+        let infos: Vec<DeviceInfo> = self
+            .device_infos()
+            .into_iter()
+            .filter(|info| elsewhere(&info.name))
+            .collect();
+        devices::restore_default_candidate(self.memory.get(direction), &infos, direction).or_else(
+            || {
+                self.lanes
+                    .get(direction)
+                    .target
+                    .clone()
+                    .filter(|target| self.is_listed(direction, target) && elsewhere(target))
+                    .or_else(|| {
+                        infos
+                            .iter()
+                            .find(|device| device.direction == direction)
+                            .map(|device| device.name.clone())
+                    })
+            },
+        )
+    }
+
     /// Record that the lane of `direction` holds its defaults on `endpoint`, or on nothing.
     fn keep_claimed(&mut self, direction: DeviceDirection, endpoint: Option<&str>) {
         if self.claimed.get(direction).as_deref() == endpoint {
@@ -2935,6 +3518,8 @@ impl<S: System> Engine<S> {
                 self.defaults
                     .get_mut(direction)
                     .set(role, Some(id.to_owned()));
+                // FxSound's own write, wherever Windows had put the role before.
+                self.placed.get_mut(direction).set(role, None);
                 // What Windows is about to report, known now: a change heard before its echo is
                 // a change from here.
                 if let Some(reported) = self.reported.as_mut() {
@@ -2984,7 +3569,8 @@ impl<S: System> Engine<S> {
     /// The virtual endpoint a run that did not hand back left a default of `direction` on, as
     /// `current` stands: the one FxSound's record names ([`record`]), or the playback endpoint of
     /// FxSound's own driver, which nothing plays while neither FxSound runs. A cable the record
-    /// does not name may be the user's own default, and is left alone.
+    /// does not name had its default put there by the user, or by Windows, and never by FxSound:
+    /// it is left alone.
     fn left_behind(&self, direction: DeviceDirection, current: &Defaults) -> Option<String> {
         let recorded = self
             .claimed

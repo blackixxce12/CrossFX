@@ -207,6 +207,7 @@ mod tests {
                 is_default: false,
                 direction: fxsound_core::DeviceDirection::Output,
                 form_factor: "speaker".into(),
+                is_virtual: false,
             }],
             selected_output: Some(0),
             ..UiState::default()
@@ -504,6 +505,7 @@ mod tests {
             is_default: false,
             direction,
             form_factor: String::new(),
+            is_virtual: false,
         }
     }
 

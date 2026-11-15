@@ -157,7 +157,7 @@ fn report() -> Result<String, AudioError> {
         None => {
             let _ = writeln!(
                 out,
-                "  input lane: none: {} (the microphone needs a cable of its own)",
+                "  input lane: none: {} (it needs a cable the speakers' lane does not stand on)",
                 AudioError::NoVirtualInputDevice
             );
         }
@@ -234,7 +234,7 @@ fn report() -> Result<String, AudioError> {
         "\nFxSound's record of the defaults it holds (a run killed leaves it):"
     );
     let record = super::record::Record::of_user().read();
-    for ((direction, endpoint), defaults) in record.iter().zip(&defaults) {
+    for ((direction, endpoint), defaults) in record.claimed.iter().zip(&defaults) {
         let _ = writeln!(
             out,
             "  {} lane: {}",
@@ -252,6 +252,33 @@ fn report() -> Result<String, AudioError> {
                 None => "nothing".to_owned(),
             }
         );
+    }
+    let _ = writeln!(
+        out,
+        "\nThe defaults the user put on a virtual cable themselves, as the record keeps them:"
+    );
+    let mut none = true;
+    for ((direction, users), defaults) in record.users.iter().zip(&defaults) {
+        for role in Role::ALL {
+            let Some(cable) = users.get(role) else {
+                continue;
+            };
+            none = false;
+            let _ = writeln!(
+                out,
+                "  {} {role:?}: {}{}",
+                direction.key(),
+                name_of(&all, Some(cable)),
+                if defaults.get(role) == Some(cable) {
+                    ", still the default"
+                } else {
+                    ", the default no more"
+                }
+            );
+        }
+    }
+    if none {
+        let _ = writeln!(out, "  none");
     }
 
     let _ = writeln!(out, "\nThe original FxSound:");
