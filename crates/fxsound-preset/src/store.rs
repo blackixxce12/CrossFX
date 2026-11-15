@@ -728,26 +728,70 @@ impl<F: PresetFile> Store<F> {
     }
 }
 
-/// Whether two file names in one directory name one file: exactly, on Unix.
+/// Whether two file names in one directory name one file: exactly, on Unix, where a file name is
+/// the bytes it is written in. Where a filesystem there folds case after all — a FAT stick, an
+/// ext4 directory with case folding on — a file already under the other name is still found, by
+/// `listed_from`, which asks the filesystem rather than comparing names.
 #[cfg(unix)]
 fn same_file_name(a: &str, b: &str) -> bool {
     a == b
 }
 
-/// Whether two file names in one directory name one file: on Windows whatever their case, as NTFS
-/// compares them — character by character through the volume's upcase table, which holds each
-/// character's own uppercase — so `ROCK.fac` is `Rock.fac`. A character whose uppercase is more
-/// than one character, as `ß`'s is `SS`, the table leaves as it is, and so does this.
+/// Whether two file names in one directory name one file: on Windows, letter by letter as NTFS
+/// upcases them (`upcase`), so `ROCK.fac` is `Rock.fac`.
 #[cfg(not(unix))]
 fn same_file_name(a: &str, b: &str) -> bool {
-    fn upcase(c: char) -> char {
-        let mut upper = c.to_uppercase();
-        match (upper.next(), upper.next()) {
-            (Some(one), None) => one,
-            _ => c,
-        }
-    }
     a.chars().map(upcase).eq(b.chars().map(upcase))
+}
+
+/// `c` as NTFS upcases it to compare file names, as near as the standard library's case tables
+/// can tell: two names this makes one are one file on the volume, or two when they differ only in
+/// a case pair newer than the volume's table; two names it keeps apart are never one file.
+///
+/// NTFS looks each UTF-16 unit of a name up in a table the volume carries, `$UpCase`, written by
+/// the Windows that formatted it, and the table pairs a letter with an uppercase only when each is
+/// the other's: `i` with `I`, `σ` with `Σ`. Unicode uppercases further, to a capital that
+/// lowercases to another letter — the dotless `ı` and the long `ſ` to `I` and `S`, the micro sign
+/// `µ` to the Greek capital `Μ`, the final `ς` to `Σ`, the titlecase `ǅ` to `Ǆ` — and NTFS tells
+/// each such letter from that capital and from the capital's own small letter: `Kayıt.fac` is one
+/// file and `Kayit.fac` another. Taking every one-letter uppercase, as this did at first, refused
+/// the second name of such a pair, which the controller lets through. So a letter is upcased only
+/// when its uppercase lowercases back to it, and only inside the Basic Multilingual Plane: a
+/// character beyond it is two units, and the table maps each of them to itself.
+///
+/// The Greek small letters with iota subscript go wrong the other way. The standard library
+/// uppercases them to two letters, `ᾳ` to `ΑΙ`, which that rule cannot follow, while the table
+/// pairs each with the one capital that lowercases to it, `ᾼ`; the match below pairs them as NTFS
+/// does. Without it `ᾳ.fac` and `ᾼ.fac` would be two names here for what NTFS makes one file.
+///
+/// The table's age is what cannot be known here. Windows' is older than the Unicode the standard
+/// library follows, so the case pairs added since — Georgian's capitals, Cherokee's small letters
+/// and newer Latin, Cyrillic and Coptic ones — fold here and not on the volume: a name that
+/// differs from a listed one only in those is refused although NTFS would keep it apart. That is
+/// the side to be wrong on, and the controller's name check, which compares names in lowercase,
+/// refuses those names first.
+#[cfg(not(unix))]
+fn upcase(c: char) -> char {
+    // `ᾀ`–`ᾇ`, `ᾐ`–`ᾗ` and `ᾠ`–`ᾧ`, whose capitals are eight places on, and `ᾳ`, `ῃ` and `ῳ`,
+    // whose capitals are nine.
+    let iota_subscript = match c {
+        '\u{1F80}'..='\u{1F87}' | '\u{1F90}'..='\u{1F97}' | '\u{1FA0}'..='\u{1FA7}' => 8,
+        '\u{1FB3}' | '\u{1FC3}' | '\u{1FF3}' => 9,
+        _ => 0,
+    };
+    if iota_subscript > 0 {
+        return char::from_u32(u32::from(c) + iota_subscript).unwrap_or(c);
+    }
+    let mut upper = c.to_uppercase();
+    let (Some(u), None) = (upper.next(), upper.next()) else {
+        return c;
+    };
+    let one_unit_each = c.len_utf16() == 1 && u.len_utf16() == 1;
+    if one_unit_each && u.to_lowercase().eq([c]) {
+        u
+    } else {
+        c
+    }
 }
 
 /// Remove `path` when it is there, saying in the log when that fails.
@@ -1482,6 +1526,174 @@ mod tests {
             .rename("Jazz Two", "JAZZ TWO")
             .expect("its own name in another case");
         assert!(store.find("JAZZ TWO").is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_letter_ntfs_does_not_fold_is_a_name_of_its_own() {
+        // Unicode uppercases the dotless `ı` to `I`, which lowercases to `i`, and NTFS keeps
+        // `Kayıt.fac` and `Kayit.fac` apart; so it keeps the micro sign from the Greek `μ`, the
+        // long `ſ` from `s` and the final `ς` from `σ`. Folding every uppercase refused the second
+        // name of each pair, which the controller lets through, and a rename onto it, although
+        // each is a file of its own. The voice store is the same `Store`.
+        fn save(store: &mut PresetStore, name: &str, main0: u8) {
+            let mut preset = Preset {
+                name: name.into(),
+                ..Preset::default()
+            };
+            preset.main_midi[0] = main0;
+            if let Err(err) = store.save_as(&preset, name) {
+                panic!("save {name}: {err}");
+            }
+        }
+        let tmp = tempdir("letters-apart");
+        let user = tmp.join("user");
+        let mut store = PresetStore::with_dirs(Vec::new(), user.clone());
+        let dotless = "Kay\u{131}t";
+        save(&mut store, dotless, 11);
+        save(&mut store, "Kayit", 12);
+        store
+            .rename("Kayit", "Elsewhere")
+            .expect("rename Kayit away");
+        store
+            .rename("Elsewhere", "Kayit")
+            .expect("and back, beside Kayıt");
+        let pairs = [
+            // The micro sign and the Greek mu, the long s and the s, the final sigma and the sigma.
+            ("\u{B5}-Bass", "\u{3BC}-Bass"),
+            ("Ga\u{17F}t", "Gast"),
+            ("Λόγο\u{3C2}", "Λόγο\u{3C3}"),
+        ];
+        let mut expected = vec![(dotless, 11), ("Kayit", 12)];
+        for ((first, second), main0) in pairs.into_iter().zip((13..).step_by(2)) {
+            save(&mut store, first, main0);
+            save(&mut store, second, main0 + 1);
+            expected.extend([(first, main0), (second, main0 + 1)]);
+        }
+
+        for (name, main0) in &expected {
+            let (preset, _) = store.load(name).expect("listed");
+            assert_eq!(preset.main_midi[0], *main0, "{name} holds its own values");
+        }
+        let files = std::fs::read_dir(&user)
+            .expect("the user directory")
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|x| x == "fac"))
+            .count();
+        assert_eq!(files, expected.len(), "a file each");
+        assert_eq!(store.entries().len(), expected.len(), "each listed once");
+
+        // The letters NTFS does fold are still one file: `KAYIT` and `kayit` are `Kayit`.
+        let err = store.save_as(&Preset::default(), "KAYIT").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Kayit"),
+            "{err}"
+        );
+        let err = store.rename(dotless, "kayit").unwrap_err();
+        assert!(
+            matches!(&err, PresetError::SharedFile { existing, .. } if existing == "Kayit"),
+            "{err}"
+        );
+        assert_eq!(store.load("Kayit").expect("Kayit").0.main_midi[0], 12);
+        assert_eq!(store.load(dotless).expect("Kayıt").0.main_midi[0], 11);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_same_file_name_makes_two_names_one_file_where_ntfs_does() {
+        // Each pair of letters goes into a file name, and the volume is asked whether the other
+        // name finds the file. Wherever NTFS makes the two names one file `same_file_name` must
+        // too, or a save could take another preset's autosave and export; and the letters it keeps
+        // apart, which a Turkish, German or Greek name holds, must stay apart. The case pairs
+        // newer than the volume's table — Georgian's capitals and the like — are folded on
+        // purpose (`upcase`) and not asked about.
+        let tmp = tempdir("upcase-volume");
+        let one_file = |a: char, b: char| {
+            let file = tmp.join(format!("x{a}y.fac"));
+            std::fs::write(&file, "").expect("write the probe");
+            let found = tmp.join(format!("x{b}y.fac")).exists();
+            std::fs::remove_file(&file).expect("remove the probe");
+            found
+        };
+        if !one_file('a', 'A') {
+            eprintln!("{}: this folder tells case apart; skipped", tmp.display());
+            return;
+        }
+        let pairs = [
+            // One file: plain case pairs, and the Greek letters with iota subscript and their
+            // capitals, which the standard library uppercases to two letters.
+            ('a', 'A'),
+            ('é', 'É'),
+            ('ÿ', 'Ÿ'),
+            ('я', 'Я'),
+            ('ё', 'Ё'),
+            ('σ', 'Σ'),
+            ('ό', 'Ό'),
+            ('\u{1C6}', '\u{1C4}'),
+            ('\u{1F80}', '\u{1F88}'),
+            ('\u{1FB3}', '\u{1FBC}'),
+            ('\u{1FF3}', '\u{1FFC}'),
+            // Two: the dotless and the dotted i, the long s, the micro sign, the final sigma, the
+            // titlecase dž, the curled beta, the Kelvin sign, the sharp s and its capital, and a
+            // Deseret letter, beyond the Basic Multilingual Plane, with its capital.
+            ('\u{131}', 'I'),
+            ('\u{131}', 'i'),
+            ('\u{130}', 'i'),
+            ('\u{17F}', 'S'),
+            ('\u{17F}', 's'),
+            ('\u{B5}', '\u{39C}'),
+            ('\u{B5}', '\u{3BC}'),
+            ('\u{3C2}', '\u{3A3}'),
+            ('\u{3C2}', '\u{3C3}'),
+            ('\u{1C5}', '\u{1C4}'),
+            ('\u{1C5}', '\u{1C6}'),
+            ('\u{3D0}', '\u{3B2}'),
+            ('\u{212A}', 'k'),
+            ('\u{DF}', '\u{1E9E}'),
+            ('\u{10428}', '\u{10400}'),
+        ];
+        for (a, b) in pairs {
+            assert_eq!(
+                same_file_name(&format!("x{a}y.fac"), &format!("x{b}y.fac")),
+                one_file(a, b),
+                "U+{:04X} and U+{:04X}: same_file_name, then the volume",
+                u32::from(a),
+                u32::from(b)
+            );
+        }
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn upcase_pairs_a_letter_only_with_a_capital_that_lowercases_back_to_it() {
+        // Over every character: the capital a letter is upcased to lowercases back to it, is
+        // upcased to itself and is one UTF-16 unit, as the letter is. And each capital whose
+        // uppercase is two letters, as its small letter's is — `ᾼ` and `ᾳ`, both `ΑΙ` — is that
+        // small letter's capital, which only the hand-made match makes it.
+        let mut through_the_lowercase = 0;
+        for c in (0..=u32::from(char::MAX)).filter_map(char::from_u32) {
+            let at = u32::from(c);
+            let up = upcase(c);
+            assert_eq!(upcase(up), up, "U+{at:04X}");
+            if up != c {
+                assert!(up.to_lowercase().eq([c]), "U+{at:04X}");
+                assert_eq!((c.len_utf16(), up.len_utf16()), (1, 1), "U+{at:04X}");
+            }
+            let mut lower = c.to_lowercase();
+            if let (Some(small), None) = (lower.next(), lower.next())
+                && small != c
+                && c.to_uppercase().len() > 1
+                && small.to_uppercase().eq(c.to_uppercase())
+            {
+                assert_eq!(upcase(small), c, "U+{at:04X}");
+                through_the_lowercase += 1;
+            }
+        }
+        assert_eq!(
+            through_the_lowercase, 27,
+            "the capitals with prosgegrammeni"
+        );
     }
 
     /// A preset called `name` whose first main value is `main0`, written to `path` as it is.
