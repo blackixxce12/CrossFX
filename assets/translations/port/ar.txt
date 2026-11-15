@@ -159,4 +159,6 @@ countries: EG sa
 "Plus the original's sound: presets sound the same." = "وصوت الأصل أيضًا: القوالب تبدو كما هناك."
 "Only what the original has; the rest is hidden." = "ما في الأصل فقط؛ والباقي مخفي."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "لا يوجد جهاز تشغيل افتراضي: ثبّت برنامج تشغيل FxSound أو VB-CABLE"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "لا يوجد كبل ظاهري للميكروفون: ثبّت VB-CABLE أو كبلًا آخر"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "الكبل الظاهري قيد الاستخدام: عيّن جهازًا آخر كجهاز افتراضي، أو ثبّت كبلًا آخر للميكروفون"
 "The Windows audio service is not available" = "خدمة الصوت في Windows غير متاحة"

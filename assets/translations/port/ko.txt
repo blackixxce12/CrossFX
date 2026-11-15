@@ -157,4 +157,6 @@ countries: kr
 "Plus the original's sound: presets sound the same." = "원래 버전의 소리까지: 프리셋이 똑같이 들립니다."
 "Only what the original has; the rest is hidden." = "원래 버전에 있는 것만. 나머지는 숨김."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "가상 재생 장치가 없습니다: FxSound 드라이버나 VB-CABLE을 설치하세요"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "마이크용 가상 케이블이 없습니다: VB-CABLE이나 다른 케이블을 설치하세요"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "가상 케이블이 사용 중입니다: 다른 장치를 기본 장치로 설정하거나 마이크용 케이블을 하나 더 설치하세요"
 "The Windows audio service is not available" = "Windows 오디오 서비스를 사용할 수 없습니다"

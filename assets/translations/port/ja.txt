@@ -157,4 +157,6 @@ countries: ja
 "Plus the original's sound: presets sound the same." = "さらにオリジナルの音：プリセットが同じ音に。"
 "Only what the original has; the rest is hidden." = "オリジナルにある機能だけ。ほかは非表示。"
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "仮想再生デバイスがありません: FxSound ドライバーまたは VB-CABLE をインストールしてください"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "マイク用の仮想ケーブルがありません: VB-CABLE または別のケーブルをインストールしてください"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "仮想ケーブルは使用中です: 別のデバイスを既定に設定するか、マイク用に別のケーブルをインストールしてください"
 "The Windows audio service is not available" = "Windows オーディオ サービスを使用できません"

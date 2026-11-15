@@ -43,14 +43,15 @@
 //! lane captures would have it play into what it captures; a cable's recording side offered as a
 //! microphone, the input lane record what it plays. A cable no lane stands on is offered like any
 //! other device, as every endpoint but its driver's own is to the original
-//! (`docs/spec/12-audio-io.md` §5, pass 2): a user who records the desktop through "CABLE Output",
-//! or plays into "CABLE Input" for a streaming program, has the output lane play into it as the
-//! original would, and has their default given back there — though the engine's device rules come
-//! to such a cable only where the user chose it, never as a device just added or as the first one
-//! there is (`super::Engine::device_infos`). Nor does a lane take a cable the user has in use —
-//! a default of theirs on either side, or the device the output lane plays to — while another
-//! will do ([`plan`]): the microphone mixed into what they route through it would be theirs to
-//! hear.
+//! (`docs/spec/12-audio-io.md` §5, pass 2): a user who plays into "CABLE Input" for a streaming
+//! program, having picked it in FxSound or made it their default while FxSound ran, has the output
+//! lane play into it, and their default given back there — though the engine's device rules come
+//! to such a cable only where the user chose it, never as a device just added, as the first one
+//! there is, or for being the default Windows gave it as it was installed
+//! (`super::Engine::device_infos`; `super`, "Whose default it is"). Nor does the input lane take a
+//! cable the user has in use — a default of theirs on either side, or the device the output lane
+//! plays to — while another will do ([`plan`]): the microphone mixed into what they route through
+//! it would be theirs to hear.
 
 use fxsound_core::{AudioDevice, DeviceDirection};
 
@@ -362,6 +363,11 @@ impl VirtualDevice {
 pub(crate) struct VirtualPlan {
     pub(crate) output: Option<VirtualDevice>,
     pub(crate) input: Option<VirtualDevice>,
+    /// The input lane has no cable only because the ones it could take are in the user's use: a
+    /// cable is there that the output lane does not stand on, and a default of theirs is on it, or
+    /// the output lane plays into it ([`plan`]'s `in_use`). What the lane says then is not that
+    /// there is none, but that it is in use (`crate::AudioError::VirtualInputDeviceInUse`).
+    pub(crate) input_in_use: bool,
 }
 
 impl VirtualPlan {
@@ -391,7 +397,9 @@ impl VirtualPlan {
 /// Nor does the input lane take a cable the user has in use (`in_use`, for either side's endpoint:
 /// a default of theirs, the device the output lane plays to): it would mix the microphone into
 /// what they send through it, and make its recording side the default of whatever records it. It
-/// reports that it has no cable instead, as with none installed.
+/// has none then, and the plan says why ([`VirtualPlan::input_in_use`]). A default Windows put on
+/// a cable by itself is no use of the user's (`super`, "Whose default it is"): `in_use` leaves it
+/// out, and the cable is the lane's to take.
 pub(crate) fn plan(
     endpoints: &[Endpoint],
     output_enabled: bool,
@@ -439,7 +447,19 @@ pub(crate) fn plan(
                     capture: Some(twin.id.clone()),
                 })
         });
-    VirtualPlan { output, input }
+    // With none taken, any cable the output lane leaves and that has a recording side was passed
+    // over for being in use.
+    let input_in_use = input.is_none()
+        && renders.iter().any(|&(kind, endpoint)| {
+            kind.is_cable()
+                && taken.as_deref() != Some(endpoint.id.as_str())
+                && capture_twin(endpoint, endpoints).is_some()
+        });
+    VirtualPlan {
+        output,
+        input,
+        input_in_use,
+    }
 }
 
 /// Whether the output lane's device and the input lane's are one Bluetooth headset — its
@@ -969,7 +989,7 @@ pub(crate) mod tests {
             );
         }
         // With no other cable the microphone has none, rather than the user's — not even the one it
-        // stood on, once the user puts it to use.
+        // stood on, once the user puts it to use — and the plan says it is in use, not missing.
         let one = [
             speakers(),
             fxsound(),
@@ -977,13 +997,22 @@ pub(crate) mod tests {
             c_in.clone(),
             c_out.clone(),
         ];
-        assert_eq!(plan(&one, true, None, |id| id == c_in.id).input, None);
-        assert_eq!(
-            plan(&one, true, Some(&c_in.id), |id| id == c_out.id).input,
-            None
-        );
+        let used = plan(&one, true, None, |id| id == c_in.id);
+        assert_eq!(used.input, None);
+        assert!(used.input_in_use);
+        let used = plan(&one, true, Some(&c_in.id), |id| id == c_out.id);
+        assert_eq!(used.input, None);
+        assert!(used.input_in_use);
+        assert!(!plan_of(&one).input_in_use, "free, and the microphone's");
+        // A machine with no cable, or whose only cable is the speakers' lane's, has none for the
+        // microphone whatever the user uses.
+        assert!(!plan(&one[..3], true, None, |_| true).input_in_use);
+        let only_the_speakers = plan(&one[2..], true, None, |_| true);
+        assert_eq!(only_the_speakers.input, None);
+        assert!(!only_the_speakers.input_in_use);
         // The speakers' lane is held to nothing of the sort: FxSound's driver first, and with none,
-        // the cable — a role it finds there the user's is theirs, and stays (`super::defaults`).
+        // the cable — a role the user put there is theirs, and stays; one Windows put there by
+        // itself the lane adopts, and gives back to a real device (`super::defaults`).
         assert_eq!(
             plan(&one, true, None, |_| true).output.map(|d| d.kind),
             Some(VirtualKind::FxSound)

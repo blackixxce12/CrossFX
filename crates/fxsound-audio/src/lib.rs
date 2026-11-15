@@ -515,13 +515,22 @@ pub enum AudioError {
     /// (`docs/1.0.0-windows-port.md`). ≡ the original's "audio device is missing" state.
     #[error("no virtual playback device is installed")]
     NoVirtualDevice,
-    /// Windows only: no virtual cable for the input lane. The input lane plays the processed
-    /// microphone into a cable's playback side, for applications to record from its recording
-    /// side, and needs a cable of its own: FxSound's driver records nothing it plays, and the
-    /// output lane's cable carries the speakers' sound. The input twin of
-    /// [`AudioError::NoVirtualDevice`].
-    #[error("no virtual cable is installed for the microphone")]
+    /// Windows only: no virtual cable for the input lane — none is installed, or the only one is
+    /// the output lane's. The input lane plays the processed microphone into a cable's playback
+    /// side, for applications to record from its recording side, and needs a cable of its own:
+    /// FxSound's driver records nothing it plays, and the output lane's cable carries the
+    /// speakers' sound. The input twin of [`AudioError::NoVirtualDevice`]. A cable that is there
+    /// but in the user's own use is [`AudioError::VirtualInputDeviceInUse`].
+    #[error("no virtual cable of its own for the microphone")]
     NoVirtualInputDevice,
+    /// Windows only: a virtual cable is there for the input lane, but the user has it in use — a
+    /// default device of theirs is on one of its sides, or the output lane plays into it — and the
+    /// lane does not mix the microphone into what they send through it. The user frees it by
+    /// making another device the default, or installs a second cable for the microphone. A default
+    /// Windows put on the cable by itself, as it was installed, is no use of theirs: the lane
+    /// takes the cable then.
+    #[error("the virtual cable for the microphone is in use")]
+    VirtualInputDeviceInUse,
     /// Windows only: the Windows audio service could not be reached — COM, the MMDevice
     /// enumerator or an `IAudioClient` failed outright. The Windows twin of
     /// [`AudioError::PipewireUnavailable`].

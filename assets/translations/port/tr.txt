@@ -157,4 +157,6 @@ countries: tr
 "Plus the original's sound: presets sound the same." = "Ayrıca orijinalin sesi: ön ayarlar aynı duyulur."
 "Only what the original has; the rest is hidden." = "Yalnızca orijinalde olanlar; gerisi gizli."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Sanal çalma aygıtı yok: FxSound sürücüsünü veya VB-CABLE'ı yükleyin"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "Mikrofon için sanal kablo yok: VB-CABLE'ı veya başka bir kabloyu yükleyin"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "Sanal kablo zaten kullanımda: başka bir aygıtı varsayılan yapın veya mikrofon için bir kablo daha yükleyin"
 "The Windows audio service is not available" = "Windows ses hizmeti kullanılamıyor"

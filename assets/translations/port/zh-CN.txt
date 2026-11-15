@@ -158,4 +158,6 @@ countries: cn sg
 "Plus the original's sound: presets sound the same." = "再加原版的声音：预设听起来一样。"
 "Only what the original has; the rest is hidden." = "只保留原版有的功能，其余隐藏。"
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "没有虚拟播放设备：请安装 FxSound 驱动程序或 VB-CABLE"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "没有供麦克风使用的虚拟线缆：请安装 VB-CABLE 或其他线缆"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "虚拟线缆正在使用中：请将其他设备设为默认设备，或为麦克风再安装一条线缆"
 "The Windows audio service is not available" = "Windows 音频服务不可用"

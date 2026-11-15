@@ -11,7 +11,9 @@
 //! away would break their setup at every start — the input lane, detached until a microphone is
 //! picked, never stands behind its cable. So a default left on a cable is given back only when the
 //! record says a run of this port put it there. A default on FxSound's own driver needs no record:
-//! nothing plays that device while neither FxSound runs.
+//! nothing plays that device while neither FxSound runs. (A lane that comes to stand on a cable
+//! later decides for itself whose each default it finds there is — the user's, or one Windows put
+//! there by itself: `super`, "Whose default it is".)
 //!
 //! The Linux engine needs none of this: its virtual nodes are its own, and a default naming one is
 //! FxSound's by its name.

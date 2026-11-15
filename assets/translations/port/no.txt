@@ -162,4 +162,6 @@ countries: no
 "Plus the original's sound: presets sound the same." = "Pluss originalens lyd: forhåndsinnstillinger låter likt."
 "Only what the original has; the rest is hidden." = "Bare det originalen har; resten er skjult."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Ingen virtuell avspillingsenhet: installer FxSound-driveren eller VB-CABLE"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "Ingen virtuell kabel for mikrofonen: installer VB-CABLE eller en annen kabel"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "Den virtuelle kabelen er allerede i bruk: gjør en annen enhet til standard, eller installer en kabel til for mikrofonen"
 "The Windows audio service is not available" = "Lydtjenesten i Windows er ikke tilgjengelig"

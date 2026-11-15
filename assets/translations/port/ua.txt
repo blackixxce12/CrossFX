@@ -158,4 +158,6 @@ countries: ua
 "Plus the original's sound: presets sound the same." = "Плюс звук оригіналу: шаблони звучать як там."
 "Only what the original has; the rest is hidden." = "Лише функції оригіналу, решту приховано."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Немає віртуального пристрою відтворення: встановіть драйвер FxSound або VB-CABLE"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "Немає віртуального кабелю для мікрофона: встановіть VB-CABLE або інший кабель"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "Віртуальний кабель зайнятий: виберіть інший типовий пристрій або встановіть для мікрофона ще один кабель"
 "The Windows audio service is not available" = "Служба Windows Audio недоступна"

@@ -157,7 +157,7 @@ fn report() -> Result<String, AudioError> {
         None => {
             let _ = writeln!(
                 out,
-                "  input lane: none: {} (the microphone needs a cable of its own)",
+                "  input lane: none: {} (it needs a cable the speakers' lane does not stand on)",
                 AudioError::NoVirtualInputDevice
             );
         }

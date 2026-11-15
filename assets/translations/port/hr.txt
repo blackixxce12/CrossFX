@@ -160,4 +160,6 @@ countries: HR
 "Plus the original's sound: presets sound the same." = "Plus zvuk izvornika: preseti zvuče isto."
 "Only what the original has; the rest is hidden." = "Samo ono što ima izvornik; ostalo je skriveno."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Nema virtualnog uređaja za reprodukciju: instalirajte upravljački program FxSound ili VB-CABLE"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "Nema virtualnog kabela za mikrofon: instalirajte VB-CABLE ili neki drugi kabel"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "Virtualni kabel već se koristi: postavite drugi uređaj kao zadani ili instalirajte još jedan kabel za mikrofon"
 "The Windows audio service is not available" = "Usluga zvuka sustava Windows nije dostupna"

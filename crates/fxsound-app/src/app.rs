@@ -4441,6 +4441,16 @@ fn engine_error_notice(message: &str) -> String {
     } else if is(AudioError::NoVirtualDevice) {
         // The Windows engine's: what is missing, and the two drivers that give FxSound one.
         "No virtual playback device: install the FxSound driver or VB-CABLE"
+    } else if is(AudioError::NoVirtualInputDevice) {
+        // The Windows engine's: the microphone plays into a cable of its own — none is
+        // installed, or the only one is the speakers' — so another cable is what it needs.
+        "No virtual cable for the microphone: install VB-CABLE or another cable"
+    } else if is(AudioError::VirtualInputDeviceInUse) {
+        // The Windows engine's: a cable is there, but a default of the user's is on it, or the
+        // speakers play into it, and the microphone is not mixed into what they send through it.
+        // Installing one would not help them; freeing it, or a second one, does.
+        "The virtual cable is in use: make another device the default, or install another cable \
+         for the microphone"
     } else if message.starts_with(windows_unavailable.trim_end()) {
         // The Windows engine's, whatever the detail the log has: the service every WASAPI client
         // talks to (`Audiosrv`, "Windows Audio" in the list of services).
@@ -7933,6 +7943,15 @@ mod tests {
             (
                 AudioError::NoVirtualDevice,
                 "No virtual playback device: install the FxSound driver or VB-CABLE",
+            ),
+            (
+                AudioError::NoVirtualInputDevice,
+                "No virtual cable for the microphone: install VB-CABLE or another cable",
+            ),
+            (
+                AudioError::VirtualInputDeviceInUse,
+                "The virtual cable is in use: make another device the default, or install \
+                 another cable for the microphone",
             ),
             (
                 AudioError::WindowsAudioUnavailable("IMMDeviceEnumerator: 0x80070422".to_owned()),

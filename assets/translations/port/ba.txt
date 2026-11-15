@@ -157,4 +157,6 @@ countries: ba
 "Plus the original's sound: presets sound the same." = "Plus zvuk originala: profili zvuče isto."
 "Only what the original has; the rest is hidden." = "Samo ono što ima original; ostalo je skriveno."
 "No virtual playback device: install the FxSound driver or VB-CABLE" = "Nema virtuelnog uređaja za reprodukciju: instalirajte FxSound drajver ili VB-CABLE"
+"No virtual cable for the microphone: install VB-CABLE or another cable" = "Nema virtuelnog kabla za mikrofon: instalirajte VB-CABLE ili neki drugi kabl"
+"The virtual cable is in use: make another device the default, or install another cable for the microphone" = "Virtuelni kabl se već koristi: postavite drugi uređaj kao zadani ili instalirajte još jedan kabl za mikrofon"
 "The Windows audio service is not available" = "Audio servis Windowsa nije dostupan"
