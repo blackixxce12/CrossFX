@@ -8,7 +8,13 @@
 //! On Windows, `win` stands in for each piece behind the same API — the control pipe, the
 //! notification area, toasts, the power and session notifications — and [`platform`] is where the
 //! rest of the application asks for what both have in their own way: a link or a folder opened,
-//! the start at log-in.
+//! the start at log-in, the desktop's language, the terminal FxSound was started from.
+//!
+//! The documentation is built for one system at a time, and of the public items alone: a link
+//! goes only to an item that is public and that every system documenting the page has. A private
+//! item, or one only the other system has — `dbus` on Windows, `win` on Linux, and what is in
+//! them — is named in backticks instead, since a link to it would be broken in the pages
+//! `cargo doc` makes. CI builds those pages for each system with rustdoc's warnings denied.
 
 // Linux: no `unsafe` anywhere. Windows: every Win32 call is `unsafe` by signature, so the crate
 // denies it rather than forbids it, and `win` alone allows it.

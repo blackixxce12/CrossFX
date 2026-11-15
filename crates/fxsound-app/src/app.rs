@@ -4070,7 +4070,7 @@ impl App {
 
     /// The Export window for `lane`'s presets, `presets` listed: with the choice of where the end
     /// bands go on the speakers' presets from «Like FxSound for Windows» = Interface and sound on
-    /// ([`App::export_end_bands`]), ticked as the setting says.
+    /// (`App::export_end_bands`), ticked as the setting says.
     #[must_use]
     pub fn export_window(&self, lane: DeviceDirection, presets: Vec<String>) -> ExportState {
         let mut state = ExportState {
@@ -4308,7 +4308,7 @@ fn device_priority(settings: &Settings, direction: DeviceDirection) -> UiToAudio
 /// remembered device would start at a level chosen without its volume. A power left off or a
 /// speakers' lane left `Off` said only as messages could arrive after that pair had claimed the
 /// default sink and moved every playing stream onto FxSound, to move them all back a moment later.
-/// [`startup_messages`] still says all of it, with the same values.
+/// `startup_messages` still says all of it, with the same values.
 #[must_use]
 pub fn engine_start_options(settings: &Settings, language: &str) -> fxsound_audio::StartOptions {
     let ranking = |direction| fxsound_audio::DevicePriority {
@@ -5529,7 +5529,7 @@ impl App {
 
     /// The window came up (`true`) or went away (`false`): `main.rs` says so around each run of
     /// one. While it is up, the Pro view's microphone meters may be in sight, and they hold the
-    /// microphone awake ([`App::hold_microphone_as_needed`]).
+    /// microphone awake (`App::hold_microphone_as_needed`).
     pub fn set_window_shown(&mut self, shown: bool) {
         self.window_shown = shown;
         // Each window comes up out of the minimised state, and one gone is not minimised.
@@ -5540,7 +5540,7 @@ impl App {
     /// The window went into the minimised state (`true`) — the minimise button with no tray
     /// there, or a start in the tray that found none — or came back out of it (`false`). A
     /// change made while it is minimised is not on screen, so its notice is an alert
-    /// ([`App::notify`]).
+    /// (`App::notify`).
     pub fn set_window_minimised(&mut self, minimised: bool) {
         self.window_minimised = minimised;
     }

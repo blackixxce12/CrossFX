@@ -19,17 +19,17 @@
 //!   theme left white bars on the light taskbar until the sound next started or stopped, and a
 //!   click that came with no pointer moves to start tray-icon's timer — a tap on a touch screen,
 //!   the keyboard's Enter on the icon — could wait as long. Whatever a window procedure,
-//!   tray-icon or muda reports is recorded ([`Pending`]) and followed by a posted [`WM_WAKE`]
-//!   ([`record`]), as tray-icon asks of a loop of one's own.
+//!   tray-icon or muda reports is recorded (`Pending`) and followed by a posted `WM_WAKE`
+//!   (`record`), as tray-icon asks of a loop of one's own.
 //! - **No hover tracking.** tray-icon follows the pointer over the icon with a 15 ms timer, for
 //!   enter and leave events FxSound has no use for, and its timer outlived the pointer — after
 //!   every right click, among others — and woke the tray thread some sixty times a second for as
-//!   long as FxSound ran on. The pointer's moves over the icon are kept from it ([`icon_window`]),
+//!   long as FxSound ran on. The pointer's moves over the icon are kept from it (`icon_window`),
 //!   so the timer never starts; the clicks still reach it.
 //! - **A taskbar that comes back** — Explorer restarted — has none of the old one's icons.
 //!   tray-icon adds FxSound's again from what the shell last took, which is not what FxSound
 //!   shows now when a change came while there was no taskbar to take it. So the tray keeps what
-//!   the shell took apart from the mirror ([`Shown`]), sets again whatever differs at every look,
+//!   the shell took apart from the mirror (`Shown`), sets again whatever differs at every look,
 //!   and looks once tray-icon has added the icon to a new taskbar.
 //! - **Ticks, not radio groups.** A Win32 menu is the original's (`FxSystemTrayView.cpp:216-330`):
 //!   a tick on the preset, the device and the theme in use, a separator between the factory and
@@ -388,7 +388,7 @@ fn menu_text(label: &str) -> String {
     label.replace('&', "&&")
 }
 
-/// One row of the menu, before it becomes a Win32 menu: what [`build_menu`] makes, and what the
+/// One row of the menu, before it becomes a Win32 menu: what `build_menu` makes, and what the
 /// tests read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Row {

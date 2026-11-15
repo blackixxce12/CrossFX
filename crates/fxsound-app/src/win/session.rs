@@ -10,16 +10,25 @@
 //!   program the shell waits for: the flag, as `SIGINT` raises it. A second one while the way out
 //!   is under way ends the process at once with the conventional 130, as a second Ctrl+C does on
 //!   Linux. A release build is a GUI program, which the shell does not wait for: it borrows the
-//!   terminal it was started from to print what its command line has to say, and lets go of it
-//!   as soon as it is the running FxSound, before its engine starts
-//!   ([`release_borrowed_console`]), as a job sent to the background is out of the reach of the
-//!   Ctrl+C typed for the next command, `fxsound --watch` say, and of the terminal closing. A
-//!   process attached to a console gets that console's Ctrl+C, Ctrl+Break and close, and with no
-//!   handler of its own each one ends it — held over the start, the terminal would end FxSound
-//!   in the middle of taking over the default device. What the start has to say once the engine
-//!   is up, the report of the options it was started with, is printed on the terminal borrowed
-//!   again for only as long as the printing takes ([`on_the_terminal`]), with Ctrl+C and
-//!   Ctrl+Break left to the next command meanwhile.
+//!   terminal it was started from to print what its command line has to say
+//!   ([`attach_parent_console`]), and lets go of it as soon as it is the running FxSound, before
+//!   its engine starts ([`release_borrowed_console`]), as a job sent to the background is out of
+//!   the reach of the Ctrl+C typed for the next command, `fxsound --watch` say, and of the
+//!   terminal closing. A process attached to a console gets that console's Ctrl+C, Ctrl+Break and
+//!   close, and with no handler of its own each one ends it — held over the start, the terminal
+//!   would end FxSound in the middle of taking over the default device. What the start has to say
+//!   once the engine is up, the report of the options it was started with, is printed on the
+//!   terminal borrowed again for as long as the printing takes ([`on_the_terminal`]), and only
+//!   when some of it is for the terminal, since no handler covers that borrow whole: one leaves
+//!   Ctrl+C and Ctrl+Break to the next command while the report is printed, but it covers neither
+//!   the moments of attaching and of letting go — a Ctrl+C on its way then reaches FxSound with no
+//!   handler to take it — nor the terminal closing, which ends whatever is attached to it. A plain
+//!   `fxsound`, `--show`, `--hide` and a line of settings that all went through have nothing to
+//!   report, and a report whose streams were all redirected has nothing for the terminal: both
+//!   leave it alone. Every borrow keeps what was redirected where it was sent — `fxsound --status
+//!   --json > status.json`, `fxsound --watch | findstr preset`, `fxsound 2> fxsound.log` typed in
+//!   cmd.exe — although attaching a console gives the process that console's standard handles in
+//!   place of the ones cmd.exe started it with.
 //! - **The console closing**, and log-off and shutdown for a process the system tells through its
 //!   console (`CTRL_CLOSE_EVENT`, `CTRL_LOGOFF_EVENT`, `CTRL_SHUTDOWN_EVENT`): the flag, and then
 //!   the handler waits — the process ends as soon as it returns — until the way out has handed
@@ -55,7 +64,8 @@ use windows::Win32::Foundation::{
     GENERIC_READ, GENERIC_WRITE, HANDLE, HWND, LPARAM, LRESULT, WPARAM,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_UNKNOWN,
+    GetFileType, OPEN_EXISTING,
 };
 use windows::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, CONSOLE_MODE, CTRL_BREAK_EVENT, CTRL_C_EVENT,
@@ -143,7 +153,8 @@ const NO_TERMINAL: u8 = 0;
 /// [`attach_parent_console`] took the parent's console, which [`release_borrowed_console`] gives
 /// back.
 const BORROWED: u8 = 1;
-/// The borrowed console was given back; [`on_the_terminal`] may borrow it again for a moment.
+/// The borrowed console was given back; [`on_the_terminal`] may borrow it again for a moment, to
+/// say something on it.
 const GIVEN_BACK: u8 = 2;
 
 /// The window of the console [`attach_parent_console`] took, as an address: the one console
@@ -151,84 +162,181 @@ const GIVEN_BACK: u8 = 2;
 /// another process by then, and its console is nobody FxSound has anything to say to.
 static TERMINAL_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
+/// Which of the standard output and error were the borrowed console's when
+/// [`release_borrowed_console`] gave it back: [`STDOUT`], [`STDERR`], both or neither. What is
+/// for those is all [`on_the_terminal`] borrows the terminal again for; the others were
+/// redirected, and what is for them goes where they were sent.
+static CONSOLE_STREAMS: AtomicU8 = AtomicU8::new(0);
+/// The standard output, in [`CONSOLE_STREAMS`].
+const STDOUT: u8 = 1;
+/// The standard error, in [`CONSOLE_STREAMS`].
+const STDERR: u8 = 2;
+
+/// The three standard handles, in the order a process has them.
+const STANDARD_HANDLES: [STD_HANDLE; 3] = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE];
+
 /// Attach to the parent process's console, for a GUI build started from a terminal: the standard
 /// handles that were not redirected then reach that console, so that `fxsound --status` prints
-/// where it was typed (`crate::platform::attach_parent_console`). Fails, harmlessly, for a
+/// where it was typed (`crate::platform::attach_parent_console`), and those that were — to a
+/// file, a pipe or `NUL`, `fxsound --status --json > status.json` — stay where they were sent,
+/// which the attach alone does not leave them (`keep_redirects`). Fails, harmlessly, for a
 /// process that has a console already — the debug build, a console program — or whose parent has
 /// none.
 pub fn attach_parent_console() {
+    let before = standard_handles();
     // SAFETY: a plain call; its failure is the answer "no console to attach to".
     if unsafe { AttachConsole(ATTACH_PARENT_PROCESS) }.is_ok() {
+        keep_redirects(before);
         // SAFETY: a plain query; the handle is kept only as a number to compare.
         TERMINAL_WINDOW.store(unsafe { GetConsoleWindow() }.0 as isize, Ordering::SeqCst);
         TERMINAL.store(BORROWED, Ordering::SeqCst);
     }
 }
 
+/// This process's standard handles as they are, in the order of [`STANDARD_HANDLES`]: what
+/// [`keep_redirects`] puts back after an attach. One the process has none of is null.
+fn standard_handles() -> [HANDLE; 3] {
+    // SAFETY: this process's own standard handles, read as numbers.
+    STANDARD_HANDLES.map(|which| unsafe { GetStdHandle(which) }.unwrap_or_default())
+}
+
+/// Once attached to a console, put back each of the standard handles from `before` the attach
+/// ([`standard_handles`]) that was a redirection ([`is_redirected`]).
+///
+/// Attaching gives a process the console's standard handles: all three, whatever it inherited,
+/// when it was started without `STARTF_USESTDHANDLES`, and the ones it has none of when it was
+/// started with it. cmd.exe starts a program without the flag, and hands it its redirections —
+/// `>`, `2>`, `2>&1`, `|`, `for /f` — as the standard handles it inherits, so the attach took
+/// every one of them: from cmd, `fxsound --status --json > status.json` left the file empty and
+/// printed on the terminal, and `fxsound 2> fxsound.log` sent the log to the terminal while it
+/// was borrowed and nowhere once it was given back. The attach leaves open the handles it takes
+/// the place of, and once attached a handle of that console answers as the console's, so what is
+/// put back is the process's own redirection and never a console's handle.
+fn keep_redirects(before: [HANDLE; 3]) {
+    for (which, handle) in STANDARD_HANDLES.into_iter().zip(before) {
+        if is_redirected(handle) {
+            // SAFETY: a handle this process was started with, and still has open.
+            let _ = unsafe { SetStdHandle(which, handle) };
+        }
+    }
+}
+
+/// Whether `handle`, a standard handle from before an attach, was redirected: open, of a kind
+/// Windows knows — a file, a pipe, a device such as `NUL` — and not a console's. Asked once
+/// attached, when a handle of that console answers as one.
+fn is_redirected(handle: HANDLE) -> bool {
+    // SAFETY: a plain query on a handle of this process's own; one that is not open has no kind.
+    !handle.is_invalid()
+        && unsafe { GetFileType(handle) } != FILE_TYPE_UNKNOWN
+        && !is_console(handle)
+}
+
 /// Give back the console [`attach_parent_console`] took, once this process is the running FxSound
 /// and before its engine starts (`crate::platform::release_terminal`): the terminal is the next
 /// command's from here on, and neither a Ctrl+C typed there nor its window closing is FxSound's
-/// to hear (see the module docs). A no-op for a console FxSound did not borrow — the debug
+/// to hear (see the module docs). Which of the standard output and error were the console's is
+/// kept, for [`on_the_terminal`]. A no-op for a console FxSound did not borrow — the debug
 /// build's own.
 pub fn release_borrowed_console() {
     if TERMINAL
         .compare_exchange(BORROWED, GIVEN_BACK, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
     {
-        let_go_of_the_console(Vec::new());
+        CONSOLE_STREAMS.store(let_go_of_the_console(Vec::new()), Ordering::SeqCst);
     }
 }
 
-/// Run `print` on the terminal [`release_borrowed_console`] gave back, borrowed again for as long
-/// as it takes (`crate::platform::on_the_terminal`): how the report of the options FxSound was
-/// started with reaches the terminal once the engine is up, the terminal having been given back
-/// before it started (see the module docs). Ctrl+C and Ctrl+Break are the next command's
-/// meanwhile, not FxSound's. With no console given back — none was borrowed, or the debug build's
-/// own — `print` just runs; and it runs as well when the terminal is gone, since what goes to a
-/// file still goes there.
-pub fn on_the_terminal(print: impl FnOnce()) {
-    if TERMINAL.load(Ordering::SeqCst) != GIVEN_BACK {
+/// Print `stdout` and `stderr`, each unless it is empty, where the standard output and error go
+/// once [`release_borrowed_console`] has given the terminal back: a stream that was the
+/// terminal's on the terminal, borrowed again for as long as the printing takes
+/// (`crate::platform::on_the_terminal`), and one that was redirected —
+/// `fxsound --preset=Gamng 2> errors.txt` — where it was sent. How the report of the options
+/// FxSound was started with reaches the terminal once the engine is up, the terminal having been
+/// given back before it started (see the module docs). Ctrl+C and Ctrl+Break are the next
+/// command's while the report is printed, not FxSound's (`the_next_commands`); with nothing in it
+/// for the terminal, the terminal is not borrowed at all (`borrows_again`). With no console given
+/// back — none was borrowed, or the debug build's own — the report is just printed; and it is
+/// printed as well when the terminal is gone, since what goes to a file still goes there.
+pub fn on_the_terminal(stdout: &str, stderr: &str) {
+    on_the_terminal_with(stdout, stderr, || {
+        crate::platform::print_report(stdout, stderr);
+    });
+}
+
+/// [`on_the_terminal`], with `print` doing the printing of `stdout` and `stderr`, once, on
+/// whatever the standard handles are by then: the tests' way of seeing that it was done.
+fn on_the_terminal_with(stdout: &str, stderr: &str, print: impl FnOnce()) {
+    let streams = CONSOLE_STREAMS.load(Ordering::SeqCst);
+    if !borrows_again(TERMINAL.load(Ordering::SeqCst), streams, stdout, stderr) {
         print();
         return;
     }
+    let before = standard_handles();
     // SAFETY: a plain call; its failure is the answer "the terminal is gone".
     if unsafe { AttachConsole(ATTACH_PARENT_PROCESS) }.is_err() {
         print();
         return;
     }
-    // SAFETY: a plain query; the handle is only compared.
-    let window = unsafe { GetConsoleWindow() }.0 as isize;
-    if window != TERMINAL_WINDOW.load(Ordering::SeqCst) {
-        let_go_of_the_console(Vec::new());
-        print();
-        return;
-    }
+    // First thing once attached, before anything else is asked of the console: every call in
+    // between is a moment its Ctrl+C ends FxSound in (`the_next_commands`).
     // SAFETY: a handler with the signature Windows calls, which only answers.
     let held = unsafe { SetConsoleCtrlHandler(Some(the_next_commands), true) }.is_ok();
-    let opened = reach_the_console();
-    print();
-    let_go_of_the_console(opened);
+    keep_redirects(before);
+    // SAFETY: a plain query; the handle is only compared.
+    let window = unsafe { GetConsoleWindow() }.0 as isize;
+    if window == TERMINAL_WINDOW.load(Ordering::SeqCst) {
+        let opened = reach_the_console(streams);
+        print();
+        let_go_of_the_console(opened);
+    } else {
+        // Another process's console, under the shell's old process id.
+        let_go_of_the_console(Vec::new());
+        print();
+    }
     if held {
         // SAFETY: as above; takes away what was added.
         let _ = unsafe { SetConsoleCtrlHandler(Some(the_next_commands), false) };
     }
 }
 
+/// Whether [`on_the_terminal`] borrows the terminal again to print `stdout` and `stderr`: when
+/// it was given back ([`GIVEN_BACK`]), and only if there is something to print on a stream that
+/// was the terminal's, one of `console_streams` ([`CONSOLE_STREAMS`]). Every borrow is a moment
+/// the terminal's Ctrl+C and its closing can end FxSound in ([`the_next_commands`]), so a start
+/// with nothing to say there — a plain `fxsound`, `--show`, `--hide`, a line of settings that all
+/// went through, or a report only on streams that were redirected, which it reaches without the
+/// terminal — leaves the terminal to the next command.
+const fn borrows_again(terminal: u8, console_streams: u8, stdout: &str, stderr: &str) -> bool {
+    terminal == GIVEN_BACK
+        && ((console_streams & STDOUT != 0 && !stdout.is_empty())
+            || (console_streams & STDERR != 0 && !stderr.is_empty()))
+}
+
 /// While [`on_the_terminal`] borrows the terminal again: Ctrl+C and Ctrl+Break are for whatever
-/// the shell runs next, and FxSound, which is not the shell's job, takes them as handled. The
-/// console closing goes on to the next handler; nothing keeps a process attached to a console
-/// that closes, and that moment is only as long as the printing.
+/// the shell runs next, and FxSound, which is not the shell's job, takes them as handled — from
+/// the moment this is installed to the moment it is taken away, and no longer. The console sends
+/// its events from the moment of the attach, before this can be installed, and one still on its
+/// way when the console is let go reaches the default handler once this is gone: at either edge a
+/// Ctrl+C ends FxSound as though there were no handler, and no order of the calls closes those
+/// edges, which is why nothing is borrowed with nothing to say on the terminal
+/// ([`borrows_again`]). The console closing goes on to the next handler: nothing keeps a process
+/// attached to a console that closes, whatever its handler answers.
 unsafe extern "system" fn the_next_commands(event: u32) -> BOOL {
     matches!(event, CTRL_C_EVENT | CTRL_BREAK_EVENT).into()
 }
 
-/// The console's output for the standard output and error that have none after a second attach:
-/// Windows sets them only for a process started without handles of its own, and a shell that
-/// passes its console's handles to the programs it starts leaves them to the program. The ones
-/// opened here are [`let_go_of_the_console`]'s to close.
-fn reach_the_console() -> Vec<OwnedHandle> {
+/// The console's output for each of `streams` ([`CONSOLE_STREAMS`]) that the second attach left
+/// with no standard handle. Windows 11 leaves none so, as far as it was seen: the attach gives the
+/// console's handles to all three of a process started without `STARTF_USESTDHANDLES`, and to
+/// the ones a process started with it has none of — which the streams that were the console's
+/// are by then, cleared when it was given back ([`let_go_of_the_console`]). This is for a Windows
+/// that does not. The handles opened here are [`let_go_of_the_console`]'s to close.
+fn reach_the_console(streams: u8) -> Vec<OwnedHandle> {
     let mut opened = Vec::new();
-    for which in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+    for (which, stream) in [(STD_OUTPUT_HANDLE, STDOUT), (STD_ERROR_HANDLE, STDERR)] {
+        if streams & stream == 0 {
+            continue;
+        }
         // SAFETY: this process's own standard handle, and a NUL-terminated name; the handle
         // opened is ours, and kept for closing.
         unsafe {
@@ -254,33 +362,49 @@ fn reach_the_console() -> Vec<OwnedHandle> {
 
 /// Detach from the console, clearing the standard handles that were its own first: Windows gives
 /// a closed handle's number to the next handle opened, and a late log line written to the old
-/// number would land there. A handle that was redirected, `fxsound 2> fxsound.log`, stays, and so
-/// does the log in it. `opened` are the console handles [`reach_the_console`] opened, closed once
-/// nothing refers to them.
-fn let_go_of_the_console(opened: Vec<OwnedHandle>) {
-    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-        clear_if_the_consoles(which);
+/// number would land there. A handle that was redirected, `fxsound 2> fxsound.log`, is not the
+/// console's — it was put back after the attach ([`keep_redirects`]) — and stays, and so does the
+/// log in it. `opened` are the console handles [`reach_the_console`] opened, closed once nothing
+/// refers to them. Returns which of the standard output and error were the console's
+/// ([`CONSOLE_STREAMS`]).
+fn let_go_of_the_console(opened: Vec<OwnedHandle>) -> u8 {
+    let mut console_streams = 0;
+    for (which, stream) in [
+        (STD_INPUT_HANDLE, 0),
+        (STD_OUTPUT_HANDLE, STDOUT),
+        (STD_ERROR_HANDLE, STDERR),
+    ] {
+        if clear_if_the_consoles(which) {
+            console_streams |= stream;
+        }
     }
     // SAFETY: a plain call; nothing of this process refers to the console any more.
     if let Err(err) = unsafe { FreeConsole() } {
         log::debug!("the terminal FxSound was started from is still attached: {err}");
     }
     drop(opened);
+    console_streams
 }
 
-/// Clear the standard handle `which` if it is a console's.
-fn clear_if_the_consoles(which: STD_HANDLE) {
-    let mut mode = CONSOLE_MODE::default();
-    // SAFETY: this process's own standard handle, and an out-pointer to a local. A handle that is
-    // not a console's fails the mode query and is left as it is.
-    unsafe {
-        if let Ok(handle) = GetStdHandle(which)
-            && !handle.is_invalid()
-            && GetConsoleMode(handle, &raw mut mode).is_ok()
-        {
-            let _ = SetStdHandle(which, HANDLE::default());
-        }
+/// Clear the standard handle `which` if it is a console's. Returns whether it was.
+fn clear_if_the_consoles(which: STD_HANDLE) -> bool {
+    // SAFETY: this process's own standard handle; one it has none of is no handle at all.
+    let Ok(handle) = (unsafe { GetStdHandle(which) }) else {
+        return false;
+    };
+    if !is_console(handle) {
+        return false;
     }
+    // SAFETY: as above.
+    let _ = unsafe { SetStdHandle(which, HANDLE::default()) };
+    true
+}
+
+/// Whether `handle` is a console's: a handle that is not fails the mode query.
+fn is_console(handle: HANDLE) -> bool {
+    let mut mode = CONSOLE_MODE::default();
+    // SAFETY: a plain query on a handle of this process's own, and an out-pointer to a local.
+    unsafe { GetConsoleMode(handle, &raw mut mode) }.is_ok()
 }
 
 /// The console control handler: see the module docs.
@@ -658,13 +782,84 @@ mod tests {
     }
 
     #[test]
-    fn with_no_terminal_given_back_the_report_goes_where_the_handles_go() {
-        // The test process has a console of its own, as the debug build does: nothing is borrowed,
-        // and nothing is attached or let go of.
+    fn with_no_terminal_given_back_the_report_is_printed_where_the_handles_go() {
+        // The test process has a console of its own, as the debug build does: nothing was
+        // borrowed, so nothing is attached or let go of, and the report is printed all the same —
+        // once, whichever stream it is on.
         assert_ne!(TERMINAL.load(Ordering::SeqCst), GIVEN_BACK);
-        let mut printed = false;
-        on_the_terminal(|| printed = true);
-        assert!(printed);
+        for (stdout, stderr) in [
+            ("status power=true", ""),
+            ("", "no preset named \"Gamng\""),
+            ("status power=true", "a note"),
+        ] {
+            let mut printed = 0;
+            on_the_terminal_with(stdout, stderr, || printed += 1);
+            assert_eq!(printed, 1, "{stdout:?} {stderr:?}");
+        }
+    }
+
+    #[test]
+    fn the_terminal_given_back_is_borrowed_again_only_to_say_something_on_it() {
+        const BOTH: u8 = STDOUT | STDERR;
+        const STATUS: &str = "status power=true";
+        const REFUSAL: &str = "no preset named \"Gamng\"";
+        for (terminal, console_streams, stdout, stderr, borrows) in [
+            // A plain `fxsound`, `--show`, `--hide`, settings that all went through: nothing to
+            // say, and the terminal stays the next command's. Its Ctrl+C at the moment of
+            // attaching or of letting go, and its closing while attached, would end FxSound; a
+            // start that borrows nothing gives them no moment to.
+            (GIVEN_BACK, BOTH, "", "", false),
+            // Something on either stream of the terminal's is said where the line was typed.
+            (GIVEN_BACK, BOTH, "", REFUSAL, true),
+            (GIVEN_BACK, BOTH, STATUS, "", true),
+            // A report only on streams that were redirected goes where they were sent, without
+            // the terminal: `--preset=Gamng 2> errors.txt`, `--status > status.txt`, and both
+            // streams redirected.
+            (GIVEN_BACK, STDOUT, "", REFUSAL, false),
+            (GIVEN_BACK, STDERR, STATUS, "", false),
+            (GIVEN_BACK, 0, STATUS, REFUSAL, false),
+            // A report on a redirected stream and on the terminal's: borrowed, for the terminal's.
+            (GIVEN_BACK, STDERR, STATUS, REFUSAL, true),
+            (GIVEN_BACK, STDOUT, STATUS, REFUSAL, true),
+            // Nothing given back, nothing to borrow again: the console is FxSound's own, or still
+            // the borrowed one, and the report goes where the handles go.
+            (NO_TERMINAL, BOTH, STATUS, REFUSAL, false),
+            (BORROWED, BOTH, STATUS, REFUSAL, false),
+        ] {
+            assert_eq!(
+                borrows_again(terminal, console_streams, stdout, stderr),
+                borrows,
+                "terminal {terminal}, console streams {console_streams}, {stdout:?}, {stderr:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_a_pipe_and_nul_are_redirections_and_a_console_or_no_handle_is_not() {
+        let handle = |raw: &dyn std::os::windows::io::AsRawHandle| HANDLE(raw.as_raw_handle());
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = std::fs::File::create(dir.path().join("status.json")).expect("a file");
+        assert!(is_redirected(handle(&file)), "`> status.json`");
+        let (reader, writer) = std::io::pipe().expect("a pipe");
+        assert!(is_redirected(handle(&writer)), "`| findstr preset`");
+        assert!(is_redirected(handle(&reader)));
+        let nul = std::fs::OpenOptions::new()
+            .write(true)
+            .open("NUL")
+            .expect("NUL");
+        assert!(is_redirected(handle(&nul)), "`> nul`");
+        // What a process has where it has no standard handle: put back, it would be nothing.
+        assert!(!is_redirected(HANDLE::default()));
+        assert!(!is_redirected(HANDLE(-1_isize as *mut std::ffi::c_void)));
+        // A console's handle is the console's, never a redirection to keep — where the test
+        // process has a console to open one of.
+        if let Ok(console) = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("CONOUT$")
+        {
+            assert!(!is_redirected(handle(&console)));
+        }
     }
 
     #[test]

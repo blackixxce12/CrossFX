@@ -93,9 +93,10 @@
 //!
 //! # The other caller
 //!
-//! The D-Bus service (`crate::dbus`, 0.4.0 design §9) does not go through the socket: it hands
-//! its command lists to the same channel through a [`Control`], and they are drained, carried out
-//! and answered exactly like a forwarded command line, under the same [`HANDLER_TIMEOUT`].
+//! The D-Bus service of the Linux build (`crate::dbus`, 0.4.0 design §9) does not go through the
+//! socket: it hands its command lists to the same channel through a `Control`, and they are
+//! drained, carried out and answered exactly like a forwarded command line, under the same
+//! [`HANDLER_TIMEOUT`]. Windows has no D-Bus service, and the control pipe is its one way in.
 //!
 //! # Waking the GUI thread
 //!
@@ -153,7 +154,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long the primary gives the GUI thread to answer a forwarded command before replying with a
 /// bare acknowledgement. Deliberately shorter than [`REPLY_TIMEOUT`] so the client hears *us*
-/// rather than its own timeout. A D-Bus method call waits exactly as long ([`Control::call`]).
+/// rather than its own timeout. A D-Bus method call, on Linux, waits exactly as long
+/// (`Control::call`).
 pub const HANDLER_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// What a caller hears when the GUI thread no longer takes commands.
@@ -737,9 +739,9 @@ impl Drop for Server {
 /// the forwarding process exit; answer explicitly with [`Forwarded::reply`] when there is
 /// output, which in practice means `--status`.
 ///
-/// A second process on the control socket is where most of these come from; a D-Bus method call
-/// is the other place (`crate::dbus`), through [`Control`]. Both are answered by the same
-/// `commands::run` on the GUI thread, so there is one way a command is carried out.
+/// A second process on the control socket is where most of these come from; on Linux a D-Bus
+/// method call is the other place (`crate::dbus`), through a `Control`. Both are answered by the
+/// same `commands::run` on the GUI thread, so there is one way a command is carried out.
 pub struct Forwarded {
     commands: Vec<Command>,
     cwd: PathBuf,

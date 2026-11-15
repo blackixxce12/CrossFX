@@ -37,9 +37,10 @@
 //!    without one;
 //! 7. `virtual_device`: a virtual playback device is there for FxSound to stand in front of the
 //!    speakers with, the FxSound driver's or VB-CABLE's — `skip` without the audio service;
-//! 8. `control_pipe`: the control pipe can be had — FxSound answers on it, or a pipe of the same
-//!    security can be created — without connecting to a running FxSound, which would be a caller
-//!    for it to answer.
+//! 8. `control_pipe`: the control pipe is in use, or free and a pipe of the same security can be
+//!    created. Nothing connects to a pipe in use — a running FxSound would have a caller to
+//!    answer — so what holds it is not known here: FxSound while it runs, or a program that took
+//!    the name first and keeps FxSound from starting, which `fxsound --status` tells apart.
 //!
 //! Nothing there opens a stream or changes a device; the probe pipe has a name of its own and goes
 //! at once.
@@ -402,9 +403,14 @@ fn check_virtual_device(probed: bool, devices: Option<Result<Vec<String>, String
     }
 }
 
-/// The control pipe: there with an instance behind it, or creatable — a probe instance of the
-/// same access control, under a name of its own, made and let go at once. No connection is made
-/// to a running FxSound.
+/// The control pipe: in use, or creatable — a probe instance of the same access control, under a
+/// name of its own, made and let go at once.
+///
+/// A name in use is all this sees of a pipe in use. No connection is made to it, which a running
+/// FxSound would have to answer, and only a connection reads a pipe's owner and label
+/// (`win::pipe`'s "Who may connect"): so a program that took the name first — and keeps FxSound
+/// from starting while it holds it — looks here as FxSound does, and the check says what it found
+/// and how to tell the two apart, never that FxSound is running.
 #[cfg(windows)]
 fn check_control_pipe(pipe: Option<&Path>) -> Check {
     use crate::win::pipe;
@@ -416,7 +422,14 @@ fn check_control_pipe(pipe: Option<&Path>) -> Check {
         );
     };
     if pipe::exists(pipe) {
-        return Check::ok(NAME, format!("{} (FxSound is running)", pipe.display()));
+        return Check::ok(
+            NAME,
+            format!(
+                "{} (in use: FxSound's if `fxsound --status` answers; FxSound cannot start while \
+                 another program holds it)",
+                pipe.display()
+            ),
+        );
     }
     let probe = PathBuf::from(format!(
         "{}-self-test-{}",
@@ -1291,9 +1304,42 @@ pub(crate) mod tests {
         let server = listener.serve().expect("serve");
         let running = check_control_pipe(Some(&pipe));
         assert_eq!(running.status, Status::Ok, "{}", running.detail);
-        assert!(running.detail.contains("running"), "{}", running.detail);
+        assert!(running.detail.contains("(in use:"), "{}", running.detail);
         assert!(server.try_recv().is_none(), "nothing reached the instance");
         assert_eq!(check_control_pipe(None).status, Status::Fail);
+    }
+
+    /// The name squatted by a sandboxed process of this user, which keeps FxSound from starting:
+    /// what the check sees of it is what it sees of a running FxSound, a name in use, so it says
+    /// that and how to tell the two apart — never that FxSound is running.
+    #[cfg(windows)]
+    #[test]
+    fn a_control_pipe_squatted_by_another_program_is_not_taken_for_a_running_fxsound() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let pipe = crate::win::pipe::path_in(tmp.path()).expect("a name");
+        let _squatter = crate::win::pipe::squat(&pipe).expect("the squatter's pipe");
+        assert!(
+            matches!(
+                crate::ipc::Instance::acquire_in(tmp.path()),
+                Ok(crate::ipc::Instance::Secondary(_))
+            ),
+            "FxSound would be the second of two, with nobody to talk to"
+        );
+        let held = check_control_pipe(Some(&pipe));
+        assert_eq!(held.status, Status::Ok, "{}", held.detail);
+        assert!(!held.detail.contains("is running"), "{}", held.detail);
+        assert!(held.detail.contains("(in use:"), "{}", held.detail);
+        assert!(
+            held.detail.contains("`fxsound --status`"),
+            "{}",
+            held.detail
+        );
+        assert!(
+            held.detail
+                .contains("cannot start while another program holds it"),
+            "{}",
+            held.detail
+        );
     }
 
     #[test]

@@ -590,9 +590,9 @@ impl Published {
 // Where the events go
 // =============================================================================================
 
-/// A consumer of the controller's events: the `--watch` streams ([`crate::ipc::Server`]) and the
-/// D-Bus service ([`crate::dbus::DbusHandle`]). Publishing must not block for long: it runs on the
-/// GUI thread.
+/// A consumer of the controller's events: the `--watch` streams ([`crate::ipc::Server`]) and, on
+/// Linux, the D-Bus service (`crate::dbus::DbusHandle`). Publishing must not block for long: it
+/// runs on the GUI thread.
 pub trait EventSink {
     /// Take one event.
     fn publish(&self, event: &AppEvent);
