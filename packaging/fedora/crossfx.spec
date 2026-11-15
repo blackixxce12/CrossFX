@@ -1,4 +1,4 @@
-# Fedora packaging for FxSound for Linux (Fedora 43 and newer, and rawhide).
+# Fedora packaging for CrossFX (Fedora 43 and newer, and rawhide).
 #
 # Not older: Cargo.toml sets edition = "2024" and rust-version = "1.98.1", and Fedora 43 is the
 # oldest release whose `rust` package is 1.98.1.
@@ -42,13 +42,13 @@
 # `--without check` for a faster local rebuild; a submission should leave it on.
 %bcond check 1
 
-# Upstream calls the project "fxsound-linux": that is the repository name, the Arch package name
-# and the directory the release tarballs and /usr/share/doc already use, so the RPM keeps it
-# instead of inventing a second name. The executable is plain `fxsound`, and the virtual Provides
-# below means `dnf install fxsound` finds this package. Note that the file is checked in as
-# fxsound.spec: for a local rpmbuild, mock or COPR build the filename is irrelevant, but Fedora
-# dist-git wants <name>.spec, so a submission renames this to fxsound-linux.spec.
-Name:           fxsound-linux
+# The package is crossfx because that is the program's one name: the executable, the Debian and
+# Arch packages, the release tarballs and /usr/share/doc/crossfx all use it, and the file is
+# crossfx.spec, the <name>.spec Fedora dist-git wants. The repository is CrossFX, and GitHub
+# names the top directory of its archives after the repository, case and all, so Source0 unpacks
+# into CrossFX-<version>: that is srcname, which %%prep gives %%autosetup.
+%global srcname CrossFX
+Name:           crossfx
 Version:        0.5.0
 Release:        1%{?dist}
 Summary:        System-wide audio enhancement: EQ, ambience, surround, bass and dynamic boost
@@ -97,7 +97,7 @@ Summary:        System-wide audio enhancement: EQ, ambience, surround, bass and 
 #
 # Two things the window embeds are not crates, and both are OFL-1.1, which the tag names already
 # for egui's own default fonts: the Noto fallback faces and the Manrope interface faces from
-# assets/fonts. Gilroy, the face of FxSound for Windows, is not in the tree: it is a commercial
+# assets/fonts. Gilroy, the face of the original FxSound, is not in the tree: it is a commercial
 # typeface, which the window uses only when the user adds files they licensed themselves.
 #
 # %%build re-runs %%{cargo_license_summary} on every build and prints it to the build log: if it
@@ -128,7 +128,7 @@ License:        %{shrink:
     Unlicense AND
     Zlib
     }
-URL:            https://github.com/blackixxce12/fxsound-linux
+URL:            https://github.com/blackixxce12/CrossFX
 Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 # `cargo vendor` output for the exact Cargo.lock in Source0. Not generated during the build,
 # because an RPM build has no network; the maintainer produces it once per release and uploads
@@ -168,7 +168,7 @@ Requires:       pipewire
 # release binary lists nothing but libc, libm, libgcc_s and libpipewire-0.3, so these have to be
 # spelled out by hand or the package installs cleanly and then dies at startup with a dlopen
 # error. The list is not guesswork: it is the set of sonames the executable itself names, read
-# back out of the built binary with `strings -a target/release/fxsound` and grepped for
+# back out of the built binary with `strings -a target/release/crossfx` and grepped for
 # "lib*.so*". Re-run that after a dependency bump; it is the only thing that keeps this block
 # honest.
 Requires:       libwayland-client
@@ -190,7 +190,7 @@ Requires:       dbus-common
 Requires:       fontconfig
 Requires:       hicolor-icon-theme
 
-# X11 is the fallback backend; the port targets Wayland, so these are weak. libX11-xcb,
+# X11 is the fallback backend; CrossFX targets Wayland, so these are weak. libX11-xcb,
 # libXrender and libxkbcommon-x11 are named by x11-dl and xkbcommon-dl next to libX11 itself and
 # are just as dlopen'd. No libXrandr: winit drives RandR over XCB and the binary never names it.
 Recommends:     libX11
@@ -210,21 +210,19 @@ Recommends:     wireplumber
 Recommends:     xdg-desktop-portal
 Recommends:     (xdg-desktop-portal-gtk or xdg-desktop-portal-kde or xdg-desktop-portal-gnome)
 
-Provides:       fxsound = %{version}-%{release}
-
 %description
-FxSound for Linux is a Rust/egui port of the Windows FxSound audio enhancer. It inserts itself
-into the PipeWire graph as a virtual sink, so everything the system plays passes through its
-DSP chain: a 10-band equalizer plus ambience, surround, dynamic boost and bass effects, with
-the factory and bonus presets of the original. A second, input-side chain does the same for a
-microphone, with a noise gate and RNNoise denoising.
+CrossFX is a Rust/egui port of FxSound, FxSound LLC's audio enhancer for Windows. It
+inserts itself into the PipeWire graph as a virtual sink, so everything the system plays
+passes through its DSP chain: a 10-band equalizer plus ambience, surround, dynamic boost and
+bass effects, with the factory and bonus presets of the original. A second, input-side chain
+does the same for a microphone, with a noise gate and RNNoise denoising.
 
 It runs as a tray application, can claim the default sink for each direction on its own, and
 ships a systemd user unit for starting with the session.
 
 
 %prep
-%autosetup -n %{name}-%{version} -p1 -a1
+%autosetup -n %{srcname}-%{version} -p1 -a1
 # -v vendor points [source.crates-io] at the tree Source1 just unpacked and puts cargo in
 # offline mode. It also leaves Cargo.lock alone: %%cargo_prep only deletes the lock file in its
 # system-registry mode, and a vendored build needs it to resolve the same versions that were
@@ -245,64 +243,59 @@ ships a systemd user unit for starting with the session.
 
 %install
 # See the header for why this is not %%cargo_install. %%cargo_build builds with `--profile rpm`,
-# so the executable is target/rpm/fxsound; %%cargo_prep also leaves target/release as a symlink
+# so the executable is target/rpm/crossfx; %%cargo_prep also leaves target/release as a symlink
 # to target/rpm, and either path is the same file.
-install -Dpm0755 target/rpm/fxsound %{buildroot}%{_bindir}/fxsound
+install -Dpm0755 target/rpm/crossfx %{buildroot}%{_bindir}/crossfx
 
-# Factory and bonus presets. PresetStore::with_default_dirs
-# (crates/fxsound-preset/src/store.rs) looks under %%{_datadir}/fxsound/presets when the binary
-# is installed rather than run out of a build tree. Only the .fac files: the upstream
-# BonusPresets folder also carries a zip of the same presets and a stray text file called
-# MeaningfulPresets, and neither belongs in a package.
+# Factory and bonus presets. install_data_dirs (crates/fxsound-preset/src/lib.rs) looks under
+# %%{_datadir}/crossfx/presets when the binary is installed rather than run out of a build tree.
+# Only the .fac files: the original's BonusPresets folder also carries a zip of the same presets
+# and a stray text file called MeaningfulPresets, and neither belongs in a package.
 for dir in Factsoft BonusPresets; do
     install -Dpm0644 assets/presets/${dir}/*.fac \
-        -t %{buildroot}%{_datadir}/fxsound/presets/${dir}
+        -t %{buildroot}%{_datadir}/crossfx/presets/${dir}
 done
 
 # The microphone presets are TOML rather than .fac, because they describe the input chain and a
 # .fac has nowhere to put a gate threshold.
 install -Dpm0644 assets/presets/Input/*.toml \
-    -t %{buildroot}%{_datadir}/fxsound/presets/Input
+    -t %{buildroot}%{_datadir}/crossfx/presets/Input
 
-# Installed under the reverse-DNS name the window's app_id also uses, so the compositor matches
-# the window to this entry (StartupWMClass=com.fxsound.FxSound).
-install -Dpm0644 packaging/fxsound.desktop \
-    %{buildroot}%{_datadir}/applications/com.fxsound.FxSound.desktop
+# Named after the application id the window's app_id also is, so the compositor matches the
+# window to this entry (StartupWMClass=io.github.blackixxce12.CrossFX).
+install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.desktop \
+    %{buildroot}%{_datadir}/applications/io.github.blackixxce12.CrossFX.desktop
 
-# So that `systemctl --user enable --now fxsound` works on an installed package instead of
+# So that `systemctl --user enable --now crossfx` works on an installed package instead of
 # failing with "Unit not found".
-install -Dpm0644 packaging/fxsound.service \
-    %{buildroot}%{_userunitdir}/fxsound.service
+install -Dpm0644 packaging/crossfx.service \
+    %{buildroot}%{_userunitdir}/crossfx.service
 
-# D-Bus activation: a call to org.fxsound.FxSound starts FxSound through that unit
-# (SystemdService=fxsound.service).
-install -Dpm0644 packaging/org.fxsound.FxSound.service \
-    %{buildroot}%{_datadir}/dbus-1/services/org.fxsound.FxSound.service
+# D-Bus activation: a call to io.github.blackixxce12.CrossFX starts CrossFX through that unit
+# (SystemdService=crossfx.service).
+install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.service \
+    %{buildroot}%{_datadir}/dbus-1/services/io.github.blackixxce12.CrossFX.service
 
-# 256x256 and 32x32 respectively; both verified against the files, not assumed from the names.
+# The application icon under the application id, the one name the desktop entry, the
+# notifications (crates/fxsound-app/src/notify.rs) and the sound settings look it up by. 256x256
+# and 32x32 respectively; both verified against the files, not assumed from the names.
 install -Dpm0644 assets/images/fxsound_large.png \
-    %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/fxsound.png
+    %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
 install -Dpm0644 assets/images/fxsound.png \
-    %{buildroot}%{_datadir}/icons/hicolor/32x32/apps/fxsound.png
-# The same two under the application id, the icon name every notification is sent with
-# (crates/fxsound-app/src/notify.rs).
-install -Dpm0644 assets/images/fxsound_large.png \
-    %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/com.fxsound.FxSound.png
-install -Dpm0644 assets/images/fxsound.png \
-    %{buildroot}%{_datadir}/icons/hicolor/32x32/apps/com.fxsound.FxSound.png
+    %{buildroot}%{_datadir}/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png
 
 # The tray icon's three states. A StatusNotifier host resolves an icon *name* through the theme,
 # so without these under hicolor's status context the tray shows a blank where the icon should be.
-install -Dpm0644 assets/icons/status/com.fxsound.FxSound-*.svg \
+install -Dpm0644 assets/icons/status/io.github.blackixxce12.CrossFX-*.svg \
     -t %{buildroot}%{_datadir}/icons/hicolor/scalable/status
 
-# The unit says Documentation=man:fxsound(1); shipping the page is what makes that line true.
+# The unit says Documentation=man:crossfx(1); shipping the page is what makes that line true.
 # rpm compresses it, hence the glob in %%files.
-install -Dpm0644 packaging/fxsound.1 %{buildroot}%{_mandir}/man1/fxsound.1
+install -Dpm0644 packaging/crossfx.1 %{buildroot}%{_mandir}/man1/crossfx.1
 
 # AppStream metadata, validated in %%check.
-install -Dpm0644 packaging/com.fxsound.FxSound.metainfo.xml \
-    %{buildroot}%{_metainfodir}/com.fxsound.FxSound.metainfo.xml
+install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.metainfo.xml \
+    %{buildroot}%{_metainfodir}/io.github.blackixxce12.CrossFX.metainfo.xml
 
 # Three parts of the binary are not AGPL, and each licence makes shipping its text a condition of
 # shipping the binary: the RNNoise code and model compiled in from crates/fxsound-rnnoise
@@ -317,8 +310,8 @@ cp -p assets/fonts/OFL-Manrope.txt OFL.manrope
 
 
 %check
-desktop-file-validate %{buildroot}%{_datadir}/applications/com.fxsound.FxSound.desktop
-appstreamcli validate --no-net %{buildroot}%{_metainfodir}/com.fxsound.FxSound.metainfo.xml
+desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.blackixxce12.CrossFX.desktop
+appstreamcli validate --no-net %{buildroot}%{_metainfodir}/io.github.blackixxce12.CrossFX.metainfo.xml
 %if %{with check}
 %cargo_test
 %endif
@@ -333,10 +326,10 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/com.fxsound.FxSound.m
 # upgrade would cut audio out from under whatever is playing. The user restarts it when they
 # choose to.
 %post
-%systemd_user_post fxsound.service
+%systemd_user_post crossfx.service
 
 %preun
-%systemd_user_preun fxsound.service
+%systemd_user_preun crossfx.service
 
 
 %files
@@ -351,29 +344,30 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/com.fxsound.FxSound.m
 # A Wayland client cannot grab global shortcuts, so the keybindings live in the compositor
 # configuration and call back into the running instance; these two are the worked examples.
 %doc packaging/hyprland.conf.example
-%doc packaging/fxsound-autostart.desktop
+%doc packaging/crossfx-autostart.desktop
 
-%{_bindir}/fxsound
-%{_datadir}/applications/com.fxsound.FxSound.desktop
-%dir %{_datadir}/fxsound
-%dir %{_datadir}/fxsound/presets
-%{_datadir}/fxsound/presets/Factsoft/
-%{_datadir}/fxsound/presets/BonusPresets/
-%{_datadir}/fxsound/presets/Input/
-%{_datadir}/icons/hicolor/256x256/apps/fxsound.png
-%{_datadir}/icons/hicolor/32x32/apps/fxsound.png
-%{_datadir}/icons/hicolor/256x256/apps/com.fxsound.FxSound.png
-%{_datadir}/icons/hicolor/32x32/apps/com.fxsound.FxSound.png
-%{_datadir}/icons/hicolor/scalable/status/com.fxsound.FxSound-off.svg
-%{_datadir}/icons/hicolor/scalable/status/com.fxsound.FxSound-on.svg
-%{_datadir}/icons/hicolor/scalable/status/com.fxsound.FxSound-processing.svg
-%{_mandir}/man1/fxsound.1*
-%{_metainfodir}/com.fxsound.FxSound.metainfo.xml
-%{_userunitdir}/fxsound.service
-%{_datadir}/dbus-1/services/org.fxsound.FxSound.service
+%{_bindir}/crossfx
+%{_datadir}/applications/io.github.blackixxce12.CrossFX.desktop
+%dir %{_datadir}/crossfx
+%dir %{_datadir}/crossfx/presets
+%{_datadir}/crossfx/presets/Factsoft/
+%{_datadir}/crossfx/presets/BonusPresets/
+%{_datadir}/crossfx/presets/Input/
+%{_datadir}/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-off.svg
+%{_datadir}/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-on.svg
+%{_datadir}/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-processing.svg
+%{_mandir}/man1/crossfx.1*
+%{_metainfodir}/io.github.blackixxce12.CrossFX.metainfo.xml
+%{_userunitdir}/crossfx.service
+%{_datadir}/dbus-1/services/io.github.blackixxce12.CrossFX.service
 
 
 %changelog
+* Sun Nov 15 2026 CrossFX contributors <blackixxce12@users.noreply.github.com> - 0.5.0-1
+- Renamed from fxsound-linux
+
 * Wed Sep 30 2026 FxSound Linux port contributors <blackixxce12@users.noreply.github.com> - 0.5.0-1
 - Update to 0.5.0
 
