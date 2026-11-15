@@ -90,16 +90,18 @@
 //! notification area for the StatusNotifierItem, no D-Bus service, and the power notification for
 //! logind. A release build is a GUI program, so that no console window opens with it; it takes
 //! the console of the terminal it was started from, if any, so that `fxsound --status` still
-//! prints there, and the running FxSound gives it back before its engine starts
+//! prints there, and what was redirected, `fxsound --status > status.txt`, stays where it was
+//! sent. The running FxSound gives the console back before its engine starts
 //! (`fxsound_app::platform::release_terminal`), borrowing it again only when the options it was
-//! started with have something to report, and only for the moment it takes to print that
-//! (`fxsound_app::platform::on_the_terminal`). The tray-only state pumps the GUI thread's window
-//! messages while it waits ([`wait_for_any`]): eframe's event loop keeps a hidden window on this
-//! thread between two windows, and a thread that does not answer its windows' messages holds up
-//! the end of the session. Ctrl+C and the console closing (a console of FxSound's own, the debug
-//! build's), log-off, shutdown and a `taskkill` without `/F` are the tray's Exit, as the signals
-//! are on Linux (`fxsound_app::win::session`). The window carries FxSound's icon, which Windows
-//! takes from the window rather than from the app id ([`native_options`]).
+//! started with have something to report on a stream that was the terminal's, and only for the
+//! moment it takes to print that (`fxsound_app::platform::on_the_terminal`). The tray-only state
+//! pumps the GUI thread's window messages while it waits ([`wait_for_any`]): eframe's event loop
+//! keeps a hidden window on this thread between two windows, and a thread that does not answer
+//! its windows' messages holds up the end of the session. Ctrl+C and the console closing (a
+//! console of FxSound's own, the debug build's), log-off, shutdown and a `taskkill` without `/F`
+//! are the tray's Exit, as the signals are on Linux (`fxsound_app::win::session`). The window
+//! carries FxSound's icon, which Windows takes from the window rather than from the app id
+//! ([`native_options`]).
 
 #![forbid(unsafe_code)]
 // No console window of its own in a release build; `main` attaches to its parent's instead.
@@ -321,7 +323,7 @@ fn main() -> eframe::Result<()> {
     // Said where the line was typed, and the start carries on whatever it says: the device list
     // has not arrived yet, so `--output` has been held rather than refused, and there is nothing
     // here worth refusing to start over. On Windows the terminal given back above is borrowed again
-    // for as long as the printing takes, and not at all for a start with nothing to say
+    // for as long as the printing takes, and not at all for a start with nothing to say on it
     // (`fxsound_app::platform::on_the_terminal`).
     fxsound_app::platform::on_the_terminal(&cold.stdout, &cold.stderr);
     // `--hide` and the saved "start minimised" preference start in the tray-only state; there is

@@ -14,6 +14,7 @@
 //! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the display language, as `LANG` (`win::language`) |
 //! | [`attach_parent_console`], [`release_terminal`], [`on_the_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
 
+use std::io::Write;
 use std::path::Path;
 
 /// Open `url` in the user's browser.
@@ -192,9 +193,10 @@ pub fn adopt_desktop_language() {
 
 /// Attach to the console of the process that started this one, when there is one: a release
 /// build on Windows is a GUI program, which gets no console of its own, so `fxsound --status`,
-/// `--help` and `--version` typed in a terminal would print nowhere without it. A no-op where
-/// there is no parent console — FxSound started from the Start menu — and on Linux, where a
-/// program always has the terminal it was started from.
+/// `--help` and `--version` typed in a terminal would print nowhere without it. What was
+/// redirected stays where it was sent: `fxsound --status --json > status.json`, `fxsound --watch
+/// | findstr preset`. A no-op where there is no parent console — FxSound started from the Start
+/// menu — and on Linux, where a program always has the terminal it was started from.
 pub fn attach_parent_console() {
     #[cfg(windows)]
     crate::win::session::attach_parent_console();
@@ -215,12 +217,15 @@ pub fn release_terminal() {
 
 /// Print what the start has to say once [`release_terminal`] has let go of the terminal — the
 /// report of the options FxSound was started with, `stdout` for the standard output and `stderr`
-/// for the standard error, each unless it is empty — where it was typed. On Windows the terminal
-/// is borrowed again for as long as the printing takes, and only when there is something to print:
-/// Ctrl+C typed there while the report is printed stays the next command's, but one at the moment
-/// the terminal is attached again or let go of, or the terminal closing meanwhile, ends FxSound
-/// (`win::session`). On Linux, whose FxSound always has the terminal it was started from, and for
-/// a console of FxSound's own, the report is just printed.
+/// for the standard error, each unless it is empty — where it was typed, or where the stream was
+/// redirected to. On Windows the terminal is borrowed again for as long as the printing takes, and
+/// only when there is something to print on a stream that was the terminal's — a stream
+/// redirected to a file, a pipe or `NUL` gets its share where it was sent: Ctrl+C typed there
+/// while the report is printed stays the next command's, but one at the moment the terminal is
+/// attached again or let go of, or the terminal closing meanwhile, ends FxSound (`win::session`).
+/// On Linux, whose FxSound always has the terminal it was started from, and for a console of
+/// FxSound's own, the report is just printed. A stream that cannot be written to — a pipe whose
+/// reader has gone — costs its own line, and neither the other's nor the FxSound that is running.
 pub fn on_the_terminal(stdout: &str, stderr: &str) {
     #[cfg(windows)]
     crate::win::session::on_the_terminal(stdout, stderr);
@@ -229,13 +234,28 @@ pub fn on_the_terminal(stdout: &str, stderr: &str) {
 }
 
 /// `stdout` on the standard output and `stderr` on the standard error, a line each, and neither
-/// when it is empty: how FxSound prints a report of its own.
+/// when it is empty: how FxSound prints a report of its own (`write_report`).
 pub(crate) fn print_report(stdout: &str, stderr: &str) {
-    if !stdout.is_empty() {
-        println!("{stdout}");
-    }
-    if !stderr.is_empty() {
-        eprintln!("{stderr}");
+    let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
+    write_report(&mut out, &mut err, stdout, stderr);
+}
+
+/// `stdout` and a newline on `out`, `stderr` and a newline on `err`, and nothing for an empty
+/// one: [`print_report`] on the standard output and error, and the tests' on buffers of their
+/// own. A stream that cannot be written to is a log line and nothing more: the report is printed
+/// by a running FxSound, its engine started, and `println!` would have ended it — a release build
+/// aborts on a panic — and with it the hand-back of the default device, for a pipe whose reader
+/// had gone.
+fn write_report(out: &mut impl Write, err: &mut impl Write, stdout: &str, stderr: &str) {
+    for (stream, text, name) in [
+        (out as &mut dyn Write, stdout, "output"),
+        (err as &mut dyn Write, stderr, "error"),
+    ] {
+        if !text.is_empty()
+            && let Err(e) = writeln!(stream, "{text}")
+        {
+            log::warn!("the report could not be printed on the standard {name}: {e}");
+        }
     }
 }
 
@@ -253,6 +273,42 @@ mod tests {
         ] {
             assert!(open_url(url).is_err(), "{url}");
         }
+    }
+
+    #[test]
+    fn a_report_is_each_string_and_a_newline_on_its_own_stream_and_nothing_for_an_empty_one() {
+        for (stdout, stderr, out_wanted, err_wanted) in [
+            ("power on", "a note", "power on\n", "a note\n"),
+            ("power on", "", "power on\n", ""),
+            ("", "no preset Gamng", "", "no preset Gamng\n"),
+            ("", "", "", ""),
+            ("preset Rock\npower on", "", "preset Rock\npower on\n", ""),
+        ] {
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            write_report(&mut out, &mut err, stdout, stderr);
+            assert_eq!(out, out_wanted.as_bytes(), "{stdout:?} {stderr:?}");
+            assert_eq!(err, err_wanted.as_bytes(), "{stdout:?} {stderr:?}");
+        }
+    }
+
+    #[test]
+    fn a_stream_that_cannot_be_written_to_costs_its_own_line_and_nothing_else() {
+        /// A pipe whose reader has gone.
+        struct Gone;
+        impl Write for Gone {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut err = Vec::new();
+        write_report(&mut Gone, &mut err, "status power=true", "a note");
+        assert_eq!(err, b"a note\n");
+        let mut out = Vec::new();
+        write_report(&mut out, &mut Gone, "status power=true", "a note");
+        assert_eq!(out, b"status power=true\n");
     }
 
     #[cfg(windows)]

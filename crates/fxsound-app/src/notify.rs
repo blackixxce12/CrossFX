@@ -737,18 +737,22 @@ async fn next_signal(stream: &mut zbus::MessageStream) -> Option<zbus::Result<zb
 }
 
 /// How long dropping the [`Notifier`] waits for the worker to deliver what is still queued. Past
-/// it the worker is left to end on its own, which its own bounds see to (on Linux
-/// `CONNECT_TIMEOUT` and `NOTIFY_TIMEOUT`) unless the instance's exit comes first and closes its
-/// connection. Waiting for it with no bound kept a quitting FxSound for as long as the daemon did
-/// not answer, and with it the instance lock, which turns every new `fxsound` away as "shutting
-/// down" meanwhile.
+/// it the way out goes on without the worker, which ends on its own or with the process. On Linux
+/// the worker's own bounds see to that, `CONNECT_TIMEOUT` and `NOTIFY_TIMEOUT`, unless the
+/// instance's exit comes first and closes its connection. On Windows nothing bounds it: showing a
+/// toast is a call to the notification platform that waits for as long as the platform takes to
+/// answer (`crate::win::toast`), and a worker still in one when the instance exits ends with the
+/// process. Without this bound a quitting FxSound waited for as long as the delivery took — on
+/// Linux, for as long as a daemon that had taken `Notify` did not answer — and held the instance
+/// lock meanwhile, which turns every new `fxsound` away as "shutting down".
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// The GUI thread's end of the notification path.
 ///
 /// Dropping it closes the queue and waits for the worker, so a message pushed on the way out is
-/// still delivered — if the daemon takes it within `SHUTDOWN_GRACE`. Past that the way out goes on
-/// without it, and leaves the worker to end on its own.
+/// still delivered — if that is done within `SHUTDOWN_GRACE`: the daemon has taken it, on Linux,
+/// or the toast is shown, on Windows. Past that the way out goes on without it, and leaves the
+/// worker to end on its own, or with the process.
 pub struct Notifier {
     /// The persisted `hide_notifications` setting (`FxController.cpp:192`, `:2314-2323`), surfaced
     /// as the Settings dialog's "Hide notifications" toggle (`FxSettingsDialog.cpp:339`).
@@ -828,7 +832,7 @@ impl Drop for Notifier {
         if let Err(RecvTimeoutError::Timeout) = self.done.recv_timeout(SHUTDOWN_GRACE) {
             // Dropping the handle lets the thread go.
             log::warn!(
-                "a notification is still waiting for the bus after {SHUTDOWN_GRACE:?}; going on \
+                "a notification is still being delivered after {SHUTDOWN_GRACE:?}; going on \
                  without it"
             );
             return;
