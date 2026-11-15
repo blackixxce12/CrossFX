@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  FxSound Port as a Windows Installer package. WiX Toolset 5.0.2 with WixToolset.UI.wixext 5.0.2,
+  CrossFX as a Windows Installer package. WiX Toolset 5.0.2 with WixToolset.UI.wixext 5.0.2,
   nothing newer: WiX 6 and later need a licence (the OSMF EULA) this project has not accepted.
 
   Built by packaging\windows\build-windows.ps1, never by hand: the script stages the files and
@@ -9,27 +9,28 @@
 
     Version      Cargo.toml's [workspace.package] version as an MSI version, major.minor.patch
                  (a pre-release suffix dropped: MSI versions are numbers only)
-    StageDir     the staged tree: fxsound.exe, README.txt, the licences, presets\
+    StageDir     the staged tree: crossfx.exe, README.txt, the licences, presets\
     LicenseRtf   the licence page, LICENSE converted to RTF
-    IconFile     assets\windows\fxsound.ico, for Apps and Features
+    IconFile     assets\windows\crossfx.ico, for Apps and Features
 
   Its identity is its own, never the original's: FxSound LLC's FxSound may be installed and
   running beside it. Another product name, publisher, folder, Start menu entry and upgrade code,
-  and no driver: the virtual playback device the port plays through belongs to the original
-  FxSound or to VB-CABLE, and this package says so on its last page instead of shipping one.
+  and no driver: the virtual playback device CrossFX plays through belongs to the
+  original FxSound or to VB-CABLE, and this package says so on its last page instead of
+  shipping one.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <!-- The UpgradeCode is fixed for good: it is how a later package finds this one to replace it.
        Per-machine, like the setup .exe, so the two put the program in the same place. -->
-  <Package Name="FxSound Port"
-           Manufacturer="FxSound Linux port contributors"
+  <Package Name="CrossFX"
+           Manufacturer="CrossFX contributors"
            Version="$(var.Version)"
-           UpgradeCode="B9D37BB7-CC1E-4A59-ABE5-4CEAEF9B6496"
+           UpgradeCode="02B08DA0-2631-41C0-8125-7D6D5CFDF025"
            Scope="perMachine"
            Language="1033"
            InstallerVersion="500">
-    <SummaryInformation Description="FxSound Port $(var.Version)" />
+    <SummaryInformation Description="CrossFX $(var.Version)" />
 
     <!-- Every later version replaces every earlier one, and the same version replaces itself: a
          rebuild, or a release candidate and its release, which MSI cannot tell apart, would
@@ -48,48 +49,48 @@
          own. Over it, this package would leave two entries in the list of installed apps, each
          uninstalling the files the other one expects, so it stops instead; the setup program
          refuses the other way round. Found by the uninstall key of its AppId
-         (packaging\windows\fxsound.iss), which every version of it shares, in the 64-bit view
+         (packaging\windows\crossfx.iss), which every version of it shares, in the 64-bit view
          it writes to. -->
     <Property Id="SETUPEXEINSTALLED">
       <RegistrySearch Id="SetupExeUninstallKey" Root="HKLM"
-                      Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{167B19BE-A2D2-4EF0-B5EB-056A5A09480B}_is1"
+                      Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{50CFC36F-E858-4CEB-832E-3ED2BC72D008}_is1"
                       Name="UninstallString" Type="raw" Bitness="always64" />
     </Property>
     <Launch Condition="Installed OR NOT SETUPEXEINSTALLED"
             Message="[ProductName] is already installed by its setup program. Uninstall it from the list of installed apps first, or install this version with the setup program as well." />
 
-    <Icon Id="FxSound.ico" SourceFile="$(var.IconFile)" />
-    <Property Id="ARPPRODUCTICON" Value="FxSound.ico" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/blackixxce12/fxsound-linux" />
-    <Property Id="ARPHELPLINK" Value="https://github.com/blackixxce12/fxsound-linux/issues" />
+    <Icon Id="CrossFX.ico" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="CrossFX.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/blackixxce12/CrossFX" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/blackixxce12/CrossFX/issues" />
 
-    <!-- Program Files\FxSound Port and nowhere else, as the setup program has it (fxsound.iss,
-         PrepareToInstall, which says why at length): every account runs FxSound Port from its
+    <!-- Program Files\CrossFX and nowhere else, as the setup program has it (crossfx.iss,
+         PrepareToInstall, which says why at length): every account runs CrossFX from its
          folder, so it has to be one only administrators can change, and a folder elsewhere, such
-         as C:\FxSound Port under a drive root every account may create and change folders in, is
+         as C:\CrossFX under a drive root every account may create and change folders in, is
          not. So the wizard has no page to choose one (WixUI_Minimal, below), and an INSTALLFOLDER
          given on the command line is refused: before CostFinalize it is set only by the command
          line, and after it, once the wizard has passed it on to the installation, it is
          DEFAULTFOLDER. A folder that never changes is also what keeps a major upgrade from
          installing anywhere but where the old version was, so the Run value it keeps
          (ForgetAutostart below) still names the program. -->
-    <SetProperty Id="DEFAULTFOLDER" Value="[ProgramFiles64Folder]FxSound Port\"
+    <SetProperty Id="DEFAULTFOLDER" Value="[ProgramFiles64Folder]CrossFX\"
                  Before="LaunchConditions" Sequence="both" />
     <Launch Condition="Installed OR NOT INSTALLFOLDER OR INSTALLFOLDER ~= DEFAULTFOLDER"
             Message="[ProductName] can only be installed in [DEFAULTFOLDER]. Every account on this computer runs it from its folder, and a folder elsewhere may be one that other accounts can change." />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="FxSound Port" />
+      <Directory Id="INSTALLFOLDER" Name="CrossFX" />
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="System64Folder" />
-    <!-- Where FxSound keeps its notifications' icon (crates/fxsound-app/src/win/toast.rs); named
+    <!-- Where CrossFX keeps its notifications' icon (crates/fxsound-app/src/win/toast.rs); named
          here only to be emptied on uninstall. -->
     <StandardDirectory Id="LocalAppDataFolder">
-      <Directory Id="NotificationIconFolder" Name="FxSound Port" />
+      <Directory Id="NotificationIconFolder" Name="CrossFX" />
     </StandardDirectory>
 
-    <Feature Id="FxSound" Title="FxSound Port" AllowAbsent="no">
+    <Feature Id="CrossFX" Title="CrossFX" AllowAbsent="no">
       <ComponentGroupRef Id="Program" />
       <ComponentRef Id="StartMenuShortcut" />
     </Feature>
@@ -98,42 +99,44 @@
          rest of the staged tree (presets, licences, README.txt) by wildcard, so that a preset
          added to assets\presets is packed without an edit here. -->
     <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
-      <Component Id="FxSoundExe">
-        <File Id="FxSoundExe" Source="$(var.StageDir)\fxsound.exe" KeyPath="yes" />
+      <Component Id="CrossFXExe">
+        <File Id="CrossFXExe" Source="$(var.StageDir)\crossfx.exe" KeyPath="yes" />
       </Component>
       <Files Include="$(var.StageDir)\**">
-        <Exclude Files="$(var.StageDir)\fxsound.exe" />
+        <Exclude Files="$(var.StageDir)\crossfx.exe" />
       </Files>
     </ComponentGroup>
 
-    <!-- "FxSound Port" straight in the Start menu's program list. A shortcut needs a key path of
+    <!-- "CrossFX" straight in the Start menu's program list. A shortcut needs a key path of
          its own, and Windows Installer wants a per-user one for a component in the Start menu;
          the value is a marker and goes with the shortcut. The target is spelled as a path rather
-         than as [#FxSoundExe], the executable's component being another one (ICE69).
+         than as [#CrossFXExe], the executable's component being another one (ICE69).
 
-         With it, in the same user's profile, what FxSound writes for its notifications before
+         With it, in the same user's profile, what CrossFX writes for its notifications before
          the first one and nobody else would remove: the registration of the AppUserModelID they
          are shown under, which would keep a sender of that name in Windows' notification
          settings, and its icon. Removed with the component, so on a major upgrade as well, which
-         costs nothing: FxSound writes both again before its next notification. -->
+         costs nothing: CrossFX writes both again before its next notification. -->
     <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
       <Shortcut Id="StartMenuShortcut"
-                Name="FxSound Port"
+                Name="CrossFX"
                 Description="System-wide audio enhancement"
-                Target="[INSTALLFOLDER]fxsound.exe"
+                Target="[INSTALLFOLDER]crossfx.exe"
                 WorkingDirectory="INSTALLFOLDER" />
-      <RegistryValue Root="HKCU" Key="Software\FxSound Port\Installer" Name="StartMenuShortcut"
+      <RegistryValue Root="HKCU" Key="Software\CrossFX\Installer" Name="StartMenuShortcut"
                      Type="integer" Value="1" KeyPath="yes" />
-      <RemoveRegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\FxSoundPort.FxSound"
+      <RemoveRegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\io.github.blackixxce12.CrossFX"
                          Action="removeOnUninstall" />
       <RemoveFile Id="NotificationIcon" Directory="NotificationIconFolder"
                   Name="notification.png" On="uninstall" />
-      <!-- Only if that leaves it empty: Windows Installer removes no folder with anything in it. -->
+      <!-- Only if that leaves it empty: Windows Installer removes no folder with anything in it,
+           and the record of the defaults CrossFX holds, claimed-defaults.toml, may still be
+           there, with the user's own picks in it. -->
       <RemoveFolder Id="NotificationIconFolder" Directory="NotificationIconFolder"
                     On="uninstall" />
     </Component>
 
-    <!-- FxSound's "Launch on system startup" is an HKCU Run value named "FxSound Port", written by
+    <!-- CrossFX's "Launch on system startup" is an HKCU Run value named "CrossFX", written by
          the program, not by this package, so Windows Installer does not know to remove it. Left
          behind, it would start a program that is no longer there at every login. Removed on a real
          uninstall only: a major upgrade also removes the old version, and the setting has to
@@ -142,7 +145,7 @@
          not there, hence Return="ignore". -->
     <CustomAction Id="ForgetAutostart"
                   Directory="System64Folder"
-                  ExeCommand="&quot;[System64Folder]reg.exe&quot; delete &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Run&quot; /v &quot;FxSound Port&quot; /f"
+                  ExeCommand="&quot;[System64Folder]reg.exe&quot; delete &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Run&quot; /v &quot;CrossFX&quot; /f"
                   Execute="immediate"
                   Return="ignore" />
     <InstallExecuteSequence>
@@ -150,20 +153,20 @@
               Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
 
-    <!-- The last page: the one sentence about the device FxSound plays through, and a box,
-         ticked, to start FxSound. The launch runs in the wizard's own process, which is the
-         user's and not elevated, so FxSound does not start as an administrator. -->
+    <!-- The last page: the one sentence about the device CrossFX plays through, and a box,
+         ticked, to start CrossFX. The launch runs in the wizard's own process, which is the
+         user's and not elevated, so CrossFX does not start as an administrator. -->
     <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
-              Value="FxSound Port needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE." />
-    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch FxSound Port" />
+              Value="CrossFX needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch CrossFX" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
-    <CustomAction Id="LaunchFxSound" FileRef="FxSoundExe" ExeCommand="" Return="asyncNoWait" />
+    <CustomAction Id="LaunchCrossFX" FileRef="CrossFXExe" ExeCommand="" Return="asyncNoWait" />
 
     <!-- WixUI_Minimal: the licence on the first page, then the installation, with no page to
          choose a folder on (see DEFAULTFOLDER above) nor features to choose from. -->
     <UI>
       <ui:WixUI Id="WixUI_Minimal" />
-      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchFxSound"
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchCrossFX"
                Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
     </UI>
     <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />

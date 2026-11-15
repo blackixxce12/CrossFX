@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CrossFX
+Comment=Start CrossFX minimised to the system tray on login
+Exec=crossfx --hide
+Icon=io.github.blackixxce12.CrossFX
+Terminal=false
+Categories=AudioVideo;Audio;
+X-GNOME-Autostart-enabled=true

@@ -117,7 +117,7 @@ jobs:
           FXSOUND_REQUIRE_PIPEWIRE_TOOLS: "1"
 
       - name: Build
-        run: cargo build --release --bin fxsound
+        run: cargo build --release --bin crossfx
 
   # The same tests on the newest PipeWire and on WirePlumber 0.5, which the job above cannot have:
   # Ubuntu 24.04 ships WirePlumber 0.4.17, and the tests of what only WirePlumber's own policy shows
@@ -186,7 +186,7 @@ jobs:
           FXSOUND_REQUIRE_PIPEWIRE_TOOLS: "1"
           FXSOUND_REQUIRE_WIREPLUMBER: "1"
 
-      # A steady tone through FxSound, and the worst click each switch leaves in it
+      # A steady tone through CrossFX, and the worst click each switch leaves in it
       # (crates/fxsound-audio/src/graph_churn/clicks.rs). One at a time, so that the other tests'
       # daemons do not cause the xruns that would discard its runs. Here it only reports: a shared
       # runner has xruns of its own, and the hard gate of -40 dBFS is the local check of an audio
@@ -224,7 +224,7 @@ jobs:
             echo "::warning title=Click report::$line"
           done
 
-  # The Windows build: the `check` job's lints, warnings denied, for every target of every crate as
+  # CrossFX on Windows: the `check` job's lints, warnings denied, for every target of every crate as
   # Windows compiles it, the tests included — the WASAPI backend, the notification-area icon and
   # the Windows halves of the app are code no Linux job builds — and then the tests of every crate,
   # as the `check` job runs them: in the dev profile, and again in the release profile, which the
@@ -232,7 +232,7 @@ jobs:
   # sound: the checks against its own audio (fxsound-audio's wasapi::live) only read, or render a
   # moment of digital silence, and on a runner, which has no audio endpoints and may have no audio
   # service, they say what they could not look at and pass. The one that changes the default and
-  # plays through FxSound, end_to_end_on_this_machine, is #[ignore]d and run by hand; a test that
+  # plays through CrossFX, end_to_end_on_this_machine, is #[ignore]d and run by hand; a test that
   # needs a device is written as those are, or ignored. packages.yml's windows job runs the
   # packaged binary.
   windows:
@@ -260,7 +260,7 @@ jobs:
       - name: Lints
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      # As in the check job, for the pages of the Windows build, which has items of its own and
+      # As in the check job, for the pages of CrossFX on Windows, which has items of its own and
       # lacks Linux's: a link to one of those is broken here.
       - name: Documentation
         run: cargo doc -p fxsound-app --no-deps
@@ -318,7 +318,7 @@ jobs:
     permissions:
       contents: read
 
-  # packaging/fxsound.1 is synced with cli.rs and dbus.rs by hand. This refuses the drift on
+  # packaging/crossfx.1 is synced with cli.rs and dbus.rs by hand. This refuses the drift on
   # the push that causes it rather than at the tag, where release.yml runs the same script. No
   # toolchain: the script only reads the sources.
   manpage:
@@ -328,13 +328,13 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - run: packaging/check-manpage.sh
 
-  # «Like FxSound for Windows» at Off leaves the output lane as 0.4.0 left it: every shipped preset,
-  # as the application plays it, on 10, 20 and 31 bands, over preset_drift's material, in blocks of
-  # 480 to 2048 frames, from a cold start and with a preset, the band count and an effect switched
-  # while it plays, identical to a build of v0.4.0 made here by the same toolchain (roadmap 0.5.0
-  # §1 A3). Nothing is stored between runs: two machines, or two rustc versions, need not
-  # round alike. The engine alone is built, so the job needs no PipeWire; python3 and git are on
-  # the runner already, and the tag comes with the full history.
+  # «Like the original FxSound LLC» at Off leaves the output lane as 0.4.0 left it: every shipped
+  # preset, as the application plays it, on 10, 20 and 31 bands, over preset_drift's material, in
+  # blocks of 480 to 2048 frames, from a cold start and with a preset, the band count and an effect
+  # switched while it plays, identical to a build of v0.4.0 made here by the same toolchain
+  # (roadmap 0.5.0 §1 A3). Nothing is stored between runs: two machines, or two rustc versions,
+  # need not round alike. The engine alone is built, so the job needs no PipeWire; python3 and git
+  # are on the runner already, and the tag comes with the full history.
   bitexact:
     name: Output DSP bit for bit against 0.4.0
     runs-on: ubuntu-24.04
@@ -350,10 +350,10 @@ jobs:
         run: rustc --version
       - name: Off plays as v0.4.0 (A3)
         run: scripts/windows-parity-bitexact.sh --dir "$RUNNER_TEMP/reference-v0.4.0" v0.4.0
-      # «Like FxSound for Windows» = Interface and sound against 3596e99, the engine before the
-      # 0.4.0 audit (A1), from a cold start: every shipped preset on 10, 20 and 31 bands with
+      # «Like the original FxSound LLC» = Interface and sound against 3596e99, the engine before
+      # the 0.4.0 audit (A1), from a cold start: every shipped preset on 10, 20 and 31 bands with
       # both sets of levels (W1b, W1c). The two presets whose Ambience is stored at 51 are A1's
-      # listed exception, held to the Windows C code instead (#39, A2, the unit tests). The
+      # listed exception, held to the original's C code instead (#39, A2, the unit tests). The
       # switching pass is not gated against 3596e99: the glides every level keeps (#9-#11) change
       # what Dynamic Boost's level estimate and the leveller hear for 20 ms, and their memory
       # carries that past -120 dBFS for seconds (W1d, docs/0.5.0-dsp-inventory.md). A3 gates

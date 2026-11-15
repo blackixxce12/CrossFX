@@ -15,8 +15,7 @@ version = "0.5.0"
 edition = "2024"
 rust-version = "1.100.0"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/blackixxce12/fxsound-linux"
-authors = ["FxSound Linux port contributors"]
+repository = "https://github.com/blackixxce12/CrossFX"
 
 [workspace.dependencies]
 fxsound-core = { path = "crates/fxsound-core" }
@@ -47,7 +46,7 @@ pipewire-sys = "0.10.1"
 resvg = "0.50.0"
 usvg = "0.50.0"
 tiny-skia = "0.12.0"
-# The name table and the character map of a font the user hands FxSound: whether a file is a
+# The name table and the character map of a font the user hands CrossFX: whether a file is a
 # Gilroy, which of its faces, and whether it has the letters of the language in force
 # (`fxsound-ui/src/typeface.rs`). Not the newest skrifa but the one egui parses fonts with
 # (epaint's own dependency, its features a subset of epaint's): a file read here is then a file
@@ -60,7 +59,7 @@ notify-rust = "4.19.0"
 rfd = "0.18.0"
 # `ksni` is not runtime-agnostic: its `default = ["tokio"]` feature is a hard requirement
 # (`ksni-0.3.6/src/compat.rs:1-5` is a `compile_error!` when neither runtime is on), and its
-# `blocking` facade — the one this port uses, so that the tray handle can be driven straight from
+# `blocking` facade — the one CrossFX uses, so that the tray handle can be driven straight from
 # the egui thread — builds a private current-thread runtime on top of it
 # (`ksni-0.3.6/src/compat.rs:24-35`). Pin the flavour here instead of inheriting whatever ksni's
 # own transitive `features = ["rt", "macros"]` happens to resolve to.
@@ -102,7 +101,7 @@ windows = "0.62.2"
 windows-core = "0.62.2"
 # Windows only. The notification-area icon and its menu, in place of the StatusNotifierItem tray.
 tray-icon = { version = "0.26.1", default-features = false }
-# Windows only, a build-dependency of fxsound-app: compiles fxsound.exe's icon, version
+# Windows only, a build-dependency of fxsound-app: compiles crossfx.exe's icon, version
 # information and manifest with the SDK's rc.exe (crates/fxsound-app/build.rs). Without its
 # default `toml` feature, which reads the strings from [package.metadata]: build.rs sets them.
 winresource = { version = "0.1.34", default-features = false }

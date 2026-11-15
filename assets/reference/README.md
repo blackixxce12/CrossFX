@@ -55,14 +55,14 @@ at **60, 230, 910, 3600, 14000 Hz**, Q = 0.96, gains in dB:
 The same header carries a second, stronger table, `EQNB_5BandNormalPresets`. The soft one is the
 one `EqualizerSetPreset` installs, so the soft one is what is used here.
 
-Mapping to this port's presets: Classical → Classical, Jazz → Jazz, **Heavy Metal → Metal**,
+Mapping to CrossFX's presets: Classical → Classical, Jazz → Jazz, **Heavy Metal → Metal**,
 **Hip Hop → Trap**, Pop → Pop.
 
 ## Source 2 — Winamp/XMMS 1997, used only as a cross-check
 
 The 1997 Winamp preset set that XMMS, Audacious, VLC and foobar2000 all carry. Ten bands at
 **60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000 Hz**. The three entries that overlap
-this port's genre names:
+CrossFX's genre names:
 
 | preset | 60 | 170 | 310 | 600 | 1 k | 3 k | 6 k | 12 k | 14 k | 16 k |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -96,7 +96,7 @@ Seven of the twelve genre presets have no column.
 The first five are the ones tracker item `s5-01` names: when those presets were revoiced they were
 reasoned from spectral-analysis literature and the shipped house style, because no source says what
 they should be. The last two are excluded for a different reason — there is a published "Rock"
-curve, but this port ships three rock presets and deciding which one inherits it would be a choice
+curve, but CrossFX ships three rock presets and deciding which one inherits it would be a choice
 made by whoever wrote the test rather than by any source. All seven still *compete* in every
 column; they simply have no column of their own.
 

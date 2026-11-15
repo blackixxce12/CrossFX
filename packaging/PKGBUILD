@@ -1,17 +1,17 @@
-# Maintainer: FxSound Linux port contributors
+# Maintainer: CrossFX contributors
 #
-# Builds the port from the working tree next to this file, so it is meant to be run as
+# Builds CrossFX from the working tree next to this file, so it is meant to be run as
 #
 #     cd packaging && makepkg -f
 #
 # rather than fetched from a remote. Install the result with `pacman -U`.
 
-pkgname=fxsound-linux
+pkgname=crossfx
 pkgver=0.5.0
 pkgrel=1
 pkgdesc="System-wide audio enhancement for Linux: EQ, ambience, surround, bass and dynamic boost (Rust/egui port of FxSound)"
 arch=('x86_64')
-url="https://github.com/blackixxce12/fxsound-linux"
+url="https://github.com/blackixxce12/CrossFX"
 license=('AGPL-3.0-or-later' 'BSD-3-Clause' 'OFL-1.1')
 # Runtime: PipeWire for audio, the Wayland/GL stack for the window, D-Bus for the tray and
 # notifications, fontconfig because egui asks it for fallback faces.
@@ -27,8 +27,6 @@ optdepends=(
   'xdg-desktop-portal-gtk: a file-chooser backend for those dialogs (or -kde, -gnome)'
   'libnotify: desktop notifications'
 )
-provides=('fxsound')
-conflicts=('fxsound')
 options=('!lto')   # the workspace already sets `lto = "thin"` in its release profile
 source=()
 sha256sums=()
@@ -55,7 +53,7 @@ build() {
   cd "${_srcdir}"
   export RUSTUP_TOOLCHAIN="${_toolchain}"
   export CARGO_TARGET_DIR="${_srcdir}/target"
-  cargo build --release --frozen --bin fxsound
+  cargo build --release --frozen --bin crossfx
 }
 
 check() {
@@ -69,65 +67,60 @@ check() {
 package() {
   cd "${_srcdir}"
 
-  install -Dm755 "target/release/fxsound" "${pkgdir}/usr/bin/fxsound"
+  install -Dm755 "target/release/crossfx" "${pkgdir}/usr/bin/crossfx"
 
   # Factory and bonus presets. `PresetStore::with_default_dirs` looks here first when the binary
   # is installed rather than run out of the source tree.
-  # Only the presets themselves: the upstream folder also carries a zip of the same files and a
+  # Only the presets themselves: the original's folder also carries a zip of the same files and a
   # stray text file, and neither belongs in a package.
   for _dir in Factsoft BonusPresets; do
-    install -d "${pkgdir}/usr/share/fxsound/presets/${_dir}"
+    install -d "${pkgdir}/usr/share/crossfx/presets/${_dir}"
     install -Dm644 "assets/presets/${_dir}"/*.fac \
-      -t "${pkgdir}/usr/share/fxsound/presets/${_dir}/"
+      -t "${pkgdir}/usr/share/crossfx/presets/${_dir}/"
   done
 
   # The voice presets, which are TOML rather than .fac because they describe the microphone chain
   # and a .fac has nowhere to put a gate threshold.
-  install -d "${pkgdir}/usr/share/fxsound/presets/Input"
+  install -d "${pkgdir}/usr/share/crossfx/presets/Input"
   install -Dm644 assets/presets/Input/*.toml \
-    -t "${pkgdir}/usr/share/fxsound/presets/Input/"
+    -t "${pkgdir}/usr/share/crossfx/presets/Input/"
 
-  install -Dm644 "packaging/fxsound.desktop" \
-    "${pkgdir}/usr/share/applications/com.fxsound.FxSound.desktop"
+  install -Dm644 "packaging/io.github.blackixxce12.CrossFX.desktop" \
+    "${pkgdir}/usr/share/applications/io.github.blackixxce12.CrossFX.desktop"
 
-  # The systemd user unit, so `systemctl --user enable --now fxsound` works on an installed
+  # The systemd user unit, so `systemctl --user enable --now crossfx` works on an installed
   # package rather than failing with "Unit not found".
-  install -Dm644 "packaging/fxsound.service" \
-    "${pkgdir}/usr/lib/systemd/user/fxsound.service"
-  # D-Bus activation: a call to org.fxsound.FxSound starts FxSound through that unit.
-  install -Dm644 "packaging/org.fxsound.FxSound.service" \
-    "${pkgdir}/usr/share/dbus-1/services/org.fxsound.FxSound.service"
+  install -Dm644 "packaging/crossfx.service" \
+    "${pkgdir}/usr/lib/systemd/user/crossfx.service"
+  # D-Bus activation: a call to io.github.blackixxce12.CrossFX starts CrossFX through that unit.
+  install -Dm644 "packaging/io.github.blackixxce12.CrossFX.service" \
+    "${pkgdir}/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
+  # The application icon under the application id, the one name the desktop entry, the
+  # notifications (crates/fxsound-app/src/notify.rs) and the sound settings look it up by.
   install -Dm644 "assets/images/fxsound_large.png" \
-    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/fxsound.png"
+    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
   install -Dm644 "assets/images/fxsound.png" \
-    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/fxsound.png"
-  # The same two under the application id, the icon name every notification is sent with
-  # (crates/fxsound-app/src/notify.rs): a daemon that resolves it through the theme finds nothing
-  # under fxsound alone.
-  install -Dm644 "assets/images/fxsound_large.png" \
-    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/com.fxsound.FxSound.png"
-  install -Dm644 "assets/images/fxsound.png" \
-    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/com.fxsound.FxSound.png"
+    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png"
 
   # The tray icon's three states. A StatusNotifier host resolves an icon *name* through the theme,
   # so without these under hicolor's status context the tray shows a blank where the icon should
   # be — which is exactly what every 0.3.0 package did.
-  install -Dm644 assets/icons/status/com.fxsound.FxSound-{off,on,processing}.svg \
+  install -Dm644 assets/icons/status/io.github.blackixxce12.CrossFX-{off,on,processing}.svg \
     -t "${pkgdir}/usr/share/icons/hicolor/scalable/status/"
 
-  # The unit says Documentation=man:fxsound(1); shipping the page is what makes that line true.
-  install -Dm644 "packaging/fxsound.1" "${pkgdir}/usr/share/man/man1/fxsound.1"
+  # The unit says Documentation=man:crossfx(1); shipping the page is what makes that line true.
+  install -Dm644 "packaging/crossfx.1" "${pkgdir}/usr/share/man/man1/crossfx.1"
 
   # AppStream metadata, so GNOME Software and Discover list the application at all.
-  install -Dm644 "packaging/com.fxsound.FxSound.metainfo.xml" \
-    "${pkgdir}/usr/share/metainfo/com.fxsound.FxSound.metainfo.xml"
+  install -Dm644 "packaging/io.github.blackixxce12.CrossFX.metainfo.xml" \
+    "${pkgdir}/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml"
 
   # The compositor rules and the keybind examples: a Wayland client cannot grab global shortcuts,
   # so the bindings live in the compositor and call back into the running instance.
   install -Dm644 "packaging/hyprland.conf.example" \
     "${pkgdir}/usr/share/doc/${pkgname}/hyprland.conf.example"
-  install -Dm644 "packaging/fxsound-autostart.desktop" \
-    "${pkgdir}/usr/share/doc/${pkgname}/fxsound-autostart.desktop"
+  install -Dm644 "packaging/crossfx-autostart.desktop" \
+    "${pkgdir}/usr/share/doc/${pkgname}/crossfx-autostart.desktop"
   install -Dm644 "README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   install -Dm644 "CHANGELOG.md" "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
 

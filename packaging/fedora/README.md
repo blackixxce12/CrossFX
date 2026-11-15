@@ -1,6 +1,6 @@
 # Fedora packaging
 
-`fxsound.spec` builds FxSound for Linux on Fedora 43 and newer. It installs exactly what the
+`crossfx.spec` builds CrossFX on Fedora 43 and newer. It installs exactly what the
 Arch package in `packaging/PKGBUILD` installs: the binary, the `.fac` factory and bonus presets,
 the TOML input presets, the desktop entry, both icon sizes, the tray's status icons, the manual
 page, the AppStream metainfo, the systemd **user** unit and the D-Bus activation file that
@@ -21,18 +21,18 @@ VER=0.5.0
 mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/SPECS
 
 # Source0: the release tarball
-curl -L -o ~/rpmbuild/SOURCES/fxsound-linux-$VER.tar.gz \
-    https://github.com/blackixxce12/fxsound-linux/archive/v$VER/fxsound-linux-$VER.tar.gz
+curl -L -o ~/rpmbuild/SOURCES/crossfx-$VER.tar.gz \
+    https://github.com/blackixxce12/CrossFX/archive/v$VER/crossfx-$VER.tar.gz
 
 # Source1: the vendored crates, from that exact tarball's Cargo.lock
-tar xf ~/rpmbuild/SOURCES/fxsound-linux-$VER.tar.gz -C /tmp
-cd /tmp/fxsound-linux-$VER
+tar xf ~/rpmbuild/SOURCES/crossfx-$VER.tar.gz -C /tmp
+cd /tmp/CrossFX-$VER
 cargo vendor --locked vendor
-tar caf ~/rpmbuild/SOURCES/fxsound-linux-$VER-vendor.tar.xz vendor
+tar caf ~/rpmbuild/SOURCES/crossfx-$VER-vendor.tar.xz vendor
 
 # Build
-cp packaging/fedora/fxsound.spec ~/rpmbuild/SPECS/
-rpmbuild -ba ~/rpmbuild/SPECS/fxsound.spec
+cp packaging/fedora/crossfx.spec ~/rpmbuild/SPECS/
+rpmbuild -ba ~/rpmbuild/SPECS/crossfx.spec
 ```
 
 `--without check` skips the workspace test suite if you want a faster rebuild.
@@ -43,8 +43,8 @@ Clean-chroot build, which is what COPR will do and the only build that proves th
 `BuildRequires` are complete:
 
 ```bash
-rpmbuild -bs ~/rpmbuild/SPECS/fxsound.spec
-mock -r fedora-43-x86_64 ~/rpmbuild/SRPMS/fxsound-linux-$VER-1.fc*.src.rpm
+rpmbuild -bs ~/rpmbuild/SPECS/crossfx.spec
+mock -r fedora-43-x86_64 ~/rpmbuild/SRPMS/crossfx-$VER-1.fc*.src.rpm
 ```
 
 The chroot needs `rust >= 1.98.1` (the workspace sets `edition = "2024"` and that
@@ -65,11 +65,11 @@ dnf -y install rpm-build rpmdevtools cargo-rpm-macros systemd-rpm-macros desktop
 rpmdev-setuptree
 VER=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 git config --global --add safe.directory /src
-git archive --prefix=fxsound-linux-$VER/ -o ~/rpmbuild/SOURCES/fxsound-linux-$VER.tar.gz HEAD
-cargo vendor --locked vendor && tar caf ~/rpmbuild/SOURCES/fxsound-linux-$VER-vendor.tar.xz vendor
-cp packaging/fedora/fxsound.spec ~/rpmbuild/SPECS/
-rpmbuild -ba --without check ~/rpmbuild/SPECS/fxsound.spec
-dnf -y install ~/rpmbuild/RPMS/x86_64/fxsound-linux-$VER-1.fc*.x86_64.rpm
+git archive --prefix=CrossFX-$VER/ -o ~/rpmbuild/SOURCES/crossfx-$VER.tar.gz HEAD
+cargo vendor --locked vendor && tar caf ~/rpmbuild/SOURCES/crossfx-$VER-vendor.tar.xz vendor
+cp packaging/fedora/crossfx.spec ~/rpmbuild/SPECS/
+rpmbuild -ba --without check ~/rpmbuild/SPECS/crossfx.spec
+dnf -y install ~/rpmbuild/RPMS/x86_64/crossfx-$VER-1.fc*.x86_64.rpm
 ```
 
 If `rustc --version` is older than 1.98.1, install the toolchain from rustup and tell the macros
@@ -83,7 +83,7 @@ curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolcha
 export PATH="$HOME/.cargo/bin:$PATH"
 rpmbuild -ba --nodeps --without check \
     --define "__cargo $HOME/.cargo/bin/cargo" --define "__rustc $HOME/.cargo/bin/rustc" \
-    --define "__rustdoc $HOME/.cargo/bin/rustdoc" ~/rpmbuild/SPECS/fxsound.spec
+    --define "__rustdoc $HOME/.cargo/bin/rustdoc" ~/rpmbuild/SPECS/crossfx.spec
 ```
 
 The unpacked source carries `rust-toolchain.toml`, so rustup's proxies pick 1.98.1 on their own.
@@ -93,11 +93,11 @@ The unpacked source carries `rust-toolchain.toml`, so rustup's proxies pick 1.98
 Simplest path, because the vendor tarball only exists locally — upload the SRPM:
 
 ```bash
-copr-cli create fxsound-linux --chroot fedora-rawhide-x86_64 --chroot fedora-43-x86_64
-copr-cli build fxsound-linux ~/rpmbuild/SRPMS/fxsound-linux-$VER-1.fc*.src.rpm
+copr-cli create crossfx --chroot fedora-rawhide-x86_64 --chroot fedora-43-x86_64
+copr-cli build crossfx ~/rpmbuild/SRPMS/crossfx-$VER-1.fc*.src.rpm
 ```
 
-To let COPR rebuild from git instead, attach `fxsound-linux-$VER-vendor.tar.xz` to the GitHub
+To let COPR rebuild from git instead, attach `crossfx-$VER-vendor.tar.xz` to the GitHub
 release and change `Source1` to
 `%{url}/releases/download/v%{version}/%{name}-%{version}-vendor.tar.xz`; COPR's SCM method can
 then fetch both sources itself.
@@ -114,7 +114,7 @@ reading:
   the manual page, the metainfo, the D-Bus activation file, every doc and licence file);
 - the macro behaviour, against `cargo-rpm-macros` 28.5 itself: `%cargo_prep -v <dir>` keeps
   `Cargo.lock`, writes `[net] offline`, creates `target/rpm` and symlinks `target/release` to
-  it, and `%cargo_build` builds `--profile rpm` — hence `target/rpm/fxsound` in `%install`;
+  it, and `%cargo_build` builds `--profile rpm` — hence `target/rpm/crossfx` in `%install`;
 - `%cargo_license_summary`, `%cargo_license` and `%cargo_vendor_manifest`, by running
   `cargo2rpm` 0.4.0 against the 0.3.0 workspace. For 0.4.0 the `License:` tag was re-derived
   without it: the summary's own pipeline (`cargo tree` over normal edges for every target, the

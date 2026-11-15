@@ -15,7 +15,7 @@
 #      RMS deviation over 40 Hz..16 kHz is exactly 2.00 dB.
 #
 #      That rescaling is the one liberty taken with the source, and the reason for it is this:
-#      Winamp's sliders run to +-12 dB and Android's table to +-15, while this port's genre
+#      Winamp's sliders run to +-12 dB and Android's table to +-15, while CrossFX's genre
 #      presets are voiced at about +-3. Comparing at the sources' own magnitude would measure how
 #      STRONGLY a preset voices rather than in WHICH DIRECTION, and direction is the only thing
 #      these sources establish. 2.00 dB is a round number at the strength this product voices at;

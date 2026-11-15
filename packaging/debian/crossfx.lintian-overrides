@@ -3,4 +3,4 @@
 # wrappers provide against the class of bug they target is provided by the
 # language instead. There is nothing to fix here and no flag that would change
 # it.
-fxsound-linux: hardening-no-fortify-functions [usr/bin/fxsound]
+crossfx: hardening-no-fortify-functions [usr/bin/crossfx]

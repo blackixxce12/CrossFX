@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refuses a manual page that has drifted from the code it documents.
 #
-# packaging/fxsound.1 is written by hand: its OPTIONS follow crates/fxsound-app/src/cli.rs and
+# packaging/crossfx.1 is written by hand: its OPTIONS follow crates/fxsound-app/src/cli.rs and
 # its D-BUS section follows crates/fxsound-app/src/dbus.rs, and the page's own header says so.
 # Nothing enforced it, and a page written to the design before the code landed is exactly the
 # page that drifts. So, mechanically:
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-man="${root}/packaging/fxsound.1"
+man="${root}/packaging/crossfx.1"
 cli="${root}/crates/fxsound-app/src/cli.rs"
 dbus="${root}/crates/fxsound-app/src/dbus.rs"
 fail=0
@@ -51,25 +51,25 @@ for opt in ${documented}; do
   if printf '%s\n' "${accepted}" | grep -qx -- "${opt}"; then
     ok "--${opt}"
   else
-    wrong "--${opt}: documented in fxsound.1, not declared in cli.rs"
+    wrong "--${opt}: documented in crossfx.1, not declared in cli.rs"
   fi
 done
 for opt in ${shown}; do
   if ! printf '%s\n' "${documented}" | grep -qx -- "${opt}"; then
-    wrong "--${opt}: declared in cli.rs, not documented in fxsound.1"
+    wrong "--${opt}: declared in cli.rs, not documented in crossfx.1"
   fi
 done
 
 # ---------------------------------------------------------------- D-Bus
 if [ ! -f "${dbus}" ]; then
-  wrong "fxsound.1 documents a D-Bus interface; crates/fxsound-app/src/dbus.rs does not exist"
+  wrong "crossfx.1 documents a D-Bus interface; crates/fxsound-app/src/dbus.rs does not exist"
 else
   section=$(sed -n '/^\.SH D\\-BUS/,/^\.SH /p' "${man}")
-  for literal in org.fxsound.FxSound com.fxsound.FxSound /org/fxsound/FxSound; do
+  for literal in io.github.blackixxce12.CrossFX /io/github/blackixxce12/CrossFX; do
     if grep -qF -- "${literal}" "${dbus}"; then
       ok "${literal}"
     else
-      wrong "${literal}: named in fxsound.1, absent from dbus.rs"
+      wrong "${literal}: named in crossfx.1, absent from dbus.rs"
     fi
   done
   # Members are the PascalCase words the section follows with "(": methods in the .EX block as
@@ -81,12 +81,12 @@ else
     if grep -qE "fn ${snake}\b|\"${member}\"" "${dbus}"; then
       ok "${member}"
     else
-      wrong "${member}: in fxsound.1, but dbus.rs has neither fn ${snake} nor \"${member}\""
+      wrong "${member}: in crossfx.1, but dbus.rs has neither fn ${snake} nor \"${member}\""
     fi
   done
 fi
 
 if [ "${fail}" -ne 0 ]; then
-  echo "packaging/fxsound.1 disagrees with the code; it is synced by hand, and the WRONG lines say where" >&2
+  echo "packaging/crossfx.1 disagrees with the code; it is synced by hand, and the WRONG lines say where" >&2
   exit 1
 fi
