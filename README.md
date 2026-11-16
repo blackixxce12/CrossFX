@@ -151,7 +151,8 @@ archive is a prefix in miniature: `bin/crossfx`, `lib/systemd/user/crossfx.servi
 `share/dbus-1/services/` (D-Bus activation), `share/applications/`, `share/icons/hicolor/` (the
 app icon and the tray's three status icons), `share/crossfx/presets/`, `share/man/man1/crossfx.1`,
 `share/metainfo/` and `share/doc/crossfx/` (README, CHANGELOG, LICENSE, the licences of
-the bundled RNNoise code and Noto faces, the Hyprland rules and the autostart entry).
+the bundled RNNoise code and the Noto and Manrope faces, the Hyprland rules and the autostart
+entry).
 `install.sh` copies all of that into the prefix and rewrites the unit's `ExecStart` and
 `ExecStop`, and the activation file's `Exec`, to `<prefix>/bin/crossfx`; it warns if the prefix
 is anything other than `/usr` or `/usr/local`, because those are the only two the binary searches
@@ -184,7 +185,7 @@ On an older distribution than Debian 12, build from source instead.
 | `/usr/share/man/man1/crossfx.1` | the manual page: every option, the status document and the D-Bus interface |
 | `/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml` | what GNOME Software and Discover show |
 | `/usr/share/doc/crossfx/` | the Hyprland rules and the autostart entry |
-| `/usr/share/licenses/crossfx/` | the AGPL, and the licences of the RNNoise code and the Noto faces built into the binary (the `.deb` carries them in `/usr/share/doc/crossfx/copyright`) |
+| `/usr/share/licenses/crossfx/` | the AGPL, and the licences of the RNNoise code and the Noto and Manrope faces built into the binary (the `.deb` carries them in `/usr/share/doc/crossfx/copyright`) |
 
 CrossFX started by the user unit — enabled, or by a D-Bus call such as a status bar's — runs in the
 systemd user manager's environment, not the compositor's. Where the compositor does not import
@@ -960,16 +961,22 @@ its own reasoning in `docs/voice-presets-research.md`, `docs/input-presets-decis
 
 AGPL-3.0-or-later, inherited from the original FxSound.
 
-Two parts of the binary are under other licences, and every package installs their text beside
+Three parts of the binary are under other licences, and every package installs their text beside
 `LICENSE` (the `.deb` in its `copyright` file): the noise suppression in `crates/crossfx-rnnoise`,
 Joe Neeman's `nnnoiseless` port of Xiph's RNNoise with its model, is BSD-3-Clause
-(`COPYING.rnnoise`), and the Noto fallback faces are SIL OFL 1.1 (`OFL.noto`, from
-`assets/fonts/OFL.txt`).
+(`COPYING.rnnoise`), and the Noto fallback faces and the Manrope interface faces are SIL OFL 1.1,
+each with its own notice (`OFL.noto`, from `assets/fonts/OFL.txt`, and `OFL.manrope`, from
+`assets/fonts/OFL-Manrope.txt`).
 
-The bundled artwork and the Gilroy typeface come from the original's repository and carry their own
-terms. Gilroy is Radomir Tinkov's commercial typeface: its files say "All rights reserved" and name
-no licence. A redistributable package may need to replace it — its presence in the original's tree
-is not itself a licence to redistribute.
+The interface artwork in `assets/images` is FxSound LLC's, from the original's repository and under
+its licence, apart from `microphone.svg`, `applications.svg` and `experimental.svg`, which CrossFX
+drew to match. CrossFX's icon — the application icon in `assets/icons/apps`, the tray's status
+icons in `assets/icons/status` and `assets/windows/crossfx.ico` — is CrossFX's own, under CrossFX's
+licence: none of it is FxSound LLC's.
+
+Gilroy, the original's typeface, is not in the tree, and CrossFX neither ships nor downloads it: it
+is Radomir Tinkov's commercial typeface, which the window uses only when the user adds the files
+they licensed themselves.
 
 ## Credits
 
