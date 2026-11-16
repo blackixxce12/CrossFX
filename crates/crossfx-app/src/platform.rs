@@ -10,8 +10,9 @@
 //! | | Linux | Windows |
 //! |---|---|---|
 //! | [`open_url`], [`open_folder`] | `xdg-open` | `ShellExecuteW` (`win::shell`) |
+//! | [`vb_cable_missing`] | `false`: no cable is needed | no VB-Audio cable among the endpoints (`crossfx_audio::InstalledCables`) |
 //! | [`autostart_enabled`], [`set_autostart`] | `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` ([`AUTOSTART_ENTRY`]) | `HKCU\…\Run`, `CrossFX` (`win::autostart`) |
-//! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the display language, as `LANG` (`win::language`) |
+//! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the first preferred language, as `LANG` (`win::language`) |
 //! | [`attach_parent_console`], [`release_terminal`], [`on_the_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
 
 use std::io::Write;
@@ -38,6 +39,21 @@ pub fn open_url(url: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         crate::win::shell::open_url(url)
+    }
+}
+
+/// Whether CrossFX could offer VB-CABLE to a user who has no VB-Audio cable: on Windows, the
+/// active endpoints hold none (`crossfx_audio::InstalledCables`, read only). `false` when they
+/// cannot be listed — there is no telling then — and always on Linux, which needs no cable.
+#[must_use]
+pub fn vb_cable_missing() -> bool {
+    #[cfg(windows)]
+    {
+        crossfx_audio::InstalledCables::read().is_ok_and(|cables| !cables.vb_audio)
+    }
+    #[cfg(not(windows))]
+    {
+        false
     }
 }
 
@@ -187,12 +203,13 @@ fn set_autostart_entry_in(config: &Path, enabled: bool) -> std::io::Result<()> {
 }
 
 /// The desktop's language, where the interface's "the system's language" reads it: on Windows the
-/// user's display language, put in `LANG` for this process unless `LC_ALL`, `LC_MESSAGES` or
-/// `LANG` says otherwise already (`win::language`). A no-op on Linux, whose session says it in
-/// those itself. First thing in `main`, before anything reads them.
+/// first of the user's preferred languages that has a table (Windows' rule for apps), put in
+/// `LANG` for this process unless `LC_ALL`, `LC_MESSAGES` or `LANG` says otherwise already
+/// (`win::language`). A no-op on Linux, whose session says it in those itself. First thing in
+/// `main`, before anything reads them.
 pub fn adopt_desktop_language() {
     #[cfg(windows)]
-    crate::win::language::adopt_display_language();
+    crate::win::language::adopt_preferred_language();
 }
 
 /// Attach to the console of the process that started this one, when there is one: a release

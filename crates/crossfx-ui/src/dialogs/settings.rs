@@ -62,7 +62,7 @@ use super::{
     draw_wrapped, link, normal_font, small_font, title_font,
 };
 use crate::assets::{AssetCache, FxImage, rasterise};
-use crate::state::EchoCancelTrouble;
+use crate::state::{EchoCancelTrouble, GET_VB_CABLE, VB_CABLE_EXPLAINED};
 use crate::theme::{FxColor, Palette};
 use crate::widgets::FxComboBox;
 use crate::widgets::icon_button::{self, IconButton};
@@ -893,6 +893,10 @@ pub struct SettingsState {
     /// one. A field rather than the constant, so that a test can draw either platform's window on
     /// either.
     pub platform: Platform,
+    /// On Windows, no VB-Audio cable is installed: Settings ▸ Audio offers VB-Audio's page for
+    /// VB-CABLE (["Get VB-CABLE…"](crate::state::GET_VB_CABLE)) under the device list. The app
+    /// layer reads it and fills it in; never set on Linux, and not drawn there.
+    pub vb_cable_missing: bool,
 }
 
 /// What Settings ▸ General says about Gilroy under "Interface font".
@@ -994,6 +998,7 @@ impl SettingsState {
             wireplumber_hook: WirePlumberHook::default(),
             font: FontPane::default(),
             platform: crossfx_core::PLATFORM,
+            vb_cable_missing: false,
         }
     }
 
@@ -1110,6 +1115,8 @@ pub enum SettingsAction {
     ShowHotkeyExample,
     /// Something under "Interface font": the face chosen, or one of Gilroy's two buttons.
     Font(FontAction),
+    /// Settings ▸ Audio's "Get VB-CABLE…": open VB-Audio's page ([`crate::state::VB_CABLE_PAGE`]).
+    GetVbCable,
 
     // ---- help pane ----------------------------------------------------------------------------
     /// Open a URL in the user's browser.
@@ -1524,6 +1531,41 @@ pub fn reset_button_rect(pane: Rect, size: Vec2) -> Rect {
     )
 }
 
+/// How much of the device list's bottom the VB-CABLE offer takes, on a Windows with no VB-Audio
+/// cable installed ([`SettingsState::vb_cable_missing`]): the button and the note under it.
+pub const VB_CABLE_ROOM: f32 = 100.0;
+
+/// The device list's rect and the VB-CABLE offer's under it, when the offer is shown: the list
+/// gives up its bottom [`VB_CABLE_ROOM`] to it, and the group and the checkboxes stay put.
+#[must_use]
+pub fn vb_cable_split(pane: Rect) -> (Rect, Rect) {
+    let list = output_list_rect(pane);
+    let top = list.bottom() - VB_CABLE_ROOM;
+    (
+        Rect::from_min_max(list.min, pos2(list.right(), top - general::FONT_LINE_GAP)),
+        Rect::from_min_max(pos2(list.left(), top), list.max),
+    )
+}
+
+/// In the VB-CABLE offer's `offer` rect: the "Get VB-CABLE…" button, as wide as its `label`
+/// needs, and the note under it.
+#[must_use]
+pub fn vb_cable_rects(ctx: &Context, offer: Rect, label: &str) -> (Rect, Rect) {
+    let text = ctx.fonts_mut(|fonts| {
+        fonts
+            .layout_no_wrap(label.to_owned(), normal_font(), Color32::PLACEHOLDER)
+            .size()
+            .x
+    });
+    let width = (text + general::FONT_BUTTON_HEIGHT).min(offer.width());
+    let button = Rect::from_min_size(offer.min, vec2(width, general::FONT_BUTTON_HEIGHT));
+    let note = Rect::from_min_max(
+        pos2(offer.left(), button.bottom() + general::FONT_LINE_GAP),
+        offer.max,
+    );
+    (button, note)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn audio_pane(
     ui: &mut Ui,
@@ -1549,15 +1591,40 @@ fn audio_pane(
         Align2::LEFT_CENTER,
     );
 
+    // On a Windows with no VB-Audio cable, the list makes room under it for VB-Audio's page.
+    let offer_vb_cable = state.vb_cable_missing && state.platform == Platform::WINDOWS;
+    let (list, offer) = if offer_vb_cable {
+        let (list, offer) = vb_cable_split(pane);
+        (list, Some(offer))
+    } else {
+        (output_list_rect(pane), None)
+    };
     output_preference(
         ui,
-        output_list_rect(pane),
+        list,
         state,
         palette,
         assets,
         id.with("outputs"),
         response,
     );
+    if let Some(offer) = offer {
+        let label = tr(GET_VB_CABLE);
+        let (button, note) = vb_cable_rects(ui.ctx(), offer, &label);
+        if TextButton::new(&label)
+            .show(ui, button, palette, id.with("vb-cable"))
+            .clicked()
+        {
+            response.push(SettingsAction::GetVbCable);
+        }
+        draw_wrapped(
+            ui.painter(),
+            &tr(VB_CABLE_EXPLAINED),
+            small_font(),
+            palette.color(FxColor::HintText),
+            note,
+        );
+    }
 
     // While the system's default decides, the list places a new device but no longer picks one,
     // so "Prioritize" has nothing to say and is greyed out.
@@ -7697,5 +7764,85 @@ mod tests {
             GILROY_STORE,
             "https://www.myfonts.com/collections/gilroy-font-radomir-tinkov"
         );
+    }
+
+    #[test]
+    fn on_windows_with_no_vb_audio_cable_the_audio_pane_offers_vb_cables_page() {
+        use crate::state::{GET_VB_CABLE, VB_CABLE_EXPLAINED};
+        let mut state = SettingsState {
+            platform: Platform::WINDOWS,
+            vb_cable_missing: true,
+            ..SettingsState::default()
+        };
+        let mut window = Window::new(ThemeMode::Dark);
+        let (_, shapes) = window.frame(&state, Vec::new());
+        let found = crate::views::testing::texts(&shapes);
+        let at = |label: &str| {
+            found
+                .iter()
+                .find(|(text, _, _)| text == label)
+                .map(|(_, rect, _)| *rect)
+                .unwrap_or_else(|| panic!("{label} is not drawn"))
+        };
+        let (button, note) = (at(GET_VB_CABLE), at(VB_CABLE_EXPLAINED));
+        let pane = pane_rect(content());
+        let (list, offer) = vb_cable_split(pane);
+        assert!(offer.contains_rect(button) && offer.contains_rect(note));
+        assert!(list.bottom() < offer.top(), "the list gives up its bottom");
+        assert!(note.top() >= button.bottom(), "the note under the button");
+        assert_eq!(
+            window.click(&state, button.center()),
+            [SettingsAction::GetVbCable]
+        );
+        // A VB-Audio cable installed, or Linux: no offer.
+        for (platform, missing) in [(Platform::WINDOWS, false), (Platform::LINUX, true)] {
+            state.platform = platform;
+            state.vb_cable_missing = missing;
+            let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            assert!(
+                !texts.iter().any(|text| text == GET_VB_CABLE),
+                "{platform:?}, missing {missing}: {texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_vb_cable_offer_fits_its_room_in_every_language() {
+        use crate::dialogs::tests::{every_translation, test_context};
+        use crate::state::{GET_VB_CABLE, VB_CABLE_EXPLAINED};
+        let ctx = test_context();
+        let (_, offer) = vb_cable_split(pane_rect(content()));
+        let labels = every_translation(GET_VB_CABLE);
+        let notes = every_translation(VB_CABLE_EXPLAINED);
+        let mut problems = Vec::new();
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            for ((code, label), (_, note_text)) in labels.iter().zip(&notes) {
+                let (button, note) = vb_cable_rects(ui.ctx(), offer, label);
+                let text = ui
+                    .painter()
+                    .layout_no_wrap(label.clone(), normal_font(), Color32::PLACEHOLDER)
+                    .size()
+                    .x;
+                if text > button.width() {
+                    problems.push(format!("{code}: {label:?} is cut"));
+                }
+                let height = ui
+                    .painter()
+                    .layout(
+                        note_text.clone(),
+                        small_font(),
+                        Color32::PLACEHOLDER,
+                        note.width(),
+                    )
+                    .size()
+                    .y;
+                if height > note.height() {
+                    problems.push(format!("{code}: the note is {height} of {}", note.height()));
+                }
+            }
+        })
+        .drop_without_applying_deltas();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 }

@@ -17,7 +17,7 @@
 //! | `xdg-open` | `ShellExecuteW` | [`shell`] |
 //! | `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` | `HKCU\…\CurrentVersion\Run`, value `CrossFX` | [`autostart`] |
 //! | `--self-test`'s PipeWire and session-bus probes | the audio service and its playback endpoints | [`audio`] |
-//! | `LANG` and friends, the session's language | the user's display language | [`language`] |
+//! | `LANG` and friends, the session's language | the user's preferred languages | [`language`] |
 //!
 //! There is no D-Bus interface on Windows: the control pipe, which carries every command line, is
 //! the scripting surface there.
