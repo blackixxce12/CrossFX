@@ -25,7 +25,7 @@
 //! scripts/windows-parity-bitexact.sh --compat=windows --report 3596e99 # A1: Interface and sound
 //! ```
 //!
-//! **Whose DSP the working tree plays** is `FXSOUND_BITEXACT_COMPAT`: `linux`, the default, for
+//! **Whose DSP the working tree plays** is `CROSSFX_BITEXACT_COMPAT`: `linux`, the default, for
 //! Off (A3), and `windows` for Interface and sound (A1), where the output lane plays the original's
 //! arithmetic ([`crossfx_core::DspCompat`]). It reaches the engine the way the application's level
 //! does, through [`MusicLevels`] and [`preset_params`]. Both sides are told; a build with one DSP
@@ -64,13 +64,13 @@
 //! the cold pass's question of an engine that has been playing: that it settles into the same
 //! sound after a change as from a cold start. How long after a switch a case still differs past
 //! the limit is in the report (`past_limit_ms`), for tuning the settling time;
-//! `FXSOUND_BITEXACT_SETTLE_MS` lengthens it.
+//! `CROSSFX_BITEXACT_SETTLE_MS` lengthens it.
 //!
 //! # What passes
 //!
 //! A case passes when the two renders are identical, or differ nowhere by more than
 //! [`DEFAULT_LIMIT_DB`] (−120 dBFS) — in the switching pass, nowhere outside the settling time
-//! after each switch. The listed exceptions of A1 are named by preset in `FXSOUND_BITEXACT_EXCEPT`:
+//! after each switch. The listed exceptions of A1 are named by preset in `CROSSFX_BITEXACT_EXCEPT`:
 //! their differences are counted and reported apart and fail nothing. At Interface and sound
 //! against `3596e99` they are the two shipped presets whose Ambience is stored at 51, where the
 //! Windows C code, A1's reference for Ambience (audit #39, A2), and `3596e99` are a unit in the
@@ -82,18 +82,18 @@
 //!
 //! | variable | default | what it changes |
 //! | --- | --- | --- |
-//! | `FXSOUND_BITEXACT_REFERENCE` | — | the reference build's copy of this test (required) |
-//! | `FXSOUND_BITEXACT_COMPAT` | `linux` | `windows` plays the original's DSP (Interface and sound) |
-//! | `FXSOUND_BITEXACT_EXPECT` | `match` | `report` prints what differs and passes |
-//! | `FXSOUND_BITEXACT_LIMIT_DB` | `-120` | the largest difference a case may have, in dBFS |
-//! | `FXSOUND_BITEXACT_BANDS` | `10,20,31` | the band counts |
-//! | `FXSOUND_BITEXACT_BLOCKS` | `480,512,1024,2048` | the block sizes, in frames |
-//! | `FXSOUND_BITEXACT_PRESETS` | every one | only the presets whose `dir/stem` contains this |
-//! | `FXSOUND_BITEXACT_PASSES` | `cold,switching` | the passes |
-//! | `FXSOUND_BITEXACT_LEVELS` | `settings,gain` | the sets of levels, by name |
-//! | `FXSOUND_BITEXACT_SETTLE_MS` | `20` ([`GLIDE_SECONDS`]) | how long after a switch goes uncompared |
-//! | `FXSOUND_BITEXACT_OUT` | `target/windows-parity-bitexact.tsv` | every case's result |
-//! | `FXSOUND_BITEXACT_EXCEPT` | none | presets (`dir/stem`, comma-separated) whose differences are reported and do not fail |
+//! | `CROSSFX_BITEXACT_REFERENCE` | — | the reference build's copy of this test (required) |
+//! | `CROSSFX_BITEXACT_COMPAT` | `linux` | `windows` plays the original's DSP (Interface and sound) |
+//! | `CROSSFX_BITEXACT_EXPECT` | `match` | `report` prints what differs and passes |
+//! | `CROSSFX_BITEXACT_LIMIT_DB` | `-120` | the largest difference a case may have, in dBFS |
+//! | `CROSSFX_BITEXACT_BANDS` | `10,20,31` | the band counts |
+//! | `CROSSFX_BITEXACT_BLOCKS` | `480,512,1024,2048` | the block sizes, in frames |
+//! | `CROSSFX_BITEXACT_PRESETS` | every one | only the presets whose `dir/stem` contains this |
+//! | `CROSSFX_BITEXACT_PASSES` | `cold,switching` | the passes |
+//! | `CROSSFX_BITEXACT_LEVELS` | `settings,gain` | the sets of levels, by name |
+//! | `CROSSFX_BITEXACT_SETTLE_MS` | `20` ([`GLIDE_SECONDS`]) | how long after a switch goes uncompared |
+//! | `CROSSFX_BITEXACT_OUT` | `target/windows-parity-bitexact.tsv` | every case's result |
+//! | `CROSSFX_BITEXACT_EXCEPT` | none | presets (`dir/stem`, comma-separated) whose differences are reported and do not fail |
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{OsStr, OsString};
@@ -124,21 +124,21 @@ use genre_material::{CHANNELS, RATE, repo_root};
 use output_material::{Material, output_materials};
 
 /// Where the reference side finds the working tree's socket.
-const SERVE_VAR: &str = "FXSOUND_BITEXACT_SERVE";
+const SERVE_VAR: &str = "CROSSFX_BITEXACT_SERVE";
 /// How many connections the reference side opens.
-const WORKERS_VAR: &str = "FXSOUND_BITEXACT_WORKERS";
-const REFERENCE_VAR: &str = "FXSOUND_BITEXACT_REFERENCE";
-const EXPECT_VAR: &str = "FXSOUND_BITEXACT_EXPECT";
-const LIMIT_VAR: &str = "FXSOUND_BITEXACT_LIMIT_DB";
-const BANDS_VAR: &str = "FXSOUND_BITEXACT_BANDS";
-const BLOCKS_VAR: &str = "FXSOUND_BITEXACT_BLOCKS";
-const PRESETS_VAR: &str = "FXSOUND_BITEXACT_PRESETS";
-const OUT_VAR: &str = "FXSOUND_BITEXACT_OUT";
-const PASSES_VAR: &str = "FXSOUND_BITEXACT_PASSES";
-const SETTLE_VAR: &str = "FXSOUND_BITEXACT_SETTLE_MS";
-const COMPAT_VAR: &str = "FXSOUND_BITEXACT_COMPAT";
-const LEVELS_VAR: &str = "FXSOUND_BITEXACT_LEVELS";
-const EXCEPT_VAR: &str = "FXSOUND_BITEXACT_EXCEPT";
+const WORKERS_VAR: &str = "CROSSFX_BITEXACT_WORKERS";
+const REFERENCE_VAR: &str = "CROSSFX_BITEXACT_REFERENCE";
+const EXPECT_VAR: &str = "CROSSFX_BITEXACT_EXPECT";
+const LIMIT_VAR: &str = "CROSSFX_BITEXACT_LIMIT_DB";
+const BANDS_VAR: &str = "CROSSFX_BITEXACT_BANDS";
+const BLOCKS_VAR: &str = "CROSSFX_BITEXACT_BLOCKS";
+const PRESETS_VAR: &str = "CROSSFX_BITEXACT_PRESETS";
+const OUT_VAR: &str = "CROSSFX_BITEXACT_OUT";
+const PASSES_VAR: &str = "CROSSFX_BITEXACT_PASSES";
+const SETTLE_VAR: &str = "CROSSFX_BITEXACT_SETTLE_MS";
+const COMPAT_VAR: &str = "CROSSFX_BITEXACT_COMPAT";
+const LEVELS_VAR: &str = "CROSSFX_BITEXACT_LEVELS";
+const EXCEPT_VAR: &str = "CROSSFX_BITEXACT_EXCEPT";
 
 /// This test's own name, which the working tree runs the reference build's copy of by.
 const TEST_NAME: &str = "every_shipped_preset_renders_as_the_reference_build_renders_it";
@@ -200,7 +200,7 @@ fn level_sets() -> [(&'static str, MusicLevels); 2] {
     ]
 }
 
-/// The sets of levels `FXSOUND_BITEXACT_LEVELS` names, all of them by default.
+/// The sets of levels `CROSSFX_BITEXACT_LEVELS` names, all of them by default.
 fn chosen_level_sets() -> Vec<(&'static str, MusicLevels)> {
     let all = level_sets();
     std::env::var(LEVELS_VAR).map_or_else(
@@ -217,7 +217,7 @@ fn chosen_level_sets() -> Vec<(&'static str, MusicLevels)> {
     )
 }
 
-/// Whether the working tree plays the original's DSP: `FXSOUND_BITEXACT_COMPAT`.
+/// Whether the working tree plays the original's DSP: `CROSSFX_BITEXACT_COMPAT`.
 fn windows_dsp() -> bool {
     match std::env::var(COMPAT_VAR).as_deref().map(str::trim) {
         Err(_) | Ok("" | "linux") => false,
@@ -550,7 +550,7 @@ fn shipped_presets() -> Vec<(String, PathBuf)> {
     out
 }
 
-/// The two passes, by the names `FXSOUND_BITEXACT_PASSES` and the report give them.
+/// The two passes, by the names `CROSSFX_BITEXACT_PASSES` and the report give them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Pass {
     Cold,
@@ -585,7 +585,7 @@ fn passes() -> Vec<Pass> {
 }
 
 /// The frames after each switch that are not compared: [`GLIDE_SECONDS`], or
-/// `FXSOUND_BITEXACT_SETTLE_MS`.
+/// `CROSSFX_BITEXACT_SETTLE_MS`.
 fn settle_frames() -> usize {
     let seconds = std::env::var(SETTLE_VAR).ok().map_or(GLIDE_SECONDS, |ms| {
         ms.trim()
@@ -950,7 +950,7 @@ fn report(
     );
     // Per pass: identical, within the limit, past it.
     let mut totals: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new();
-    // Per pass: of those past it, the ones in `FXSOUND_BITEXACT_EXCEPT`'s presets.
+    // Per pass: of those past it, the ones in `CROSSFX_BITEXACT_EXCEPT`'s presets.
     let excepted_presets = excepted();
     let mut excepted_past: BTreeMap<&str, usize> = BTreeMap::new();
     // Per pass and preset, and per pass and material: how many cases differ past the limit, and
@@ -1045,7 +1045,7 @@ fn report(
     }
 }
 
-/// The presets `FXSOUND_BITEXACT_EXCEPT` names, each as `dir/stem`; none unless it is set.
+/// The presets `CROSSFX_BITEXACT_EXCEPT` names, each as `dir/stem`; none unless it is set.
 fn excepted() -> Vec<String> {
     let list = std::env::var(EXCEPT_VAR).unwrap_or_default();
     let names: Vec<String> = list
@@ -1199,7 +1199,7 @@ fn a_preset_renders_the_same_twice_in_one_build() {
 
 #[test]
 fn a_windows_case_is_played_by_the_windows_dsp() {
-    // `FXSOUND_BITEXACT_COMPAT=windows` reaches the engine: on ten bands the same case renders
+    // `CROSSFX_BITEXACT_COMPAT=windows` reaches the engine: on ten bands the same case renders
     // otherwise, from the same snapshot but for whose DSP plays it.
     let material = a_second_of_tone();
     let (key, jazz_on_twenty) = jazz(None);

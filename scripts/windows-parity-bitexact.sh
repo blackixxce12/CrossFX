@@ -12,7 +12,7 @@
 #                                                         # audit's fixes
 #
 # --compat=windows has the working tree play the original's DSP, as
-# «Like the original FxSound LLC» = Interface and sound does (FXSOUND_BITEXACT_COMPAT); the default
+# «Like the original FxSound LLC» = Interface and sound does (CROSSFX_BITEXACT_COMPAT); the default
 # is linux, Off's.
 #
 # 3596e99 is the reference for "Interface and sound": its DSP crate and its preset parser
@@ -23,7 +23,7 @@
 # The reference is checked out with scripts/reference-checkout.sh into --dir (default
 # target/reference/<commit>) and built there, with this checkout's toolchain, in release; then
 # this checkout's copy of the test runs the reference's copy and compares. It fails when a case
-# differs by more than FXSOUND_BITEXACT_LIMIT_DB (−120 dBFS); with --report it prints what differs
+# differs by more than CROSSFX_BITEXACT_LIMIT_DB (−120 dBFS); with --report it prints what differs
 # and passes. Every case's result goes to target/windows-parity-bitexact.tsv. The test file lists
 # the variables that narrow the run.
 #
@@ -40,7 +40,7 @@ die() {
 report=0
 dir=""
 ref=""
-compat="${FXSOUND_BITEXACT_COMPAT:-linux}"
+compat="${CROSSFX_BITEXACT_COMPAT:-linux}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --report) report=1 ;;
@@ -99,9 +99,9 @@ echo "windows-parity-bitexact: building the working tree" >&2
 ours="$(build "$repo_root" "${CARGO_TARGET_DIR:-$repo_root/target}")"
 
 if [ "$report" = 1 ]; then
-    export FXSOUND_BITEXACT_EXPECT=report
+    export CROSSFX_BITEXACT_EXPECT=report
 fi
-export FXSOUND_BITEXACT_COMPAT="$compat"
+export CROSSFX_BITEXACT_COMPAT="$compat"
 cd "$repo_root"
-FXSOUND_BITEXACT_REFERENCE="$reference" "$ours" \
+CROSSFX_BITEXACT_REFERENCE="$reference" "$ours" \
     every_shipped_preset_renders_as_the_reference_build_renders_it --exact --ignored --nocapture

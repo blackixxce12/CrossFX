@@ -9,7 +9,7 @@ use crate::stream_handover::JOURNAL_FILE;
 
 /// Set, in the child half of [`a_run_killed_in_the_middle_of_a_handover_leaves_the_next_run_the_volume_to_put_back`],
 /// to `<remote>\n<journal>`: the graph's socket and the journal the engine keeps.
-const ENGINE_HALF: &str = "FXSOUND_HANDOVER_ENGINE_HALF";
+const ENGINE_HALF: &str = "CROSSFX_HANDOVER_ENGINE_HALF";
 
 /// The master volume of the node called `name`, as the server holds it; `None` when `pw-dump`
 /// could not say, or the node lists none.

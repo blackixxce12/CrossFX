@@ -3372,7 +3372,7 @@ mod runtime_tests {
 
     /// Set, to a marker file's path, in the child copy of this binary that raises the signal.
     #[cfg(target_os = "linux")]
-    const SIGNAL_CHILD: &str = "FXSOUND_TEST_SIGNAL_CHILD";
+    const SIGNAL_CHILD: &str = "CROSSFX_TEST_SIGNAL_CHILD";
 
     /// The signal is raised in a child copy of this test binary, never in this one: signal-hook
     /// keeps SIGTERM, SIGINT and SIGHUP once it has taken them (unregistering does not put the

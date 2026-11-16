@@ -132,7 +132,7 @@ impl std::ops::Deref for PolicyGraph {
 
 /// Set to `1` where WirePlumber 0.5 is installed for these tests: `.github/workflows/ci.yml` sets it
 /// on its Arch Linux leg, where a skip here can only mean that something which should work did not.
-const REQUIRE_WIREPLUMBER: &str = "FXSOUND_REQUIRE_WIREPLUMBER";
+const REQUIRE_WIREPLUMBER: &str = "CROSSFX_REQUIRE_WIREPLUMBER";
 
 /// Report that a check needing WirePlumber 0.5 could not run: a `SKIPPED` line and a pass, under
 /// [`REQUIRE_TOOLS`] as well — CI's Ubuntu ships 0.4 (module docs) — and a failure under

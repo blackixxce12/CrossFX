@@ -99,7 +99,7 @@ pub(crate) const CLOCK: &str = "t_clock";
 /// Set to `1` where every check here must run: `.github/workflows/ci.yml` sets it, because it
 /// installs the daemon, the `pw-*` tools and the `audiotestsrc` plugin for these tests, and there a
 /// skip can only mean that something which should work did not.
-const REQUIRE_TOOLS: &str = "FXSOUND_REQUIRE_PIPEWIRE_TOOLS";
+const REQUIRE_TOOLS: &str = "CROSSFX_REQUIRE_PIPEWIRE_TOOLS";
 
 /// Report a check that could not run: a `SKIPPED` line and a pass on a contributor's machine, a
 /// failure under [`REQUIRE_TOOLS`].
@@ -1493,7 +1493,7 @@ fn a_dump_printed_in_two_arrays_is_read_as_the_graph_after_both() {
 /// Set, in a test process of this binary's that the tests below start, to what the child half
 /// ([`the_child_half_starts_its_daemons_and_then_panics_or_waits`]) does once its daemons run:
 /// `panic`, or wait to be killed.
-const CHILD_HALF: &str = "FXSOUND_GRAPH_CHILD_HALF";
+const CHILD_HALF: &str = "CROSSFX_GRAPH_CHILD_HALF";
 
 /// Not a test of its own: the half of the two tests below that runs in a test process of this
 /// binary's. It starts a private PipeWire, a `pw-record` recording from it and a private

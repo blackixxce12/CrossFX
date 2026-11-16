@@ -361,7 +361,7 @@ fn who_records_from_each_endpoint_is_watched_and_read_without_changing_anything(
 }
 
 /// What [`silence_in_a_child`] is told to render to: a real output's endpoint ID.
-const CHILD_ENDPOINT: &str = "FXSOUND_LIVE_CHILD_ENDPOINT";
+const CHILD_ENDPOINT: &str = "CROSSFX_LIVE_CHILD_ENDPOINT";
 
 /// Another process's session on an endpoint, heard as the input lane hears a recorder on its
 /// cable: this test binary run again as a child that renders a moment of digital silence to a

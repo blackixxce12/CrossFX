@@ -1965,7 +1965,7 @@ mod tests {
     /// body in. ksni connects to `DBUS_SESSION_BUS_ADDRESS` and to nothing else, and setting that
     /// in this process would be unsound with other tests' threads running — and would point them
     /// all at the private bus.
-    const TRAY_CHILD_BUS: &str = "FXSOUND_TEST_TRAY_BUS";
+    const TRAY_CHILD_BUS: &str = "CROSSFX_TEST_TRAY_BUS";
 
     /// A `StatusNotifierWatcher` that takes every item and remembers which registered.
     struct Watcher {

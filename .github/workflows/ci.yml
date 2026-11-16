@@ -51,7 +51,7 @@ jobs:
           # starts a private server with its own socket and synthetic devices. Without the binary
           # those tests print that they are skipping and pass, which is the right behaviour for a
           # contributor's laptop and the wrong one for CI — so the test steps below set
-          # FXSOUND_REQUIRE_PIPEWIRE_TOOLS, which turns every such skip into a failure.
+          # CROSSFX_REQUIRE_PIPEWIRE_TOOLS, which turns every such skip into a failure.
           # `pipewire-bin` is where Ubuntu ships pw-dump, pw-metadata, pw-cli and pw-link (and the
           # daemon binary itself), which the same tests use to see our nodes and defaults from
           # outside the engine and to wire a tone through both lanes; `libspa-0.2-modules` has the
@@ -99,7 +99,7 @@ jobs:
       # with the test process even when a timeout kills it (util-linux's `setpriv --pdeathsig`, or
       # a watchdog where there is none) and whose scratch directories go with the test.
       #
-      # FXSOUND_REQUIRE_PIPEWIRE_TOOLS=1 makes every place those tests would print SKIPPED fail
+      # CROSSFX_REQUIRE_PIPEWIRE_TOOLS=1 makes every place those tests would print SKIPPED fail
       # instead. The harness hides a passing test's output, so here a skip would be invisible, and
       # with everything installed a skip means something that should work did not. A test that
       # passes having checked less on an older PipeWire says so past the harness, as a warning of
@@ -107,14 +107,14 @@ jobs:
       - name: Tests
         run: cargo test --workspace
         env:
-          FXSOUND_REQUIRE_PIPEWIRE_TOOLS: "1"
+          CROSSFX_REQUIRE_PIPEWIRE_TOOLS: "1"
 
       # Release as well: the DSP is full of arithmetic whose rounding differs between opt-levels,
       # and `panic = "abort"` only applies to the release profile.
       - name: Tests, release profile
         run: cargo test --release --workspace
         env:
-          FXSOUND_REQUIRE_PIPEWIRE_TOOLS: "1"
+          CROSSFX_REQUIRE_PIPEWIRE_TOOLS: "1"
 
       - name: Build
         run: cargo build --release --bin crossfx
@@ -122,8 +122,8 @@ jobs:
   # The same tests on the newest PipeWire and on WirePlumber 0.5, which the job above cannot have:
   # Ubuntu 24.04 ships WirePlumber 0.4.17, and the tests of what only WirePlumber's own policy shows
   # (crates/crossfx-audio/src/graph_churn/policy.rs) need 0.5's profiles, so there they say SKIPPED
-  # and pass. Here they have to run: FXSOUND_REQUIRE_WIREPLUMBER=1 turns that skip into a failure,
-  # as FXSOUND_REQUIRE_PIPEWIRE_TOOLS=1 does every other. Formatting and lints stay with the job
+  # and pass. Here they have to run: CROSSFX_REQUIRE_WIREPLUMBER=1 turns that skip into a failure,
+  # as CROSSFX_REQUIRE_PIPEWIRE_TOOLS=1 does every other. Formatting and lints stay with the job
   # above; this one is about the runtime the tests talk to, so it only tests.
   test-arch:
     name: Test on Arch Linux (newest PipeWire, WirePlumber 0.5)
@@ -183,8 +183,8 @@ jobs:
         run: runuser -u tester -- cargo test --workspace -- --skip graph_churn::clicks::under_a_steady_tone
         env:
           XDG_RUNTIME_DIR: /run/tester
-          FXSOUND_REQUIRE_PIPEWIRE_TOOLS: "1"
-          FXSOUND_REQUIRE_WIREPLUMBER: "1"
+          CROSSFX_REQUIRE_PIPEWIRE_TOOLS: "1"
+          CROSSFX_REQUIRE_WIREPLUMBER: "1"
 
       # A steady tone through CrossFX, and the worst click each switch leaves in it
       # (crates/crossfx-audio/src/graph_churn/clicks.rs). One at a time, so that the other tests'
@@ -195,14 +195,14 @@ jobs:
       - name: Click measurements
         run: |
           set -euo pipefail
-          runuser -u tester -- env FXSOUND_CLICK_REPORT="$GITHUB_WORKSPACE/target/click-report.txt" \
+          runuser -u tester -- env CROSSFX_CLICK_REPORT="$GITHUB_WORKSPACE/target/click-report.txt" \
             cargo test -p crossfx-audio --lib graph_churn::clicks::under_a_steady_tone \
             -- --test-threads=1 --nocapture
         env:
           XDG_RUNTIME_DIR: /run/tester
-          FXSOUND_REQUIRE_PIPEWIRE_TOOLS: "1"
-          FXSOUND_REQUIRE_WIREPLUMBER: "1"
-          FXSOUND_CLICK_GATE: report
+          CROSSFX_REQUIRE_PIPEWIRE_TOOLS: "1"
+          CROSSFX_REQUIRE_WIREPLUMBER: "1"
+          CROSSFX_CLICK_GATE: report
 
       - name: Click report
         if: always()
@@ -360,9 +360,9 @@ jobs:
       # both passes.
       - name: Interface and sound plays as the engine before the audit (A1, cold)
         env:
-          FXSOUND_BITEXACT_PASSES: cold
-          FXSOUND_BITEXACT_EXCEPT: BonusPresets/Classic Rock,BonusPresets/R&B
-          FXSOUND_BITEXACT_OUT: target/windows-parity-bitexact-a1.tsv
+          CROSSFX_BITEXACT_PASSES: cold
+          CROSSFX_BITEXACT_EXCEPT: BonusPresets/Classic Rock,BonusPresets/R&B
+          CROSSFX_BITEXACT_OUT: target/windows-parity-bitexact-a1.tsv
         run: >-
           scripts/windows-parity-bitexact.sh --compat=windows
           --dir "$RUNNER_TEMP/reference-3596e99" 3596e99

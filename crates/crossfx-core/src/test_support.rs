@@ -431,7 +431,7 @@ mod tests {
     /// Set, in a test process of this binary's that a test here starts, to what the child half
     /// ([`the_child_half_starts_its_children_and_then_panics_or_waits`]) does after starting its
     /// children: `panic` or `wait`.
-    const CHILD_HALF: &str = "FXSOUND_TEST_SUPPORT_CHILD_HALF";
+    const CHILD_HALF: &str = "CROSSFX_TEST_SUPPORT_CHILD_HALF";
 
     /// Whether the process `pid` is still one of the `sleep 600`s started here. A zombie, an id
     /// nobody has, or an id a later process got is not.

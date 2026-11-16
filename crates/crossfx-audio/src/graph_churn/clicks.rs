@@ -82,7 +82,7 @@
 //! itself: the power coming back on under a stream that follows the default leaves the speakers'
 //! ring 512 frames short every time: 11 ms of the 20–30 ms dip of that switch.
 //!
-//! [`FXSOUND_CLICK_GATE`](GATE_MODE) decides what a loud switch does:
+//! [`CROSSFX_CLICK_GATE`](GATE_MODE) decides what a loud switch does:
 //!
 //! * `hard`, the default: a switch CrossFX makes itself at [`HARD_GATE_DBFS`] or louder fails the
 //!   test. This is the check an audio phase runs on a developer's machine before it is done.
@@ -125,7 +125,7 @@
 //! ```
 //!
 //! `--nocapture` shows the tables; one test at a time keeps the other tests' daemons from causing
-//! the xruns that would discard runs. [`FXSOUND_CLICK_REPORT`](REPORT_FILE) names a file every
+//! the xruns that would discard runs. [`CROSSFX_CLICK_REPORT`](REPORT_FILE) names a file every
 //! table is appended to as well. The thirteen measurements take about twenty minutes, and
 //! their names share the prefix `under_a_steady_tone`, by which CI's Arch Linux leg leaves them out
 //! of its test step and runs them in one of their own, in `report` mode, with the tables in the
@@ -384,10 +384,10 @@ const REPEATS: usize = 3;
 const ATTEMPTS: usize = 6;
 
 /// The environment variable that picks [`Gate::Hard`] (`hard`) or [`Gate::Report`] (`report`).
-const GATE_MODE: &str = "FXSOUND_CLICK_GATE";
+const GATE_MODE: &str = "CROSSFX_CLICK_GATE";
 
 /// The environment variable naming a file every table is appended to.
-const REPORT_FILE: &str = "FXSOUND_CLICK_REPORT";
+const REPORT_FILE: &str = "CROSSFX_CLICK_REPORT";
 
 /// The tone of the speakers' lane: frequency and level.
 const OUTPUT_TONE: (f64, f64) = (100.0, -12.0);
