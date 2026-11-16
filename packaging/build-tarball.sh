@@ -121,7 +121,8 @@ install -Dm644 assets/fonts/UFL-Ubuntu.txt "${pkg}/share/doc/crossfx/UFL.ubuntu"
 install -Dm644 assets/fonts/MIT-Hack.txt "${pkg}/share/doc/crossfx/MIT.hack"
 install -Dm644 assets/fonts/MIT-emoji-icon-font.txt "${pkg}/share/doc/crossfx/MIT.emoji-icons"
 # The licence and copyright notices of the Rust crates compiled into the binary, generated from
-# Cargo.lock by crossfx-app's tests/third_party_notices.rs (which fails when the file is stale).
+# Cargo.lock by crossfx-app's tests/third_party_notices.rs (which CI runs with CROSSFX_CHECK_NOTICES=1,
+# failing when the file is stale).
 install -Dm644 THIRD-PARTY-NOTICES.txt "${pkg}/share/doc/crossfx/THIRD-PARTY-NOTICES.txt"
 
 cat > "${pkg}/install.sh" <<'INNER'

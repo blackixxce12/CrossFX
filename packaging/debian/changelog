@@ -5,7 +5,8 @@ crossfx (1.0.0-1) unstable; urgency=medium
     AppStream id io.github.blackixxce12.CrossFX, D-Bus name and activation
     file, crossfx.service, crossfx(1), /usr/share/crossfx. CrossFX has its
     own icon, the Gilroy font is no longer shipped (Manrope is the default),
-    and the licence notices of RNNoise and of the fonts built into it are
+    and the licence notices of RNNoise, of the fonts built into it and of
+    the Rust crates it is built from (THIRD-PARTY-NOTICES.txt) are
     installed. Needs rustc >= 1.100.0 to build.
 
  -- CrossFX contributors <blackixxce12@users.noreply.github.com>  Tue, 17 Nov 2026 12:00:00 +0400

@@ -89,6 +89,12 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+      # The crates of every target the packages build, on disk for the comparison of
+      # THIRD-PARTY-NOTICES.txt with what Cargo.lock produces, which CROSSFX_CHECK_NOTICES=1 turns on
+      # in the next step (crates/crossfx-app/tests/third_party_notices.rs).
+      - name: Crates of every target
+        run: cargo fetch --locked
+
       # The runner has an XDG_RUNTIME_DIR but no session bus and no session PipeWire in it, and
       # nothing in the suite may reach for any of them: a test that needs the user's session is a
       # test that would take a developer's default device away mid-run. The graph-churn tests in
@@ -108,6 +114,7 @@ jobs:
         run: cargo test --workspace
         env:
           CROSSFX_REQUIRE_PIPEWIRE_TOOLS: "1"
+          CROSSFX_CHECK_NOTICES: "1"
 
       # Release as well: the DSP is full of arithmetic whose rounding differs between opt-levels,
       # and `panic = "abort"` only applies to the release profile.
@@ -178,6 +185,11 @@ jobs:
 
       # As in the job above: no session bus, no session PipeWire; every test that needs a daemon
       # starts a private one and takes it down with it. The click measurements run in the next
+      # Every target's crates, for the comparison CROSSFX_CHECK_NOTICES=1 turns on, as in the job
+      # above.
+      - name: Crates of every target
+        run: runuser -u tester -- cargo fetch --locked
+
       # step instead, one at a time.
       - name: Tests
         run: runuser -u tester -- cargo test --workspace -- --skip graph_churn::clicks::under_a_steady_tone
@@ -185,6 +197,7 @@ jobs:
           XDG_RUNTIME_DIR: /run/tester
           CROSSFX_REQUIRE_PIPEWIRE_TOOLS: "1"
           CROSSFX_REQUIRE_WIREPLUMBER: "1"
+          CROSSFX_CHECK_NOTICES: "1"
 
       # A steady tone through CrossFX, and the worst click each switch leaves in it
       # (crates/crossfx-audio/src/graph_churn/clicks.rs). One at a time, so that the other tests'
@@ -267,8 +280,15 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+      # Every target's crates, for the comparison CROSSFX_CHECK_NOTICES=1 turns on, as in the check
+      # job.
+      - name: Crates of every target
+        run: cargo fetch --locked
+
       - name: Tests
         run: cargo test --workspace
+        env:
+          CROSSFX_CHECK_NOTICES: "1"
 
       # Release as well, as the `check` job does: the DSP's arithmetic rounds differently between
       # opt-levels, and the binary build-windows.ps1 packs is built in this profile.

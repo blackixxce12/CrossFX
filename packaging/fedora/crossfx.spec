@@ -406,7 +406,8 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/io.github.blackixxce1
 %changelog
 * Tue Nov 17 2026 CrossFX contributors <blackixxce12@users.noreply.github.com> - 1.0.0-1
 - First release as CrossFX, for Linux and Windows; renamed from fxsound-linux, with no migration from 0.x
-- Own icon; the Gilroy font is no longer shipped; the notices of RNNoise and of the built-in fonts are installed
+- Own icon; the Gilroy font is no longer shipped; the notices of RNNoise, of the built-in fonts and
+  of the Rust crates compiled in (THIRD-PARTY-NOTICES.txt) are installed
 
 * Wed Sep 30 2026 FxSound Linux port contributors <blackixxce12@users.noreply.github.com> - 0.5.0-1
 - Update to 0.5.0
