@@ -857,7 +857,7 @@ mod tests {
         assert_eq!(left_second, right_second);
     }
 
-    /// Ties the new constructor to a design the port has been shipping since the beginning: the
+    /// Ties the new constructor to a design CrossFX has been shipping since the beginning: the
     /// same numbers `Fidelity` has used at 1745.4987 Hz, tabulated in
     /// `docs/spec/10-dsp-effects.md` §6.2 from the original C.
     #[test]

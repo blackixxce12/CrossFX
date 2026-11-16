@@ -30,7 +30,7 @@
 //! The original runs a bank of ten 2-pole resonant bandpasses whose coefficients are hard-coded
 //! for 44.1 kHz and **never re-derived** for another rate (`spectrumReset.cpp:118-165`), so on a
 //! 48 kHz machine every band centre sits ~8.8 % high. `docs/spec/04-equalizer-visualizer.md`
-//! (Open questions, item 2) recommends fixing that in the port rather than reproducing it, and
+//! (Open questions, item 2) recommends fixing that in CrossFX rather than reproducing it, and
 //! that is what this module does: band energy comes from a windowed real FFT and the band edges
 //! are mapped to bins from the *actual* sample rate, so the meter is correct at every rate.
 //!
@@ -50,7 +50,7 @@
 //! * The outer bands are open-ended: band 1 reaches down to the first non-DC bin and band 10 up
 //!   to the last bin below Nyquist. The original's first-order sections do not stop at their
 //!   −3 dB points either, they roll off at 6 dB/octave, so truncating at 42.17 Hz / 13.3 kHz
-//!   would make the port *less* faithful, not more.
+//!   would make CrossFX's meter *less* faithful, not more.
 //! * `fast_sqrt` (`spectrumProcess.cpp:177-191`, a float bit-hack with up to 6 % error) is
 //!   replaced by a real `sqrt`, as the spec recommends.
 //!

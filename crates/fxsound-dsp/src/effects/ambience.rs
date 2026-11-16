@@ -130,7 +130,7 @@ const MUSIC2_AMBIENCE_FACTOR: Real = 0.34;
 /// effect is bypassed outright, so that a slider reading zero is silent (`dfxpComm.cpp:1662-1691`,
 /// which reads the knob with `dfxp_GetKnobValue_MIDI` and never applies the MUSIC2 warp).
 ///
-/// The port used to test the *warped* value here, which switched off slider positions 1, 2 and 3
+/// CrossFX used to test the *warped* value here, which switched off slider positions 1, 2 and 3
 /// — stored 13, 25 and 38 — and called that shipped behaviour; it never was (audit report #39).
 /// In the original those three run, with the gains the warp gives them (see
 /// [`FIRST_WARPED_ABOVE_THRESHOLD_MIDI`]).
@@ -1184,7 +1184,7 @@ mod tests {
 
     #[test]
     fn the_bottom_three_slider_positions_run_and_grow_with_the_slider() {
-        // Audit report #39. Positions 1-3 were silent in the port; in the original they run with
+        // Audit report #39. Positions 1-3 were silent in CrossFX; in the original they run with
         // the warp's gains off the end of its range — wet -0.078, -0.039 and 0, dry up to 1.029,
         // a reverb in opposite phase and then none. Now wet rises from zero and dry falls from
         // unity, position by position, into the original's own pair at position 4.

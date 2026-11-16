@@ -387,7 +387,7 @@ impl LookaheadLimiter {
     ///
     /// For a caller that already has a beta rather than a time: Dynamic Boost derives its own from
     /// a fixed MIDI value through the original's exponential table, in f32, and converting that to
-    /// milliseconds and back would move it. Bit-exactness there is the whole point of the port.
+    /// milliseconds and back would move it. Bit-exactness there is the whole point of porting it.
     pub fn set_release_beta(&mut self, beta: Real) {
         if beta.is_finite() && (0.0..1.0).contains(&beta) {
             self.release_beta = beta;
@@ -896,7 +896,7 @@ pub(crate) fn thd_n(x: &[Real], hz: f64, sample_rate: Real) -> f64 {
     (residual / x.len() as f64).sqrt() / ((fit[0] * fit[0] + fit[1] * fit[1]) / 2.0).sqrt()
 }
 
-/// `Maxi32.c`'s limiter as the port ran it before the 0.4.0 audit (`0f05ba5`, `git show
+/// `Maxi32.c`'s limiter as CrossFX ran it before the 0.4.0 audit (`0f05ba5`, `git show
 /// 0f05ba5:crates/fxsound-dsp/src/input/limiter.rs`), line for line: an envelope and a delay line
 /// per channel, no hold, and an attack ramp that only ever steepens. The reference the original's
 /// settings of [`LookaheadLimiter`] are held to, here and in Dynamic Boost's tests.

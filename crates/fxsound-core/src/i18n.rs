@@ -892,7 +892,7 @@ mod tests {
         // came.
         assert!(original.keys().any(|key| port.get(key).is_none()));
         assert!(port.keys().any(|key| original.get(key).is_none()));
-        // The port wins where both have a string: the original's Russian says "with Windows".
+        // The port table wins where both have a string: the original's Russian says "with Windows".
         assert_ne!(
             original.get("Launch on system startup"),
             port.get("Launch on system startup")

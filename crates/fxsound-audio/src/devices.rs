@@ -1904,7 +1904,7 @@ mod tests {
         device(name, channels, DeviceDirection::Input)
     }
 
-    /// `choose_device` for outputs, with the argument order the first port's tests were written in.
+    /// `choose_device` for outputs, with the argument order CrossFX's first tests were written in.
     fn choose_output(
         devices: &[DeviceInfo],
         our_sink: &str,

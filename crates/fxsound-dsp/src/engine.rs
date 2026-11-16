@@ -36,7 +36,7 @@
 //! The balance works by side, not by index: every left-hand speaker is turned down together and
 //! every right-hand one together, the centre and the subwoofer never (audit report #44). The
 //! original only has a balance on stereo (`SosProcess.cpp:630-631`; its surround path has none,
-//! `:840-908`), and the port's first cut applied it to channels 0 and 1 of any layout, so on 5.1
+//! `:840-908`), and CrossFX's first cut applied it to channels 0 and 1 of any layout, so on 5.1
 //! a balance of +10 dB turned down the front-left speaker and left the rear-left one playing.
 //! The sides come from [`Engine::set_channel_sides`] when the layout is known and are inferred
 //! from the channel count, the front pair and the subwoofer otherwise ([`default_sides`]).
@@ -55,8 +55,8 @@
 //! between the equalizer and the leveller, where `0f05ba5` had it and bit for bit as it did it
 //! (the two orders commute only in exact arithmetic); the balance on channels 0 and 1 of a
 //! stereo stream and on nothing else — the original's surround path multiplies every channel by
-//! the master gain alone (`SosProcess.cpp:846-908`), where the port's first cut balanced channels
-//! 0 and 1 of any layout. The transitions stay the port's: the equalizer's switch fades the block
+//! the master gain alone (`SosProcess.cpp:846-908`), where CrossFX's first cut balanced channels
+//! 0 and 1 of any layout. The transitions stay CrossFX's: the equalizer's switch fades the block
 //! with the stage in it, a new gain glides, the power switch dips.
 //!
 //! **Moving the level under a playing stream glides too.** The stage leaves one place for the
@@ -1874,7 +1874,7 @@ mod tests {
 
     #[test]
     fn a_balance_on_surround_turns_down_every_speaker_on_one_side() {
-        // 5.1, balance +10 dB to the right. The port used to turn down channel 0 alone — the
+        // 5.1, balance +10 dB to the right. CrossFX used to turn down channel 0 alone — the
         // front-left speaker at -10 dB and the rear-left one untouched — which on a surround
         // system is a speaker switched down, not a balance.
         let levels = balance_levels(6, |engine| engine.set_lfe_channel(Some(LFE)), 10.0);
@@ -3080,7 +3080,7 @@ mod tests {
     fn interface_and_sound_reaches_the_volume_leveller_and_dynamic_boost_through_the_snapshot() {
         // «Like the original FxSound LLC» = Interface and sound travels in the snapshot. The
         // leveller takes it, and so does Dynamic Boost: at slider 0 a loud tone backs the boost off
-        // to the original's flat floor, ×1.06, where the port plays the static boost of nothing.
+        // to the original's flat floor, ×1.06, where CrossFX plays the static boost of nothing.
         use fxsound_core::DspCompat;
         for (compat, gain) in [(DspCompat::Linux, 1.0), (DspCompat::Windows, 1.06)] {
             let mut engine = Engine::new(48_000.0, 480, 2);
@@ -3177,7 +3177,7 @@ mod tests {
     // the power off the master gain alone on every channel while the equalizer is on
     // (`sosProcessBuffer_MasterGainOnly`, `SosProcess.cpp:497-516`); the balance on stereo only
     // (`sosProcessBuffer`, `:630-631`), and on 5.1 and 7.1 the master gain alone on every channel
-    // (`sosProcessSurroundBuffer`, `:904`). The transitions stay the port's.
+    // (`sosProcessSurroundBuffer`, `:904`). The transitions stay CrossFX's.
 
     fn windows(params: DspParams) -> DspParams {
         DspParams {

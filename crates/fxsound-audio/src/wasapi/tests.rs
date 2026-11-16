@@ -3509,7 +3509,7 @@ fn any_error_or_pick(messages: &[AudioToUi]) -> bool {
 #[test]
 fn a_cable_installed_while_the_original_fxsound_runs_is_windows_and_the_microphone_s() {
     // This machine: the original FxSound runs and holds the playback roles on its driver, calls on
-    // the speakers. The port's microphone lane is on, with no cable yet; the user installs
+    // the speakers. CrossFX's microphone lane is on, with no cable yet; the user installs
     // VB-Cable, Windows gives it every role, and the original takes its two back onto its driver.
     // Then the original quits, handing its default back to the speakers.
     let [cable_in, cable_out] = cable();

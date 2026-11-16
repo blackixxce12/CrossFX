@@ -1,6 +1,6 @@
 //! The original's Volume Leveling, for «Like the original FxSound LLC» = Interface and sound.
 //!
-//! The arithmetic of `applyVolumeLeveling` (`SosProcess.cpp:139-492`) as the port ran it before the
+//! The arithmetic of `applyVolumeLeveling` (`SosProcess.cpp:139-492`) as CrossFX ran it before the
 //! 0.4.0 audit (`0f05ba5`), with audit items #1 to #4 taken back:
 //!
 //! * **#1** — the peak safety reads the 120 Hz side chain's peak, so bass is lifted past the
@@ -45,7 +45,7 @@ impl VolumeLeveller {
         self.step = StepStats::default();
         let peak = self.gather(buffer, layout);
         self.flush_detector_denormals();
-        // `SosProcess.cpp:561-577`, as the port has guarded it since before the audit: a
+        // `SosProcess.cpp:561-577`, as CrossFX has guarded it since before the audit: a
         // recursion that caught a non-finite value is cleared, and the call passes untouched.
         if !self.step.is_finite() {
             self.reset();
@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn at_interface_and_sound_the_stage_is_the_original_bit_for_bit_on_every_layout() {
         // The Windows path is built from today's statistics and decision, not copied; this holds
-        // it to `applyVolumeLeveling` as the port ran it before the audit (`git show
+        // it to `applyVolumeLeveling` as CrossFX ran it before the audit (`git show
         // 0f05ba5:crates/fxsound-dsp/src/leveller.rs`, [`original::OriginalLeveller`]) on mono,
         // stereo, 5.1 and 7.1 with the subwoofer on channel 3, handed over in ragged calls. The
         // programme is twelve seconds of a quiet passage, long enough for the quiet boost to take
@@ -585,7 +585,7 @@ mod tests {
         }
     }
 
-    /// `applyVolumeLeveling` (`SosProcess.cpp:139-492`) as the port ran it before the 0.4.0 audit,
+    /// `applyVolumeLeveling` (`SosProcess.cpp:139-492`) as CrossFX ran it before the 0.4.0 audit,
     /// taken line for line from `git show 0f05ba5:crates/fxsound-dsp/src/leveller.rs` (its
     /// comments left out): the reference the Windows path is held to, as
     /// [`crate::input::limiter::OriginalLimiter`] is Dynamic Boost's.

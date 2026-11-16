@@ -17,7 +17,7 @@
 //! * **The gain is ramped linearly across each step** from the previous step's value to the new one
 //!   (`:375-379`), so the stage is sample-accurate inside a block.
 //!
-//! # Where the port stops copying
+//! # Where CrossFX stops copying
 //!
 //! Five things the original does were defects, not voicing, and CrossFX fixes them. Each is an
 //! item in the 0.4.0 audit of the original's defects CrossFX copied, and each changes what a
@@ -44,7 +44,7 @@
 //!   much. It is still left out of the statistics.
 //! * **#4 — the gain no longer falls in one sample at the start of a step.** The original clamps
 //!   *both* ends of its ramp to the peak-safe gain, so a drum hit late in a buffer pulled the gain
-//!   down in one sample — 12.9 dB after a quiet intro — up to 10 ms early: a click. The port leaves
+//!   down in one sample — 12.9 dB after a quiet intro — up to 10 ms early: a click. CrossFX leaves
 //!   the start of the ramp alone, and where the peak safety bites the gain falls over at most
 //!   [`PEAK_RAMP_SECONDS`], arriving on the first sample that would otherwise cross the ceiling.
 //!   The fade is searched for across the whole call, not step by step, so a transient just past a
@@ -403,7 +403,7 @@ fn headroom_target_score(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Where the port departs from the original: the step clock, the peak ramp, the flush.
+// Where CrossFX departs from the original: the step clock, the peak ramp, the flush.
 // ---------------------------------------------------------------------------------------------
 
 /// Length of one step of the state machine, in seconds (audit #2).

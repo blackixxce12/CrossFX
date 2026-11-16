@@ -1989,7 +1989,7 @@ mod tests {
     // -- «Like the original FxSound LLC» = Interface and sound
     // ----------------------------------------
 
-    /// Dynamic Boost as the port ran it before the 0.4.0 audit (`0f05ba5`), line for line: the
+    /// Dynamic Boost as CrossFX ran it before the 0.4.0 audit (`0f05ba5`), line for line: the
     /// left channel's level, the flat 1.06 floor, and `Maxi32.c`'s limiter
     /// ([`crate::input::limiter::OriginalLimiter`]).
     struct OriginalBoost {
@@ -2057,7 +2057,7 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_dynamic_boost_is_maxi32s_to_the_bit() {
-        // Audit #6, #7, #8, R1 and R2 taken back: every sample must be the one the port played
+        // Audit #6, #7, #8, R1 and R2 taken back: every sample must be the one CrossFX played
         // before the audit, on mono, stereo, 5.1 and 7.1, at slider 0, at a stored 38 and at the
         // top, in blocks of any length, with the left channel quiet and the right loud, a burst on
         // one channel and loud stretches that engage the back-off and its floor. The layout's
@@ -2229,7 +2229,7 @@ mod tests {
 
     #[test]
     fn switching_the_arithmetic_hands_the_limiter_over_rather_than_relinking_it_at_once() {
-        // A quiet left beside a right deep in the limiter: the port turns both sides down
+        // A quiet left beside a right deep in the limiter: CrossFX turns both sides down
         // together, the Windows arithmetic the right alone. Relinked between two samples on the
         // way back, the left's envelope took the right's and the left stepped down by 0.110 on a
         // tone that moves by 0.0019 a sample; the old design and the new now limit side by side

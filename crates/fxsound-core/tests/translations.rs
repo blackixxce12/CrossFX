@@ -1164,7 +1164,7 @@ fn a_translation_names_crossfx_or_the_original_only_where_its_key_does() {
     // string about the original FxSound (the font's owner, the original running, its driver, the
     // mode named after it), nor the original's — the old name of the program — into one about
     // CrossFX. Case-sensitive: the command `crossfx` is not a name. The other way round is the
-    // next test's, over the translations the port wrote, and which English strings may name
+    // next test's, over the translations CrossFX wrote, and which English strings may name
     // FxSound at all is `only_the_strings_that_mean_the_original_name_fxsound`'s.
     let keys = interface_keys();
     let mut misnamed = Vec::new();
@@ -1188,8 +1188,8 @@ fn a_translation_names_crossfx_or_the_original_only_where_its_key_does() {
 
 #[test]
 fn every_port_translation_names_crossfx_as_often_as_its_english_and_the_original_where_it_does() {
-    // The name audit the other way round, over the translations the port wrote by hand. One that
-    // drops CrossFX, or says "this FxSound" where it stood — the port's own wording before the
+    // The name audit the other way round, over the translations CrossFX wrote by hand. One that
+    // drops CrossFX, or says "this FxSound" where it stood — CrossFX's own wording before the
     // rename — names the wrong program in that one language, and the test above passes it: the
     // name it carries is one its English has. So CrossFX as often as the English names it, and
     // the original wherever the English names it, at least once, since several languages name it
@@ -1257,7 +1257,7 @@ fn only_the_strings_that_mean_the_original_name_fxsound() {
     // Which English strings may say FxSound at all. One the interface asks for that calls the
     // program FxSound — another of the original's own strings that name it, such as "FxSound is
     // now open-source", shown without moving it to a key of CrossFX's (`RENAMED_ORIGINALS`), or a
-    // new string of the port's written with the old name — reads the old name in every language
+    // new string of CrossFX's written with the old name — reads the old name in every language
     // at once, and the audits above pass it, since its key and its translations agree. In any
     // case: `fxsound --show` is the old command.
     let keys = interface_keys();
@@ -1270,7 +1270,7 @@ fn only_the_strings_that_mean_the_original_name_fxsound() {
     assert!(
         misnamed.is_empty(),
         "strings that call the program FxSound — give one of the original's a key of CrossFX's in \
-         RENAMED_ORIGINALS, write one of the port's with CrossFX, or list one that means the \
+         RENAMED_ORIGINALS, write one of CrossFX's own with CrossFX, or list one that means the \
          original FxSound in MEAN_THE_ORIGINAL:\n  {}",
         misnamed.join("\n  ")
     );

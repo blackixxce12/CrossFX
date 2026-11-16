@@ -486,7 +486,7 @@ pub const START_TIMEOUT: Duration = Duration::from_millis(1500);
 /// Two of those states have no variant: `-57 SND_DEVICES_NO_VALID_PLAYBACK_DEVICE` ("no stereo
 /// output") and `-58 SND_DEVICES_ASK_USER_SELECT_PLAYBACK_DEVICE` ("the chosen output is mono,
 /// pick another"). Both existed only to refuse mono playback devices, a workaround for a Windows
-/// driver bug (`sndDevices.h:32-39`); PipeWire drives a mono device perfectly well, so the port
+/// driver bug (`sndDevices.h:32-39`); PipeWire drives a mono device perfectly well, so CrossFX
 /// attaches to one instead (`docs/spec/12-audio-io.md`, open question 6).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AudioError {
