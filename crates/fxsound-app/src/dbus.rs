@@ -1951,7 +1951,7 @@ mod tests {
 
     #[test]
     fn a_listing_is_the_schema_and_its_keys_of_the_status_document() {
-        let document = r#"{"schema":2,"version":"0.4.0","presets":{"built_in":[]},
+        let document = r#"{"schema":1,"version":"0.5.0","presets":{"built_in":[]},
             "edit_direction":"output","selected_preset":"Rock","output_presets":{},
             "input_presets":{},"selected_output":null,"selected_input":"Headset",
             "output_devices":[],"input_devices":["Headset"],"output_device_list":[],
@@ -1979,7 +1979,7 @@ mod tests {
                 "selected_preset"
             ]
         );
-        assert!(presets.starts_with(r#"{"schema":2,"#), "{presets}");
+        assert!(presets.starts_with(r#"{"schema":1,"#), "{presets}");
         assert!(presets.contains(r#""selected_preset":"Rock""#), "{presets}");
 
         let devices = listing_of_status::<DeviceListing>(document).unwrap();
@@ -1999,7 +1999,7 @@ mod tests {
         assert!(devices.contains(r#""input_device_list":[{"node_name":"alsa_input.usb"}]"#));
 
         assert!(listing_of_status::<PresetListing>("[]").is_err());
-        assert!(listing_of_status::<DeviceListing>(r#"{"schema":2}"#).is_err());
+        assert!(listing_of_status::<DeviceListing>(r#"{"schema":1}"#).is_err());
         assert!(listing_of_status::<PresetListing>("not json").is_err());
     }
 

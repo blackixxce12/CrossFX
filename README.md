@@ -311,7 +311,7 @@ crossfx --watch --json | jq --unbuffered -c -n '
 The module hides while CrossFX is not running, and `restart-interval` picks the stream up again
 once it is. `--meters` adds the microphone's readouts, at most four times a second.
 
-The JSON is meant to be built on. Its `schema` (3), and `v` in each event, are compatibility
+The JSON is meant to be built on. Its `schema` (1), and `v` in each event, are compatibility
 numbers: a new key never changes them, so read the keys you know and ignore the rest; a key
 removed, renamed or given another meaning or type would raise them, and CrossFX gives a changed
 meaning a key of its own instead. `man crossfx` has the rule under *STATUS DOCUMENT*.

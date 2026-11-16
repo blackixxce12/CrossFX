@@ -466,8 +466,7 @@ saved.
 (or no value) keeps them where they are, limited only to 10\ Hz\(en21\ kHz;
 .BR 0 ,
 the default, moves them back into the range the original FxSound for Windows
-tunes them in,
-as 0.4.0 does. Followed from
+tunes them in. Followed from
 .B \-\-windows\-parity=sound
 on, where the window offers the tick box; below it every export moves them and
 the choice waits.
@@ -629,16 +628,16 @@ does.
 .B \-\-status
 Print the running instance's state on standard output and exit, one
 .I key: value
-line per item: the version, whether processing is on, then
+line per item: the version, whether processing is on, the edit direction's
+lane and preset, then
 .BR output ", " input ", " output_preset ", " input_preset " and " direction
-(the edit direction), the lines 0.3.0 printed, and last
+(the edit direction), the view and the theme,
+.BR windows_parity ,
+the effects, the gain stage, the equalizer, the format and the ring, and last
 .BR noise_suppression ", " echo_cancel
 and the voice chain's telemetry as
 .B input_
-lines, with
-.B windows_parity
-after
-.BR theme .
+lines.
 Every other option on the same command line is ignored.
 .TP
 .B \-\-json
@@ -646,7 +645,7 @@ Print the
 .BR \-\-status ", " \-\-watch ", " \-\-self\-test " or " \-\-list\-apps
 report as JSON instead of as lines: one object for
 .B \-\-status
-(schema 3, described under
+(schema 1, described under
 .BR "STATUS DOCUMENT" ),
 for
 .B \-\-self\-test
@@ -656,7 +655,7 @@ and for
 .RB ( schema " and " apps ),
 one object per line for
 .BR \-\-watch .
-Not the default: the line format is what existing scripts already grep.
+Not the default: the line format is the one a shell script greps.
 .TP
 .B \-\-watch
 Subscribe to the running instance and print one event per line until it
@@ -790,14 +789,14 @@ prints one JSON object. D-Bus
 .B GetStatus
 answers with the same object and
 .B \-\-watch
-opens with it. It carries every key 0.3.0 printed, with the same meaning,
-and every key the original FxSound for Windows writes for
+opens with it. It carries every key the original FxSound for Windows writes
+for
 .B \-\-status
 (marked
 .IR original ),
-with the original's meaning and JSON type, so a client written for either reads
-it. Keys are only ever added; a key removed, renamed or given another meaning
-would change
+with the original's meaning and JSON type, so a client written for the original
+reads it. Keys are only ever added; a key removed, renamed or given another
+meaning would change
 .B schema
 (see
 .B Compatibility
@@ -809,23 +808,21 @@ are the edit direction's: the lane the window shows. The effects,
 exist on the output lane only and are always the output lane's.
 .TP
 .B schema
-3, the compatibility number described under
+1, the compatibility number described under
 .BR Compatibility .
-The 0.3.0 document had no number and is schema 1; 0.4.0's is 2, and 3 keeps
-every key of 2.
 .TP
 .BR version ", " power
 .RI ( original )
 The version, and whether processing is on.
 .TP
-.BR audio ", " preset ", " device ", " direction ", " edit_direction ", " view ", " theme
+.BR audio ", " preset ", " device ", " edit_direction ", " view ", " theme
 The edit direction's lane
 .RB ( processing ", " idle " or " unavailable ),
 its preset with
 .B *
 for unsaved changes, its device by description, the edit direction
-.RB ( output " or " input ,
-under both names), and the window's view and theme.
+.RB ( output " or " input ),
+and the window's view and theme.
 .TP
 .B effects
 .BR fidelity ", " ambience ", " surround ", " dynamic_boost " and " bass
@@ -834,8 +831,8 @@ on their 0\(en10 scale, and
 .BR clarity " and " dynamicboost ,
 the same values as
 .BR fidelity " and " dynamic_boost .
-Exact: a whole value is written as an integer, as 0.3.0 wrote every one, and
-any other with its fraction.
+Exact: a whole value is written as an integer, and any other with its
+fraction.
 .TP
 .BR master_gain_db ", " balance_db ", " volume_leveling ", " filter_q ", " eq
 The gain stage, and
@@ -988,15 +985,11 @@ changes them, so a later CrossFX may print keys this page does not list, and a
 client ignores what it does not know. Removing or
 renaming a key, or changing its meaning or its JSON type, raises the number by
 one; where a meaning has to change, the new meaning gets a key of its own and
-the old key keeps the old one, as
-.B edit_direction
-did beside
-.BR direction .
-A client written for schema 3 reads any document that says 3, and one that
+the old key keeps the old one.
+A client written for schema 1 reads any document that says 1, and one that
 needs a key added later looks for the key rather than at the number.
 .B schema
-went from 1 to 2 and to 3 with keys that 0.4.0 and 0.5.0 added, before the
-rule was written; it stays 3 while keys are only added.
+stays 1 while keys are only added.
 .B \-\-self\-test \-\-json
 carries no number and follows the same rule: its
 .BR version ", " checks " (" name ", " status ", " detail ") and " ok

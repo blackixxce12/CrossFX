@@ -963,20 +963,15 @@ pub fn waits_for_the_device_list(app: &App, commands: &[Command]) -> bool {
 ///
 /// The rule, as the man page's STATUS DOCUMENT writes it for clients: adding a key never changes
 /// the number; removing or renaming a key, or changing its meaning or its JSON type, raises it by
-/// one — and a meaning that has to change gets a new key beside the old one instead, as
-/// `edit_direction` beside `direction`. 0.3.0's document had no number and is schema 1; 2 is
-/// 0.4.0's, every key of 1 kept and the original's `printStatus` keys added; 3 is 0.5.0's, every
-/// key of 2 kept and «Как в оригинальном FxSound LLC» added (`windows_parity`, `apps_hidden`,
-/// `input.hidden`). Those two raises came with additions, before the rule was written down; from 3
-/// on, keys are added under 3.
-pub const STATUS_SCHEMA: u32 = 3;
+/// one — and a meaning that has to change gets a new key beside the old one instead. CrossFX's
+/// document starts at 1.
+pub const STATUS_SCHEMA: u32 = 1;
 
 /// Everything `--status` reports, in the shape `--status --json` prints it.
 ///
-/// Every key 0.3.0 printed is still here and still means what it meant, read for the **edit
-/// direction** where 0.3.0 had a single selection — `preset`, `device` and `direction` are what the
-/// window shows. 0.4.0 adds a block per lane, the microphone's telemetry and the echo canceller,
-/// and is a superset of the document the original's `--status` writes (`FxController::printStatus`,
+/// `preset`, `device` and `edit_direction` are what the window shows: the **edit direction**'s.
+/// Beside them a block per lane, the microphone's telemetry and the echo canceller; and the
+/// document is a superset of the one the original's `--status` writes (`FxController::printStatus`,
 /// `FxController.cpp:609-683`; review item U14): `presets`, `selected_preset`,
 /// `output_devices`, `selected_output`, `equalizer` and the original's names in `effects` mean what
 /// they mean there and have the JSON kinds they have there, so a client written against the
@@ -996,10 +991,7 @@ pub struct StatusDocument {
     pub preset: String,
     /// The edit direction's device, by description.
     pub device: Option<String>,
-    /// The edit direction. In 0.3.0 this was the selected device's direction — the same thing,
-    /// now that there is a selection per lane and the window shows one of them.
-    pub direction: &'static str,
-    /// The same as `direction`, under the name 0.4.0 gives it.
+    /// The edit direction, `output` or `input`: the lane the window shows.
     pub edit_direction: &'static str,
     pub view: &'static str,
     pub theme: &'static str,
@@ -1055,12 +1047,11 @@ pub struct StatusDocument {
 /// A value on a control's own scale, as the document prints it: exactly, and a whole number
 /// without a fraction.
 ///
-/// 0.3.0 printed the effect levels rounded to whole numbers, and a reader that decodes them into
-/// an integer — Go's `encoding/json` into an `int`, for one — rejects `7.0`. The original prints
-/// them as they are, and `--set_effect=bass:7.5` read back as 8 here (review item U14). So a whole
-/// number goes out as `7`, which both kinds of reader take, and anything else as the shortest
-/// decimal of the `f32` the controller holds rather than the noise of its widening (`0.93_f32 as
-/// f64` is `0.9300000071525574`).
+/// A reader that decodes a level into an integer — Go's `encoding/json` into an `int`, for one —
+/// rejects `7.0`, and the original prints the levels as they are, so `--set_effect=bass:7.5`
+/// reads back as `7.5` (review item U14). So a whole number goes out as `7`, which both kinds of
+/// reader take, and anything else as the shortest decimal of the `f32` the controller holds rather
+/// than the noise of its widening (`0.93_f32 as f64` is `0.9300000071525574`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Level(pub f32);
 
@@ -1102,8 +1093,9 @@ pub(crate) fn exact(value: f32) -> f64 {
     }
 }
 
-/// The five effect sliders, on their `0..=10` scale: 0.3.0's names, then the original's names for
-/// the two it calls otherwise (`FxController.cpp:666-670`), with the same values.
+/// The five effect sliders, on their `0..=10` scale: CrossFX's names, the ones the `--status`
+/// lines use, then the original's names for the two it calls otherwise
+/// (`FxController.cpp:666-670`), with the same values. `--set_effect` takes either.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct EffectLevels {
     pub fidelity: Level,
@@ -1287,7 +1279,6 @@ pub fn status_document(app: &App) -> StatusDocument {
         },
         preset: state.preset_label(),
         device: state.device().map(|d| d.description.clone()),
-        direction: edit.key(),
         edit_direction: edit.key(),
         view: match state.view {
             ViewMode::Pro => "pro",
@@ -1485,8 +1476,9 @@ pub(crate) fn rounded(value: f32, places: i32) -> f64 {
 /// What `--status` prints.
 ///
 /// Plain `key: value` lines so it can be grepped from a shell script or a compositor rule, which
-/// is the only reason anyone runs it. Every 0.3.0 line is still here; 0.4.0 adds `version`, a
-/// line per lane for the device and the preset, and the microphone's telemetry as `input_*`.
+/// is the only reason anyone runs it: the version and the power, the edit direction's lane and
+/// preset, a line per lane for the device and the preset, `direction` (the edit direction), the
+/// controls, the format and the ring, and the microphone's telemetry as `input_*`.
 fn status_report(app: &App) -> String {
     use std::fmt::Write as _;
     let doc = status_document(app);
@@ -1504,13 +1496,13 @@ fn status_report(app: &App) -> String {
     let _ = writeln!(out, "power: {}", on_off(doc.power));
     let _ = writeln!(out, "audio: {}", doc.audio);
     let _ = writeln!(out, "preset: {}", doc.preset);
-    // `output:` keeps its name for the scripts that already grep it, and now means the output
-    // lane's device whichever lane the window shows; the microphone has `input:` beside it.
+    // `output:` is the output lane's device whichever lane the window shows; the microphone has
+    // `input:` beside it.
     let _ = writeln!(out, "output: {}", or_none(&doc.output.device));
     let _ = writeln!(out, "input: {}", or_none(&doc.input.lane.device));
     let _ = writeln!(out, "output_preset: {}", preset(&doc.output));
     let _ = writeln!(out, "input_preset: {}", preset(&doc.input.lane));
-    let _ = writeln!(out, "direction: {}", doc.direction);
+    let _ = writeln!(out, "direction: {}", doc.edit_direction);
     let _ = writeln!(out, "view: {}", doc.view);
     let _ = writeln!(out, "theme: {}", doc.theme);
     let _ = writeln!(out, "windows_parity: {}", doc.windows_parity);
@@ -1606,9 +1598,8 @@ fn status_report(app: &App) -> String {
 
 /// The same state as one JSON object, for anything that would otherwise parse the lines above.
 ///
-/// The lines stay the default because scripts already grep them. Serialised with `serde_json`
-/// since 0.4.0 — 0.3.0 wrote it by hand, which was fine for fifteen flat keys and is not for
-/// nested lane objects carrying a device description and a preset name, neither of which is under
+/// The lines are the default, the form a shell script greps. Serialised with `serde_json`: the
+/// nested lane objects carry a device description and a preset name, neither of which is under
 /// this program's control.
 #[must_use]
 pub fn status_json(app: &App) -> String {
@@ -1973,9 +1964,8 @@ mod tests {
     }
 
     #[test]
-    fn status_can_come_back_as_json_and_the_lines_are_still_the_default() {
-        // The help text promised JSON since 0.2.0 and never produced any. It is real now, and it
-        // is opt-in: the line format is what every existing script greps.
+    fn status_can_come_back_as_json_and_the_lines_are_the_default() {
+        // JSON is opt-in: the lines are the form a shell script greps.
         let mut a = app();
         let lines = run(&mut a, &[Command::Status { json: false }]);
         assert!(lines.stdout.starts_with("version: "), "{}", lines.stdout);
@@ -1986,16 +1976,15 @@ mod tests {
         assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
     }
 
-    /// Every key of schema 3 as 0.5.0 prints it, nested ones by their path (`[]` for an element
-    /// of an array), for a window with presets and devices. The applications' own keys are
-    /// checked where the applications are (`dbus.rs` and this file's `apps` tests).
-    const SCHEMA_THREE_KEYS: &[&str] = &[
+    /// Every key of schema 1, nested ones by their path (`[]` for an element of an array), for a
+    /// window with presets and devices. The applications' own keys are checked where the
+    /// applications are (`dbus.rs` and this file's `apps` tests).
+    const SCHEMA_ONE_KEYS: &[&str] = &[
         "apps",
         "apps_hidden",
         "audio",
         "balance_db",
         "device",
-        "direction",
         "echo_cancel",
         "echo_cancel.on",
         "echo_cancel.running",
@@ -2122,34 +2111,35 @@ mod tests {
     }
 
     #[test]
-    fn every_key_schema_three_printed_is_still_printed_while_the_schema_is_three() {
+    fn every_key_schema_one_prints_is_still_printed_while_the_schema_is_one() {
         // The compatibility rule (the man page's STATUS DOCUMENT): `schema` is a compatibility
         // number. Keys are only added, which leaves it alone; a key removed or renamed raises it,
         // and this list goes with the old number.
-        let mut a = app_with_presets("schema-three");
+        let mut a = app_with_presets("schema-one");
         a.receive(fxsound_core::messages::AudioToUi::Devices(mixed_devices()));
         let json = status(&mut a);
         assert_eq!(
-            STATUS_SCHEMA, 3,
+            STATUS_SCHEMA, 1,
             "a new number takes a new list of what it keeps"
         );
         let mut printed = std::collections::BTreeSet::new();
         key_paths(&json, "", &mut printed);
-        let gone: Vec<&&str> = SCHEMA_THREE_KEYS
+        let gone: Vec<&&str> = SCHEMA_ONE_KEYS
             .iter()
             .filter(|key| !printed.contains(**key))
             .collect();
         assert!(
             gone.is_empty(),
-            "schema 3 printed these and this document does not: {gone:?}"
+            "schema 1 printed these and this document does not: {gone:?}"
         );
     }
 
     #[test]
-    fn the_json_keeps_every_key_0_3_0_printed_with_the_same_type() {
-        // Scripts written against 0.3.0 index into these; a key that moved or changed type breaks
-        // them silently. `master_gain_db`, `balance_db` and the effects were whole numbers then
-        // (`{:.0}`), and a strictly typed reader (Go's `encoding/json` into an int) rejects `-6.0`.
+    fn the_controls_and_the_audio_have_the_json_kinds_the_manual_gives_them() {
+        // A key's JSON kind belongs to the schema as much as its name (the man page's
+        // Compatibility), and a strictly typed reader — Go's `encoding/json` into an `int` —
+        // rejects `-6.0` where it decodes an integer: `master_gain_db`, `balance_db` and a whole
+        // effect level are integers.
         let mut a = app();
         run(
             &mut a,
@@ -2160,29 +2150,9 @@ mod tests {
             ],
         );
         let json = status(&mut a);
-        for key in [
-            "version",
-            "power",
-            "audio",
-            "preset",
-            "device",
-            "direction",
-            "view",
-            "theme",
-            "effects",
-            "master_gain_db",
-            "balance_db",
-            "volume_leveling",
-            "filter_q",
-            "eq",
-            "format",
-            "ring",
-        ] {
-            assert!(json.get(key).is_some(), "{key} missing from {json}");
-        }
         assert_eq!(json["power"], true);
         assert_eq!(json["audio"], "unavailable");
-        assert_eq!(json["direction"], "output");
+        assert_eq!(json["edit_direction"], "output");
         assert_eq!(json["view"], "pro");
         assert_eq!(json["theme"], "dark");
         assert!(json["device"].is_null());
@@ -2264,7 +2234,7 @@ mod tests {
         a.receive(fxsound_core::messages::AudioToUi::Devices(mixed_devices()));
         let json = status(&mut a);
         assert_eq!(json["schema"].as_u64(), Some(u64::from(STATUS_SCHEMA)));
-        assert_eq!(STATUS_SCHEMA, 3);
+        assert_eq!(STATUS_SCHEMA, 1);
         assert_upstream_shape(&json);
         assert_eq!(
             json["output_devices"].as_array().map(Vec::len),
@@ -2646,7 +2616,7 @@ mod tests {
         assert_eq!(
             json["master_gain_db"].as_i64(),
             Some(-3),
-            "0.3.0's key as it was"
+            "the gain stage's own key, in whole decibels"
         );
     }
 
@@ -2675,7 +2645,6 @@ mod tests {
             json["edit_direction"], "input",
             "the last device picked is the one edited"
         );
-        assert_eq!(json["direction"], json["edit_direction"]);
 
         let output = &json["output"];
         assert_eq!(output["enabled"], true);
@@ -5130,18 +5099,13 @@ mod tests {
     }
 
     #[test]
-    fn the_status_document_is_schema_3_and_keeps_every_key_of_2() {
+    fn the_status_document_names_the_parity_level_and_hides_nothing_below_everything() {
         let mut a = app();
         let json = status(&mut a);
-        assert_eq!(json["schema"], 3);
+        assert_eq!(json["schema"], 1);
         assert_eq!(json["windows_parity"], "off");
         assert_eq!(json["apps_hidden"], false);
         assert_eq!(json["input"]["hidden"], false);
-        // A few of 2's keys, each still there with its kind.
-        assert!(json["power"].is_boolean());
-        assert!(json["input"]["noise_suppression"].is_string());
-        assert!(json["apps"].is_array());
-        assert!(json["output_device_list"].is_array());
     }
 
     #[test]

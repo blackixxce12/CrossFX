@@ -480,16 +480,14 @@ pub struct Cli {
 
     /// Print the running instance's state and exit. Every other option is ignored.
     ///
-    /// One `key: value` line per item, which is what scripts already grep; pass `--json`
-    /// alongside for a single JSON object instead.
+    /// One `key: value` line per item, which is what scripts grep; pass `--json` alongside for a
+    /// single JSON object instead.
     ///
     /// `--status` — `docs/COMMAND_LINE_OPTIONS.md:35`, `FxController.cpp:348-352`, `:635-700`.
     /// Unlike the original, the answer comes back over the control socket and is printed on *this*
-    /// process's stdout. Earlier versions of this help promised JSON by default and a
-    /// `$XDG_RUNTIME_DIR/crossfx/status.json` written as a courtesy; neither was ever true. The
-    /// JSON is now real and explicit, and the file is not written at all — a status file that is
-    /// only refreshed when somebody asks for it is stale by definition, and a status bar is
-    /// better served by running this command than by reading a file nothing keeps current.
+    /// process's stdout. No status file is written — a status file that is only refreshed when
+    /// somebody asks for it is stale by definition, and a status bar is better served by running
+    /// this command than by reading a file nothing keeps current.
     #[arg(long = "status")]
     #[cfg_attr(
         windows,
@@ -508,9 +506,8 @@ pub struct Cli {
     /// Print the `--status`, `--watch`, `--self-test` or `--list-apps` report as JSON rather
     /// than as lines.
     ///
-    /// Deliberately not the default: the line format is what every existing script greps, and
-    /// changing it under them would be a breaking change to buy a format they did not ask for.
-    /// Given without any of the four it is an error, not a no-op.
+    /// Deliberately not the default: the line format is the one a shell script greps, and JSON is
+    /// for a reader that asks for it. Given without any of the four it is an error, not a no-op.
     #[arg(long = "json", requires = "report")]
     pub json: bool,
 

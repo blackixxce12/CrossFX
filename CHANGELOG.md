@@ -44,6 +44,10 @@ whose entries keep the names of their time. The format follows
   `WIREPLUMBER_DEBUG=2,s-crossfx:4`.
 - **`--output` and D-Bus `SetOutput` refuse a microphone,** as `--input` and `SetInput` refuse a
   speaker: `--input` selects it. They took it for the input lane and switched that lane on.
+- **`--status --json`, D-Bus `GetStatus` and `--watch`'s `status` event name the edit direction
+  once, as `edit_direction`:** `direction`, which said the same, is gone, and `schema`, which the
+  listings (`--list-apps --json`, D-Bus `ListPresets`, `ListDevices` and `ListApps`) carry too,
+  is 1.
 
 ## [0.5.0] — 2026-09-30
 
