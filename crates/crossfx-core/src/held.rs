@@ -53,7 +53,9 @@ pub fn read_to_string(path: &Path) -> io::Result<String> {
 }
 
 fn unread() -> std::sync::MutexGuard<'static, Vec<PathBuf>> {
-    UNREAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    UNREAD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Remember that the file at `path` is there but was held when it was to be loaded: until a
@@ -143,13 +145,25 @@ mod tests {
             let path = tmp.path().join("settings.toml");
             let mine = b"power = false\n";
             std::fs::write(&path, mine).unwrap();
-            assert!(Settings::default().power, "the file must differ from the defaults");
+            assert!(
+                Settings::default().power,
+                "the file must differ from the defaults"
+            );
 
             let holder = hold(&path, share);
             let loaded = Settings::load_from(&path);
-            assert_eq!(loaded, Settings::load_from(&tmp.path().join("missing.toml")));
-            assert!(!Settings::bad_path(&path).exists(), "share {share}: moved aside");
-            assert!(loaded.save_to(&path).is_err(), "share {share}: saved while held");
+            assert_eq!(
+                loaded,
+                Settings::load_from(&tmp.path().join("missing.toml"))
+            );
+            assert!(
+                !Settings::bad_path(&path).exists(),
+                "share {share}: moved aside"
+            );
+            assert!(
+                loaded.save_to(&path).is_err(),
+                "share {share}: saved while held"
+            );
             drop(holder);
             // Let go of, the file is still not replaced by the defaults the load gave.
             let err = loaded.save_to(&path).unwrap_err();
@@ -176,10 +190,19 @@ mod tests {
 
             let holder = hold(&path, share);
             let loaded = AppRules::load_from(&path);
-            assert!(!AppRules::bad_path(&path).exists(), "share {share}: moved aside");
-            assert!(loaded.save_to(&path).is_err(), "share {share}: saved while held");
+            assert!(
+                !AppRules::bad_path(&path).exists(),
+                "share {share}: moved aside"
+            );
+            assert!(
+                loaded.save_to(&path).is_err(),
+                "share {share}: saved while held"
+            );
             drop(holder);
-            assert!(loaded.save_to(&path).is_err(), "share {share}: saved before a read");
+            assert!(
+                loaded.save_to(&path).is_err(),
+                "share {share}: saved before a read"
+            );
             assert_eq!(std::fs::read(&path).unwrap(), mine, "share {share}");
 
             AppRules::load_from(&path).save_to(&path).unwrap();

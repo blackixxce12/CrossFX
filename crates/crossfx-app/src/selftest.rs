@@ -1871,7 +1871,11 @@ pub(crate) mod tests {
         let settings = check_settings(&path);
         assert_eq!(settings.status, Status::Fail);
         assert!(!settings.detail.contains(".bad"), "{}", settings.detail);
-        assert!(!settings.detail.contains("move it aside"), "{}", settings.detail);
+        assert!(
+            !settings.detail.contains("move it aside"),
+            "{}",
+            settings.detail
+        );
         assert!(path.is_dir(), "the directory was moved");
     }
 
