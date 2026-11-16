@@ -70,9 +70,9 @@ use crate::views::pro::{CAPTION_FONT_PX, VALUE_FONT_PX, caption_font};
 use crate::widgets::equalizer::BAND_COUNTS;
 use crate::widgets::slider::{self, FxSlider, Track};
 use crate::widgets::{FxComboBox, IconButton};
-use egui::{Align2, Rect, Ui, Vec2, pos2, vec2};
 use crossfx_core::i18n::tr;
 use crossfx_core::{DeviceDirection, WindowsLook};
+use egui::{Align2, Rect, Ui, Vec2, pos2, vec2};
 
 /// `FxEqualizerControl::X_MARGIN`.
 pub const X_MARGIN: f32 = 8.0;
@@ -559,9 +559,9 @@ mod tests {
     use crate::layout;
     use crate::views::testing::{Harness, text_below, texts};
     use crate::views::{ColumnFace, ViewScratch};
+    use crossfx_core::{AudioDevice, ThemeMode, ViewMode, WindowsParity};
     use egui::epaint::ClippedShape;
     use egui::{Color32, Event, Modifiers, PointerButton, Pos2, Shape};
-    use crossfx_core::{AudioDevice, ThemeMode, ViewMode, WindowsParity};
 
     /// The column at the window-local place the Pro view puts it.
     fn column() -> Rect {

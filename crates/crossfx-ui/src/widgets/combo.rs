@@ -947,9 +947,9 @@ pub fn shows_whole(painter: &egui::Painter, text: &str, font: FontId, room: f32)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossfx_core::ThemeMode;
     use egui::epaint::ClippedShape;
     use egui::{Event, Modifiers, PointerButton, Pos2, Shape};
-    use crossfx_core::ThemeMode;
 
     /// The Pro preset / device combo (`FxProView.cpp:426-430`).
     fn pro_combo() -> Rect {

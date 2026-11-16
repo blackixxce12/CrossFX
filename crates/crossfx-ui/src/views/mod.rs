@@ -32,9 +32,9 @@ use crate::state::{PresetEntry, UiAction, UiResponse, UiState};
 use crate::theme::Palette;
 use crate::widgets::combo::SectionHeader;
 use crate::widgets::{EqInteraction, FxComboBox, VisualizerAnimation, combo};
-use egui::{Pos2, Rect, Ui, Vec2};
 use crossfx_core::i18n::tr;
 use crossfx_core::{AudioDevice, DeviceDirection, ViewMode, WindowsLook};
+use egui::{Pos2, Rect, Ui, Vec2};
 
 /// Which face of the Pro window's effect column is showing.
 ///
@@ -509,9 +509,9 @@ pub(crate) mod testing {
     use crate::assets::AssetCache;
     use crate::state::{UiAction, UiState};
     use crate::theme::{self, Palette};
+    use crossfx_core::ThemeMode;
     use egui::epaint::ClippedShape;
     use egui::{Color32, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape};
-    use crossfx_core::ThemeMode;
 
     pub struct Harness {
         pub ctx: egui::Context,
@@ -1149,8 +1149,8 @@ mod tests {
     #[test]
     fn hovering_a_bluetooth_microphone_s_picker_shows_the_tip() {
         use crate::layout;
-        use egui::Event;
         use crossfx_core::ThemeMode;
+        use egui::Event;
 
         let mut harness = testing::Harness::new(ThemeMode::Dark);
         harness.ctx.all_styles_mut(|style| {

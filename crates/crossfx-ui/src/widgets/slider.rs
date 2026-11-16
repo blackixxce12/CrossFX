@@ -43,8 +43,8 @@
 
 use crate::assets::{AssetCache, FxImage};
 use crate::theme::{FxColor, Palette};
-use egui::{CornerRadius, Id, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 use crossfx_core::ThemeMode;
+use egui::{CornerRadius, Id, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 
 /// `FxTheme::SLIDER_THUMB_RADIUS`.
 pub const THUMB_RADIUS: f32 = 8.0;

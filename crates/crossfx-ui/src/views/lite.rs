@@ -46,9 +46,9 @@ use crate::layout;
 use crate::state::{UiAction, UiResponse, UiState};
 use crate::theme::{FxColor, Palette};
 use crate::views::{self, ViewScratch, at, titlebar, window_origin, window_rect};
+use crossfx_core::ViewMode;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{CornerRadius, CursorIcon, Id, Pos2, Rect, Sense, Ui, pos2, vec2};
-use crossfx_core::ViewMode;
 
 /// The notice strip's JUCE font height: the readout strip's size, a point up.
 pub const NOTICE_FONT_PX: f32 = 12.0;
@@ -181,8 +181,8 @@ mod tests {
     use crate::theme;
     use crate::views::testing::{Harness, painted_bounds, text_below, texts};
     use crate::widgets::combo;
-    use egui::{Event, RawInput};
     use crossfx_core::{AudioDevice, DeviceDirection, ThemeMode};
+    use egui::{Event, RawInput};
 
     fn state() -> UiState {
         UiState {

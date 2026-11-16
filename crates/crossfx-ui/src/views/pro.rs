@@ -49,12 +49,12 @@ use crate::views::{
 use crate::widgets::icon_button;
 use crate::widgets::slider::Fidelity;
 use crate::widgets::{EqualizerWidget, FxSlider, IconButton, VisualizerWidget};
+use crossfx_core::i18n::tr;
+use crossfx_core::{Effect, ViewMode, WindowsLook, scale};
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align, Align2, Color32, CornerRadius, CursorIcon, Id, Rect, Sense, Ui, Vec2, pos2, vec2,
 };
-use crossfx_core::i18n::tr;
-use crossfx_core::{Effect, ViewMode, WindowsLook, scale};
 
 /// The effect captions' JUCE height: `getNormalFont().withHeight(14.0f)`
 /// (`FxAudioControls.cpp:104`).
@@ -1000,8 +1000,8 @@ mod tests {
     use crate::state::PresetEntry;
     use crate::views::testing::{Harness, outline_of, text_below, texts};
     use crate::widgets::{combo, slider};
-    use egui::{Event, PointerButton, Pos2, RawInput};
     use crossfx_core::{AudioDevice, DeviceDirection, ThemeMode};
+    use egui::{Event, PointerButton, Pos2, RawInput};
 
     fn column() -> Rect {
         layout::pro::audio_controls()

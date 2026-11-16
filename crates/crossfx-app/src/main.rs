@@ -108,7 +108,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use clap::Parser as _;
-use eframe::egui;
 #[cfg(target_os = "linux")]
 use crossfx_app::dbus::{self, DbusHandle};
 use crossfx_app::{
@@ -141,6 +140,7 @@ use crossfx_ui::{
     views::ViewScratch,
     widgets::combo,
 };
+use eframe::egui;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -4563,8 +4563,8 @@ mod forget_device_tests {
 #[cfg(test)]
 mod popup_tests {
     use super::*;
-    use egui::{Pos2, RawInput, Rect, vec2};
     use crossfx_core::i18n::{Catalogue, LANGUAGES};
+    use egui::{Pos2, RawInput, Rect, vec2};
 
     fn context() -> egui::Context {
         let ctx = egui::Context::default();

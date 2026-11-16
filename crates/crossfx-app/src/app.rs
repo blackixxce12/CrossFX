@@ -9297,8 +9297,8 @@ mod tests {
 
         /// Ctrl+Alt and the button down on `band`'s thumb, and held there from then on.
         fn solo(&mut self, app: &mut App, band: usize) {
-            use eframe::egui::{Event, PointerButton, pos2};
             use crossfx_ui::widgets::equalizer::EqLayout;
+            use eframe::egui::{Event, PointerButton, pos2};
             let layout = EqLayout::new(app.state.eq_bands.len());
             let at = crossfx_ui::layout::pro::equalizer().min
                 + pos2(
@@ -9457,8 +9457,8 @@ mod tests {
         // FA: the test above holds the pointer still. Dragged a little first — an edit, as a
         // drag during a solo is — the press went on writing the pointer's gain into the same
         // band of the preset, the ladder or the lane that came from outside meanwhile.
-        use eframe::egui::{Event, pos2};
         use crossfx_ui::widgets::equalizer::EqLayout;
+        use eframe::egui::{Event, pos2};
         type Outside = (&'static str, fn(&mut App));
         let outside: [Outside; 3] = [
             ("a preset from the tray", |app| {

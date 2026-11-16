@@ -1807,10 +1807,10 @@ mod tests {
 
     #[test]
     fn every_language_fits_each_reason_in_its_two_lines_and_each_setting_on_its_line() {
-        use eframe::egui;
         use crossfx_core::i18n::{Catalogue, LANGUAGES};
         use crossfx_ui::dialogs::calibration::{failure_rect, line_rect, wizard};
         use crossfx_ui::dialogs::{content_rect, small_font};
+        use eframe::egui;
 
         // The English keys, as `Failure::text` passes them to `tr`; each numeric line at its
         // widest value, and the noise-suppression line at every level below.

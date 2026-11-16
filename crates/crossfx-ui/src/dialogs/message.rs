@@ -35,12 +35,12 @@
 use super::{ChromeResponse, DialogChrome, NORMAL_FONT, TextButton};
 use crate::assets::AssetCache;
 use crate::theme::{self, FxColor, Palette};
+use crossfx_core::i18n::tr;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align, Align2, Color32, Context, Galley, Id, Pos2, Rect, Sense, TextFormat, Ui, Vec2, pos2,
     vec2,
 };
-use crossfx_core::i18n::tr;
 use std::sync::Arc;
 
 // =============================================================================================

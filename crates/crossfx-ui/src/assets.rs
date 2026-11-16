@@ -8,8 +8,8 @@
 //! the exact size a control needs — including the compositor's fractional scale — costs nothing
 //! extra and looks correct at any scale, which a bundled PNG would not.
 
-use egui::{Color32, ColorImage, Context, TextureHandle, TextureOptions};
 use crossfx_core::ThemeMode;
+use egui::{Color32, ColorImage, Context, TextureHandle, TextureOptions};
 use std::collections::HashMap;
 
 /// The named images, in `FxTheme.h`'s `FxImage` order.

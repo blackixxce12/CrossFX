@@ -30,8 +30,8 @@ use super::{
 };
 use crate::assets::AssetCache;
 use crate::theme::{FxColor, Palette};
-use egui::{Align2, CornerRadius, Id, Key, Mesh, Rect, Shape, Ui, Vec2, pos2, vec2};
 use crossfx_core::i18n::tr;
+use egui::{Align2, CornerRadius, Id, Key, Mesh, Rect, Shape, Ui, Vec2, pos2, vec2};
 
 // =============================================================================================
 // The view model
@@ -832,8 +832,8 @@ fn paint_level_bar(ui: &Ui, rect: Rect, palette: Palette, fill: f32) {
 mod tests {
     use super::super::tests::{frame, test_context};
     use super::*;
-    use egui::{Event, PointerButton, RawInput};
     use crossfx_core::ThemeMode;
+    use egui::{Event, PointerButton, RawInput};
 
     fn content(view: &CalibrationView) -> Rect {
         Rect::from_min_size(

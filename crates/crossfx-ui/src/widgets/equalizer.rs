@@ -80,11 +80,11 @@ use crate::assets::{AssetCache, FxImage};
 use crate::state::{EqSolo, UiAction, UiResponse, UiState};
 use crate::theme::{self, FxColor, Palette};
 use crate::widgets::slider;
+use crossfx_core::i18n::tr;
+use crossfx_core::{ThemeMode, WindowsLook};
 use egui::{
     Align2, Color32, CornerRadius, Id, Mesh, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, pos2, vec2,
 };
-use crossfx_core::i18n::tr;
-use crossfx_core::{ThemeMode, WindowsLook};
 
 // ---------------------------------------------------------------------------------------------
 // Constants, all from FxEqualizer.h:96-105 and FxTheme.h:44-45
@@ -2816,8 +2816,8 @@ mod tests {
     mod in_the_window {
         use super::*;
         use crate::views::testing::{Harness, texts};
-        use egui::{Event, Modifiers, PointerButton};
         use crossfx_core::ThemeMode;
+        use egui::{Event, Modifiers, PointerButton};
 
         const CTRL_ALT: Modifiers = Modifiers {
             alt: true,

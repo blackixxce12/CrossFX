@@ -10,8 +10,8 @@
 //! name.
 
 use crate::theme;
-use egui::{Color32, Galley, Painter, Pos2, Rect, pos2};
 use crossfx_core::identity::PRODUCT;
+use egui::{Color32, Galley, Painter, Pos2, Rect, pos2};
 use std::sync::Arc;
 
 /// How tall the letters stand, as a share of the box's height: as the logotype's letters stood in

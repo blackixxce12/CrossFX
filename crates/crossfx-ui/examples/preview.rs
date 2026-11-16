@@ -42,7 +42,6 @@
 //! microphone, so resting the pointer on the Pro window's preset list shows the edit direction's
 //! routed applications.
 
-use eframe::egui;
 use crossfx_core::{AppKey, AudioDevice, DeviceDirection, ThemeMode, ViewMode, WindowsParity};
 use crossfx_ui::dialogs::settings::DevicePriority;
 use crossfx_ui::dialogs::{
@@ -50,6 +49,7 @@ use crossfx_ui::dialogs::{
 };
 use crossfx_ui::state::{PresetEntry, RoutedApp};
 use crossfx_ui::{AssetCache, Palette, UiAction, UiState, ViewScratch, theme, views, window_size};
+use eframe::egui;
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();

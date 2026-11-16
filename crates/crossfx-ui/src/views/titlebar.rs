@@ -44,11 +44,11 @@ use crate::theme::{FxColor, Palette};
 use crate::views::{ViewScratch, at, window_origin, window_size};
 use crate::widgets::icon_button::{self, IconButton};
 use crate::widgets::{PowerButton, wordmark};
+use crossfx_core::ViewMode;
+use crossfx_core::i18n::tr;
 use egui::{
     Color32, CornerRadius, CursorIcon, Id, Painter, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2,
 };
-use crossfx_core::ViewMode;
-use crossfx_core::i18n::tr;
 
 /// `FxWindow::CLOSE_BUTTON_WIDTH` (`FxWindow.h:45`) — the ✕ is a 15 point square.
 pub const CLOSE_SIZE: f32 = 15.0;
@@ -446,8 +446,8 @@ mod tests {
     use super::*;
     use crate::state::PresetEntry;
     use crate::theme;
-    use egui::{Event, PointerButton, Pos2, RawInput, pos2};
     use crossfx_core::ThemeMode;
+    use egui::{Event, PointerButton, Pos2, RawInput, pos2};
 
     fn state(view: ViewMode) -> UiState {
         UiState {

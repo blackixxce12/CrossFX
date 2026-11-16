@@ -17,7 +17,6 @@
 //! ranks, each with its voice preset or none), `--exit-after-paint`. Keys while it runs: `W` opens
 //! or closes the wizard, `P` steps it to its next phase, `T` flips the palette, `Esc` quits.
 
-use eframe::egui;
 use crossfx_core::settings::CalibrationRecord;
 use crossfx_core::{DeviceDirection, Settings, ThemeMode, i18n};
 use crossfx_ui::dialogs::settings::DevicePriority;
@@ -26,6 +25,7 @@ use crossfx_ui::dialogs::{
     NavIcons, SettingsAction, SettingsDialog, SettingsState, SettingsTab, settings,
 };
 use crossfx_ui::{AssetCache, Palette, theme};
+use eframe::egui;
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();

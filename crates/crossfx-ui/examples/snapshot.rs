@@ -25,8 +25,6 @@
 //! The files are named `<window>-<lang>-<face>.png`: `pro`, `lite` and `settings-<tab>` for each
 //! tab, and `settings-general-gilroy-missing` for the explanation the General pane gives then.
 
-use egui::epaint::{ClippedPrimitive, Primitive};
-use egui::{Color32, Pos2, RawInput, Rect, TextureId, Vec2, pos2};
 use crossfx_core::{
     AppKey, AudioDevice, DeviceDirection, InterfaceFont, Platform, ThemeMode, ViewMode,
     WindowsParity,
@@ -38,6 +36,8 @@ use crossfx_ui::dialogs::settings::{
 use crossfx_ui::state::PresetEntry;
 use crossfx_ui::typeface::{self, FaceReading, GilroyFaces};
 use crossfx_ui::{AssetCache, Palette, UiState, ViewScratch, views};
+use egui::epaint::{ClippedPrimitive, Primitive};
+use egui::{Color32, Pos2, RawInput, Rect, TextureId, Vec2, pos2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

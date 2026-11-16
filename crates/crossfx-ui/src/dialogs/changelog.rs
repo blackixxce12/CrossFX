@@ -6,8 +6,8 @@
 //! text is Markdown of the Keep-a-Changelog kind and is rendered with the four things such a file
 //! actually uses — headings, bullets, emphasis and links — rather than with a Markdown engine.
 
-use egui::{Id, Key, Rect, RichText, ScrollArea, Ui, UiBuilder, Vec2, vec2};
 use crossfx_core::i18n::tr;
+use egui::{Id, Key, Rect, RichText, ScrollArea, Ui, UiBuilder, Vec2, vec2};
 
 use super::{ChromeResponse, DialogChrome, DialogResponse};
 use crate::{AssetCache, FxColor, Palette, theme};

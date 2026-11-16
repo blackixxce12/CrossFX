@@ -67,13 +67,13 @@ use crate::theme::{FxColor, Palette};
 use crate::widgets::FxComboBox;
 use crate::widgets::icon_button::{self, IconButton};
 use crate::widgets::slider::{self, FxSlider};
-use egui::{
-    Align2, Color32, Context, CornerRadius, CursorIcon, Id, Key, Rect, Sense, Stroke, StrokeKind,
-    TextureHandle, TextureOptions, Ui, UiBuilder, Vec2, pos2, vec2,
-};
 use crossfx_core::{
     AppKey, DeEsserMode, DenoiseChannelsOverride, DereverbLevel, DeviceDirection, InterfaceFont,
     NoiseSuppressionOverride, ParityClass, Platform, Settings, WindowsLook, WindowsParity,
+};
+use egui::{
+    Align2, Color32, Context, CornerRadius, CursorIcon, Id, Key, Rect, Sense, Stroke, StrokeKind,
+    TextureHandle, TextureOptions, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use std::collections::HashMap;
 

@@ -6,8 +6,8 @@
 //! transparency say so explicitly — exactly as the C++ does.
 
 use crate::typeface::Weight;
-use egui::{Color32, CornerRadius, FontDefinitions, FontId, Stroke, Visuals};
 use crossfx_core::ThemeMode;
+use egui::{Color32, CornerRadius, FontDefinitions, FontId, Stroke, Visuals};
 
 /// Every named colour in the original theme, in `FxColor` order.
 ///

@@ -57,8 +57,8 @@
 //! top of its own, installs it again the moment any of it changes. A context whose fonts were set
 //! some other way, as a test sets its own, is left as it is.
 
-use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use crossfx_core::InterfaceFont;
+use egui::{FontData, FontDefinitions, FontFamily, FontTweak};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 
 /// Font family names registered with egui.

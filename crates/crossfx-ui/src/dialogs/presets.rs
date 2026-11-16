@@ -37,12 +37,12 @@ use super::{
 };
 use crate::assets::AssetCache;
 use crate::theme::{FxColor, Palette};
+use crossfx_core::DeviceDirection;
+use crossfx_core::i18n::tr;
 use egui::{
     Align2, CornerRadius, Id, Key, Mesh, Rect, Sense, Shape, Stroke, StrokeKind, Ui, UiBuilder,
     Vec2, pos2, vec2,
 };
-use crossfx_core::DeviceDirection;
-use crossfx_core::i18n::tr;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 

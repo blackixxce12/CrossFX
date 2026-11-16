@@ -27,8 +27,8 @@
 
 use crate::assets::{AssetCache, FxImage, NUM_IMAGES};
 use crate::theme::{self, FxColor, Palette};
-use egui::{Color32, CursorIcon, Id, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 use crossfx_core::ThemeMode;
+use egui::{Color32, CursorIcon, Id, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 
 /// `DrawableButton::edgeIndent`, the inset applied before the artwork is fitted.
 pub const EDGE_INDENT: f32 = 3.0;

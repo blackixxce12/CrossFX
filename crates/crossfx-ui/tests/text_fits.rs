@@ -22,8 +22,6 @@
 //! The language is the process's (`crossfx_core::i18n::set_language`), which is why this is a
 //! test binary of its own, its tests taking turns at [`LANGUAGE`].
 
-use egui::epaint::ClippedShape;
-use egui::{Event, PointerButton, Pos2, RawInput, Rect, Shape, Vec2, pos2};
 use crossfx_core::i18n::{self, LANGUAGES};
 use crossfx_core::{
     AppKey, AudioDevice, DeviceDirection, InterfaceFont, Platform, Settings, ThemeMode, ViewMode,
@@ -35,6 +33,8 @@ use crossfx_ui::dialogs::settings::{
 };
 use crossfx_ui::state::PresetEntry;
 use crossfx_ui::{AssetCache, Palette, UiState, ViewScratch, layout, typeface, views};
+use egui::epaint::ClippedShape;
+use egui::{Event, PointerButton, Pos2, RawInput, Rect, Shape, Vec2, pos2};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// The process's language, one test at a time.
