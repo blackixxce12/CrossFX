@@ -183,13 +183,13 @@ jobs:
           runuser -u tester -- rustc --version
           runuser -u tester -- cargo --version
 
-      # As in the job above: no session bus, no session PipeWire; every test that needs a daemon
-      # starts a private one and takes it down with it. The click measurements run in the next
       # Every target's crates, for the comparison CROSSFX_CHECK_NOTICES=1 turns on, as in the job
       # above.
       - name: Crates of every target
         run: runuser -u tester -- cargo fetch --locked
 
+      # As in the job above: no session bus, no session PipeWire; every test that needs a daemon
+      # starts a private one and takes it down with it. The click measurements run in the next
       # step instead, one at a time.
       - name: Tests
         run: runuser -u tester -- cargo test --workspace -- --skip graph_churn::clicks::under_a_steady_tone
