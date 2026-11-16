@@ -11,7 +11,7 @@
 //! |---|---|---|
 //! | [`open_url`], [`open_folder`] | `xdg-open` | `ShellExecuteW` (`win::shell`) |
 //! | [`autostart_enabled`], [`set_autostart`] | `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` ([`AUTOSTART_ENTRY`]) | `HKCU\…\Run`, `CrossFX` (`win::autostart`) |
-//! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the display language, as `LANG` (`win::language`) |
+//! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the first preferred language, as `LANG` (`win::language`) |
 //! | [`attach_parent_console`], [`release_terminal`], [`on_the_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
 
 use std::io::Write;
@@ -187,12 +187,13 @@ fn set_autostart_entry_in(config: &Path, enabled: bool) -> std::io::Result<()> {
 }
 
 /// The desktop's language, where the interface's "the system's language" reads it: on Windows the
-/// user's display language, put in `LANG` for this process unless `LC_ALL`, `LC_MESSAGES` or
-/// `LANG` says otherwise already (`win::language`). A no-op on Linux, whose session says it in
-/// those itself. First thing in `main`, before anything reads them.
+/// first of the user's preferred languages that has a table (Windows' rule for apps), put in
+/// `LANG` for this process unless `LC_ALL`, `LC_MESSAGES` or `LANG` says otherwise already
+/// (`win::language`). A no-op on Linux, whose session says it in those itself. First thing in
+/// `main`, before anything reads them.
 pub fn adopt_desktop_language() {
     #[cfg(windows)]
-    crate::win::language::adopt_display_language();
+    crate::win::language::adopt_preferred_language();
 }
 
 /// Attach to the console of the process that started this one, when there is one: a release
