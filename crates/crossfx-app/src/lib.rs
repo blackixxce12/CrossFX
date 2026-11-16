@@ -30,6 +30,7 @@ pub mod commands;
 pub mod dbus;
 pub mod events;
 pub mod fonts;
+pub mod icon;
 pub mod ipc;
 pub mod notify;
 pub mod platform;

@@ -1076,15 +1076,21 @@ fn native_options(view: ViewMode) -> eframe::NativeOptions {
 
 /// CrossFX's icon on the window, for its taskbar button and Alt+Tab. A desktop on Linux finds the
 /// icon through the app id above; Windows takes it from the window itself, and eframe puts egui's
-/// own logo there when it is given none. The same picture the Linux packages install as the
-/// application icon, at 256 px, which eframe scales to the sizes Windows asks for.
+/// own logo there when it is given none. eframe makes the window's big and small icons by scaling
+/// the one picture it is given, so it is given the big one, drawn at that size from the drawing
+/// meant for that size (`crossfx_app::icon`): the big icon, the taskbar's, is then the drawing
+/// itself, and the small one is scaled from it rather than from a 256-pixel picture.
 #[cfg(windows)]
 fn with_windows_icon(viewport: egui::ViewportBuilder) -> egui::ViewportBuilder {
-    const ICON_PNG: &[u8] = include_bytes!("../../../assets/images/fxsound_large.png");
-    match eframe::icon_data::from_png_bytes(ICON_PNG) {
-        Ok(icon) => viewport.with_icon(Arc::new(icon)),
-        Err(err) => {
-            log::warn!("the window keeps eframe's icon: CrossFX's could not be read ({err})");
+    let size = crossfx_app::win::big_icon_size();
+    match crossfx_app::icon::rgba(size) {
+        Some(rgba) => viewport.with_icon(Arc::new(egui::IconData {
+            rgba,
+            width: size,
+            height: size,
+        })),
+        None => {
+            log::warn!("the window keeps eframe's icon: CrossFX's could not be drawn at {size} px");
             viewport
         }
     }
@@ -5039,14 +5045,25 @@ mod windows_icon_tests {
     use super::*;
 
     #[test]
-    fn the_window_carries_crossfx_own_icon_rather_than_eframes() {
+    fn the_window_carries_crossfx_own_icon_drawn_at_the_big_icon_size() {
         let options = native_options(ViewMode::Pro);
         let icon = options.viewport.icon.expect("an icon of CrossFX's own");
-        assert_eq!((icon.width, icon.height), (256, 256));
-        assert_eq!(icon.rgba.len(), 256 * 256 * 4);
+        // The taskbar's size at this machine's DPI, drawn there from the drawing for that size
+        // rather than scaled from another.
+        let size = crossfx_app::win::big_icon_size();
+        assert_eq!((icon.width, icon.height), (size, size));
+        assert_eq!(
+            Some(&icon.rgba),
+            crossfx_app::icon::rgba(size).as_ref(),
+            "the icon drawn at {size} px"
+        );
         assert!(
             icon.rgba.chunks(4).any(|pixel| pixel[3] == 255),
             "something opaque is drawn"
+        );
+        assert_eq!(
+            icon.rgba[3], 0,
+            "the tile's rounded corner leaves the corner clear"
         );
     }
 }

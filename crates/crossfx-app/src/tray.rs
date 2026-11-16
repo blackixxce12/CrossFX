@@ -260,8 +260,9 @@ pub fn rasterise_png(svg: &[u8], size: u32) -> Option<Vec<u8>> {
     render(svg, size)?.encode_png().ok()
 }
 
-/// `svg` drawn into a `size` × `size` square, centred and scaled to fit without distortion.
-fn render(svg: &[u8], size: u32) -> Option<tiny_skia::Pixmap> {
+/// `svg` drawn into a `size` × `size` square, centred and scaled to fit without distortion: the
+/// tray's icons and the application's (`crate::icon`).
+pub(crate) fn render(svg: &[u8], size: u32) -> Option<tiny_skia::Pixmap> {
     let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).ok()?;
     let (width, height) = (tree.size().width(), tree.size().height());
     if width <= 0.0 || height <= 0.0 {

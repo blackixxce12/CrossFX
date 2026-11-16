@@ -51,8 +51,8 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HANDLE, WAIT_EVENT, WAIT_OBJECT_0, WAIT_TIMEOUT, WIN32_ERROR};
 use windows::Win32::System::Threading::{CreateEventW, ResetEvent, SetEvent};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE,
-    PeekMessageW, QS_ALLINPUT, TranslateMessage, WM_QUIT,
+    DispatchMessageW, GetSystemMetrics, MSG, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx,
+    PM_REMOVE, PeekMessageW, QS_ALLINPUT, SM_CXICON, TranslateMessage, WM_QUIT,
 };
 use windows::core::HRESULT;
 
@@ -95,6 +95,20 @@ pub(crate) fn millis(timeout: Option<Duration>) -> u32 {
         // `u32::MAX` is `INFINITE`; a finite wait stops just short of it.
         u32::try_from(ms).unwrap_or(u32::MAX - 1).min(u32::MAX - 1)
     })
+}
+
+/// The side of a window's big icon at the system's DPI (`SM_CXICON`), in pixels: 32 at 100 %, 48
+/// at 150 %. The taskbar shows a window at this size, and eframe draws the window's two icons from
+/// the one picture it is given at this size and at the small icon's.
+#[must_use]
+pub fn big_icon_size() -> u32 {
+    // SAFETY: a plain query. The process is per-monitor DPI aware (its manifest), so the size is
+    // the system DPI's, as eframe reads it.
+    let size = unsafe { GetSystemMetrics(SM_CXICON) };
+    u32::try_from(size)
+        .ok()
+        .filter(|&size| size > 0)
+        .unwrap_or(32)
 }
 
 /// An event object: a waitable flag, here for overlapped I/O and for the headless pump's

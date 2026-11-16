@@ -2,8 +2,9 @@
 //! manifest. Every other target builds exactly as it did before this script existed.
 //!
 //! * The icon is what Explorer, Start and the installers' shortcuts show for the executable;
-//!   without it they show Windows' blank default. `assets/windows/crossfx.ico`, made from
-//!   `assets/images/fxsound_large.png` by `packaging/windows/make-icon.ps1`.
+//!   without it they show Windows' blank default. `assets/windows/crossfx.ico`, CrossFX's icon
+//!   drawn at every size Windows asks for from `assets/icons/apps/crossfx.svg` and its small cut
+//!   by `examples/icons.rs`.
 //! * The version information is the Details tab of the file's properties, and its
 //!   `FileDescription` is the name Task Manager lists the process under. It says "CrossFX" and
 //!   CrossFX's contributors, never FxSound LLC's product name, because the original FxSound may
