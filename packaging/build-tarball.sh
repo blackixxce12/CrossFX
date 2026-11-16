@@ -227,10 +227,10 @@ login_defs() {
 
 # The uids of people's accounts start at UID_MIN of /etc/login.defs (1000 when it names none) and
 # have no end: UID_MAX (60000 by default) only bounds what useradd hands out, and the accounts a
-# directory service gives people — SSSD's mapping of Active Directory from 200000 on, FreeIPA's
-# ranges above a billion — and systemd-homed's, from 60001, lie above it. Two ids up there are
-# nobody's: 65534 and 4294967294, the overflow ids an owner the kernel or NFS cannot map shows as,
-# and the uids of nobody and nfsnobody.
+# directory service gives people — SSSD's mapping of Active Directory from 200000 on, a FreeIPA
+# domain's range of 200000 ids anywhere up to two billion — and systemd-homed's, from 60001, lie
+# above it. Two ids up there are nobody's: 65534 and 4294967294, the overflow ids an owner the
+# kernel or NFS cannot map shows as, and the uids of nobody and nfsnobody.
 uid_min="$(login_defs UID_MIN 1000)"
 
 # Whether the uid $1, a number, is of an account the system gives a person.

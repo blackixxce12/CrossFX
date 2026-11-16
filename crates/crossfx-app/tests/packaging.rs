@@ -1514,13 +1514,13 @@ fn install_sh_run_as_root_refuses_a_folder_that_belongs_to_a_persons_account() {
 }
 
 /// (l) A directory service gives people uids far above `UID_MAX`, 60000 by default — SSSD's
-/// mapping of Active Directory from 200000 on, FreeIPA's ranges above a billion — and
-/// systemd-homed from 60001. Run as root with nobody to go by, such an account's home is kept
-/// clear all the same, whether the password database lists it or only answers for its uid and
-/// the folder belongs to it, and the voice preset the user tuned under its factory name stays
-/// theirs. The two overflow ids up there, 65534 and 4294967294 — `nobody`, `nfsnobody`, an owner
-/// the kernel or NFS cannot map — are nobody's: a home or a folder of theirs is no reason to
-/// refuse.
+/// mapping of Active Directory from 200000 on, a FreeIPA domain's range of 200000 ids anywhere up
+/// to two billion — and systemd-homed from 60001. Run as root with nobody to go by, such an
+/// account's home is kept clear all the same, whether the password database lists it or only
+/// answers for its uid and the folder belongs to it, and the voice preset the user tuned under its
+/// factory name stays theirs. The two overflow ids up there, 65534 and 4294967294 — `nobody`,
+/// `nfsnobody`, an owner the kernel or NFS cannot map — are nobody's: a home or a folder of
+/// theirs is no reason to refuse.
 #[test]
 fn install_sh_run_as_root_keeps_clear_the_homes_of_uids_above_uid_max_but_not_nobodys() {
     let installer = Installer::new("install-high-uid");
