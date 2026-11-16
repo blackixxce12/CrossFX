@@ -254,11 +254,11 @@ pub fn remap_curve(old_centres: &[Real], old_gains: &[Real], new_count: usize) -
 
 /// The gains a preset's curve takes on the user's live band ladder.
 ///
-/// The port of `DfxDspPrivate::getGraphicEqInfoFromVals` (`DfxDspEq.cpp:127-247`, upstream
+/// The port of `DfxDspPrivate::getGraphicEqInfoFromVals` (`DfxDspEq.cpp:127-247`, the original's
 /// 38e3343, f3d9f23, 12003f0), which is why a user on thirty-one bands who picks a ten-band factory
 /// preset stays on thirty-one bands:
 ///
-/// - **Different band counts:** the live ladder is kept and only the gains move. The upstream
+/// - **Different band counts:** the live ladder is kept and only the gains move. The original's
 ///   comment explains why the frequencies are not carried across too: carrying centres across
 ///   counts "produced incorrect/overlapping ranges". The gains, though, are read *by frequency*
 ///   from the preset's own centres, where the original reads them by position (**changed on

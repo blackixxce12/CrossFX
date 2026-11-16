@@ -94,9 +94,9 @@ use crate::LANE_CHANNELS as CHANNELS;
 use crate::per_direction::PerDirection;
 use crate::{DEFAULT_SAMPLE_RATE, MAX_CHANNELS, MAX_QUANTUM_FRAMES, MIN_CHANNELS};
 
-/// How long a new pair takes to rise from silence to its volume: inside the 20–50 ms the
-/// upstream review asked for, long enough that a first sound is not a click and short enough to
-/// be over before a listener could call it a fade.
+/// How long a new pair takes to rise from silence to its volume: inside the 20–50 ms the review
+/// of the original's changes asked for, long enough that a first sound is not a click and short
+/// enough to be over before a listener could call it a fade.
 pub(crate) const FADE_IN_SECONDS: f32 = 0.03;
 
 /// How long a mute takes to fade the lane out, and an unmute to fade it back in: the 20 ms every
