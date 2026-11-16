@@ -21,9 +21,7 @@ use std::path::{Path, PathBuf};
 /// The files of `assets/images` that are the original's: FxSound LLC's interface artwork, taken
 /// across from `fxsound/Images` in its repository (`docs/spec/13-assets.md`). Every other image in
 /// the folder is one CrossFX drew to match, which the Licence section names.
-const ORIGINAL_IMAGES: [&str; 62] = [
-    "Button_OFF.svg",
-    "Button_ON.svg",
+const ORIGINAL_IMAGES: [&str; 56] = [
     "Slider_Thumb.svg",
     "Slider_Thumb_blue.svg",
     "Slider_Thumb_bw.svg",
@@ -41,9 +39,6 @@ const ORIGINAL_IMAGES: [&str; 62] = [
     "arrow_up_black.svg",
     "arrow_up_blue.svg",
     "arrow_up_white.svg",
-    "button-depressed.svg",
-    "button-hover.svg",
-    "button-normal.svg",
     "donate.svg",
     "donate_blue.svg",
     "donate_hover.svg",
@@ -51,7 +46,6 @@ const ORIGINAL_IMAGES: [&str; 62] = [
     "dropdown_arrow_bw.svg",
     "dropdown_arrow_hover.svg",
     "dropdown_arrow_hover_blue.svg",
-    "equalizer.svg",
     "flip.svg",
     "flip_black.svg",
     "flip_blue.svg",
@@ -455,5 +449,45 @@ fn debian_copyright_gives_the_artwork_the_holders_the_readme_gives_it() {
         wrong.is_empty(),
         "debian/copyright gives this artwork to the wrong holders:\n{}",
         wrong.join("\n")
+    );
+}
+
+/// Every `.rs` file under `dir`, read into one string.
+fn rust_sources(dir: &Path, into: &mut String) {
+    for entry in fs::read_dir(dir).expect("the directory is listed") {
+        let path = entry.expect("an entry").path();
+        if path.is_dir() {
+            rust_sources(&path, into);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            into.push_str(&fs::read_to_string(&path).unwrap_or_default());
+        }
+    }
+}
+
+/// The tree ships no artwork nothing uses: each image of `assets/images` is named by the source
+/// of one of the crates (the interface embeds them with `include_bytes!`), so that the original's
+/// button states and equalizer glyph, which CrossFX never drew with, are not carried for nothing.
+#[test]
+fn every_image_in_assets_images_is_used_by_the_source() {
+    let mut source = String::new();
+    for crate_dir in fs::read_dir(repo().join("crates")).expect("crates is listed") {
+        let src = crate_dir.expect("an entry").path().join("src");
+        if src.is_dir() {
+            rust_sources(&src, &mut source);
+        }
+    }
+    let unused: Vec<String> = artwork()
+        .iter()
+        .filter_map(|path| path.strip_prefix("assets/images/"))
+        .filter(|name| {
+            name.ends_with(".svg")
+                && !(source.contains(&format!("\"{name}\""))
+                    || source.contains(&format!("/{name}\"")))
+        })
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "assets/images holds images no crate refers to; remove them: {unused:?}"
     );
 }
