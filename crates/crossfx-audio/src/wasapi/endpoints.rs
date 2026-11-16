@@ -481,16 +481,24 @@ pub(crate) fn one_headset(output: &Endpoint, input: &Endpoint) -> bool {
 }
 
 impl crate::InstalledCables {
-    /// What `endpoints` hold: a VB-Audio cable on either side of one, as
-    /// [`Endpoint::virtual_kind`] tells it from its adapter's name.
+    /// What `endpoints` hold, as [`Endpoint::virtual_kind`] tells it from the adapter's name: a
+    /// cable on either side of one ([`VirtualKind::is_cable`]), and every playback endpoint with
+    /// whether it is a virtual device at all.
     pub(crate) fn among(endpoints: &[Endpoint]) -> Self {
         Self {
-            vb_audio: endpoints.iter().any(|endpoint| {
-                matches!(
-                    endpoint.virtual_kind(),
-                    Some(VirtualKind::VbCable | VirtualKind::VbAudioCable)
-                )
-            }),
+            cable: endpoints
+                .iter()
+                .any(|endpoint| endpoint.virtual_kind().is_some_and(VirtualKind::is_cable)),
+            playback: endpoints
+                .iter()
+                .filter(|endpoint| endpoint.direction == DeviceDirection::Output)
+                .map(|endpoint| {
+                    (
+                        endpoint.label().to_owned(),
+                        endpoint.virtual_kind().is_some(),
+                    )
+                })
+                .collect(),
         }
     }
 }
@@ -1203,25 +1211,46 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_vb_audio_cable_is_found_on_either_side_and_no_other_virtual_device_counts() {
-        let found = |endpoints: &[Endpoint]| crate::InstalledCables::among(endpoints).vb_audio;
+    fn any_cable_is_found_on_either_side_and_the_fxsound_driver_is_no_cable() {
+        let found = |endpoints: &[Endpoint]| crate::InstalledCables::among(endpoints).cable;
         assert!(!found(&[]));
-        assert!(!found(&[speakers(), microphone(), fxsound()]));
-        let line = virtual_endpoint(
-            "line1",
-            OUT,
-            "Line 1 (Virtual Audio Cable)",
-            "Line 1",
-            "Virtual Audio Cable",
-        );
         assert!(
-            !found(&[speakers(), line]),
-            "Virtual Audio Cable is not VB-Audio's"
+            !found(&[speakers(), microphone(), fxsound()]),
+            "the original's driver has no recording side for the microphone lane"
         );
+        assert!(found(&[speakers(), virtual_audio_cable()]));
         let [playback, recording] = cable();
         assert!(found(&[speakers(), playback]));
         assert!(found(&[microphone(), recording]));
         assert!(found(&cable_a()));
         assert!(found(&cable_2()));
+    }
+
+    #[test]
+    fn every_playback_endpoint_is_listed_with_whether_the_output_lane_can_stand_on_it() {
+        let [playback, recording] = cable();
+        let cables = crate::InstalledCables::among(&[
+            speakers(),
+            microphone(),
+            fxsound(),
+            virtual_audio_cable(),
+            playback,
+            recording,
+        ]);
+        let virtual_ones: Vec<bool> = cables.playback.iter().map(|(_, is)| *is).collect();
+        assert_eq!(virtual_ones, [false, true, true, true]);
+        assert_eq!(cables.playback[0].0, speakers().label());
+        assert_eq!(cables.playback[2].0, "Line 1 (Virtual Audio Cable)");
+    }
+
+    /// Virtual Audio Cable's first line, Eugene Muzychenko's cable: a cable, not VB-Audio's.
+    fn virtual_audio_cable() -> Endpoint {
+        virtual_endpoint(
+            "line1",
+            OUT,
+            "Line 1 (Virtual Audio Cable)",
+            "Line 1",
+            "Virtual Audio Cable",
+        )
     }
 }

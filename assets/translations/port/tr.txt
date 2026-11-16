@@ -158,3 +158,4 @@ countries: tr
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE, VB-Audio'nun bağış usulü bir yazılımıdır ve onu kendiniz yüklersiniz (yönetici hakları gerekir; Windows yeniden başlatma isteyebilir). CrossFX'in bir parçası değildir."
 "The Windows audio service is not available" = "Windows ses hizmeti kullanılamıyor"
 "Open/Close CrossFX" = "CrossFX'i Aç/Kapat"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Ayarlar dosyası başka bir program tarafından kullanılıyordu: CrossFX varsayılan ayarlarla başladı ve değişikliklerinizi bu dosyaya kaydedecek"

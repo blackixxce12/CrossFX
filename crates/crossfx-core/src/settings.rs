@@ -667,8 +667,9 @@ impl Settings {
     /// someone removes it.
     ///
     /// A file another program holds open on Windows is neither ([`crate::held`]): it is waited
-    /// for a moment, and when it is still held it is left where it is, the defaults are used, and
-    /// no save replaces it until a later load has read it.
+    /// for a moment, and when it is still held it is left where it is and the defaults are used.
+    /// A save then writes only what changed since into it, once it can be read
+    /// ([`Settings::save_to`]).
     #[must_use]
     pub fn load_from(path: &Path) -> Self {
         let text = match crate::held::read_to_string(path) {
@@ -682,11 +683,15 @@ impl Settings {
             }
             Err(err) if crate::held::is_held(&err) => {
                 log::warn!(
-                    "{}: {err}; using defaults, and not saving over it until it can be read",
+                    "{}: {err}; using defaults, and saving only what changes into it once it \
+                     can be read",
                     path.display()
                 );
-                crate::held::left_unread(path);
-                return Self::sanitised_default();
+                let defaults = Self::sanitised_default();
+                if let Ok(text) = toml::to_string_pretty(&defaults) {
+                    crate::held::left_unread(path, &text);
+                }
+                return defaults;
             }
             // Not only EISDIR: Windows refuses to open any directory as a file with "access
             // denied", and Unix one this user may not read with EACCES. Both are PermissionDenied,
@@ -774,15 +779,25 @@ impl Settings {
 
     /// [`Settings::save`] to an explicit path — the seam the round-trip tests use.
     pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
-        // A file the load found held is the user's, whole; these are the defaults.
-        crate::held::refuse_if_unread(path)?;
         // Never write out a value the loader would have to repair; a `nan` in this file is
         // indistinguishable from one the user typed.
         let mut checked = self.clone();
         checked.sanitise();
-        let text = toml::to_string_pretty(&checked)
+        let ours = toml::to_string_pretty(&checked)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        crate::atomic::write(path, text.as_bytes())
+        // A file the load found held is the user's, whole, and these started as the defaults:
+        // only what changed since is written into it ([`crate::held::merge`]).
+        let Some(merged) = crate::held::merge_if_unread(path, &ours)? else {
+            return crate::atomic::write(path, ours.as_bytes());
+        };
+        let mut merged: Self = toml::from_str(&merged)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        merged.sanitise();
+        let text = toml::to_string_pretty(&merged)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        crate::atomic::write(path, text.as_bytes())?;
+        crate::held::merged(path, &ours);
+        Ok(())
     }
 
     /// Force the DSP fields into the ranges the controls enforce.

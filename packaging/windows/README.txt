@@ -5,8 +5,11 @@ CrossFX is the FxSound audio enhancer, ported to Rust: the equalizer, the effect
 factory presets of the original FxSound for everything Windows plays. It is made by the CrossFX
 contributors and is not FxSound LLC's FxSound; the two can be installed side by side.
 
-CrossFX needs a virtual playback device, which it does not install: the FxSound Audio Enhancer
-driver that comes with the original FxSound, or VB-CABLE.
+CrossFX needs a virtual playback device, which it does not install: VB-Audio's VB-CABLE
+(https://vb-audio.com/Cable/, donationware that you install yourself) or another virtual cable,
+or the FxSound Audio Enhancer driver that comes with the original FxSound. While the original
+FxSound runs, CrossFX leaves the speakers to it: it neither processes their sound nor changes the
+default playback device.
 
 What is in this folder
 
@@ -22,7 +25,7 @@ What is in this folder
   README.txt        this file
 
 The setup program and the .msi install CrossFX into Program Files, and only there, for every
-account on the computer; it is removed from the list of installed apps in Windows Settings.
+account on the computer; it can be uninstalled from the list of installed apps in Windows Settings.
 The .zip needs no installation: unpack it into a folder of your own, such as one in your user
 folder (%LOCALAPPDATA%\Programs), and run crossfx.exe, keeping the presets folder beside it. Not
 into a folder other accounts can change, as they can any new folder directly on C:\: whoever
@@ -42,7 +45,11 @@ CrossFX — это программа для улучшения звука FxSou
 один компьютер.
 
 Для работы CrossFX нужно виртуальное устройство воспроизведения, которое программа не
-устанавливает сама: драйвер FxSound Audio Enhancer из оригинального FxSound или VB-CABLE.
+устанавливает сама: VB-CABLE от VB-Audio (https://vb-audio.com/Cable/; распространяется за
+добровольные пожертвования, устанавливаете его вы сами), другой виртуальный кабель или драйвер
+FxSound Audio Enhancer из оригинального FxSound. Пока работает оригинальный FxSound, CrossFX
+уступает ему динамики: не обрабатывает их звук и не меняет устройство воспроизведения
+по умолчанию.
 
 Содержимое этой папки
 

@@ -154,6 +154,7 @@ countries: ba
 "No virtual playback device: install VB-CABLE" = "Nema virtuelnog uređaja za reprodukciju: instalirajte VB-CABLE"
 "No virtual cable left for the microphone: install one" = "Nije preostao virtuelni kabl za mikrofon: instalirajte ga"
 "The virtual cable is in use: choose another device or add a cable" = "Virtuelni kabl je zauzet: odaberite drugi uređaj ili dodajte kabl"
-"Get VB-CABLE…" = "Preuzmi VB-CABLE…"
+"Get VB-CABLE…" = "Nabavite VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE je donationware kompanije VB-Audio koji instalirate sami (potrebna su administratorska prava; Windows može tražiti ponovno pokretanje). Nije dio CrossFX-a."
 "The Windows audio service is not available" = "Audio servis Windowsa nije dostupan"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Datoteku postavki koristio je drugi program: CrossFX je pokrenut sa zadanim postavkama i sačuvat će vaše promjene u nju"

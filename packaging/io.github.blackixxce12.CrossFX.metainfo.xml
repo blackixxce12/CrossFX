@@ -70,10 +70,10 @@
         <p>
           CrossFX, the FxSound Linux port under a new name and with a Windows version beside
           this one. It has an icon of its own and no longer ships the Gilroy font (Manrope is
-          the default; the interface uses a Gilroy you bought and import), and every bundled
-          component's licence notice is installed. Settings and data of 0.x are not carried
-          over; the command, the packages, the D-Bus name and the application id are all
-          CrossFX's now.
+          the default; the interface uses a Gilroy you bought and import), and the licence
+          notices of RNNoise and of the fonts built into it are installed. Settings and data of
+          0.x are not carried over; the command, the packages, the D-Bus name and the
+          application id are all CrossFX's now.
         </p>
       </description>
       <url>https://github.com/blackixxce12/CrossFX/blob/main/CHANGELOG.md</url>

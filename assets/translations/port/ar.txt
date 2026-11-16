@@ -156,6 +156,7 @@ countries: EG sa
 "No virtual playback device: install VB-CABLE" = "لا يوجد جهاز تشغيل افتراضي: ثبّت VB-CABLE"
 "No virtual cable left for the microphone: install one" = "لم يتبقَّ كبل ظاهري للميكروفون: ثبّت كبلًا"
 "The virtual cable is in use: choose another device or add a cable" = "الكبل الظاهري مستخدم: اختر جهازًا آخر أو أضف كبلًا"
-"Get VB-CABLE…" = "تنزيل VB-CABLE…"
+"Get VB-CABLE…" = "الحصول على VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE برنامج تبرعات من VB-Audio تثبّته بنفسك (يلزم حساب مسؤول، وقد يطلب Windows إعادة التشغيل). وهو ليس جزءًا من CrossFX."
 "The Windows audio service is not available" = "خدمة الصوت في Windows غير متاحة"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "كان ملف الإعدادات قيد الاستخدام من برنامج آخر: بدأ CrossFX بالإعدادات الافتراضية وسيحفظ تغييراتك فيه"

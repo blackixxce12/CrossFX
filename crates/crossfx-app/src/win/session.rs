@@ -61,7 +61,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
-    GENERIC_READ, GENERIC_WRITE, HANDLE, HWND, LPARAM, LRESULT, WPARAM,
+    CompareObjectHandles, GENERIC_READ, GENERIC_WRITE, HANDLE, HWND, LPARAM, LRESULT, WPARAM,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_PIPE,
@@ -247,17 +247,27 @@ pub fn release_borrowed_console() -> Relays {
     {
         CONSOLE_STREAMS.store(let_go_of_the_console(Vec::new()), Ordering::SeqCst);
     }
-    Relays(
-        [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]
-            .into_iter()
-            .filter_map(relay_if_a_pipe)
-            .collect(),
-    )
+    let mut relays: Vec<Relay> = Vec::new();
+    for which in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // `2>&1 |`: the error is the pipe the output is. One relay carries both, so that what
+        // is written to the two reaches the pipe in the order it was written, as it did before.
+        if let Some(shared) = relays.iter_mut().find(|relay| {
+            // SAFETY: this process's own standard handle, and a plain query on it.
+            unsafe { GetStdHandle(which) }
+                .is_ok_and(|handle| !handle.is_invalid() && same_object(relay.original, handle))
+        }) {
+            shared.share(which);
+        } else if let Some(relay) = relay_if_a_pipe(which) {
+            relays.push(relay);
+        }
+    }
+    Relays(relays)
 }
 
 /// The standard output and error of the running CrossFX that are pipes — `crossfx 2>&1 |
 /// findstr preset`, a launcher reading its log — each given a pipe of CrossFX's own, which a
-/// thread copies into the one it was started with (`relay`).
+/// thread copies into the one it was started with (`relay`). An output and an error that are one
+/// pipe share one relay, so that their lines keep the order they were written in.
 ///
 /// A write into a pipe whose reader has gone fails, and Rust's `eprintln!` panics on a failed
 /// write: the `tray-icon` crate writes one line to the standard error whenever Windows does not
@@ -267,16 +277,17 @@ pub fn release_borrowed_console() -> Relays {
 /// write into it fails; what reaches the relay once the reader has gone is dropped.
 ///
 /// Dropped, the relays put the standard handles back, let their threads pass on what is still in
-/// their pipes, and wait for that a moment (`RELAY_DRAIN`): the last lines of the way out are
-/// not lost to the process ending first.
+/// their pipes, and wait for that a moment (`RELAY_DRAIN`, for all of them together): the last
+/// lines of the way out are not lost to the process ending first.
 #[must_use = "the relays are put away when dropped"]
 pub struct Relays(Vec<Relay>);
 
 /// One of [`Relays`].
 struct Relay {
-    /// The standard handle relayed.
-    which: STD_HANDLE,
-    /// The handle CrossFX was started with, as an address: the relay's thread writes to it.
+    /// The standard handles relayed, each with the handle CrossFX was started with for it, as an
+    /// address: one, or the output and the error when they are one pipe.
+    which: Vec<(STD_HANDLE, isize)>,
+    /// The first of those handles: the relay's thread writes to it.
     original: isize,
     /// The write end of CrossFX's own pipe, the standard handle while the relay stands.
     write: Option<std::io::PipeWriter>,
@@ -286,25 +297,59 @@ struct Relay {
     done: std::sync::mpsc::Receiver<()>,
 }
 
-/// How long dropping the [`Relays`] waits for each to pass on what is still in its pipe.
+impl Relay {
+    /// Point the standard handle `which` at this relay's pipe as well: it was started with a
+    /// handle to the pipe this relay writes to ([`same_object`]). Left as it was when that fails.
+    fn share(&mut self, which: STD_HANDLE) {
+        let Some(write) = &self.write else { return };
+        // SAFETY: this process's own standard handle, and a plain query on it.
+        let Ok(original) = (unsafe { GetStdHandle(which) }) else {
+            return;
+        };
+        // SAFETY: this process's own standard handle, set to a handle it owns for as long as the
+        // relay stands.
+        if unsafe { SetStdHandle(which, HANDLE(write.as_raw_handle())) }.is_ok() {
+            self.which.push((which, original.0 as isize));
+        }
+    }
+}
+
+/// Whether `handle` and `original` (an address) are handles to one object: `2>&1` gives the error
+/// a duplicate of the output's handle, which is another number for the same pipe.
+fn same_object(original: isize, handle: HANDLE) -> bool {
+    // SAFETY: two handles this process has open; the call only compares what they refer to.
+    unsafe { CompareObjectHandles(HANDLE(original as *mut _), handle) }.as_bool()
+}
+
+/// How long dropping the [`Relays`] waits for them all to pass on what is still in their pipes.
 const RELAY_DRAIN: Duration = Duration::from_secs(1);
 
 impl Drop for Relays {
     fn drop(&mut self) {
         for relay in &mut self.0 {
-            // Back to the handle CrossFX was started with, unless its reader is gone: then to no
-            // handle, which Rust's standard streams take as a write that went through.
-            let back = if relay.broken.load(Ordering::SeqCst) {
-                HANDLE::default()
-            } else {
-                HANDLE(relay.original as *mut _)
-            };
-            // SAFETY: this process's own standard handle, set to one it was started with and
-            // still has open, or to none.
-            let _ = unsafe { SetStdHandle(relay.which, back) };
+            let broken = relay.broken.load(Ordering::SeqCst);
+            for &(which, original) in &relay.which {
+                // Back to the handle CrossFX was started with, unless its reader is gone: then to
+                // no handle, which Rust's standard streams take as a write that went through.
+                let back = if broken {
+                    HANDLE::default()
+                } else {
+                    HANDLE(original as *mut _)
+                };
+                // SAFETY: this process's own standard handle, set to one it was started with and
+                // still has open, or to none.
+                let _ = unsafe { SetStdHandle(which, back) };
+            }
             // The thread reads to the end of what is in the pipe, and then ends.
             drop(relay.write.take());
-            let _ = relay.done.recv_timeout(RELAY_DRAIN);
+        }
+        // All of them drain at once, against one deadline: a reader that has stopped reading
+        // holds up the way out once, not once per relay.
+        let deadline = Instant::now() + RELAY_DRAIN;
+        for relay in &self.0 {
+            let _ = relay
+                .done
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()));
         }
     }
 }
@@ -324,7 +369,7 @@ fn relay_if_a_pipe(which: STD_HANDLE) -> Option<Relay> {
     // relay stands; on failure the write end goes, and the thread with it.
     unsafe { SetStdHandle(which, HANDLE(write.as_raw_handle())) }.ok()?;
     Some(Relay {
-        which,
+        which: vec![(which, original)],
         original,
         write: Some(write),
         broken,
@@ -841,6 +886,20 @@ mod tests {
         done.recv_timeout(Duration::from_secs(5))
             .expect("the relay ended");
         assert!(broken.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn an_error_sent_where_the_output_goes_is_told_from_another_pipe() {
+        // `2>&1`: the error is a duplicate of the output's handle, another number for one pipe,
+        // and the two share one relay; a pipe of its own, `2>&1` absent, is another.
+        let (_reader, output) = std::io::pipe().unwrap();
+        let duplicate = output.try_clone().unwrap();
+        let (_other_reader, other) = std::io::pipe().unwrap();
+        let original = output.as_raw_handle() as isize;
+        assert_ne!(original, duplicate.as_raw_handle() as isize);
+        assert!(same_object(original, HANDLE(duplicate.as_raw_handle())));
+        assert!(same_object(original, HANDLE(output.as_raw_handle())));
+        assert!(!same_object(original, HANDLE(other.as_raw_handle())));
     }
 
     fn send(termination: &Termination, message: u32, wparam: usize) -> LRESULT {

@@ -157,3 +157,4 @@ countries: fi
 "Get VB-CABLE…" = "Hae VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE on VB-Audion lahjoitusohjelma, jonka asennat itse (tarvitaan järjestelmänvalvojan oikeudet; Windows voi pyytää uudelleenkäynnistystä). Se ei ole osa CrossFX:ää."
 "The Windows audio service is not available" = "Windowsin äänipalvelu ei ole käytettävissä"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Toinen ohjelma käytti asetustiedostoa: CrossFX käynnistyi oletusasetuksilla ja tallentaa muutoksesi tiedostoon"

@@ -546,7 +546,8 @@ pub struct Cli {
                     control pipe",
             long_help = "Check the installation and exit: presets, settings, both processing \
                          chains offline, whether the Windows audio service runs, whether a \
-                         virtual playback device (the FxSound driver's, or VB-CABLE's) is there \
+                         virtual playback device (VB-CABLE, another virtual cable, or the \
+                         original FxSound's driver) is there \
                          to stand in front of the speakers with, and whether the control pipe \
                          is in use or can be made.\n\n\
                          A CrossFX addition. It runs in this process before the control \

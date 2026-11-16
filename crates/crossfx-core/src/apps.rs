@@ -390,8 +390,9 @@ impl AppRules {
     /// ([`AppRules::sanitise`]).
     ///
     /// A store another program holds open on Windows is neither ([`crate::held`]): it is waited
-    /// for a moment, and when it is still held it is left where it is, the store starts empty,
-    /// and no save replaces it until a later load has read it.
+    /// for a moment, and when it is still held it is left where it is and the store starts empty.
+    /// A save then writes the entries made since into it, once it can be read
+    /// ([`AppRules::save_to`]).
     #[must_use]
     pub fn load_from(path: &Path) -> Self {
         let text = match crate::held::read_to_string(path) {
@@ -405,12 +406,15 @@ impl AppRules {
             }
             Err(err) if crate::held::is_held(&err) => {
                 log::warn!(
-                    "{}: {err}; no per-application presets, and not saving over it until it \
-                     can be read",
+                    "{}: {err}; no per-application presets until the next start, and the \
+                     entries made meanwhile are saved into it once it can be read",
                     path.display()
                 );
-                crate::held::left_unread(path);
-                return Self::default();
+                let empty = Self::default();
+                if let Ok(text) = toml::to_string_pretty(&empty) {
+                    crate::held::left_unread(path, &text);
+                }
+                return empty;
             }
             // Not only EISDIR: Windows refuses to open any directory as a file with "access
             // denied", and Unix one this user may not read with EACCES. Both are PermissionDenied,
@@ -480,13 +484,24 @@ impl AppRules {
     /// needed: an interrupted save leaves the previous file whole. What is written is sanitised
     /// first, so the file never holds an entry the loader would have to drop.
     pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
-        // A store the load found held is the user's, whole; this one started empty.
-        crate::held::refuse_if_unread(path)?;
         let mut checked = self.clone();
         checked.sanitise();
-        let text = toml::to_string_pretty(&checked)
+        let ours = toml::to_string_pretty(&checked)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        crate::atomic::write(path, text.as_bytes())
+        // A store the load found held is the user's, whole, and this one started empty: the
+        // entries made since go in first, beside the user's ([`crate::held::merge`]), so where
+        // both name one application the newer entry is the one the sanitising keeps.
+        let Some(merged) = crate::held::merge_if_unread(path, &ours)? else {
+            return crate::atomic::write(path, ours.as_bytes());
+        };
+        let mut merged: Self = toml::from_str(&merged)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        merged.sanitise();
+        let text = toml::to_string_pretty(&merged)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        crate::atomic::write(path, text.as_bytes())?;
+        crate::held::merged(path, &ours);
+        Ok(())
     }
 
     /// Drop what no lookup could ever answer with, and keep to [`MAX_REMEMBERED_APPS`].

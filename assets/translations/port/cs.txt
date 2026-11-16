@@ -154,6 +154,7 @@ countries: cz
 "No virtual playback device: install VB-CABLE" = "Chybí virtuální přehrávací zařízení: nainstalujte VB-CABLE"
 "No virtual cable left for the microphone: install one" = "Pro mikrofon nezbyl žádný virtuální kabel: nainstalujte další"
 "The virtual cable is in use: choose another device or add a cable" = "Virtuální kabel je obsazen: zvolte jiné zařízení nebo přidejte kabel"
-"Get VB-CABLE…" = "Stáhnout VB-CABLE…"
+"Get VB-CABLE…" = "Získat VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE je donationware od VB-Audio, který si nainstalujete sami (potřebujete práva správce; Windows může požádat o restart). Není součástí CrossFX."
 "The Windows audio service is not available" = "Zvuková služba Windows není k dispozici"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Soubor s nastavením používal jiný program: CrossFX se spustil s výchozím nastavením a vaše změny do něj uloží"

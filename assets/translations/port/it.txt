@@ -158,6 +158,7 @@ countries: it
 "No virtual playback device: install VB-CABLE" = "Nessun dispositivo di riproduzione virtuale: installa VB-CABLE"
 "No virtual cable left for the microphone: install one" = "Non resta alcun cavo virtuale per il microfono: installane uno"
 "The virtual cable is in use: choose another device or add a cable" = "Il cavo virtuale è occupato: scegli un altro dispositivo o aggiungi un cavo"
-"Get VB-CABLE…" = "Scarica VB-CABLE…"
+"Get VB-CABLE…" = "Ottieni VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE è un donationware di VB-Audio che installi tu (servono i diritti di amministratore; Windows può chiedere un riavvio). Non fa parte di CrossFX."
 "The Windows audio service is not available" = "Il servizio audio di Windows non è disponibile"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Il file delle impostazioni era in uso da parte di un altro programma: CrossFX è partito con le impostazioni predefinite e vi salverà le tue modifiche"

@@ -264,10 +264,11 @@ writes the processed voice; its recording side is what applications record from)
 microphone and the speakers do not share one.
 
 With no virtual device on the machine CrossFX processes nothing, and says so in the window, which
-offers a **Get VB-CABLE…** button. It opens VB-Audio's own page, <https://vb-audio.com/Cable/>, in
-your browser. You download and install VB-CABLE there yourself, under VB-Audio's terms: CrossFX
-does not bundle, download or install it. When you have installed it, CrossFX picks it up without
-a restart.
+offers a **Get VB-CABLE…** button; Settings ▸ Audio offers it too for as long as no virtual cable
+is installed (the original FxSound's driver is no cable: the microphone lane cannot use it). It
+opens VB-Audio's own page, <https://vb-audio.com/Cable/>, in your browser. You download and
+install VB-CABLE there yourself, under VB-Audio's terms: CrossFX does not bundle, download or
+install it. When you have installed it, CrossFX picks it up without a restart.
 
 A cable you install can take over the default devices on its own, because Windows offers a new
 device every role. CrossFX does not take that for your choice: it puts such a default back where it
@@ -317,7 +318,8 @@ CrossFX neither ships nor downloads. If you have bought Gilroy, choose it in Set
 "Interface font": add the font files there (CrossFX copies them into its own folder: `fonts`
 beside the settings on Windows, `~/.local/share/crossfx/fonts` on Linux), or install Gilroy in the
 system and CrossFX finds it in the system's font folders. Until the files are found the interface
-stays in Manrope. CrossFX does not say where to get Gilroy: buy it from a seller licensed to sell it.
+stays in Manrope, and Settings shows a **Buy Gilroy** button that opens the typeface's page on
+MyFonts, where it is sold; CrossFX itself neither ships nor downloads the font files.
 
 ## Running under Hyprland
 
