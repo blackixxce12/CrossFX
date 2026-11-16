@@ -2657,20 +2657,23 @@ impl App {
     /// toast.
     fn set_edit_direction(&mut self, direction: DeviceDirection) -> bool {
         // A hidden microphone has no chain to show.
-        if direction == DeviceDirection::Input && self.microphone_hidden() {
+        // While it is hidden the speakers are the only lane, not a choice: the saved key is kept,
+        // so turning the microphone back on finds the window where it was
+        // ([`Settings::edit_direction`]).
+        let hidden = self.microphone_hidden();
+        if direction == DeviceDirection::Input && hidden {
             return false;
         }
+        let record = !hidden && self.settings.device_direction != direction;
+        if record {
+            self.settings.set_edit_direction(direction);
+            self.settings_dirty = true;
+        }
         if direction == self.state.direction {
-            if self.settings.device_direction != direction {
-                self.settings.set_edit_direction(direction);
-                self.settings_dirty = true;
-            }
             return false;
         }
         // The window's solo was on the lane it no longer shows.
         self.end_solo();
-        self.settings.set_edit_direction(direction);
-        self.settings_dirty = true;
         self.show_lane(direction);
         self.note_direction();
         true
@@ -5156,7 +5159,8 @@ impl App {
     /// microphone's lane comes up as `input_enabled` and its saved device say, as at a start;
     /// turned off, a lane that runs stops and hands the recording default back, as `Off` does,
     /// while the settings keep the lane's key for the next time. A window on the microphone goes
-    /// to the speakers. On Linux the setting is stored and changes nothing.
+    /// to the speakers, and the saved edit direction stays, so turned back on the window returns
+    /// to the microphone. On Linux the setting is stored and changes nothing.
     pub fn set_windows_microphone(&mut self, on: bool) {
         let was_hidden = self.microphone_hidden();
         self.settings.windows_microphone = on;
@@ -5178,6 +5182,8 @@ impl App {
             for message in self.saved_devices_for_engine() {
                 self.send(message);
             }
+            // The window goes back to the lane the file keeps, as it was before it was hidden.
+            self.set_edit_direction(self.settings.edit_direction());
         }
         self.show_lane_selections();
         self.tray_stale = true;
@@ -9472,6 +9478,8 @@ mod tests {
         assert_eq!(app.microphone_hidden(), hidden);
         assert_eq!(app.state.microphone_hidden, hidden);
         assert_eq!(app.tray_state().microphone_hidden, hidden);
+        // The window is on the speakers, but the file's key is kept for when it is turned on.
+        assert_eq!(app.settings().device_direction, IN);
         app.receive(AudioToUi::Devices(vec![
             device(HEADPHONES, OUT, true),
             device(MIC, IN, true),
@@ -9510,6 +9518,8 @@ mod tests {
             assert!(!app.state.microphone_hidden);
             assert!(app.settings().lane_enabled(IN));
             assert!(app.settings().windows_microphone);
+            // ... and the window is back on the microphone, where the file left it.
+            assert_eq!(app.state.direction, IN);
         }
         // Turned off: a lane that runs stops and hands the recording default back, as `Off`
         // does, while the file keeps it on for the next time. On Linux nothing changes.
@@ -9525,6 +9535,7 @@ mod tests {
         assert_eq!(app.state.microphone_hidden, hidden);
         if hidden {
             assert_eq!(app.state.direction, OUT);
+            assert_eq!(app.settings().device_direction, IN, "the key is kept");
             let status = crate::commands::status_document(&app);
             assert!(status.input.hidden && !status.input.lane.enabled);
             // Nothing the engine says about the lane afterwards brings it back.

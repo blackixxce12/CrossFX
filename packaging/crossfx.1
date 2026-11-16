@@ -1566,14 +1566,14 @@ CrossFX does not cancel echo there yet: in a call the other person may hear
 themselves, even with headphones. Until Settings \(-> Experimental \(->
 Microphone processing is turned on, CrossFX does not capture the microphone or
 take a cable for it, the window and the tray show no microphone,
-.B \-\-status
-reports the input lane as hidden, and
+.B "\-\-status \-\-json"
+reports the input lane as hidden and not enabled, and a command line with
 .BR \-\-input ,
 .BR \-\-next\-input ,
 .B \-\-edit=input
-and
+or
 .B \-\-noise\-suppression
-are refused.
+is refused whole.
 .PP
 While the original FxSound (FxSound.exe) runs, the output lane stands aside: it
 takes no default and processes nothing, and says why. CrossFX never reads or

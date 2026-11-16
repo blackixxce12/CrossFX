@@ -467,12 +467,18 @@ pub(crate) fn lane_combos(
         (DeviceDirection::Output, "output_list"),
         (DeviceDirection::Input, "input_list"),
     ] {
-        // A hidden microphone has no picker: the speakers' stands alone, as in the original.
+        // A hidden microphone has no picker: the speakers' takes both halves, the original's
+        // single list.
         if direction == DeviceDirection::Input && state.microphone_hidden {
             continue;
         }
         let menu = DeviceMenu::lane(state, direction);
-        let rect = at(origin, layout::pro::device_combo(direction));
+        let rect = if state.microphone_hidden {
+            layout::pro::output_combo_alone()
+        } else {
+            layout::pro::device_combo(direction)
+        };
+        let rect = at(origin, rect);
         let edited = state.direction == direction;
         let box_response = menu.show(ui, state, palette, assets, rect, edited, id_salt, response);
         let switch = UiAction::SetEditDirection(direction);
@@ -1109,7 +1115,22 @@ mod tests {
                 !hidden,
                 "{painted:?}"
             );
+
+            // Alone, the speakers' picker spans both halves, as the original's one list did: the
+            // microphone's half opens the speakers' list, which offers "Speakers" (not selected,
+            // so painted only in the open list).
+            harness.click(&state, crate::layout::pro::input_combo().center());
+            let open = testing::texts(&harness.settle(&state));
+            assert_eq!(
+                open.iter().any(|(text, _, _)| text == "Speakers"),
+                hidden,
+                "{open:?}"
+            );
         }
+        assert_eq!(
+            crate::layout::pro::output_combo_alone(),
+            crate::layout::pro::output_combo().union(crate::layout::pro::input_combo())
+        );
     }
 
     #[test]

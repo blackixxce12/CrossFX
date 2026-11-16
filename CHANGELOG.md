@@ -37,7 +37,9 @@ that comes with the name, are below.
   on Windows yet, so in a call the other person could hear themselves, even with headphones, and
   a preset with gain such as "Noisy Room" could howl. Until **Settings > Experimental >
   Microphone processing** is turned on, CrossFX does not capture the microphone or take a cable
-  for it, and the window, the tray, Settings and `--status` show no microphone; turned off again,
+  for it, the window, the tray and Settings show no microphone, `--status --json` reports the
+  input lane as `"hidden": true` and not enabled, and a command line that names the microphone is
+  refused whole; turned off again,
   the lane stops and gives the recording default back, with no restart. Linux is unchanged.
 - **CrossFX stands aside while the original FxSound runs.** Both programs would take the same
   default device from each other, so while `FxSound.exe` runs the output lane neither takes the

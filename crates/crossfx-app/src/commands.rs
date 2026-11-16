@@ -98,7 +98,15 @@ impl Outcome {
 }
 
 /// Execute a whole command line against the controller.
+///
+/// While the microphone is hidden ([`App::microphone_hidden`]) a line with any command about the
+/// microphone is refused whole, before anything on it runs: the preset, band and gain commands
+/// after `--edit=input` act on whichever lane the window edits, and with the microphone refused
+/// that would be the speakers'.
 pub fn run(app: &mut App, commands: &[Command]) -> Outcome {
+    if app.microphone_hidden() && commands.iter().any(targets_the_microphone) {
+        return Outcome::refused(MICROPHONE_HIDDEN);
+    }
     let mut outcome = Outcome::default();
     for command in commands {
         let one = run_one(app, command);
@@ -172,11 +180,6 @@ fn targets_the_microphone(command: &Command) -> bool {
 
 fn run_one(app: &mut App, command: &Command) -> Outcome {
     let mut outcome = Outcome::default();
-
-    // A hidden microphone is not there to be set: the command says so, and nothing changes.
-    if targets_the_microphone(command) && app.microphone_hidden() {
-        return Outcome::refused(MICROPHONE_HIDDEN);
-    }
 
     match command {
         Command::Status { json } => {
@@ -5168,6 +5171,29 @@ mod tests {
         }
         // The speakers' side is still there to be set.
         assert!(!run_line(&mut a, &["--edit=output"]).failed);
+
+        // A line that edits the microphone is refused whole: the preset commands after
+        // `--edit=input` would otherwise land on the speakers' lane, which the window still edits.
+        if hidden {
+            for line in [
+                &["--edit=input", "--next-preset"][..],
+                &["--edit=input", "--save_preset=Voice"][..],
+                &["--edit=input", "--delete_preset"][..],
+            ] {
+                let before = a.settings().clone();
+                let preset = a.state.preset().map(|p| p.name.clone());
+                let outcome = run_line(&mut a, line);
+                assert!(outcome.failed, "{line:?}");
+                assert_eq!(outcome.stderr, MICROPHONE_HIDDEN, "{line:?}");
+                assert_eq!(a.settings(), &before, "{line:?} changed nothing");
+                assert_eq!(a.state.direction, DeviceDirection::Output, "{line:?}");
+                assert_eq!(
+                    a.state.preset().map(|p| p.name.clone()),
+                    preset,
+                    "{line:?} left the speakers' preset alone"
+                );
+            }
+        }
 
         // Allowed again, the microphone is back and its commands with it.
         a.set_windows_microphone(true);

@@ -153,6 +153,13 @@ pub mod pro {
         }
     }
 
+    /// The speakers' picker while the microphone is hidden: both halves, the original's single
+    /// 470-point list (`FxProView.h:47`).
+    #[must_use]
+    pub fn output_combo_alone() -> Rect {
+        output_combo().union(input_combo())
+    }
+
     /// Spectrum visualizer (`FxVisualizer.h:51-52`).
     #[must_use]
     pub fn visualizer() -> Rect {
