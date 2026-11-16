@@ -11,7 +11,7 @@
 .\"
 .\" Copyright (C) 2026 CrossFX contributors
 .\" Licensed under the GNU Affero General Public License, version 3 or later.
-.TH CROSSFX 1 "2026-09-30" "crossfx 0.5.0" "User Commands"
+.TH CROSSFX 1 "2026-11-17" "crossfx 1.0.0" "User Commands"
 .SH NAME
 crossfx \- system-wide audio enhancement for PipeWire
 .SH SYNOPSIS
@@ -414,6 +414,11 @@ and so is a locale such as
 .BR ru_RU.UTF\-8 .
 A language CrossFX has no translation for is an error, not a setting that
 quietly shows another language.
+On Windows,
+.B system
+follows the user's list of preferred languages, not merely the display language: the first one
+CrossFX has a table for (see
+.BR WINDOWS ).
 .TP
 .BI \-\-windows\-parity= off|interface|sound
 \(lqLike the original FxSound LLC\(rq, the slider in Settings \(-> Experimental,
@@ -1533,6 +1538,79 @@ or an equivalent, the sink appears in the graph and nothing moves onto it.
 The preset import and export dialogs are XDG portal calls. They need a portal
 backend that implements the file chooser (the GTK, GNOME or KDE one);
 wlroots' own backend does not.
+.SH WINDOWS
+This page is written for Linux. CrossFX also runs on Windows 10 and 11, as
+.BR crossfx.exe ,
+with the same options and the same window; the differences follow.
+.PP
+Windows has no PipeWire. CrossFX processes the sound that reaches a
+.I virtual playback device
+that is already installed: VB-Audio's VB-CABLE or another virtual cable, or the
+\(lqFxSound Speakers\(rq device of the original FxSound's driver. CrossFX ships
+no driver and does not install, download or bundle VB-CABLE, which is
+VB-Audio's donationware. It makes that device the default of the playback roles
+while the output lane runs, captures it, and plays the result on the device
+chosen with
+.BR \-\-output ;
+it gives each default back when the lane stops, on Exit, and at the end of the
+Windows session. The microphone lane writes to the playback side of a second
+cable and applications record from its recording side. With no virtual device
+the lane processes nothing and the window says so, and offers
+\(lqGet VB-CABLE\(el\(rq, which opens
+.UR https://vb-audio.com/Cable/
+VB-Audio's page
+.UE .
+.PP
+While the original FxSound (FxSound.exe) runs, the output lane stands aside: it
+takes no default and processes nothing, and says why. CrossFX never reads or
+changes the original's files, settings, driver or start-up entry.
+.PP
+A running instance is reached over the named pipe
+.IR \e\e.\epipe\ecrossfx\-<user\ SID> ,
+which only the user's account can open; it is the single-instance lock and
+carries every option, including
+.BR \-\-status ,
+.B \-\-watch
+and
+.BR \-\-self\-test ,
+whose probes are the audio service and the playback endpoints. There is no D-Bus
+interface, no echo cancellation, no per-application preset
+.RB ( \-\-app\-preset
+and the other application options are accepted, but nothing is routed), no
+WirePlumber script and no compositor. The shortcut targets
+.RB ( \-\-toggle\-power ,
+.BR \-\-next\-preset ,
+.BR \-\-prev\-preset ,
+.BR \-\-next\-output ,
+.BR \-\-toggle\-window )
+are commands for whatever tool binds a key to one: a shortcut's Shortcut key,
+PowerToys, AutoHotkey.
+.PP
+Settings, the applications' file and the user's own presets are in
+.IR %APPDATA%\eCrossFX ,
+fonts added in Settings in
+.IR %APPDATA%\eCrossFX\efonts ,
+and what CrossFX keeps for this machine alone in
+.IR %LOCALAPPDATA%\eCrossFX .
+\(lqLaunch on system startup\(rq is the value
+.B CrossFX
+under
+.IR HKCU\eSoftware\eMicrosoft\eWindows\eCurrentVersion\eRun .
+.PP
+The interface language (\c
+.B \-\-language=system
+and the default) is the first language in the user's list of preferred
+languages for which CrossFX has a translation table, which is Windows' own rule
+for an application, and not merely the display language. A
+.BR LC_ALL ,
+.B LC_MESSAGES
+or
+.B LANG
+that is set in the environment is taken first, as on Linux.
+.PP
+What each Linux feature is on Windows is in
+.I docs/1.0.0\-windows\-port.md
+in the source tree.
 .SH SEE ALSO
 .BR pipewire (1),
 .BR wireplumber (1),
