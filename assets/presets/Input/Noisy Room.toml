@@ -10,7 +10,6 @@
 # the same idea one octave up.
 name = "Noisy Room"
 description = "An open room with a fan or traffic in it: the denoiser at full strength, then a gate that only hears the voice."
-rnnoise = true
 highpass_hz = 120.0
 highpass_order = 4
 makeup_db = 7.0

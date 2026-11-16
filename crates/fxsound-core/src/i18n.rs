@@ -500,7 +500,7 @@ where
 
 /// Map one POSIX locale string (`ru_RU.UTF-8`, `pt_BR`, `zh_TW.utf8@…`) to a table code.
 ///
-/// The Windows codes are not all ISO 639, so a few are spelled out: Ukrainian is `uk` on Linux
+/// The original's codes are not all ISO 639, so a few are spelled out: Ukrainian is `uk` on Linux
 /// and `ua` here, Bosnian `bs`/`ba`, Norwegian `nb`/`nn`/`no`. Portuguese and Chinese pick their
 /// variant from the region. Anything with no table yields `None` so the next variable can try.
 #[must_use]
@@ -571,7 +571,8 @@ mod tests {
         ours.sort_unstable();
         windows.sort_unstable();
         assert_eq!(windows, ours);
-        // Russian is where the Windows switch has it, twenty-one presses on from English.
+        // Russian is where the original's language switch has it, twenty-one presses on from
+        // English.
         assert_eq!(
             WINDOWS_ORDER.iter().position(|code| *code == "ru"),
             Some(21)
@@ -684,7 +685,8 @@ mod tests {
     #[test]
     fn the_port_repairs_the_windows_words_the_new_readouts_show() {
         // The readout strip and the tray show `on`/`off`, and the tray and the notifications put
-        // a device after `"Output: "` — three places where a Windows table's slip used to show.
+        // a device after `"Output: "` — three places where a slip of one of the original's tables
+        // used to show.
         let get = |code: &str, key: &str| {
             Catalogue::for_language(language(code).expect(code))
                 .get(key)
@@ -886,10 +888,11 @@ mod tests {
         let (original, port) = (ru.original_catalogue(), ru.port_catalogue());
         // Two layers, each with strings the other has not: the original's, and CrossFX's
         // own and its repairs. Not which is the longer: CrossFX's own strings outnumber the
-        // original's since the interface font's and the Windows mode's came.
+        // original's since the strings of the interface font and of «Like the original FxSound LLC»
+        // came.
         assert!(original.keys().any(|key| port.get(key).is_none()));
         assert!(port.keys().any(|key| original.get(key).is_none()));
-        // The port wins where both have a string: Windows' Russian says "with Windows".
+        // The port wins where both have a string: the original's Russian says "with Windows".
         assert_ne!(
             original.get("Launch on system startup"),
             port.get("Launch on system startup")
@@ -1160,8 +1163,8 @@ mod tests {
 
     #[test]
     fn after_english_the_languages_are_in_the_order_of_their_own_names() {
-        // 0.4.0 audit #28: the Windows order (`FxLanguage.cpp:25`) followed neither the codes nor
-        // the names.
+        // 0.4.0 audit #28: the original's order (`FxLanguage.cpp:25`) followed neither the codes
+        // nor the names.
         let rest = &LANGUAGES[1..];
         for pair in rest.windows(2) {
             assert!(

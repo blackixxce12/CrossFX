@@ -26,12 +26,11 @@
 //! ```
 //!
 //! **Whose DSP the working tree plays** is `FXSOUND_BITEXACT_COMPAT`: `linux`, the default, for
-//! Off (A3), and `windows` for Interface and sound (A1), where the output lane plays the Windows
-//! build's arithmetic ([`fxsound_core::DspCompat`]). It reaches the engine the way the
-//! application's level does, through [`MusicLevels`] and [`preset_params`]. Both sides are told;
-//! a build with one DSP only, as every reference is so far, plays it either way
-//! (`scripts/reference-checkout.sh` gives it a `MusicLevels::with_windows_dsp` that changes
-//! nothing).
+//! Off (A3), and `windows` for Interface and sound (A1), where the output lane plays the original's
+//! arithmetic ([`fxsound_core::DspCompat`]). It reaches the engine the way the application's level
+//! does, through [`MusicLevels`] and [`preset_params`]. Both sides are told; a build with one DSP
+//! only, as every reference is so far, plays it either way (`scripts/reference-checkout.sh` gives
+//! it a `MusicLevels::with_windows_dsp` that changes nothing).
 //!
 //! # The cases
 //!

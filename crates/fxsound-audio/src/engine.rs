@@ -724,7 +724,7 @@ fn is_same_node(built_name: &str, built_serial: Option<u64>, device: &DeviceInfo
 /// The two nodes are *not* linked to each other — `node.link-group` exists precisely to stop
 /// WirePlumber linking them — so PipeWire gives no ordering guarantee between their `process()`
 /// calls, and they may in principle land on different data loops. A ring with a target fill of
-/// 1.5 quanta absorbs that, exactly as the Windows loop kept the WASAPI capture ring half full
+/// 1.5 quanta absorbs that, exactly as the original's loop kept the WASAPI capture ring half full
 /// (`sndDevicesDoCapture.cpp:125`, `:152-156`).
 ///
 /// # Why atomics rather than a shared `&mut [f32]`
@@ -748,7 +748,7 @@ pub(crate) struct SampleRing {
     read: AtomicUsize,
     channels: AtomicUsize,
     target_fill_frames: AtomicUsize,
-    /// The Windows "don't start playing until the capture ring is half full" rule
+    /// The original's "don't start playing until the capture ring is half full" rule
     /// (`sndDevicesDoCapture.cpp:129-140`), which is also what stops a start-up click.
     primed: AtomicBool,
     /// [`Self::mark_stale`] asked the consumer to skip everything up to `stale_until` on its next
@@ -941,7 +941,7 @@ impl SampleRing {
     /// were copied.
     ///
     /// Real-time safe and wait-free. Two rules beyond the obvious, both inherited from the
-    /// Windows loop:
+    /// original's loop:
     ///
     /// * **Priming.** Nothing is emitted until the ring has reached its target fill, and an empty
     ///   ring un-primes so the next start is clean again. That is `playbackIsActive`
@@ -2151,7 +2151,7 @@ struct Shared {
     /// The graph's clock, as the `settings` metadata object reports it: the rate an output pair is
     /// built at when its sink does not publish one of its own ([`PairFormat::for_target`]).
     clock: GraphClock,
-    /// The Windows registry slots, one set per direction, so trying a microphone never forgets
+    /// The original's registry slots, one set per direction, so trying a microphone never forgets
     /// which speakers the user had.
     memory: PerDirection<SelectionMemory>,
     /// The user's ranking of each direction's devices, and whether they have just picked one
@@ -2971,10 +2971,10 @@ fn reconcile_echo_cancel(shared: &mut Shared, context: Option<&pw::context::Cont
 
 /// Attach a lane to the device the user picked, enabling the lane if it was detached.
 ///
-/// Windows expressed user choice by forcing the system default (`AudioPassthruPrivate.cpp:657`)
-/// and then letting the rules pick it up. Recording the preference instead is what
-/// `docs/spec/12-audio-io.md` open question 8 asks for: it does the same thing without mutating
-/// global state.
+/// The original expressed user choice by forcing the system default
+/// (`AudioPassthruPrivate.cpp:657`) and then letting the rules pick it up. Recording the preference
+/// instead is what `docs/spec/12-audio-io.md` open question 8 asks for: it does the same thing
+/// without mutating global state.
 ///
 /// The rules run here and now rather than on the next supervisor tick, and the GUI hears what the
 /// lane is attached to as soon as they have: the user is looking at the device list waiting for
@@ -6298,7 +6298,7 @@ fn hear_switched_lanes(shared: &mut Shared, now: Instant) {
 ///
 /// `format` — [`PairFormat::for_target`], decided once by the rules — is declared on **both**
 /// nodes so the ring is always read at the stride it was written at. That replaces §8 of the
-/// Windows design wholesale — no `IPolicyConfigVista::SetDeviceFormat`, no rate pushed onto a
+/// original's design wholesale — no `IPolicyConfigVista::SetDeviceFormat`, no rate pushed onto a
 /// driver, no zero-order-hold upsampler. If the real device wants something else, the adapter in
 /// front of it converts — which is also how a mono microphone arrives here as the stereo pair the
 /// DSP runs on, and how the output lane's stereo pair reaches a mono headset: NODE 1 stays stereo
@@ -8413,7 +8413,7 @@ mod tests {
             picked(false, DeviceDirection::Output, PICKED),
             (PICKED.to_owned(), true)
         );
-        // A ranking decides instead, as on Windows.
+        // A ranking decides instead, as in the original.
         assert_eq!(
             picked(true, DeviceDirection::Output, PICKED).0,
             "alsa_saved"
@@ -8544,7 +8544,7 @@ mod tests {
 
     #[test]
     fn the_consumer_stays_silent_until_the_ring_reaches_its_target_fill() {
-        // Windows would not start the render client until the capture ring was half full
+        // The original would not start the render client until the capture ring was half full
         // (`sndDevicesDoCapture.cpp:129-140`); this is the same rule.
         let ring = ring_for(2, 8); // target fill = 12 frames = 24 samples
         ring.push(&[1.0; 16]); // 8 frames — not enough

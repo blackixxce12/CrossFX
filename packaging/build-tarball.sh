@@ -112,6 +112,8 @@ cat > "${pkg}/install.sh" <<'INNER'
 #!/usr/bin/env sh
 # Copy this tree into a prefix. Default /usr/local; pass another as the first argument.
 set -eu
+# What it copies everyone may read and run as the tarball has it, whatever the shell's umask.
+umask 022
 prefix="${1:-/usr/local}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -153,12 +155,32 @@ inside() {
   return 1
 }
 
+# How to run this script for /usr/local: the way it was run, when that was as root — through
+# sudo, doas or pkexec, or as root itself, after su or at a root login — and as root otherwise.
+for_usr_local() {
+  if [ "$(id -u 2>/dev/null || :)" != 0 ]; then
+    echo "run '${here}/install.sh' as root, through sudo, doas or su,"
+  elif [ -n "${SUDO_USER:-}" ]; then
+    echo "run 'sudo ${here}/install.sh'"
+  elif [ -n "${DOAS_USER:-}" ]; then
+    echo "run 'doas ${here}/install.sh'"
+  elif [ -n "${PKEXEC_UID:-}" ]; then
+    echo "run 'pkexec ${here}/install.sh'"
+  else
+    echo "run '${here}/install.sh'"
+  fi
+}
+
 # Stop, saying why, before anything has been changed.
 refuse() {
   echo "refusing to install into ${prefix}: $* CrossFX finds its factory presets only under" \
-    "/usr and /usr/local: run 'sudo ${here}/install.sh' to install into /usr/local." >&2
+    "/usr and /usr/local: $(for_usr_local) to install into /usr/local." >&2
   exit 1
 }
+
+# The list of the files an install put in share/crossfx, which it leaves there: the next install
+# tells them from a user's by it, and removes those it no longer ships.
+manifest=.installed-files
 
 # Refuse the prefix when it, or the folder its share/crossfx leads to, is the folder DIR or lies
 # under it; the words after DIR say what DIR is. A home that is / itself (a service account's, an
@@ -203,8 +225,10 @@ login_defs() {
   printf '%s\n' "${l_value:-$2}"
 }
 
-# The first entry under the folder DIR, as find lists it, that the tarball's folder SHIPPED has
-# nothing of the same name and kind for — a link counts as nothing it ships — or nothing.
+# The first entry under the folder DIR, as find lists LISTED, that is none of: what the tarball's
+# folder SHIPPED has of the same name and kind; a file the list INSTALLED of an earlier install
+# names, or a folder it names a file in; that list itself. A link is none of them. Nothing when
+# every entry is one of them.
 unshipped() {
   while IFS= read -r u_entry; do
     [ -n "${u_entry}" ] || continue
@@ -212,8 +236,13 @@ unshipped() {
       :
     elif [ -d "$1/${u_entry}" ]; then
       [ -d "$2/${u_entry}" ] && continue
+      printf '%s\n' "$4" | U_DIR="${u_entry}/" awk '
+        index($0, ENVIRON["U_DIR"]) == 1 { found = 1; exit }
+        END { exit !found }' && continue
     elif [ -f "$1/${u_entry}" ]; then
       [ -f "$2/${u_entry}" ] && continue
+      [ "${u_entry}" = "./${manifest}" ] && continue
+      printf '%s\n' "$4" | grep -Fxq -- "${u_entry}" && continue
     fi
     printf '%s\n' "${u_entry#./}"
     return 0
@@ -222,15 +251,43 @@ $3
 UNSHIPPED
 }
 
+# Refuse the resolved path PATH, as root, when the deepest folder of it that exists, or one above
+# that, belongs to one of the accounts the system gives people (uids from uid_min to uid_max): a
+# home the password database does not list — a directory service's, its enumeration off — still
+# belongs to its user. The words after PATH lead up to the folder.
+not_owned() {
+  o_dir=$1
+  shift
+  while [ ! -d "${o_dir}" ]; do
+    o_dir="$(dirname -- "${o_dir}")"
+  done
+  while :; do
+    o_uid="$(ls -ldn -- "${o_dir}" 2>/dev/null | awk 'NR == 1 { print $3 }')" || o_uid=
+    case "${o_uid}" in
+      '' | *[!0-9]*) ;;
+      *)
+        if [ "${o_uid}" -ge "${uid_min}" ] && [ "${o_uid}" -le "${uid_max}" ]; then
+          o_name="$(passwd_lines "${o_uid}" | head -n 1 | cut -d: -f1)"
+          refuse "$* ${o_dir}, which belongs to ${o_name:-uid ${o_uid}}, one of the accounts the" \
+            "system gives people: it may be that user's home, where CrossFX keeps their own" \
+            "presets."
+        fi
+        ;;
+    esac
+    [ "${o_dir}" != / ] || return 0
+    o_dir="$(dirname -- "${o_dir}")"
+  done
+}
+
 case "${prefix}" in
   /usr|/usr/local) ;;
   *)
     # Not into anyone's home folder. CrossFX keeps a user's own presets, voice presets and
     # unsaved edits in their data home's crossfx/presets, which is <prefix>/share/crossfx/presets
     # for a prefix such as ~/.local: the copy below would lay the factory presets over every one
-    # of theirs that shares a name — the voice presets a user tuned keep the factory names —
-    # give their folders the owner and modes of the unpacked tree, and the binary, which looks
-    # for factory presets only under /usr and /usr/local, would list none of them as such.
+    # of theirs that shares a name — the voice presets a user tuned keep the factory names — and
+    # the binary, which looks for factory presets only under /usr and /usr/local, would list none
+    # of them as such.
     target="$(resolved "${prefix}")"
     # Where the factory presets land: under the prefix, unless its share folder is a link.
     data_target="$(resolved "${target}/share/crossfx")"
@@ -278,9 +335,11 @@ case "${prefix}" in
     # none of those says whose prefix it was given. So the homes of the accounts the system gives
     # people, the uids from UID_MIN to UID_MAX of /etc/login.defs (1000 to 60000 when it names
     # none), which leaves out the system accounts whose "homes" are /, /var/www or /usr/sbin; and
-    # as root also /home and root's own home, for the accounts a directory service does not list.
-    homes="$(passwd_lines | awk -F: -v min="$(login_defs UID_MIN 1000)" \
-      -v max="$(login_defs UID_MAX 60000)" \
+    # as root also /home, root's own home, and any folder that belongs to one of those accounts,
+    # for the homes a directory service does not list.
+    uid_min="$(login_defs UID_MIN 1000)"
+    uid_max="$(login_defs UID_MAX 60000)"
+    homes="$(passwd_lines | awk -F: -v min="${uid_min}" -v max="${uid_max}" \
       '$3 ~ /^[0-9]+$/ && $3 + 0 >= min + 0 && $3 + 0 <= max + 0 && $6 ~ /^\/./ {
         print $1 ":" $6
       }')"
@@ -298,13 +357,15 @@ HOMES
       case "${home}" in
         /?*) not_inside "${home}" "root's home, ${home}" ;;
       esac
+      not_owned "${target}" "it is in"
+      not_owned "${data_target}" "its share/crossfx leads to ${data_target}, in"
     fi
-    # And not over a folder of someone's presets, wherever it lies. All this tarball puts in
-    # share/crossfx is the factory presets, so anything else already there — a user's own
-    # presets, their unsaved edits in AutoSave/, the .bak of a preset saved over, the fonts they
-    # added — is that user's data, which the copy would mix the factory presets into and replace
-    # where a name is shared. Installing over what an earlier CrossFX tarball put there goes
-    # ahead, as long as it shipped no preset that this one does not.
+    # And not over a folder of someone's presets, wherever it lies. All a CrossFX tarball puts in
+    # share/crossfx is the factory presets, and the list of them it leaves there, so anything
+    # else already there — a user's own presets, their unsaved edits in AutoSave/, the .bak of a
+    # preset saved over, the fonts they added — is that user's data, which the copy would mix the
+    # factory presets into and replace where a name is shared. What an earlier install's list
+    # names is that install's own: installing a later tarball over it is an upgrade.
     data="${prefix}/share/crossfx"
     if [ -h "${data}" ] || { [ -e "${data}" ] && [ ! -d "${data}" ]; }; then
       refuse "${data} is not a folder of its own, and the copy would follow it to whatever it" \
@@ -314,11 +375,19 @@ HOMES
       listed="$(cd -- "${data}" && find . ! -name . -print)" ||
         refuse "it cannot read all of ${data}, so it cannot tell whether a user keeps presets" \
           "there."
-      stray="$(unshipped "${data}" "${here}/share/crossfx" "${listed}")"
+      installed=
+      if [ -f "${data}/${manifest}" ] && [ ! -h "${data}/${manifest}" ]; then
+        installed="$(cat -- "${data}/${manifest}")" ||
+          refuse "it cannot read ${data}/${manifest}, the list of what CrossFX installed there."
+      fi
+      stray="$(unshipped "${data}" "${here}/share/crossfx" "${listed}" "${installed}")"
       if [ -n "${stray}" ]; then
-        refuse "${data} already holds ${stray}, which this CrossFX does not ship. A folder of a" \
-          "user's own presets looks like that; if an earlier CrossFX installed it, remove it and" \
-          "run this again."
+        if [ -h "${data}/${stray}" ]; then
+          refuse "${data}/${stray} is a link, and the copy would follow it to whatever it leads" \
+            "to."
+        fi
+        refuse "${data} already holds ${stray}, which neither this CrossFX ships nor an earlier" \
+          "one installed there: a folder of a user's own presets looks like that."
       fi
     fi
     # Not a refusal, because there are reasons to put a binary elsewhere — but the presets will
@@ -333,8 +402,39 @@ esac
 
 echo "installing CrossFX into ${prefix}"
 mkdir -p "${prefix}"
-cp -a "${here}/bin" "${here}/share" "${prefix}/"
-[ -d "${here}/lib" ] && cp -a "${here}/lib" "${prefix}/"
+# With the tarball's modes and the owner who runs this: as root, root's, not those of whoever
+# unpacked the tarball, as `cp -a` left them — a binary on the path that user could replace, and
+# folders a later install as root would take for that user's.
+cp -R "${here}/bin" "${here}/share" "${prefix}/"
+[ -d "${here}/lib" ] && cp -R "${here}/lib" "${prefix}/"
+data="${prefix}/share/crossfx"
+# An upgrade: what the earlier install's list names and this tarball no longer ships goes, so that
+# a preset an earlier CrossFX shipped and this one dropped is not listed as a factory preset still.
+# Only a file of the list's, inside share/crossfx: a line that leaves the folder, a link, or a
+# folder of share/crossfx that leads elsewhere is never followed.
+if [ -f "${data}/${manifest}" ] && [ ! -h "${data}/${manifest}" ]; then
+  while IFS= read -r c_line; do
+    case "${c_line}" in
+      ./?*) ;;
+      *) continue ;;
+    esac
+    case "/${c_line#./}/" in
+      */../* | */./*) continue ;;
+    esac
+    c_path="${data}/${c_line#./}"
+    [ ! -f "${here}/share/crossfx/${c_line}" ] || continue
+    [ -f "${c_path}" ] && [ ! -h "${c_path}" ] || continue
+    c_dir="$(dirname -- "${c_path}")"
+    inside "$(resolved "${c_dir}")" "$(resolved "${data}")" || continue
+    rm -f -- "${c_path}"
+    # And the folders it leaves empty, up to share/crossfx.
+    while [ "${c_dir}" != "${data}" ] && rmdir -- "${c_dir}" 2>/dev/null; do
+      c_dir="$(dirname -- "${c_dir}")"
+    done
+  done <"${data}/${manifest}"
+fi
+# The list of what it put in share/crossfx, for the next install.
+(cd "${here}/share/crossfx" && find . -type f -print) >"${data}/${manifest}"
 
 # The unit and the D-Bus activation file ship with the path every package uses. Point them at
 # the binary that was just installed; on a /usr prefix this changes nothing.

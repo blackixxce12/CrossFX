@@ -465,8 +465,8 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_ambiences_slider_shows_a_stored_value_on_the_windows_line() {
-        // Audit report #39 taken back: stored 13 is position 1 on Windows, a third of one here;
-        // either way it plays as stored.
+        // Audit report #39 taken back: stored 13 is position 1 in the original, a third of one
+        // here; either way it plays as stored.
         let stored = preset([0, 13, 0, 0, 0], &[]);
         let linux = music_controls(&stored, &ladder(10), DspCompat::Linux);
         let windows = music_controls(&stored, &ladder(10), DspCompat::Windows);

@@ -6,7 +6,6 @@
 # about -52 to at most -64, and a gate that closes on -52 closes on -64.
 name = "Streaming"
 description = "A live send to Twitch, YouTube or Kick: dense and bright, at the level a phone speaker needs."
-rnnoise = true
 highpass_hz = 100.0
 highpass_order = 2
 makeup_db = 9.0

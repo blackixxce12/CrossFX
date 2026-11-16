@@ -898,7 +898,7 @@ pub(crate) fn thd_n(x: &[Real], hz: f64, sample_rate: Real) -> f64 {
 
 /// `Maxi32.c`'s limiter as the port ran it before the 0.4.0 audit (`0f05ba5`, `git show
 /// 0f05ba5:crates/fxsound-dsp/src/input/limiter.rs`), line for line: an envelope and a delay line
-/// per channel, no hold, and an attack ramp that only ever steepens. The reference the Windows
+/// per channel, no hold, and an attack ramp that only ever steepens. The reference the original's
 /// settings of [`LookaheadLimiter`] are held to, here and in Dynamic Boost's tests.
 #[cfg(test)]
 pub(crate) struct OriginalLimiter {

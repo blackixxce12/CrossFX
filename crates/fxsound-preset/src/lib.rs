@@ -161,11 +161,11 @@ pub fn sanitise_preset_name(name: &str) -> String {
     cut.trim_end().to_owned()
 }
 
-/// The most bytes a preset name may take in a `.fac` file: the Windows reader takes the name line
-/// with `fgets(…, LINE_LENGTH = 128, …)` (`dsp/ptutil/VALS/Valsfile.cpp:38`, `:320-331`), which
-/// keeps 127 bytes and the newline has to be one of them, and then drops the name's last byte as
-/// that newline. A name of 126 bytes comes back whole; one byte longer and Windows cuts it, reads
-/// the rest of the line as the next field, and every field after it lands one line late.
+/// The most bytes a preset name may take in a `.fac` file: the original's reader takes the name
+/// line with `fgets(…, LINE_LENGTH = 128, …)` (`dsp/ptutil/VALS/Valsfile.cpp:38`, `:320-331`),
+/// which keeps 127 bytes and the newline has to be one of them, and then drops the name's last byte
+/// as that newline. A name of 126 bytes comes back whole; one byte longer and the original cuts it,
+/// reads the rest of the line as the next field, and every field after it lands one line late.
 pub const MAX_NAME_BYTES: usize = 126;
 
 /// A name for a preset about to be **created** — Save New Preset, Rename Preset, `--save_preset`,
@@ -908,8 +908,8 @@ Band 10
     #[test]
     fn a_gain_that_overflows_an_f32_is_refused_rather_than_becoming_infinity() {
         // Before this was rejected the value became `+inf`, survived into the running preset, and
-        // was written back by `format_g` in a spelling neither this parser nor the Windows
-        // original can read — so a single bad import cost the user the preset for good.
+        // was written back by `format_g` in a spelling neither this parser nor the original can
+        // read — so a single bad import cost the user the preset for good.
         let good = parse(FIXTURE.as_bytes()).expect("the fixture parses");
 
         let poisoned = FIXTURE.to_owned();
@@ -1131,7 +1131,7 @@ Band 10
 
     #[test]
     fn a_new_name_is_cut_to_what_the_windows_reader_takes_on_a_character_boundary() {
-        // 0.4.0 audit #15: 64 Cyrillic letters are 128 bytes, two more than the Windows reader
+        // 0.4.0 audit #15: 64 Cyrillic letters are 128 bytes, two more than the original's reader
         // keeps, and that preset read back shifted by a line.
         let cyrillic = "я".repeat(MAX_PRESET_NAME_LEN);
         assert_eq!(cyrillic.len(), 128);

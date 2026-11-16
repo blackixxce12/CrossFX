@@ -12,9 +12,10 @@
 //! included. The second is that the tarball script packs the binary of the tree it sits in: it
 //! used to build only when there was no binary at all, so a 0.3.0 left in `target/release` went
 //! out under the 0.4.0 name. And the tarball's `install.sh` refuses a prefix inside anyone's home
-//! folder — whoever runs it, and through `sudo`, `doas`, `pkexec` or `su` — and one whose
-//! `share/crossfx` already holds what the tarball does not ship, where its copy would lay the
-//! factory presets over a user's own.
+//! folder — whoever runs it, and through `sudo`, `doas`, `pkexec` or `su`, as root also in a folder
+//! that belongs to one of the people's accounts — and one whose `share/crossfx` already holds what
+//! neither the tarball ships nor an earlier install put there, where its copy would lay the
+//! factory presets over a user's own; over an earlier install it upgrades.
 //!
 //! The recipes and files are read under CrossFX's names: `crossfx`, `crossfx-bin`,
 //! `crossfx.spec`, `debian/crossfx.install`.
@@ -876,11 +877,11 @@ fn account(name: &str, uid: u32, home: &Path) -> String {
 }
 
 /// What the shell `install.sh` runs in says: the home, the data home, the user `sudo`, `doas` or
-/// `pkexec` was run by, and what the stand-ins for `getent` and `id` put first on `PATH` answer.
-/// Of these, nothing of the test's own environment reaches it, and nothing of the machine's own
-/// password database either. The machine's `/etc/login.defs` is read as it is: the people's
-/// accounts here have uids from 1000 to 1600, inside every distribution's range for people, and
-/// the system account's, 33, is below all of them.
+/// `pkexec` was run by, and what the stand-ins for `getent`, `id` and `ls` put first on `PATH`
+/// answer. Of these, nothing of the test's own environment reaches it, and nothing of the
+/// machine's own password database or owners either. The machine's `/etc/login.defs` is read as
+/// it is: the people's accounts here have uids from 1000 to 1600, inside every distribution's
+/// range for people, and the system account's, 33, is below all of them.
 struct Shell<'a> {
     home: &'a Path,
     data_home: Option<&'a Path>,
@@ -893,6 +894,8 @@ struct Shell<'a> {
     unlisted: Vec<String>,
     /// Whether `id -u` says 0 and `$USER` is root; otherwise they say 1000 and someone.
     root: bool,
+    /// The folders `ls -ldn` says belong to a uid other than root's, which owns every other one.
+    owners: Vec<(&'a Path, u32)>,
 }
 
 impl<'a> Shell<'a> {
@@ -905,6 +908,7 @@ impl<'a> Shell<'a> {
             listed: Vec::new(),
             unlisted: Vec::new(),
             root: false,
+            owners: Vec::new(),
         }
     }
 }
@@ -939,6 +943,24 @@ impl Installer {
             &format!(
                 "#!/bin/sh\ncase \"$1\" in -u) echo {uid} ;; -un) echo {user} ;; *) exit 1 ;; \
                  esac\n"
+            ),
+        );
+        // `ls -ldn -- <folder>`, the one way install.sh asks who owns a folder: the uid the shell
+        // gives that folder, root's by default.
+        let owners: String = shell
+            .owners
+            .iter()
+            .map(|(folder, uid)| format!("{}\t{uid}\n", folder.display()))
+            .collect();
+        fs::write(stand_ins.join("owners"), owners).expect("the owners are written");
+        write_executable(
+            &stand_ins.join("ls"),
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = -ldn ] && [ \"$2\" = -- ] || exit 1\n\
+                 uid=$(awk -F'\\t' -v folder=\"$3\" '$1 == folder {{ print $2 }}' '{dir}/owners')\n\
+                 printf 'drwxr-xr-x 2 %s %s 4096 Jan  1 00:00 %s\\n' \"${{uid:-0}}\" \
+                 \"${{uid:-0}}\" \"$3\"\n",
+                dir = stand_ins.display()
             ),
         );
 
@@ -989,6 +1011,18 @@ fn snapshot(dir: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     found
 }
 
+/// The refusal says how to install into `/usr/local` instead, the way the script was run: `how`,
+/// with `{}` for the script.
+fn assert_advised(run: &Output, how: &str, script: &Path) {
+    let advice = how.replace("{}", &script.display().to_string());
+    assert!(
+        String::from_utf8_lossy(&run.stderr)
+            .contains(&format!("{advice} to install into /usr/local.")),
+        "not advised {advice:?}: {}",
+        transcript(run)
+    );
+}
+
 /// The run changed nothing and said why: exit status 1 and the refusal, which names `why`.
 fn assert_refused(run: &Output, prefix: &Path, why: &str) {
     assert_eq!(run.status.code(), Some(1), "{}", transcript(run));
@@ -1015,7 +1049,7 @@ fn tuned_clean_voice(prefix: &Path) -> PathBuf {
     tuned
 }
 
-/// (a) `~/.local` holds the user's own presets in `share/crossfx/presets`, where `cp -a` would
+/// (a) `~/.local` holds the user's own presets in `share/crossfx/presets`, where the copy would
 /// lay the factory presets over every one of the same name: refused, and the user's file and
 /// everything else under the prefix stay as they were.
 #[test]
@@ -1031,6 +1065,11 @@ fn install_sh_refuses_a_prefix_in_the_users_home_and_leaves_their_presets_alone(
     let run = installer.run(&prefix, &Shell::of(&home));
 
     assert_refused(&run, &prefix, &format!("home, {}", home.display()));
+    assert_advised(
+        &run,
+        "run '{}' as root, through sudo, doas or su,",
+        &installer.script(),
+    );
     assert_eq!(text(&mine), "the user's own voice preset\n");
     assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
 }
@@ -1060,6 +1099,7 @@ fn install_sh_under_sudo_refuses_the_home_getent_names_for_the_invoking_user() {
         &prefix,
         &format!("someone's home, {}", home.display()),
     );
+    assert_advised(&run, "run 'sudo {}'", &installer.script());
     assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
 }
 
@@ -1128,25 +1168,92 @@ fn install_sh_installs_into_a_prefix_outside_the_home_and_starts_crossfx_from_th
     );
 }
 
-/// (e) Installing a CrossFX tarball where one was installed before goes ahead: what it finds in
-/// `share/crossfx` is its own factory presets.
+/// The list an install leaves in `share/crossfx` of what it put there.
+const INSTALLED: &str = ".installed-files";
+
+/// (e) Installing a CrossFX tarball where one was installed before is an upgrade, also where the
+/// later tarball no longer ships a preset the earlier one installed: the list the earlier install
+/// left says which files were its own, and the ones the later tarball dropped go, with the folders
+/// they leave empty. A line of the list that leads out of `share/crossfx` is not followed, and a
+/// file a user put there since is still refused.
 #[test]
-fn install_sh_installs_again_over_what_it_installed_before() {
+fn install_sh_upgrades_what_it_installed_before_and_removes_what_it_no_longer_ships() {
     let installer = Installer::new("install-again");
     let home = installer.dir("home");
     let prefix = installer.dir("prefix");
     let shell = Shell::of(&home);
+    let data = prefix.join("share/crossfx");
 
     let first = installer.run(&prefix, &shell);
     assert!(first.status.success(), "{}", transcript(&first));
+    let listed = text(data.join(INSTALLED));
+    for shipped in [
+        "./presets/Input/Clean Voice.toml",
+        "./presets/Input/Podcast.toml",
+    ] {
+        assert!(
+            listed.lines().any(|line| line == shipped),
+            "{shipped} is not in the list:\n{listed}"
+        );
+    }
+
+    // An earlier build that shipped a folder this one does not, and a list that leads outside.
+    fs::create_dir_all(data.join("presets/Retired")).expect("the folder is made");
+    fs::write(data.join("presets/Retired/Old.fac"), "factory\n").expect("the preset is written");
+    let outside = prefix.join("share/outside.txt");
+    fs::write(&outside, "someone else's\n").expect("the file is written");
+    fs::write(
+        data.join(INSTALLED),
+        format!(
+            "{listed}./presets/Retired/Old.fac\n./../outside.txt\n./presets/../../outside.txt\n"
+        ),
+    )
+    .expect("the list is written");
+    // And this build no longer ships Podcast.
+    fs::remove_file(
+        installer
+            .unpacked
+            .join("share/crossfx/presets/Input/Podcast.toml"),
+    )
+    .expect("Podcast is dropped from the tarball");
+
     let again = installer.run(&prefix, &shell);
 
     assert!(again.status.success(), "{}", transcript(&again));
+    let input = data.join("presets/Input");
+    assert!(input.join("Clean Voice.toml").is_file());
     assert!(
-        prefix
-            .join("share/crossfx/presets/Input/Clean Voice.toml")
-            .is_file()
+        !input.join("Podcast.toml").exists(),
+        "a dropped preset stayed"
     );
+    assert!(
+        !data.join("presets/Retired").exists(),
+        "a dropped folder stayed"
+    );
+    assert_eq!(text(&outside), "someone else's\n");
+    let relisted = text(data.join(INSTALLED));
+    assert!(
+        relisted
+            .lines()
+            .any(|line| line == "./presets/Input/Clean Voice.toml")
+            && !relisted.contains("Podcast")
+            && !relisted.contains("Retired")
+            && !relisted.contains(".."),
+        "the list is not this install's:\n{relisted}"
+    );
+
+    let autosave = data.join("presets/AutoSave/Rock.fac");
+    fs::create_dir_all(autosave.parent().expect("a folder")).expect("the folder is made");
+    fs::write(&autosave, "the user's own\n").expect("the edit is written");
+    let before = snapshot(&prefix);
+    let refused = installer.run(&prefix, &shell);
+    assert_refused(
+        &refused,
+        &prefix,
+        "already holds presets/AutoSave, which neither this CrossFX ships nor an earlier one \
+         installed there",
+    );
+    assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
 }
 
 /// (f) Run as root with nobody to go by — `su`, `su -`, a root login: `$HOME` is root's and no
@@ -1170,6 +1277,7 @@ fn install_sh_run_as_root_refuses_the_home_of_any_account_it_lists() {
     let run = installer.run(&prefix, &shell);
 
     assert_refused(&run, &prefix, &format!("alice's home, {}", alice.display()));
+    assert_advised(&run, "run '{}'", &installer.script());
     assert_eq!(text(&tuned), "the user's own tuning\n");
     assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
 }
@@ -1199,6 +1307,11 @@ fn install_sh_under_doas_or_pkexec_refuses_the_invoking_users_home() {
             &prefix,
             &format!("someone's home, {}", home.display()),
         );
+        let how = match invoker.0 {
+            "DOAS_USER" => "run 'doas {}'",
+            _ => "run 'pkexec {}'",
+        };
+        assert_advised(&run, how, &installer.script());
         assert_eq!(text(&tuned), "the user's own tuning\n", "{invoker:?}");
         assert_eq!(snapshot(&prefix), before, "{invoker:?} changed the prefix");
     }
@@ -1234,7 +1347,7 @@ fn install_sh_under_sudo_refuses_another_accounts_home_as_well() {
 
 /// (i) Wherever the prefix lies, a `share/crossfx` that holds what the tarball does not ship —
 /// unsaved edits in `AutoSave/`, the `.bak` of a preset saved over, the fonts a user added — or
-/// that is a link is someone's presets: refused, and left as it was.
+/// that is a link, or holds one, is someone's presets: refused, and left as it was.
 #[test]
 fn install_sh_refuses_a_prefix_whose_share_crossfx_holds_what_the_tarball_does_not_ship() {
     let installer = Installer::new("install-stray");
@@ -1279,6 +1392,32 @@ fn install_sh_refuses_a_prefix_whose_share_crossfx_holds_what_the_tarball_does_n
         before,
         "the link or what it leads to was changed"
     );
+
+    // A presets folder that is a link is refused as the link it is.
+    let prefix = installer.dir("opt-presets-link");
+    fs::create_dir_all(prefix.join("share/crossfx")).expect("share/crossfx is made");
+    symlink(
+        data.join("share/crossfx/presets"),
+        prefix.join("share/crossfx/presets"),
+    )
+    .expect("the link is made");
+    let before = (snapshot(&prefix), snapshot(&data));
+
+    let run = installer.run(&prefix, &Shell::of(&home));
+
+    assert_refused(
+        &run,
+        &prefix,
+        &format!(
+            "{} is a link, and the copy would follow it",
+            prefix.join("share/crossfx/presets").display()
+        ),
+    );
+    assert_eq!(
+        (snapshot(&prefix), snapshot(&data)),
+        before,
+        "the link or what it leads to was changed"
+    );
 }
 
 /// (j) A prefix outside every home whose `share` is a link into one — here into the data home of
@@ -1316,4 +1455,60 @@ fn install_sh_refuses_a_prefix_whose_share_leads_into_a_home() {
         before,
         "the link or the home it leads into was changed"
     );
+}
+
+/// (k) Run as root with nobody to go by, a home the password database does not list — a
+/// directory service's with its enumeration off, outside `/home` — is still kept clear: it belongs
+/// to its account, one of the people's. A prefix in it is refused, and so is one of its folders
+/// that does not exist yet, and the voice preset the user tuned under its factory name stays
+/// theirs. A folder of root's or of a system account's is no reason to refuse.
+#[test]
+fn install_sh_run_as_root_refuses_a_folder_that_belongs_to_a_persons_account() {
+    let installer = Installer::new("install-owned");
+    let root_home = installer.dir("root");
+    let bob = installer.dir("srv/bob");
+    if ["/home", "/root"].iter().any(|top| bob.starts_with(top)) {
+        // Root's install refuses all of /home and /root before it asks who owns a folder.
+        eprintln!(
+            "skipped: the temporary directory, {}, is under /home or /root",
+            bob.display()
+        );
+        return;
+    }
+    let tuned = tuned_clean_voice(&bob.join(".local"));
+    let before = snapshot(&bob);
+    let shell = Shell {
+        unlisted: vec![account("bob", 1500, &bob)],
+        root: true,
+        owners: vec![(bob.as_path(), 1500)],
+        ..Shell::of(&root_home)
+    };
+
+    for prefix in [bob.join(".local"), bob.join("not/made/yet")] {
+        let run = installer.run(&prefix, &shell);
+
+        assert_refused(
+            &run,
+            &prefix,
+            &format!(
+                "it is in {}, which belongs to bob, one of the accounts the system gives people",
+                bob.display()
+            ),
+        );
+        assert_advised(&run, "run '{}'", &installer.script());
+    }
+    assert_eq!(text(&tuned), "the user's own tuning\n");
+    assert_eq!(snapshot(&bob), before, "bob's folder was changed");
+
+    let opt = installer.dir("opt");
+    let shell = Shell {
+        listed: vec![account("www-data", 33, &opt)],
+        root: true,
+        owners: vec![(opt.as_path(), 33)],
+        ..Shell::of(&root_home)
+    };
+    let run = installer.run(&opt.join("crossfx"), &shell);
+
+    assert!(run.status.success(), "{}", transcript(&run));
+    assert!(opt.join("crossfx/bin/crossfx").is_file(), "no bin/crossfx");
 }

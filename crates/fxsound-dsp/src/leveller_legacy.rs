@@ -14,9 +14,9 @@
 //! every level. Switching the stage off lets the gain down over 20 ms (#11); a stage its owner
 //! left out drops that glide ([`VolumeLeveller::sit_out`]); the detector does no subnormal
 //! arithmetic in silence (#5); a non-finite statistic clears the stage. None of them moves a
-//! sample of a running stage by more than rounding does, so the steady state is the Windows
-//! build's: `scripts/windows-parity-bitexact.sh --compat=windows 3596e99` holds it to the engine
-//! before the audit.
+//! sample of a running stage by more than rounding does, so the steady state is the original's:
+//! `scripts/windows-parity-bitexact.sh --compat=windows 3596e99` holds it to the engine before the
+//! audit.
 //!
 //! The statistics and the decision are CrossFX's own functions ([`VolumeLeveller::gather`],
 //! [`VolumeLeveller::decide`], [`VolumeLeveller::finish_step`]): the audit did not change them,
@@ -243,13 +243,13 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_an_empty_call_leaves_the_gain_where_it_was() {
-        // The twin of `degenerate_buffers_are_handled_without_panicking` (audit #2): the Windows
-        // build resets the gain to unity on a call with no whole frame (`SosProcess.cpp:146-150`),
-        // and that is the one part of #2 Interface and sound does not take back. A host's empty
-        // call carries no audio; resetting on it drops a lifted programme to x1 between two
-        // samples, a click, and no level brings a click back (roadmap 0.5.0 §1, "Never"). So an
-        // empty call, zero channels and a lone sample change nothing at the Windows arithmetic
-        // either, and the next call plays on as if they had not come.
+        // The twin of `degenerate_buffers_are_handled_without_panicking` (audit #2): the original
+        // resets the gain to unity on a call with no whole frame (`SosProcess.cpp:146-150`), and
+        // that is the one part of #2 Interface and sound does not take back. A host's empty call
+        // carries no audio; resetting on it drops a lifted programme to x1 between two samples, a
+        // click, and no level brings a click back (roadmap 0.5.0 §1, "Never"). So an empty call,
+        // zero channels and a lone sample change nothing at the Windows arithmetic either, and the
+        // next call plays on as if they had not come.
         const CHANNELS: usize = 2;
         let mut leveller = leveller(DspCompat::Windows);
         let tone = |n: usize, _| sine(300.0, 0.05, n);

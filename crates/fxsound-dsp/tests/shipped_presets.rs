@@ -22,9 +22,9 @@ use std::path::{Path, PathBuf};
 ///
 /// The stage turns on above 12, as the original's does, but the MUSIC2 warp only gives it a real
 /// wet level from `(int)(midi * 0.34) > 12`, and the first value that reaches that is 39 — a
-/// slider position of 3.1 out of 10 on Windows, and position 1 here since the slider was spread
-/// over the audible values (audit report #39, `scale::AMBIENCE_FIRST_AUDIBLE_MIDI`). From 13 to
-/// 38 the wet level only ramps up to the one at 39, −40 dB below the dry signal, so a preset
+/// slider position of 3.1 out of 10 in the original, and position 1 here since the slider was
+/// spread over the audible values (audit report #39, `scale::AMBIENCE_FIRST_AUDIBLE_MIDI`). From 13
+/// to 38 the wet level only ramps up to the one at 39, −40 dB below the dry signal, so a preset
 /// storing one of those is claiming an effect it barely gets.
 const AMBIENCE_MIN_AUDIBLE_MIDI: u8 = scale::AMBIENCE_FIRST_AUDIBLE_MIDI;
 

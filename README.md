@@ -155,9 +155,13 @@ the bundled RNNoise code and Noto faces, the Hyprland rules and the autostart en
 is anything other than `/usr` or `/usr/local`, because those are the only two the binary searches
 for presets. It refuses a prefix inside a home folder, such as `~/.local`, where CrossFX keeps that
 user's own presets: the home of whoever runs it, of the user `sudo`, `doas` or `pkexec` was run by,
-and of every account the system gives a person, and when run as root anything under `/home` or
-root's home. It also refuses a prefix whose `share/crossfx` leads into such a home or already holds
-anything the archive does not ship, such as a user's own presets or unsaved edits. On an older
+and of every account of a person's the password database lists; run as root, also anything under
+`/home` or root's home, and anything in a folder that belongs to a person's account, which keeps
+clear the homes a directory service does not list. It also refuses a prefix whose `share/crossfx`
+leads into such a folder, or already holds anything that neither the archive ships nor an earlier
+`install.sh` put there, such as a user's own presets or unsaved edits. Over an earlier install,
+`install.sh` upgrades: it removes the presets the earlier archive installed and this one no longer
+ships, by the list `share/crossfx/.installed-files` it leaves at every install. On an older
 distribution than Debian 12, build from source instead.
 
 ### What lands where
@@ -595,12 +599,11 @@ interrupted save cannot truncate what was there. A settings file that does not l
 comment saved in a legacy encoding, permissions) is moved aside to `settings.toml.bad`, or
 `settings.toml.2.bad` and so on, never over an earlier one, before the defaults are saved. Keys this
 version does not know, such as those a later version wrote, are kept and written back as they
-were, at the top of the file and inside a device's entry or the calibration record; 0.4.0 drops
-them on its next save. A settings file or preset that is a symbolic link, as GNU
-Stow or chezmoi leave them, stays one: the file it points to is the one replaced. A link to a
-read-only file, or to one in a directory you may not write, is never saved through, so every save of
-that file fails. home-manager's default links into the Nix store are such links; link the file with
-`mkOutOfStoreSymlink` to let CrossFX save it.
+were, at the top of the file and inside a device's entry or the calibration record. A settings
+file or preset that is a symbolic link, as GNU Stow or chezmoi leave them, stays one: the file it
+points to is the one replaced. A link to a read-only file, or to one in a directory you may not
+write, is never saved through, so every save of that file fails. home-manager's default links into
+the Nix store are such links; link the file with `mkOutOfStoreSymlink` to let CrossFX save it.
 
 ## A preset per application
 
@@ -770,9 +773,9 @@ Each of these is a considered decision, not an oversight:
   a WirePlumber not started by systemd takes the change at the next login. The script is loaded as
   an optional component: one that fails on a later WirePlumber is logged and skipped, and never
   stops WirePlumber. Unticking deletes both files; by hand, delete them and restart WirePlumber.
-  Untick it before uninstalling CrossFX or going back to 0.4.0: the package manager does not touch
-  files in your home, and only CrossFX takes them away, so WirePlumber would go on
-  loading the script with no CrossFX left to untick it. Otherwise delete the two files and run
+  Untick it before uninstalling CrossFX: the package manager does not touch files in your home,
+  and only CrossFX takes them away, so WirePlumber would go on loading the script with no CrossFX
+  left to untick it. Otherwise delete the two files and run
   `systemctl --user restart wireplumber`.
   With *Follow the system's default device* ticked and the power off, CrossFX's own lane moving to
   the picked device still clicks the application that has just arrived there. An application closed

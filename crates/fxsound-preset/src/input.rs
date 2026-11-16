@@ -15,11 +15,14 @@
 //! it as an absence rather than as `enabled = false` makes it impossible to write a preset that
 //! carries a full set of gate numbers which nothing reads.
 //!
-//! **Every key 0.4.0 added is optional, and no key was renamed.** A 0.3.0 file loads and means
-//! what it meant; a 0.4.0 file loads on a 0.3.0 binary, which drops the tables it does not know
-//! and reads `rnnoise` — kept as the master switch, and written in step with the `[denoise]`
-//! table — exactly as it always did. Unknown keys are ignored everywhere for the same reason, so
-//! the next version's keys will not stop this one reading a file.
+//! **The denoiser is said once.** A `[denoise]` table says how hard it works, and decides on its
+//! own. With no table the switch does: `rnnoise = true` runs the `Medium` row with one network per
+//! channel, and `false`, or no switch, leaves the stage off. A preset is saved the same way — its
+//! table when it has one, the switch only when that alone turns the stage on — so no file of
+//! CrossFX's carries a switch that its table overrules.
+//!
+//! **Unknown keys are ignored everywhere**, so the next version's keys will not stop this one
+//! reading a file.
 
 use fxsound_core::messages::InputDspParams;
 use fxsound_core::{
@@ -36,7 +39,7 @@ use std::path::Path;
 /// knows more chains must still open here — and it is the chain builder's job to fall back to
 /// `voice` and say so.
 pub const CHAIN_NAMES: [&str; 4] = ["voice", "podcast", "broadcast", "streaming"];
-/// The chain a preset that names none is built on: the 0.3.0 chain.
+/// The chain a preset that names none is built on.
 pub const DEFAULT_CHAIN: &str = "voice";
 
 /// A named set of voice-chain settings.
@@ -49,12 +52,12 @@ pub struct InputPreset {
     #[serde(default)]
     pub description: String,
 
-    /// Run RNNoise in front of everything else.
+    /// Run RNNoise in front of everything else, on a preset with no `[denoise]` table: `true` is
+    /// the `Medium` row with one network per channel, `false` the stage off.
     ///
-    /// Still the master switch, for the 0.3.0 binary's sake. When a `[denoise]` table is present
-    /// the table decides and this is written to agree with it; when it is absent, `true` means
-    /// what it meant in 0.3.0 — the `Medium` row, one network per channel.
-    #[serde(default)]
+    /// Beside a table it is not read, since the table decides, and [`InputPreset::save`] does
+    /// not write it there; off, it is unwritten, on the doctrine of the tables.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub rnnoise: bool,
     /// How hard the denoiser works and how it treats a stereo capture. Absent means whatever
     /// `rnnoise` says; present, it wins.
@@ -103,10 +106,10 @@ fn is_default_chain(chain: &str) -> bool {
 
 /// The `[denoise]` table: the control surface over RNNoise.
 ///
-/// `level` defaults to [`DenoiseLevel`]'s own default — `Medium`, what `rnnoise = true` always
-/// meant — so a table that only names `channels` is a table that still denoises. `Off` can be
-/// spelled here, and means off; the shipped set never spells it, because a stage that is off has
-/// no table, and a test over the set says so.
+/// `level` defaults to [`DenoiseLevel`]'s own default — `Medium`, the row the bare switch
+/// `rnnoise = true` runs — so a table that only names `channels` is a table that still denoises.
+/// `Off` can be spelled here, and means off; the shipped set never spells it, because a stage that
+/// is off has no table, and a test over the set says so.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Denoise {
     #[serde(default)]
@@ -188,8 +191,9 @@ pub struct DeEsser {
     /// Measured in the split band, not in the whole signal.
     pub threshold_db: f32,
     /// Whether `frequency_hz` is the corner or a ceiling on one chosen from the source's
-    /// bandwidth. Defaulted, unlike `detection`: `classic` is what every 0.3.0 file meant and
-    /// the two modes agree wherever the source is wide enough for the corner asked for.
+    /// bandwidth. Defaulted to `classic`, unlike `detection`: the two modes agree wherever the
+    /// source is wide enough for the corner asked for, so a preset that does not say has not said
+    /// two different things.
     #[serde(default)]
     pub mode: DeEsserMode,
 }
@@ -205,15 +209,12 @@ pub struct Equalizer {
     pub gains_db: Vec<f32>,
     /// Whether the equalizer runs. On when unsaid, and unwritten when on, on the same doctrine as
     /// the tables: the window's EQ switch works on a voice as on music, and a voice preset saved
-    /// with it off has to come back off rather than silently on again. A 0.3.0 binary ignores the
-    /// key and runs the curve.
+    /// with it off has to come back off rather than silently on again.
     #[serde(default = "equalizer_on", skip_serializing_if = "is_on")]
     pub enabled: bool,
     /// The filters' Q — the window's Filter Q row on a microphone, 1.0 to 3.0. The default, 1.0,
-    /// when unsaid, and unwritten when 1.0, on the same doctrine as `enabled`: every file
-    /// written before the row existed means what it meant, and a voice preset saved with another
-    /// width comes back with it rather than silently at the default. A 0.3.0 binary ignores the
-    /// key.
+    /// when unsaid, and unwritten when 1.0, on the same doctrine as `enabled`: a voice preset
+    /// saved with another width comes back with it rather than silently at the default.
     #[serde(default = "default_q", skip_serializing_if = "is_default_q")]
     pub q: f32,
 }
@@ -228,7 +229,7 @@ const fn is_on(enabled: &bool) -> bool {
 }
 
 /// The Q a voice preset's equalizer runs at when its file does not say: [`InputDspParams`]'s
-/// default, and what every voice preset ran at before the key existed.
+/// default.
 const fn default_q() -> f32 {
     1.0
 }
@@ -351,9 +352,8 @@ impl InputPreset {
 
     /// Write one preset to a TOML file, durably.
     ///
-    /// `rnnoise` is written as the `[denoise]` table implies, whatever the field holds: the two
-    /// spellings must agree on disk, because a 0.3.0 binary reads only the switch and a 0.4.0
-    /// binary lets the table win.
+    /// The denoiser is written once: by its `[denoise]` table when the preset has one, whatever
+    /// `rnnoise` holds beside it, and otherwise by the switch, when that is on.
     ///
     /// # Errors
     /// The preset cannot be serialised, or the file cannot be replaced.
@@ -380,7 +380,8 @@ impl InputPreset {
     /// The text [`InputPreset::save`] writes.
     fn to_toml(&self) -> Result<String, Error> {
         let mut on_disk = self.clone();
-        on_disk.rnnoise = on_disk.denoise_level() != DenoiseLevel::Off;
+        // Beside a table the switch is not read, and would only say the stage a second time.
+        on_disk.rnnoise &= on_disk.denoise.is_none();
         Ok(toml::to_string_pretty(&on_disk)?)
     }
 
@@ -452,10 +453,7 @@ impl InputPreset {
     }
 
     /// How hard the denoiser works, from the table when there is one and from the switch when
-    /// there is not.
-    ///
-    /// The whole 0.3.0 compatibility rule in one place: `rnnoise = true` with no table is the
-    /// `Medium` row, which is what the network did then; `false` with no table is `Off`.
+    /// there is not: with no table, `rnnoise = true` is the `Medium` row and `false` is `Off`.
     #[must_use]
     pub fn denoise_level(&self) -> DenoiseLevel {
         match (&self.denoise, self.rnnoise) {
@@ -465,8 +463,8 @@ impl InputPreset {
         }
     }
 
-    /// How the denoiser treats a stereo capture: `Independent` — one network per channel, what
-    /// 0.3.0 did — unless the table says otherwise.
+    /// How the denoiser treats a stereo capture: `Independent` — one network per channel, as the
+    /// bare switch runs it — unless the table says otherwise.
     #[must_use]
     pub fn denoise_channels(&self) -> DenoiseChannelMode {
         self.denoise
@@ -633,7 +631,8 @@ mod tests {
     fn a_stage_that_is_off_is_an_absent_table_and_reads_back_as_off() {
         // The distinction between Flat and Clean Voice, and the reason it is an absence rather
         // than `enabled = false`: there is no way to write a preset carrying a full set of gate
-        // numbers that nothing reads. The 0.4.0 tables follow the same rule.
+        // numbers that nothing reads. The denoiser and the de-reverb follow the same rule, and
+        // the denoiser's switch, off, is unwritten too.
         let preset = InputPreset {
             name: "Flat".to_owned(),
             gate: None,
@@ -657,6 +656,7 @@ mod tests {
             "and it wrote its numbers:\n{text}"
         );
         assert!(!text.contains("vad_gate"), "off is unwritten:\n{text}");
+        assert!(!text.contains("rnnoise"), "off is unwritten:\n{text}");
         assert!(
             !text.contains("chain"),
             "the default chain is unwritten:\n{text}"
@@ -722,10 +722,8 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_three_file_with_the_switch_on_means_medium_and_independent() {
-        // Laptop Mic as 0.3.0 shipped it: `rnnoise = true` and nothing else. It has to sound
-        // after the upgrade exactly as it did before, and what it did before was the Medium row
-        // with one network per channel.
+    fn the_switch_alone_runs_the_medium_row_on_every_channel() {
+        // `rnnoise = true` and no table: the Medium row, with one network per channel.
         let preset = parse(&minimal("rnnoise = true"));
         assert!(preset.denoise.is_none());
         assert_eq!(preset.denoise_level(), DenoiseLevel::Medium);
@@ -739,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_three_file_with_the_switch_off_means_off() {
+    fn the_switch_alone_off_is_off() {
         let preset = parse(&minimal("rnnoise = false"));
         assert_eq!(preset.denoise_level(), DenoiseLevel::Off);
         let params = preset.to_params();
@@ -750,8 +748,8 @@ mod tests {
 
     #[test]
     fn an_absent_denoise_table_is_off_and_a_present_one_is_on() {
-        // The doctrine, applied to the new table: absent is off, and present without a spelled
-        // level is the default level, not off. The switch is implied either way.
+        // The doctrine, applied to the denoiser's table: absent is off, and present without a
+        // spelled level is the default level, not off. The switch is implied either way.
         let absent = parse(&minimal(""));
         assert_eq!(absent.denoise_level(), DenoiseLevel::Off);
         assert!(!absent.to_params().rnnoise);
@@ -765,7 +763,7 @@ mod tests {
     #[test]
     fn the_denoise_table_wins_over_the_switch() {
         // The two can disagree in a hand-edited file. The table is the one that says what the
-        // stage does; the switch is there for a 0.3.0 binary.
+        // stage does; the switch decides only where there is no table.
         let strong = parse(&minimal("rnnoise = false\n[denoise]\nlevel = \"strong\""));
         assert_eq!(strong.denoise_level(), DenoiseLevel::Strong);
         let params = strong.to_params();
@@ -800,41 +798,68 @@ mod tests {
     }
 
     #[test]
-    fn saving_writes_the_switch_the_table_implies() {
-        // On disk the two spellings must agree, whatever the struct held: a 0.3.0 binary reads
-        // only the switch.
+    fn saving_says_the_denoiser_once() {
+        // A table decides on its own, so the switch is not written beside one, whatever the
+        // struct held; with no table the switch is written when it turns the stage on. Each file
+        // reads back as the stage the preset ran.
         let dir = tempdir("switch");
+        let level = |denoise: Option<DenoiseLevel>| {
+            denoise.map(|level| Denoise {
+                level,
+                ..Denoise::default()
+            })
+        };
         let mut preset = sample();
-        preset.rnnoise = false;
-        preset.denoise = Some(Denoise {
-            level: DenoiseLevel::Strong,
-            ..Denoise::default()
-        });
-        let path = dir.join("strong.toml");
-        preset.save(&path).expect("save");
-        let text = std::fs::read_to_string(&path).expect("read");
-        assert!(text.contains("rnnoise = true"), "{text}");
-        assert!(InputPreset::load(&path).expect("load").rnnoise);
-
-        preset.rnnoise = true;
-        preset.denoise = Some(Denoise {
-            level: DenoiseLevel::Off,
-            ..Denoise::default()
-        });
-        let path = dir.join("off.toml");
-        preset.save(&path).expect("save");
-        let text = std::fs::read_to_string(&path).expect("read");
-        assert!(text.contains("rnnoise = false"), "{text}");
-
-        preset.denoise = None;
-        preset.rnnoise = true;
-        let path = dir.join("legacy.toml");
-        preset.save(&path).expect("save");
-        let text = std::fs::read_to_string(&path).expect("read");
-        assert!(
-            text.contains("rnnoise = true") && !text.contains("[denoise]"),
-            "a preset with no table is written with no table:\n{text}"
-        );
+        for (tag, denoise, rnnoise, written, runs) in [
+            (
+                "strong",
+                Some(DenoiseLevel::Strong),
+                false,
+                None,
+                DenoiseLevel::Strong,
+            ),
+            (
+                "strong-on",
+                Some(DenoiseLevel::Strong),
+                true,
+                None,
+                DenoiseLevel::Strong,
+            ),
+            (
+                "off",
+                Some(DenoiseLevel::Off),
+                true,
+                None,
+                DenoiseLevel::Off,
+            ),
+            (
+                "switch",
+                None,
+                true,
+                Some("rnnoise = true"),
+                DenoiseLevel::Medium,
+            ),
+            ("none", None, false, None, DenoiseLevel::Off),
+        ] {
+            preset.denoise = level(denoise);
+            preset.rnnoise = rnnoise;
+            assert_eq!(preset.denoise_level(), runs, "{tag}");
+            let path = dir.join(format!("{tag}.toml"));
+            preset.save(&path).expect("save");
+            let text = std::fs::read_to_string(&path).expect("read");
+            let switch: Vec<&str> = text
+                .lines()
+                .filter(|line| line.starts_with("rnnoise"))
+                .collect();
+            assert_eq!(switch, written.as_slice(), "{tag}:\n{text}");
+            assert_eq!(
+                text.contains("[denoise]"),
+                denoise.is_some(),
+                "{tag}:\n{text}"
+            );
+            let loaded = InputPreset::load(&path).expect("load");
+            assert_eq!(loaded.denoise_level(), runs, "{tag}:\n{text}");
+        }
     }
 
     #[test]
@@ -896,7 +921,7 @@ mod tests {
     #[test]
     fn an_equalizer_switched_off_is_saved_off_and_one_left_on_is_unwritten() {
         // The window's EQ switch works on a voice as on music, so a voice preset saved with it
-        // off has to come back off. On is the state every file before the key meant.
+        // off has to come back off. On is what a file that does not say means.
         let unsaid = parse(&minimal(""));
         assert!(unsaid.eq.enabled);
         assert!(unsaid.to_params().eq_on);
@@ -923,7 +948,7 @@ mod tests {
         let unsaid = parse(&minimal(""));
         assert_eq!(
             unsaid.eq.q, 1.0,
-            "every file before the key meant the default"
+            "a file that does not say runs the default"
         );
         assert_eq!(unsaid.to_params().filter_q, 1.0);
         let text = toml::to_string_pretty(&unsaid).expect("serialise");
@@ -952,8 +977,8 @@ mod tests {
 
     #[test]
     fn unknown_keys_are_ignored_at_every_level() {
-        // What lets a 0.4.0 file load on a 0.3.0 binary, and the next version's file on this one.
-        // `deny_unknown_fields` must never appear on these types.
+        // What lets the next version's file load on this one. `deny_unknown_fields` must never
+        // appear on these types.
         let preset = parse(&minimal(
             "sparkle = 3\n[denoise]\nlevel = \"light\"\nflavour = \"mint\"\n\
              [gate]\nthreshold_db = -40.0\nratio = 2.0\nrange_db = -12.0\nattack_ms = 5.0\n\
@@ -1048,18 +1073,24 @@ mod tests {
     }
 
     #[test]
-    fn every_shipped_preset_keeps_the_switch_in_step_with_its_table() {
-        // The compatibility invariant of the set: a 0.3.0 binary reads `rnnoise`, a 0.4.0 binary
-        // reads the table, and both must hear the same stage. And the doctrine: a table that is
-        // present is a stage that is on, so no shipped file spells `off` inside one.
-        for preset in shipped() {
-            assert_eq!(
-                preset.rnnoise,
-                preset.denoise_level() != DenoiseLevel::Off,
-                "{}: rnnoise = {} disagrees with its [denoise] table",
-                preset.name,
-                preset.rnnoise
+    fn every_shipped_preset_says_its_denoiser_once_and_no_table_spells_off() {
+        // The doctrine over the set, read off the files themselves: a table decides on its own,
+        // so no shipped file sets the switch beside one, and a table that is present is a stage
+        // that is on, so no shipped file spells `off` inside one.
+        for entry in std::fs::read_dir(shipped_dir()).expect("list the shipped set") {
+            let path = entry.expect("an entry").path();
+            if path.extension().is_none_or(|extension| extension != "toml") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read");
+            let keys: toml::Table = toml::from_str(&text).expect("parse");
+            assert!(
+                !(keys.contains_key("rnnoise") && keys.contains_key("denoise")),
+                "{}: rnnoise beside a [denoise] table, which decides alone",
+                path.display()
             );
+        }
+        for preset in shipped() {
             if let Some(denoise) = &preset.denoise {
                 assert_ne!(
                     denoise.level,
@@ -1088,8 +1119,8 @@ mod tests {
     #[test]
     fn the_shipped_presets_that_denoise_say_how() {
         // The 0.4.0 additions to the set, as the design record lists them. Every preset that
-        // switches the denoiser on carries a table saying which row, so nothing in the shipped
-        // set relies on the compatibility mapping.
+        // switches the denoiser on carries a table saying which row, so none turns it on with the
+        // bare switch.
         let presets = shipped();
         let find = |name: &str| {
             presets
@@ -1106,7 +1137,7 @@ mod tests {
             assert_eq!(denoise.level, level, "{name}");
             assert_eq!(denoise.channels, channels, "{name}");
             assert_eq!(preset.vad_gate, vad, "{name}: vad_gate");
-            assert!(preset.rnnoise, "{name}: rnnoise");
+            assert!(preset.to_params().rnnoise, "{name}: the denoiser runs");
         };
         use DenoiseChannelMode::{Independent, Linked, Mono};
         use DenoiseLevel::{Light, Medium, Strong};
@@ -1118,13 +1149,11 @@ mod tests {
         expect("Mechanical Keyboard", Strong, Independent, true);
 
         for preset in &presets {
-            if preset.rnnoise {
-                assert!(
-                    preset.denoise.is_some(),
-                    "{}: denoises without saying how",
-                    preset.name
-                );
-            }
+            assert!(
+                !preset.rnnoise,
+                "{}: denoises without saying how, on the bare switch",
+                preset.name
+            );
         }
     }
 }

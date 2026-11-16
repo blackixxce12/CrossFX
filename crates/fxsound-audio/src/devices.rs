@@ -1,6 +1,6 @@
 //! Device enumeration — playback *and* capture — and the device-selection rules.
 //!
-//! This is the Linux half of two Windows files: `sndDevices_GetAll()`
+//! This is the Linux side of two of the original's files: `sndDevices_GetAll()`
 //! (`audiopassthru/src/sndDevices/sndDevices_GetAll.cpp:42`), which walked the WASAPI endpoint
 //! enumerator, and `sndDevicesImplementDeviceRules()`
 //! (`audiopassthru/src/sndDevices/sndDevicesImplementDeviceRules.cpp:44`), which decided *which*
@@ -15,8 +15,8 @@
 //! (`docs/spec/12-audio-io.md` §28), with "the current default" then read from
 //! `default.audio.source`.
 //!
-//! One branch of the original's rules is deliberately not ported: the mono guard. Windows refused
-//! mono *playback* devices to work around a bug in its own driver (`sndDevices.h:32-39`,
+//! One branch of the original's rules is deliberately not ported: the mono guard. The original
+//! refused mono *playback* devices to work around a bug in its own driver (`sndDevices.h:32-39`,
 //! `SND_DEVICES_MONO_BUG_*`), and PipeWire has no such bug to work around. So no device is refused
 //! for its channel count, in either direction: a lane's pair always runs at least a stereo pair,
 //! and the adapter PipeWire puts in front of the real device converts — it up-mixes a mono
@@ -37,7 +37,7 @@ use crate::{AudioError, is_crossfx_node};
 /// The fewest channels a lane's pair ever runs, not the fewest a device may have. A device with
 /// fewer is attached like any other and its adapter converts: a mono microphone is up-mixed into
 /// the pair and the pair is down-mixed into a mono headset (see [`DeviceInfo::clamped_channels`]).
-/// Windows refused such a *sink* instead (`SND_DEVICES_MONO_BUG_SKIP_MONO_DEVICES`,
+/// The original refused such a *sink* instead (`SND_DEVICES_MONO_BUG_SKIP_MONO_DEVICES`,
 /// `sndDevices.h:39`), to work around a driver bug PipeWire does not have.
 pub const MIN_CHANNELS: u32 = 2;
 
@@ -723,13 +723,13 @@ impl ChannelMap {
 /// One device CrossFX could attach to — the Linux `SoundDevice`
 /// (`audiopassthru/include/AudioPassthru.h:32-53`), for either direction.
 ///
-/// The Windows struct's `pwszID` becomes [`DeviceInfo::name`] (`node.name`), which is what gets
+/// The original's `pwszID` becomes [`DeviceInfo::name`] (`node.name`), which is what gets
 /// persisted; `object_id` is a runtime handle only and changes on every PipeWire restart, so it is
-/// never written to disk. Fields the Windows struct carried but nothing ever read
+/// never written to disk. Fields the original's struct carried but nothing ever read
 /// (`pAllDevices`, `isPlaybackDevice`, and the garbage `isUserSelectedPlaybackDevice` described in
 /// `docs/spec/12-audio-io.md` §15) are deliberately absent; `isCaptureDevice` (`:34`) comes back
-/// as [`DeviceInfo::direction`], with the opposite meaning — on Windows it marked *our* endpoint,
-/// here it marks a real microphone.
+/// as [`DeviceInfo::direction`], with the opposite meaning — in the original it marked *our*
+/// endpoint, here it marks a real microphone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceInfo {
     /// The registry global id. Runtime only.
@@ -794,10 +794,10 @@ impl DeviceInfo {
     /// ([`BluezFacts::internal`]).
     ///
     /// Mirrors pass 1 of `sndDevices_GetAll.cpp:141-267`, including its fallbacks: a node with no
-    /// `node.description` is labelled with its `node.name` rather than being dropped (the Windows
-    /// code wrote `L"Unknown"`, `:260-262`), and a node that does not publish a channel count gets
-    /// 0 — unknown, which [`DeviceInfo::clamped_channels`] runs as stereo until the node's own
-    /// info says otherwise.
+    /// `node.description` is labelled with its `node.name` rather than being dropped (the original
+    /// wrote `L"Unknown"`, `:260-262`), and a node that does not publish a channel count gets 0 —
+    /// unknown, which [`DeviceInfo::clamped_channels`] runs as stereo until the node's own info
+    /// says otherwise.
     #[must_use]
     pub fn from_props<'a>(object_id: u32, get: &impl Fn(&str) -> Option<&'a str>) -> Option<Self> {
         let direction = direction_of_media_class(get("media.class")?)?;
@@ -1098,13 +1098,13 @@ fn find<'a>(devices: &'a [&DeviceInfo], name: &str) -> Option<&'a DeviceInfo> {
 /// How the user wants one direction's device chosen, beside what the original's rules remember
 /// (U4, `docs/0.4.0-upstream.md`): the device priority list of the original's Settings ▸ Outputs.
 ///
-/// Not a Windows registry slot, so not in [`SelectionMemory`]: the original's 1.2 keeps the list in
-/// its own settings (`DeviceConfig.cpp`), beside and not instead of the rules this crate ports.
+/// Not one of the original's registry slots, so not in [`SelectionMemory`]: its 1.2 keeps the list
+/// in its own settings (`DeviceConfig.cpp`), beside and not instead of the rules this crate ports.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Preference {
     /// The user's ranking of real devices, as `node.name`s, most preferred first — what
-    /// [`UiToAudio::SetDevicePriority`] last sent. Empty means "follow the system": the Windows
-    /// rules decide exactly as they did before there was a ranking (the original's issue #629).
+    /// [`UiToAudio::SetDevicePriority`] last sent. Empty means "follow the system": the rules
+    /// decide exactly as they did before there was a ranking (the original's issue #629).
     ///
     /// [`UiToAudio::SetDevicePriority`]: fxsound_core::messages::UiToAudio::SetDevicePriority
     pub ranking: Vec<String>,
@@ -1139,10 +1139,10 @@ pub struct Preference {
     /// on its choice gives it back for the retry, as it does [`Self::fresh_pick`].
     ///
     /// The original starts on its preferred output whenever the saved one is absent
-    /// (`FxController.cpp:1516-1532`, `getPreferredOutput`). Without this, a device the Windows
-    /// rules chose before the ranking arrived — the session default, most often — would count as
-    /// the current one and keep the lane for as long as it is there, the ranking's first device
-    /// present beside it or not.
+    /// (`FxController.cpp:1516-1532`, `getPreferredOutput`). Without this, a device the rules chose
+    /// before the ranking arrived — the session default, most often — would count as the current
+    /// one and keep the lane for as long as it is there, the ranking's first device present beside
+    /// it or not.
     pub start_over: bool,
 }
 
@@ -1260,10 +1260,10 @@ pub fn choose_device(
     // 2 — first run after install (`:146`). If we are somehow already the default on a first run,
     // fall through to the repair path rather than picking ourselves (`:166-167`).
     //
-    // One deviation: an explicit user choice that is present wins over this rule. Windows never
-    // wrote `user_selected` (open question 8), so the two could not conflict there; here the first
-    // run of the *input* direction happens precisely because the user picked a microphone, and
-    // adopting the current default source over that pick would attach CrossFX to the wrong one.
+    // One deviation: an explicit user choice that is present wins over this rule. The original
+    // never wrote `user_selected` (open question 8), so the two could not conflict there; here the
+    // first run of the *input* direction happens precisely because the user picked a microphone,
+    // and adopting the current default source over that pick would attach CrossFX to the wrong one.
     if memory.most_recent_default.is_empty()
         && find(&real, &memory.user_selected).is_none()
         && let Some(default_name) = foreign_default
@@ -1271,7 +1271,7 @@ pub fn choose_device(
         target = find(&real, default_name);
     }
 
-    // 3 — exactly one real device (`:172-183`). Windows checked it for being mono afterwards
+    // 3 — exactly one real device (`:172-183`). The original checked it for being mono afterwards
     // like every other branch; nothing here does.
     if target.is_none() && real.len() == 1 {
         target = Some(real[0]);
@@ -1282,8 +1282,8 @@ pub fn choose_device(
         target = find(&real, &memory.user_selected);
     }
 
-    // 5 — a device was just added (`:197-231`). Windows only looked for the new device when the
-    // count had grown (`:197`), and so missed it whenever something left in the same batch of
+    // 5 — a device was just added (`:197-231`). The original only looked for the new device when
+    // the count had grown (`:197`), and so missed it whenever something left in the same batch of
     // registry events: a USB DAC swapped for another, a dock handing its outputs over, a device
     // that changes its node name when it changes profile — an ALSA card going from stereo to 5.1.
     // The original has an open PR for the same miss (#532, `reconnectedDeviceGuid`; Discussion
@@ -1904,7 +1904,7 @@ mod tests {
         device(name, channels, DeviceDirection::Input)
     }
 
-    /// `choose_device` for outputs, with the argument order the Windows-era tests were written in.
+    /// `choose_device` for outputs, with the argument order the first port's tests were written in.
     fn choose_output(
         devices: &[DeviceInfo],
         our_sink: &str,
@@ -3005,8 +3005,8 @@ mod tests {
 
     #[test]
     fn a_newly_appeared_mono_sink_is_taken_like_any_other() {
-        // Windows skipped it here (`:202-210`); a Bluetooth headset that connects straight into
-        // its call profile is exactly the device the user just asked for.
+        // The original skipped it here (`:202-210`); a Bluetooth headset that connects straight
+        // into its call profile is exactly the device the user just asked for.
         let sinks = [sink("speakers", 2), sink("mono-bt", 1)];
         let previous = vec!["speakers".to_owned()];
         let memory = SelectionMemory {
@@ -3028,8 +3028,8 @@ mod tests {
 
     #[test]
     fn a_device_that_arrives_as_another_leaves_is_taken_though_the_count_did_not_grow() {
-        // One batch of registry events: the old DAC's node went, the new one came. Windows only
-        // looked for a new device when the count had grown, so it never saw this one.
+        // One batch of registry events: the old DAC's node went, the new one came. The original
+        // only looked for a new device when the count had grown, so it never saw this one.
         let sinks = [sink("speakers", 2), sink("new-dac", 2)];
         let previous = vec!["speakers".to_owned(), "old-dac".to_owned()];
         let mut memory = SelectionMemory {
@@ -3249,8 +3249,8 @@ mod tests {
 
     #[test]
     fn a_mono_output_the_user_picked_is_used_though_a_stereo_one_is_there() {
-        // Windows answered -58 here, SND_DEVICES_ASK_USER_SELECT_PLAYBACK_DEVICE: asked the user
-        // to pick an output when the user had just picked one.
+        // The original answered -58 here, SND_DEVICES_ASK_USER_SELECT_PLAYBACK_DEVICE: asked the
+        // user to pick an output when the user had just picked one.
         let sinks = [sink("mono-bt", 1), sink("speakers", 2)];
         let memory = SelectionMemory {
             most_recent_default: "mono-bt".into(),
@@ -3264,8 +3264,8 @@ mod tests {
 
     #[test]
     fn a_mono_output_is_not_swapped_for_the_last_stereo_device_we_used() {
-        // Windows retried `most_recent_playback` for a mono target (`:300-302`), which moved the
-        // music out of a headset in its call profile and onto the speakers mid-call.
+        // The original retried `most_recent_playback` for a mono target (`:300-302`), which moved
+        // the music out of a headset in its call profile and onto the speakers mid-call.
         let sinks = [sink("mono-bt", 1), sink("speakers", 2)];
         let memory = SelectionMemory {
             most_recent_default: "mono-bt".into(),
@@ -3280,7 +3280,7 @@ mod tests {
 
     #[test]
     fn a_graph_of_nothing_but_mono_sinks_still_has_an_output() {
-        // Windows answered -57 here, SND_DEVICES_NO_VALID_PLAYBACK_DEVICE, and played nothing.
+        // The original answered -57 here, SND_DEVICES_NO_VALID_PLAYBACK_DEVICE, and played nothing.
         let sinks = [sink("mono-a", 1), sink("mono-b", 1)];
         let memory = SelectionMemory {
             most_recent_default: "mono-a".into(),

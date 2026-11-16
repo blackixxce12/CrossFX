@@ -20,8 +20,8 @@
 //! # Where the port stops copying
 //!
 //! Five things the original does were defects, not voicing, and CrossFX fixes them. Each is an
-//! item in the 0.4.0 audit of copied Windows defects, and each changes what a listener hears only
-//! while levelling is on:
+//! item in the 0.4.0 audit of the original's defects CrossFX copied, and each changes what a
+//! listener hears only while levelling is on:
 //!
 //! * **#1 — the peak safety reads the unfiltered signal.** The original takes the peak that sets
 //!   `ceiling / peak` from the 120 Hz high-passed side chain, which sees a 50 Hz tone at 0.385 of
@@ -102,7 +102,7 @@
 //!
 //! The original's RMS normaliser, which sat in front of this stage in `sosProcessBuffer`
 //! (`SosProcess.cpp:678-724`), is not ported: it runs only while `setNormalization` has moved its
-//! target off 1.0, and nothing in the Windows application ever calls `setNormalization` (audit
+//! target off 1.0, and nothing in the original ever calls `setNormalization` (audit
 //! #37).
 //!
 //! Real-time safety: every piece of state is a fixed-size inline array, so there is nothing to
@@ -1387,8 +1387,8 @@ impl VolumeLeveller {
     }
 
     /// The gain decision for a whole step (`SosProcess.cpp:205-369`). The peak safety reads the
-    /// unfiltered peak (audit #1), or with `sidechain_safety` the side chain's, as the Windows
-    /// build does.
+    /// unfiltered peak (audit #1), or with `sidechain_safety` the side chain's, as the original
+    /// does.
     fn decide(&mut self, effective_sample_rate: Real, sidechain_safety: bool) -> Decision {
         let stats = self.step;
         let analysed_samples = stats.analysed_samples as Real;

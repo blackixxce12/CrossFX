@@ -1219,8 +1219,8 @@ mod tests {
 
     #[test]
     fn no_stored_value_inverts_the_reverb_or_boosts_the_dry_signal() {
-        // Every stored value, not just the eleven slider positions: a `.fac` from Windows or the
-        // command line can hold any of them. Wet never below zero, dry never above unity, both
+        // Every stored value, not just the eleven slider positions: a `.fac` from the original or
+        // the command line can hold any of them. Wet never below zero, dry never above unity, both
         // monotonic, and continuous where the ramp meets the original's warp at 39.
         let mut reverb = Ambience::new(48_000.0);
         let mut previous = (0.0_f32, 1.0_f32);
@@ -2778,7 +2778,7 @@ mod tests {
                 assert!(linux.wet_gain >= 0.0 && linux.dry_gain <= 1.0, "{midi}");
             }
         }
-        // Stored 13: a tail in opposite phase on Windows, none to speak of here.
+        // Stored 13: a tail in opposite phase in the original, none to speak of here.
         windows.set_amount(fxsound_core::scale::midi_to_value(13));
         assert!(windows.wet_gain < -0.07 && windows.dry_gain > 1.02);
     }

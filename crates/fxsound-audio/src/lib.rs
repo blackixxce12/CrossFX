@@ -133,8 +133,8 @@
 //!
 //! # What it deliberately does not do
 //!
-//! * **It never writes volume or mute on the target device.** On Windows the DFX endpoint and the
-//!   real endpoint are two separate system volume controls and CrossFX mirrors them
+//! * **It never writes volume or mute on the target device.** In the original FxSound for Windows
+//!   the DFX endpoint and the real endpoint are two separate system volume controls that it mirrors
 //!   (`sndDevicesVolCallbacks.cpp`). On Linux, once `crossfx_sink` is the default it *is* the
 //!   control the volume keys, `wpctl` and every desktop slider target; mirroring would fight
 //!   WirePlumber's own restore and would leave the real device permanently changed after we exit.
@@ -505,7 +505,7 @@ pub enum AudioError {
     #[error("audio device is unavailable")]
     DeviceUnavailable,
     /// PipeWire could not be reached at all — no socket, no `XDG_RUNTIME_DIR`, or the connection
-    /// was refused. There is no Windows analogue: the driver was always present.
+    /// was refused. The original has no analogue: its driver was always present.
     #[error("PipeWire is not available: {0}")]
     PipewireUnavailable(String),
     /// The connection dropped after having worked. The engine is already retrying.
@@ -547,7 +547,7 @@ pub enum AudioError {
 
 /// Map the legacy `buffer_ms` setting onto a PipeWire quantum.
 ///
-/// The Windows range is 10…100 ms (`sndDevices.h:200-201`, clamped at
+/// The original's range is 10…100 ms (`sndDevices.h:200-201`, clamped at
 /// `sndDevicesSet.cpp:541-545`); the result is a power of two in `[256, 2048]` because graph-wide
 /// quantum negotiation behaves best with them. Note that PipeWire takes the *minimum* requested
 /// latency across the graph, clamped to `default.clock.min-quantum … max-quantum`, so this can
@@ -1280,13 +1280,13 @@ mod tests {
 
     #[test]
     fn the_buffer_length_setting_maps_onto_power_of_two_quanta() {
-        // The Windows range, `sndDevices.h:200-201`.
+        // The original's range, `sndDevices.h:200-201`.
         assert_eq!(quantum_for_ms(10, 48_000), 256);
         assert_eq!(quantum_for_ms(100, 48_000), 2048);
         // Out-of-range values clamp exactly as `sndDevicesSetBufferSizeMilliSecs` does.
         assert_eq!(quantum_for_ms(0, 48_000), quantum_for_ms(10, 48_000));
         assert_eq!(quantum_for_ms(10_000, 48_000), quantum_for_ms(100, 48_000));
-        // The compiled-in Windows default of 80 ms lands on the spec's `Safe` row.
+        // The original's compiled-in default of 80 ms lands on the spec's `Safe` row.
         assert_eq!(quantum_for_ms(80, 48_000), 2048);
         // Every result is a power of two inside the range the ring is sized for.
         for ms in 1..=200 {

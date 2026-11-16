@@ -89,7 +89,7 @@ pub enum EndBands {
     Shifted,
     /// Where they are, limited only to the equalizer's 10 Hz–21 kHz
     /// ([`fxsound_core::eq::keep_centres_inside_the_equalizer`]): the export window's choice from
-    /// Interface and sound on, so the file plays on Windows as the curve plays here.
+    /// Interface and sound on, so the file plays in the original as the curve plays here.
     AsTheyAre,
 }
 
@@ -140,9 +140,9 @@ impl PresetFile for Preset {
     /// Then, [`EndBands::Shifted`], the first and last band go back inside the ladder's edges
     /// (0.4.0 audit R6): here they can be tuned half a band past them, where the original's
     /// wheels cannot follow, so a first band at 46 Hz is exported at 62.5 Hz. Nothing else moves,
-    /// so a preset Windows made goes back out as it came. [`EndBands::AsTheyAre`] leaves them where
-    /// they are, inside the equalizer's own 10 Hz–21 kHz. Importing takes a file as it is, wider
-    /// centres and all.
+    /// so a preset the original made goes back out as it came. [`EndBands::AsTheyAre`] leaves them
+    /// where they are, inside the equalizer's own 10 Hz–21 kHz. Importing takes a file as it is,
+    /// wider centres and all.
     fn exported(&self, end_bands: EndBands) -> Self {
         let mut preset = self.clone();
         fxsound_core::eq::move_onto_the_windows_twenty_band_ladder(&mut preset.eq_bands);

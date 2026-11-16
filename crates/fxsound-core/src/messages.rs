@@ -265,9 +265,8 @@ pub struct InputDspParams {
     /// and nowhere else — so a preset asking for it on a device that cannot have it gets a
     /// working chain and an interface that says which stages are running.
     ///
-    /// Still the master switch. The three fields below shape what the network does once it is
-    /// on, and a 0.3.0 snapshot — which has none of them — reads as the level and mode that
-    /// version always used.
+    /// The master switch. The three fields below shape what the network does once it is on; their
+    /// defaults are the row and mode a voice preset's bare switch runs.
     pub rnnoise: bool,
     /// How hard the denoiser may work. `Off` here and `rnnoise: true` is a stage that is on and
     /// asked to do nothing, which the stage treats as off.
@@ -471,8 +470,8 @@ impl Default for InputDspParams {
             highpass_hz: 80.0,
             highpass_order: 2,
             rnnoise: false,
-            // What `rnnoise = true` meant in 0.3.0: the Medium row, one network per channel, no
-            // de-reverb. A snapshot from that version says exactly what it said.
+            // What a voice preset's bare switch, `rnnoise = true`, runs: the Medium row, one
+            // network per channel, no de-reverb.
             denoise_level: DenoiseLevel::Medium,
             denoise_channels: DenoiseChannelMode::Independent,
             denoise_control: DenoiseLevel::Medium.control(),

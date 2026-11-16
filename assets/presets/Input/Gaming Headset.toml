@@ -9,7 +9,6 @@
 # hold down, but with keyboard thumps under it rather than desk rumble.
 name = "Gaming Headset"
 description = "A boom microphone on a gaming headset, with a keyboard and fans behind it: denoised, gated on the voice, kept bright."
-rnnoise = true
 highpass_hz = 100.0
 highpass_order = 4
 makeup_db = 6.0

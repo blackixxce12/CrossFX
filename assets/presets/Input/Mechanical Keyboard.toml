@@ -10,7 +10,6 @@
 # take down at desk distance, and a steeper corner buys nothing against a click.
 name = "Mechanical Keyboard"
 description = "A desk microphone beside a clicky keyboard: a fast peak gate between words, the denoiser at full strength."
-rnnoise = true
 highpass_hz = 100.0
 highpass_order = 2
 makeup_db = 5.0

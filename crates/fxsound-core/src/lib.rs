@@ -594,7 +594,7 @@ pub mod eq {
 
     /// The original's twenty-band ladder (`GraphicEqSet.cpp:468-478`): octave bands from
     /// 31.5 Hz with the third-octave band above each, so they come in pairs. Twenty-band curves
-    /// saved before 0.4.0 and Windows twenty-band presets carry these centres.
+    /// saved before 0.4.0 and the original's twenty-band presets carry these centres.
     pub const WINDOWS_TWENTY_BAND_CENTRES_HZ: [f32; 20] = [
         20.0, 31.5, 40.0, 63.0, 80.0, 125.0, 160.0, 250.0, 315.0, 500.0, 630.0, 1000.0, 1250.0,
         2000.0, 2500.0, 4000.0, 5000.0, 8000.0, 10000.0, 16000.0,
@@ -636,8 +636,8 @@ pub mod eq {
     }
 
     /// The other way, for a `.fac` written for someone else to open: a twenty-band curve on the
-    /// half-octave ladder is written on the Windows one, band for band, which is what the Windows
-    /// build draws and tunes twenty bands to. Anything else is left alone. Says whether it moved.
+    /// half-octave ladder is written on the Windows one, band for band, which is what the original
+    /// draws and tunes twenty bands to. Anything else is left alone. Says whether it moved.
     pub fn move_onto_the_windows_twenty_band_ladder(bands: &mut [EqBand]) -> bool {
         if on_ladder(bands, &TWENTY_BAND_CENTRES_HZ) {
             move_to(bands, &WINDOWS_TWENTY_BAND_CENTRES_HZ);
@@ -690,7 +690,7 @@ pub mod eq {
     /// or a `num_bands` edited in `settings.toml` has one, since a `.fac` is fitted onto the
     /// window's count — the ten-band table's, which a new equalizer starts with.
     ///
-    /// The Windows engine keeps whatever edges the last table count left for such a count
+    /// The original's engine keeps whatever edges the last table count left for such a count
     /// (`GraphicEqSet.cpp:495-508`), so the same preset got another Q after a 31-band preset than
     /// after a ten-band one, and the window, which works out its curve on a new equalizer, drew
     /// only the second. One pair for the engine's ladder and Q (`fxsound_dsp::eq::GraphicEq`) and
@@ -756,7 +756,7 @@ pub mod eq {
         windows_band_range(band, num_bands, min_hz, max_hz)
     }
 
-    /// How far band `band` may be tuned here: the Windows range, except that each end band
+    /// How far band `band` may be tuned here: the original's range, except that each end band
     /// reaches half a band past the ladder's edge as well, so it can be tuned both ways (audit
     /// report R6).
     ///
@@ -767,7 +767,7 @@ pub mod eq {
     /// it (ten bands: 46 to 85 Hz, five: 31 to 125 Hz), and the last band's range goes as far
     /// above (ten bands: 11 768 Hz to 20 kHz), never past [`TUNING_FLOOR_HZ`] and
     /// [`TUNING_CEILING_HZ`]: the twenty- and thirty-one-band ladders already start at 20 Hz and
-    /// the thirty-one-band one ends at 20 kHz. Every other band keeps the Windows range.
+    /// the thirty-one-band one ends at 20 kHz. Every other band keeps the original's range.
     ///
     /// A `.fac` written for the original FxSound for Windows has its end bands put back on the
     /// ladder's edges
@@ -806,8 +806,8 @@ pub mod eq {
     /// and ten bands, 62.5 Hz and 16 kHz, where the original's wheels stop. Nothing else is
     /// clamped: the factory presets themselves put inner bands outside their wheels' ranges
     /// (Metal's 1000 Hz sits below the 1010 Hz its band's wheel starts at), and the original
-    /// plays such a centre as it is, so a preset Windows made is exported exactly as it came. A
-    /// curve of a count with no table is left alone, and so is a centre that is not a number.
+    /// plays such a centre as it is, so a preset the original made is exported exactly as it came.
+    /// A curve of a count with no table is left alone, and so is a centre that is not a number.
     pub fn move_end_bands_back_inside_the_ladder(bands: &mut [EqBand]) -> bool {
         let Some((min_hz, max_hz)) = ladder_edges_hz(bands.len()) else {
             return false;
@@ -949,8 +949,8 @@ pub enum Detection {
 /// in its own right and not the absence of one, so that a preset can name it and a setting can
 /// override a preset with it.
 ///
-/// `Medium` is the default because a 0.3.0 preset that said `rnnoise = true` meant the network
-/// as it was then, and that is the row `Medium` was voiced to reproduce.
+/// `Medium` is the default: the row a voice preset's bare switch, `rnnoise = true`, runs, so a
+/// `[denoise]` table that names no level and the switch alone run the same stage.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
@@ -961,7 +961,7 @@ pub enum DenoiseLevel {
     /// A gentle floor and most of the voice handed back: for a quiet room and a good microphone,
     /// where the network's own artefacts would cost more than the noise it removes.
     Light,
-    /// What 0.3.0 did.
+    /// The middle row: what the bare switch runs, and a table that names no level.
     #[default]
     Medium,
     /// The network's full opinion, with nothing handed back. For a mechanical keyboard or a fan
@@ -975,11 +975,11 @@ impl DenoiseLevel {
 
     /// The English label, and so the `tr` key.
     ///
-    /// `Light` is labelled **Mild**. `"Light"` is already a key in every one of the Windows
-    /// build's tables, where it names the light *theme*, and a key has one translation per
-    /// language: "Hell" and "Светлая" describe a palette, not a noise floor, and a port entry
-    /// that said otherwise would re-label the theme switch. So the level takes a word of its
-    /// own. The socket, D-Bus and file spelling is [`DenoiseLevel::key`]'s `light` regardless.
+    /// `Light` is labelled **Mild**. `"Light"` is already a key in every one of the original's
+    /// tables, where it names the light *theme*, and a key has one translation per language: "Hell"
+    /// and "Светлая" describe a palette, not a noise floor, and a port entry that said otherwise
+    /// would re-label the theme switch. So the level takes a word of its own. The socket, D-Bus and
+    /// file spelling is [`DenoiseLevel::key`]'s `light` regardless.
     #[inline]
     #[must_use]
     pub const fn label(self) -> &'static str {
@@ -1633,7 +1633,8 @@ mod tests {
             [0, 39, 49, 59, 68, 78, 88, 98, 107, 117, 127],
             "position by position"
         );
-        // A Windows preset's 13..38 shows below position 1, where it sounds, and 0 stays off.
+        // A preset of the original's that stores 13..38 shows it below position 1, where it sounds,
+        // and 0 stays off.
         for midi in 1..scale::AMBIENCE_FIRST_AUDIBLE_MIDI {
             let shown = scale::midi_to_slider_for(Effect::Ambience, midi);
             assert!(shown > 0.0 && shown < 1.0, "{midi} shows at {shown}");
@@ -1865,8 +1866,8 @@ mod tests {
 
     #[test]
     fn the_first_and_last_band_of_five_and_ten_can_be_tuned_both_ways() {
-        // Audit report R6: on Windows band 1 sits at the bottom of 62.5..85 Hz and band 10 at the
-        // top of 11768..16000 Hz.
+        // Audit report R6: in the original band 1 sits at the bottom of 62.5..85 Hz and band 10 at
+        // the top of 11768..16000 Hz.
         assert_eq!(eq::band_frequency_range(0, 10), (46.0, 85.0));
         assert_eq!(eq::band_frequency_range(9, 10), (11768.0, 20000.0));
         assert_eq!(eq::band_frequency_range(0, 5), (31.0, 125.0));
@@ -1937,7 +1938,7 @@ mod tests {
         let centres: Vec<f32> = five.iter().map(|b| b.center_hz).collect();
         assert_eq!(centres, [62.5, 250.0, 1000.0, 4000.0, 16000.0]);
 
-        // Fifteen bands reach 20 Hz and 20 kHz here and stop at 25 Hz and 16 kHz on Windows.
+        // Fifteen bands reach 20 Hz and 20 kHz here and stop at 25 Hz and 16 kHz in the original.
         let mut fifteen: Vec<EqBand> = (0..15)
             .map(|i| EqBand::new(100.0 * (i + 1) as f32, 0.0))
             .collect();
@@ -2172,9 +2173,9 @@ mod tests {
     }
 
     #[test]
-    fn the_defaults_are_what_a_0_3_0_file_meant() {
-        // `rnnoise = true` meant the network as it then was, which is the Medium row; one network
-        // per channel; the corner the preset asked for; no de-reverb.
+    fn the_defaults_are_what_a_voice_preset_that_does_not_say_runs() {
+        // The bare switch `rnnoise = true`, or a `[denoise]` table that names no level, runs the
+        // Medium row; one network per channel; the corner the preset asked for; no de-reverb.
         assert_eq!(DenoiseLevel::default(), DenoiseLevel::Medium);
         assert_eq!(
             DenoiseChannelMode::default(),

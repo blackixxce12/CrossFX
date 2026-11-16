@@ -441,7 +441,7 @@ impl Engine {
             // messages: the engine now starts clean without relying on every caller to send it.
             self.eq.reset();
         }
-        // Below 20 Hz the Windows design lets a band's Q go negative (audit report #12).
+        // Below 20 Hz the original's design lets a band's Q go negative (audit report #12).
         self.eq.set_compat(params.compat);
         self.eq.set_q_multiplier(params.filter_q);
         let (centers, boosts) = params.bands();

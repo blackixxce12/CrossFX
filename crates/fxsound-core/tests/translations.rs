@@ -928,8 +928,8 @@ fn every_port_table_adds_the_same_strings() {
 #[test]
 fn a_string_that_ends_in_a_space_keeps_the_space_in_every_language() {
     // `"Output: "` and `"Preset: "` are followed by a name — in the tray tooltip and in the
-    // desktop notifications — and eleven Windows tables drop the space, which glued German into
-    // "Ausgabe:Lautsprecher". A CJK full-width colon carries its own spacing.
+    // desktop notifications — and eleven of the original's tables drop the space, which glued
+    // German into "Ausgabe:Lautsprecher". A CJK full-width colon carries its own spacing.
     let keys: Vec<String> = interface_keys()
         .into_iter()
         .filter(|key| key.ends_with(' '))
@@ -996,7 +996,7 @@ const SPELLED_AS_IN_ENGLISH: &[&str] = &[
 #[test]
 fn no_table_leaves_a_string_in_english_unless_the_language_spells_it_so() {
     // `untranslated` cannot see this one: a value that *is* the key is present and not empty.
-    // Croatian's Windows table did it to "on" and "off", which the readout strip and the tray
+    // The original's Croatian table did it to "on" and "off", which the readout strip and the tray
     // show, and a port entry copied from its key as a placeholder would do it again.
     let keys = interface_keys();
     let tables = tables();
@@ -1022,9 +1022,10 @@ fn no_table_leaves_a_string_in_english_unless_the_language_spells_it_so() {
 
 #[test]
 fn the_level_labels_do_not_borrow_the_theme_switchs_word() {
-    // `"Light"` names the light theme in every Windows table, and a key has one translation per
-    // language: had the level kept the same key, German would have called a gentle noise floor
-    // "Hell" and Russian "Светлая". The level's word is its own, so the two translate apart.
+    // `"Light"` names the light theme in every one of the original's tables, and a key has one
+    // translation per language: had the level kept the same key, German would have called a gentle
+    // noise floor "Hell" and Russian "Светлая". The level's word is its own, so the two translate
+    // apart.
     let de = Catalogue::for_language(fxsound_core::i18n::language("de").expect("German"));
     assert_eq!(de.code(), "de");
     let theme = de.get("Light").expect("the theme's word");
@@ -1152,7 +1153,8 @@ const MEAN_THE_ORIGINAL: [&str; 4] = [
 /// The port translations that name CrossFX less often than their English does, as (language,
 /// key). Russian and Ukrainian say that Gilroy is not included without naming the program that
 /// leaves it out, a sentence that reads as well without the name (S5 of the rename's string
-/// table).
+/// table). Without the name, and not with the original's in its place: such a translation names
+/// FxSound no more often than its English, which names it once.
 const NAME_CROSSFX_LESS_OFTEN: [(&str, &str); 2] =
     [("ru", GILROY_EXPLAINED), ("ua", GILROY_EXPLAINED)];
 
@@ -1194,7 +1196,9 @@ fn every_port_translation_names_crossfx_as_often_as_its_english_and_the_original
     // twice ("FxSound of FxSound LLC"). The original's tables are not read: the four strings of
     // theirs that name the program are derived and held by
     // `every_derived_value_names_crossfx_wherever_the_original_named_itself`, and some of the
-    // original's translations never named it (the Polish hotkey's "Włącz/Wyłącz").
+    // original's translations never named it (the Polish hotkey's "Włącz/Wyłącz"). A listed
+    // exception may leave CrossFX out, and may not name the original in its place: "this FxSound
+    // does not include it" for "CrossFX cannot include it" is the same wrong program.
     let excepted = |code: &str, key: &str| {
         NAME_CROSSFX_LESS_OFTEN
             .iter()
@@ -1209,10 +1213,17 @@ fn every_port_translation_names_crossfx_as_often_as_its_english_and_the_original
                 key.matches(NAMES[0]).count(),
                 value.matches(NAMES[0]).count(),
             );
-            if named != wanted && !(named < wanted && excepted(language.code, key)) {
+            let (original, original_named) = (
+                key.matches(NAMES[1]).count(),
+                value.matches(NAMES[1]).count(),
+            );
+            let excused =
+                named < wanted && excepted(language.code, key) && original_named <= original;
+            if named != wanted && !excused {
                 misnamed.push(format!(
-                    "{}: {key:?} = {value:?} names {} {named} times, its English {wanted}",
-                    language.code, NAMES[0]
+                    "{}: {key:?} = {value:?} names {} {named} times and {} {original_named}, its \
+                     English {wanted} and {original}",
+                    language.code, NAMES[0], NAMES[1]
                 ));
             }
             if key.contains(NAMES[1]) && !value.contains(NAMES[1]) {

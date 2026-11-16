@@ -339,7 +339,7 @@ mod language_coverage {
             assert_ne!(input, "Input", "{} has no word for Input", language.code);
             assert_ne!(output, input, "{}", language.code);
         }
-        // Region-qualified and Windows-specific codes resolve too.
+        // Region-qualified codes and the original's own resolve too.
         assert_eq!(
             direction_word(DeviceDirection::Output, Some("zh-TW")),
             "输出"

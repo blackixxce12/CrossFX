@@ -24,11 +24,11 @@ pub const MAX_BAND_FREQ_HZ: Real = 21_000.0;
 /// The original's twenty-band ladder (`GraphicEqSet.cpp:468-478`), which [`band_table`] no longer
 /// hands out (audit report R4).
 ///
-/// Kept because curves on it outlive the change: settings saved by an earlier version and
-/// Windows twenty-band presets carry these centres, and a curve that brings its own centres keeps
-/// them, ripple and all — 3.9 dB of it with every band at +6 dB. Whoever owns such a curve can
-/// recognise it by this ladder and move it to `band_table(20)`: band for band, no centre moves by
-/// more than 0.17 of an octave.
+/// Kept because curves on it outlive the change: settings saved by an earlier version and the
+/// original's twenty-band presets carry these centres, and a curve that brings its own centres
+/// keeps them, ripple and all — 3.9 dB of it with every band at +6 dB. Whoever owns such a curve
+/// can recognise it by this ladder and move it to `band_table(20)`: band for band, no centre moves
+/// by more than 0.17 of an octave.
 ///
 /// The table itself is `fxsound_core::eq`'s, which moves a curve between the two ladders
 /// ([`fxsound_core::eq::move_off_the_windows_twenty_band_ladder`]) where the preset store and the
@@ -66,8 +66,8 @@ pub const WINDOWS_TWENTY_BAND_CENTRES_HZ: [Real; 20] =
 ///
 /// A curve that already carries its own twenty centres, from a preset or from settings, keeps
 /// them: this only decides the ladder a count gets when nothing supplies one. So a twenty-band
-/// curve saved before 0.4.0, or read from a Windows twenty-band `.fac`, still sits on the old
-/// pairs, with their ripple, until whoever owns it moves it here;
+/// curve saved before 0.4.0, or read from a twenty-band `.fac` of the original's, still sits on the
+/// old pairs, with their ripple, until whoever owns it moves it here;
 /// [`WINDOWS_TWENTY_BAND_CENTRES_HZ`] is how to recognise one.
 #[must_use]
 pub fn band_table(num_bands: usize) -> Option<(&'static [Real], Real, Real)> {
@@ -147,8 +147,8 @@ pub fn derive_q(min_hz: f64, max_hz: f64, num_bands: usize, q_multiplier: Real) 
 /// The half-step geometric edges the original's GUI uses as each band's frequency slider range
 /// (`GraphicEqGet.cpp:105-168`), including the asymmetric `+1` / `+10` nudge on the low edge.
 ///
-/// The Windows range, which a `.fac` for Windows is held to. The window's wheels reach half a band
-/// further at both ends of the ladder (audit report R6,
+/// The original's range, which a `.fac` for the original is held to. The window's wheels reach half
+/// a band further at both ends of the ladder (audit report R6,
 /// [`fxsound_core::eq::band_frequency_range`]); the equalizer takes any centre from
 /// [`MIN_BAND_FREQ_HZ`] to [`MAX_BAND_FREQ_HZ`] either way.
 #[must_use]
@@ -184,10 +184,10 @@ pub fn standard_centres(count: usize) -> Vec<Real> {
 /// **For a curve on the standard ladder of its count only.** Both ladders are the ones the counts
 /// get by default ([`standard_centres`]), and the reading is [`fit_preset_gains`]'s, between
 /// them: the gains alone do not say where the curve sits, so this assumes. A curve on centres of
-/// its own — a Windows twenty-band preset or a twenty-band curve saved before 0.4.0, still on
-/// [`WINDOWS_TWENTY_BAND_CENTRES_HZ`], or any curve with a band dragged in the window — is read at
-/// the wrong frequencies here, and a band-count change moves its boosts: a 10 kHz boost on the
-/// Windows ladder, read as if it sat at 11.3 kHz, came out on thirty-one bands as 3.98 dB at
+/// its own — a twenty-band preset of the original's or a twenty-band curve saved before 0.4.0,
+/// still on [`WINDOWS_TWENTY_BAND_CENTRES_HZ`], or any curve with a band dragged in the window — is
+/// read at the wrong frequencies here, and a band-count change moves its boosts: a 10 kHz boost on
+/// the Windows ladder, read as if it sat at 11.3 kHz, came out on thirty-one bands as 3.98 dB at
 /// 10 kHz and 4.21 dB at 12.5 kHz. Carry such a curve with [`remap_curve`], which takes its
 /// centres.
 ///
@@ -236,8 +236,8 @@ pub fn remap_band_gains(old: &[Real], new_count: usize) -> Vec<Real> {
 ///
 /// What a band-count change should use whenever the live curve's centres are at hand, since
 /// the live curve need not sit on the standard ladder of its count (audit report #13, second
-/// review): a Windows twenty-band preset keeps its own centres on purpose (R4), and a band dragged
-/// in the window keeps where it was dragged to. Read from its own centres, a Windows twenty-band
+/// review): a twenty-band preset of the original's keeps its own centres on purpose (R4), and a
+/// band dragged in the window keeps where it was dragged to. Read from its own centres, such a
 /// curve's +6 dB at 10 kHz lands on thirty-one bands as 6.00 dB on the 10 kHz band, where read as
 /// if it sat on the standard ladder it gave 3.98 dB there and slid its peak up to 11-12 kHz.
 ///
@@ -944,9 +944,9 @@ impl GraphicEq {
     }
 
     /// Design the bands as CrossFX does, or as the original does («Like the original
-    /// FxSound LLC» = Interface and sound). The two differ below 20 Hz only, where the Windows
-    /// design's Q goes negative (audit report #12, [`calc_parametric_in`]); a band there is
-    /// redesigned and crossfades to its new design as a moved band does.
+    /// FxSound LLC» = Interface and sound). The two differ below 20 Hz only, where the original's Q
+    /// goes negative (audit report #12, [`calc_parametric_in`]); a band there is redesigned and
+    /// crossfades to its new design as a moved band does.
     pub fn set_compat(&mut self, compat: DspCompat) {
         if compat == self.compat {
             return;
@@ -1876,11 +1876,11 @@ mod tests {
     #[test]
     fn a_windows_twenty_band_curves_ten_kilohertz_boost_stays_at_ten_kilohertz_on_thirty_one_bands()
     {
-        // Audit report #13, second review. A Windows twenty-band `.fac` keeps its own centres (R4)
-        // — 8, 10 and 16 kHz at the top — and a band-count change read it as if it sat on the
-        // standard ladder, where its 10 kHz band is 11.3 kHz: on thirty-one bands, 0.18, 3.98 and
-        // 4.21 dB on the 8, 10 and 12.5 kHz bands, 5.2 dB at 10 kHz and the peak slid to 11-12 kHz.
-        // Read from its own centres it is 6.00 dB on the 10 kHz band.
+        // Audit report #13, second review. A twenty-band `.fac` of the original's keeps its own
+        // centres (R4) — 8, 10 and 16 kHz at the top — and a band-count change read it as if it sat
+        // on the standard ladder, where its 10 kHz band is 11.3 kHz: on thirty-one bands, 0.18,
+        // 3.98 and 4.21 dB on the 8, 10 and 12.5 kHz bands, 5.2 dB at 10 kHz and the peak slid to
+        // 11-12 kHz. Read from its own centres it is 6.00 dB on the 10 kHz band.
         let mut treble = [0.0; 20];
         treble[18] = 6.0;
         let by_centres = remap_curve(&WINDOWS_TWENTY_BAND_CENTRES_HZ, &treble, 31);

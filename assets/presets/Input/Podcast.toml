@@ -6,7 +6,6 @@
 # cannot put back. The gate's threshold is unchanged; a floor lowered by 12 dB is still under it.
 name = "Podcast"
 description = "Recorded speech on its way to an editor: gentle, warm, and left with headroom on purpose."
-rnnoise = true
 highpass_hz = 80.0
 highpass_order = 2
 makeup_db = 5.0

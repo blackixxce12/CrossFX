@@ -37,7 +37,8 @@
 //! the chain bypassed, 19.9 dB less behind NODE 2; the volume leveller at 4, 19.0–19.7 dB less
 //! for a −20 dBFS programme, whose leveller is at its +12 dB cap either way, but only 11.7–12.5 dB
 //! less for a −12 dBFS one — the leveller won back eight of the twenty decibels the user asked
-//! for. On Windows the DSP sees the programme at full level and the endpoint volume acts after it.
+//! for. In the original FxSound for Windows the DSP sees the programme at full level and the
+//! endpoint volume acts after it.
 //!
 //! So both virtual nodes clamp their adapter's volume range to exactly unity
 //! (`channelmix.min-volume = channelmix.max-volume = 1.0`, honoured since PipeWire 0.3.72): the

@@ -1,6 +1,6 @@
 //! Did the shipped presets move when the engine under them changed?
 //!
-//! Every fix to the engine changes what some preset sounds like — the 0.4.0 audit of the Windows
+//! Every fix to the engine changes what some preset sounds like — the 0.4.0 audit of the original's
 //! defects CrossFX had copied changed the leveller, Dynamic Boost, its limiter, and the way every
 //! control glides — and whether a preset got *worse* is a question about the preset, not the fix.
 //! It is answered by rendering each preset through both engines on the same material and

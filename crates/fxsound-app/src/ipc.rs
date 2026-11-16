@@ -206,8 +206,9 @@ pub struct Request {
     /// startup (`Main.cpp:308-321`), which CrossFX does not copy (§2.3).
     pub cwd: String,
     /// Subscribe to the event stream rather than be answered once. `argv` must then be a
-    /// `--watch` line, whose `--json` picks the stream's spelling. Left out of every other frame,
-    /// so a plain command line is byte for byte what 0.3.0 sent.
+    /// `--watch` line, whose `--json` picks the stream's spelling. Sent only when set, as
+    /// `meters` is, and false when absent: a flag that is off is not written, so a frame that
+    /// forwards a command line carries `v`, `argv` and `cwd` alone.
     #[serde(default, skip_serializing_if = "is_false")]
     pub watch: bool,
     /// With `watch`: stream the microphone's meters too (`--meters`).
@@ -2279,7 +2280,8 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_command_frame_is_byte_for_byte_what_0_3_0_sent() {
+    fn a_frame_carries_the_flags_that_are_set_and_no_others() {
+        // A forwarded command line: the version, the line and the folder, and no flag that is off.
         let request = Request {
             v: PROTOCOL_VERSION,
             argv: argv(&["--next-preset"]),
@@ -2291,10 +2293,23 @@ mod tests {
             frame,
             r#"{"v":1,"argv":["crossfx","--next-preset"],"cwd":"/"}"#
         );
-
-        // And a 0.3.0 frame still parses, as a request that does not watch.
         let parsed: Request = serde_json::from_str(&frame).expect("parse");
-        assert!(!parsed.watch && !parsed.meters);
+        assert_eq!(parsed, request, "an absent flag reads as off");
+
+        // A stream with the meters: both flags are sent, and read back.
+        let watching = Request {
+            argv: argv(&["--watch", "--meters"]),
+            watch: true,
+            meters: true,
+            ..request
+        };
+        let frame = serde_json::to_string(&watching).expect("serialise");
+        assert!(
+            frame.ends_with(r#","watch":true,"meters":true}"#),
+            "{frame}"
+        );
+        let parsed: Request = serde_json::from_str(&frame).expect("parse");
+        assert_eq!(parsed, watching);
     }
 
     // ---- the control channel -----------------------------------------------------------------

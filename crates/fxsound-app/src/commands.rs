@@ -2984,7 +2984,17 @@ mod tests {
         assert_eq!(a.state.direction, Output);
 
         // The shared description matches the output for `--output` — so a description alone never
-        // lands on the microphone by accident — and leaves the input lane where it was.
+        // lands on the microphone by accident — and leaves the input lane where it was: on the
+        // microphone `--input` selected first, which neither the refusal above nor this clears.
+        let outcome = run(
+            &mut a,
+            &[Command::Input(InputCommand::Select(
+                "alsa_input.usb-fifine".into(),
+            ))],
+        );
+        assert!(outcome.stderr.is_empty() && !outcome.failed, "{outcome:?}");
+        assert_eq!(a.state.selected_input, Some(2));
+        assert!(a.settings().lane_enabled(Input));
         let outcome = run(
             &mut a,
             &[Command::Output(OutputCommand::Select(
@@ -2993,7 +3003,12 @@ mod tests {
         );
         assert!(outcome.stderr.is_empty(), "{:?}", outcome.stderr);
         assert_eq!(a.state.selected_output, Some(1));
-        assert_eq!(a.state.selected_input, None);
+        assert_eq!(
+            a.state.selected_input,
+            Some(2),
+            "the microphone stays selected"
+        );
+        assert!(a.settings().lane_enabled(Input), "and its lane stays on");
         assert_eq!(a.state.direction, Output);
     }
 

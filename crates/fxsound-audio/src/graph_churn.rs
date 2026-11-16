@@ -3107,9 +3107,10 @@ fn a_tone_driven_through_each_lane_reaches_that_lane_and_no_other() {
 fn a_mono_sink_that_appears_is_played_to_through_a_stereo_pair_its_adapter_down_mixes() {
     again_if_a_tone_ran_dry(|| {
         // A Bluetooth headset that has just switched to its call profile, as the output lane meets
-        // it: a new output with one channel. Windows refused such a device (`sndDevices.h:32-39`), and
-        // so did CrossFX — the moment the sink's info said "one channel", the next run of the rules
-        // tore the lane down and the music went to the speakers for the length of the call.
+        // it: a new output with one channel. The original refused such a device
+        // (`sndDevices.h:32-39`), and so did CrossFX — the moment the sink's info said "one
+        // channel", the next run of the rules tore the lane down and the music went to the speakers
+        // for the length of the call.
         let Some(graph) = PrivateGraph::start("mono") else {
             return;
         };
