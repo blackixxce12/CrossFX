@@ -54,7 +54,7 @@
 //! they do besides the flag and the wait.
 
 use std::cell::Cell;
-use std::os::windows::io::{FromRawHandle as _, OwnedHandle};
+use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::thread::{self, JoinHandle};
@@ -64,8 +64,8 @@ use windows::Win32::Foundation::{
     GENERIC_READ, GENERIC_WRITE, HANDLE, HWND, LPARAM, LRESULT, WPARAM,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_UNKNOWN,
-    GetFileType, OPEN_EXISTING,
+    CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_PIPE,
+    FILE_TYPE_UNKNOWN, GetFileType, OPEN_EXISTING,
 };
 use windows::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, CONSOLE_MODE, CTRL_BREAK_EVENT, CTRL_C_EVENT,
@@ -237,12 +237,146 @@ fn is_redirected(handle: HANDLE) -> bool {
 /// to hear (see the module docs). Which of the standard output and error were the console's is
 /// kept, for [`on_the_terminal`]. A no-op for a console CrossFX did not borrow — the debug
 /// build's own.
-pub fn release_borrowed_console() {
+///
+/// Whatever the console, a standard output or error that is a pipe is relayed from here on
+/// ([`Relays`]), and the relays are returned for the running CrossFX to keep until it ends.
+pub fn release_borrowed_console() -> Relays {
     if TERMINAL
         .compare_exchange(BORROWED, GIVEN_BACK, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
     {
         CONSOLE_STREAMS.store(let_go_of_the_console(Vec::new()), Ordering::SeqCst);
+    }
+    Relays(
+        [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]
+            .into_iter()
+            .filter_map(relay_if_a_pipe)
+            .collect(),
+    )
+}
+
+/// The standard output and error of the running CrossFX that are pipes — `crossfx 2>&1 |
+/// findstr preset`, a launcher reading its log — each given a pipe of CrossFX's own, which a
+/// thread copies into the one it was started with (`relay`).
+///
+/// A write into a pipe whose reader has gone fails, and Rust's `eprintln!` panics on a failed
+/// write: the `tray-icon` crate writes one line to the standard error whenever Windows does not
+/// take its icon away — on every Explorer restart, inside its window procedure, where a panic
+/// ends the process whatever the panic strategy — and CrossFX ended with the default device
+/// still on the virtual cable. A pipe of CrossFX's own is read for as long as CrossFX runs, so no
+/// write into it fails; what reaches the relay once the reader has gone is dropped.
+///
+/// Dropped, the relays put the standard handles back, let their threads pass on what is still in
+/// their pipes, and wait for that a moment (`RELAY_DRAIN`): the last lines of the way out are
+/// not lost to the process ending first.
+#[must_use = "the relays are put away when dropped"]
+pub struct Relays(Vec<Relay>);
+
+/// One of [`Relays`].
+struct Relay {
+    /// The standard handle relayed.
+    which: STD_HANDLE,
+    /// The handle CrossFX was started with, as an address: the relay's thread writes to it.
+    original: isize,
+    /// The write end of CrossFX's own pipe, the standard handle while the relay stands.
+    write: Option<std::io::PipeWriter>,
+    /// Whether a write into `original` has failed: its reader is gone.
+    broken: Arc<AtomicBool>,
+    /// Told when the thread has passed on everything and ended.
+    done: std::sync::mpsc::Receiver<()>,
+}
+
+/// How long dropping the [`Relays`] waits for each to pass on what is still in its pipe.
+const RELAY_DRAIN: Duration = Duration::from_secs(1);
+
+impl Drop for Relays {
+    fn drop(&mut self) {
+        for relay in &mut self.0 {
+            // Back to the handle CrossFX was started with, unless its reader is gone: then to no
+            // handle, which Rust's standard streams take as a write that went through.
+            let back = if relay.broken.load(Ordering::SeqCst) {
+                HANDLE::default()
+            } else {
+                HANDLE(relay.original as *mut _)
+            };
+            // SAFETY: this process's own standard handle, set to one it was started with and
+            // still has open, or to none.
+            let _ = unsafe { SetStdHandle(relay.which, back) };
+            // The thread reads to the end of what is in the pipe, and then ends.
+            drop(relay.write.take());
+            let _ = relay.done.recv_timeout(RELAY_DRAIN);
+        }
+    }
+}
+
+/// Relay the standard handle `which` if it is a pipe ([`Relays`]); `None` for any other kind, and
+/// when the relay cannot be made, which leaves the handle as it was.
+fn relay_if_a_pipe(which: STD_HANDLE) -> Option<Relay> {
+    // SAFETY: this process's own standard handle, and a plain query on it.
+    let original = unsafe { GetStdHandle(which) }.ok()?;
+    // SAFETY: as above.
+    if original.is_invalid() || unsafe { GetFileType(original) } != FILE_TYPE_PIPE {
+        return None;
+    }
+    let original = original.0 as isize;
+    let (write, broken, done) = start_relay(original).ok()?;
+    // SAFETY: this process's own standard handle, set to a handle it owns for as long as the
+    // relay stands; on failure the write end goes, and the thread with it.
+    unsafe { SetStdHandle(which, HANDLE(write.as_raw_handle())) }.ok()?;
+    Some(Relay {
+        which,
+        original,
+        write: Some(write),
+        broken,
+        done,
+    })
+}
+
+/// What [`start_relay`] returns: the write end, whether the original handle has failed a write,
+/// and what the thread tells when it ends.
+type RelayParts = (
+    std::io::PipeWriter,
+    Arc<AtomicBool>,
+    std::sync::mpsc::Receiver<()>,
+);
+
+/// A pipe of CrossFX's own, and the thread that copies what is written into it to `original`, a
+/// handle the thread never closes ([`relay`]).
+fn start_relay(original: isize) -> std::io::Result<RelayParts> {
+    let (read, write) = std::io::pipe()?;
+    let broken = Arc::new(AtomicBool::new(false));
+    let (tell, done) = std::sync::mpsc::channel();
+    let flag = Arc::clone(&broken);
+    thread::Builder::new()
+        .name("crossfx-stdio".into())
+        .spawn(move || {
+            relay(read, original, &flag);
+            let _ = tell.send(());
+        })?;
+    Ok((write, broken, done))
+}
+
+/// Copy what `read` gives to `original` until every write end of the pipe is gone. Once a write
+/// to `original` fails — its reader is gone — what follows is read and dropped, so that no write
+/// into the pipe ever waits on a reader that is not there.
+fn relay(mut read: std::io::PipeReader, original: isize, broken: &AtomicBool) {
+    use std::io::{Read as _, Write as _};
+    // SAFETY: a handle this process has open for as long as it runs; `ManuallyDrop` never
+    // closes it.
+    let mut to = std::mem::ManuallyDrop::new(unsafe {
+        std::fs::File::from_raw_handle(original as *mut std::ffi::c_void)
+    });
+    let mut buffer = [0; 4096];
+    loop {
+        match read.read(&mut buffer) {
+            // A pipe whose write ends are all gone reads as its end.
+            Ok(0) | Err(_) => return,
+            Ok(n) => {
+                if !broken.load(Ordering::SeqCst) && to.write_all(&buffer[..n]).is_err() {
+                    broken.store(true, Ordering::SeqCst);
+                }
+            }
+        }
     }
 }
 
@@ -668,7 +802,46 @@ fn run_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read as _, Write as _};
     use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+
+    #[test]
+    fn a_relay_passes_on_what_is_written_and_ends_with_its_pipe() {
+        let (mut reader, original) = std::io::pipe().unwrap();
+        let (mut write, broken, done) = start_relay(original.as_raw_handle() as isize).unwrap();
+        write.write_all(b"handed back\n").unwrap();
+        drop(write);
+        done.recv_timeout(Duration::from_secs(5))
+            .expect("the relay ended");
+        drop(original);
+        let mut got = String::new();
+        reader.read_to_string(&mut got).unwrap();
+        assert_eq!(got, "handed back\n");
+        assert!(!broken.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_relay_never_fails_a_write_once_the_reader_of_its_pipe_is_gone() {
+        // `crossfx 2>&1 | findstr preset`, the `findstr` ended: a write into that pipe fails,
+        // and `eprintln!` panics on it.
+        let (reader, original) = std::io::pipe().unwrap();
+        drop(reader);
+        let mut direct = original.try_clone().unwrap();
+        assert!(
+            direct.write_all(b"x").is_err(),
+            "the pipe still has a reader"
+        );
+
+        let (mut write, broken, done) = start_relay(original.as_raw_handle() as isize).unwrap();
+        // Far more than any pipe holds: the relay keeps reading, and drops it.
+        for _ in 0..256 {
+            write.write_all(&[b'.'; 4096]).unwrap();
+        }
+        drop(write);
+        done.recv_timeout(Duration::from_secs(5))
+            .expect("the relay ended");
+        assert!(broken.load(Ordering::SeqCst));
+    }
 
     fn send(termination: &Termination, message: u32, wparam: usize) -> LRESULT {
         let (_, window) = termination.window.as_ref().expect("a window");

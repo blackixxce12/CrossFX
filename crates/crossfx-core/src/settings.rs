@@ -665,11 +665,27 @@ impl Settings {
     /// missing file is simply the defaults. A directory in the file's place holds nothing a save
     /// can destroy: a rename cannot replace a directory, so every save fails, loudly, until
     /// someone removes it.
+    ///
+    /// A file another program holds open on Windows is neither ([`crate::held`]): it is waited
+    /// for a moment, and when it is still held it is left where it is, the defaults are used, and
+    /// no save replaces it until a later load has read it.
     #[must_use]
     pub fn load_from(path: &Path) -> Self {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
+        let text = match crate::held::read_to_string(path) {
+            Ok(text) => {
+                crate::held::read_after_all(path);
+                text
+            }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                crate::held::read_after_all(path);
+                return Self::sanitised_default();
+            }
+            Err(err) if crate::held::is_held(&err) => {
+                log::warn!(
+                    "{}: {err}; using defaults, and not saving over it until it can be read",
+                    path.display()
+                );
+                crate::held::left_unread(path);
                 return Self::sanitised_default();
             }
             // Not only EISDIR: Windows refuses to open any directory as a file with "access
@@ -758,6 +774,8 @@ impl Settings {
 
     /// [`Settings::save`] to an explicit path — the seam the round-trip tests use.
     pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        // A file the load found held is the user's, whole; these are the defaults.
+        crate::held::refuse_if_unread(path)?;
         // Never write out a value the loader would have to repair; a `nan` in this file is
         // indistinguishable from one the user typed.
         let mut checked = self.clone();

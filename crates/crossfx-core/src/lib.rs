@@ -14,6 +14,7 @@
 pub mod apps;
 pub mod atomic;
 pub mod fonts;
+pub mod held;
 pub mod i18n;
 pub mod identity;
 pub mod messages;

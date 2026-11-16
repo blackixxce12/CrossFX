@@ -214,9 +214,25 @@ pub fn attach_parent_console() {
 /// either, which in the middle of the engine's start would leave the default device on CrossFX's
 /// own. What the start has to say after that goes through [`on_the_terminal`]. A no-op on Linux,
 /// and for a console CrossFX has of its own, the debug build's, whose Ctrl+C is the tray's Exit.
-pub fn release_terminal() {
+///
+/// On Windows a standard output or error that is a pipe is relayed from here on, so that a
+/// reader of it going away — `crossfx 2>&1 | findstr preset` with the `findstr` ended — fails
+/// no write of CrossFX's, which would end it with the default device still on the virtual cable
+/// (`win::session::Relays`). The [`Streams`] returned keep the relays: dropped last, as the way
+/// out ends, they pass on what is left.
+pub fn release_terminal() -> Streams {
+    Streams {
+        #[cfg(windows)]
+        _relays: crate::win::session::release_borrowed_console(),
+    }
+}
+
+/// What [`release_terminal`] leaves standing for as long as CrossFX runs: on Windows, the relays
+/// of its standard output and error when they are pipes; nothing on Linux.
+#[must_use = "the standard streams are put back when this is dropped"]
+pub struct Streams {
     #[cfg(windows)]
-    crate::win::session::release_borrowed_console();
+    _relays: crate::win::session::Relays,
 }
 
 /// Print what the start has to say once [`release_terminal`] has let go of the terminal — the
