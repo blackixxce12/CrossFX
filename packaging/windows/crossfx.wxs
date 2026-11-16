@@ -40,10 +40,19 @@
                   DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
-    <!-- 603 is what Windows Installer reports on Windows 8.1, 10 and 11 alike; the x64 package
-         does not open on 32-bit Windows at all. -->
-    <Launch Condition="Installed OR VersionNT64 &gt;= 603"
-            Message="[ProductName] needs 64-bit Windows 10 or Windows 11." />
+    <!-- CrossFX needs Windows 10 version 1703 (build 15063) or later: crossfx.exe imports functions
+         that 1607 brought (CompareObjectHandles, GetSystemMetricsForDpi), and its manifest and its
+         tray thread ask for the per-monitor v2 DPI awareness that 1703 brought. Windows Installer
+         reports VersionNT64 603 on Windows 8.1, 10 and 11 alike, so the build is read from the
+         registry (the setup program's MinVersion=10.0.15063 says the same); the x64 package does
+         not open on 32-bit Windows at all. -->
+    <Property Id="WINDOWSBUILD">
+      <RegistrySearch Id="WindowsBuildNumber" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="CurrentBuildNumber" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR (VersionNT64 &gt;= 603 AND WINDOWSBUILD &gt;= 15063)"
+            Message="[ProductName] needs 64-bit Windows 10 version 1703 or later, or Windows 11." />
 
     <!-- The setup program installs the same program into the same folder under an entry of its
          own. Over it, this package would leave two entries in the list of installed apps, each

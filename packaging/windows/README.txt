@@ -5,6 +5,8 @@ CrossFX is the FxSound audio enhancer, ported to Rust: the equalizer, the effect
 factory presets of the original FxSound for everything Windows plays. It is made by the CrossFX
 contributors and is not FxSound LLC's FxSound; the two can be installed side by side.
 
+It runs on 64-bit Windows 10 version 1703 (build 15063) or later and on Windows 11.
+
 CrossFX needs a virtual playback device, which it does not install: VB-Audio's VB-CABLE
 (https://vb-audio.com/Cable/, donationware that you install yourself) or another virtual cable,
 or the FxSound Audio Enhancer driver that comes with the original FxSound. While the original

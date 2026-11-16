@@ -98,7 +98,10 @@ VersionInfoCopyright=Copyright (C) CrossFX contributors, portions (C) FxSound LL
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-MinVersion=10.0
+; Windows 10 version 1703 (build 15063) or later: crossfx.exe imports functions 1607 brought, and
+; its manifest and tray thread ask for the per-monitor v2 DPI awareness 1703 brought. The .msi's
+; launch condition says the same.
+MinVersion=10.0.15063
 DefaultDirName={autopf}\{#AppDirName}
 ; Program Files and nowhere else, so no page to choose another folder on, and PrepareToInstall
 ; below refuses one given as /DIR=.
