@@ -340,6 +340,10 @@ pub struct TrayState {
     /// The level of «Как в оригинальном FxSound LLC» in force: from Interface on, the playback
     /// devices' rows are cut as the original cuts them ([`WINDOWS_LABEL_MAX`], 0.4.0 audit #31).
     pub windows_parity: WindowsParity,
+    /// Whether the microphone is hidden (`App::microphone_hidden`): the application then hands
+    /// the tray no microphone, no voice presets and an empty input lane, and the tooltip has no
+    /// `Input:` line.
+    pub microphone_hidden: bool,
 }
 
 impl Default for TrayState {
@@ -354,6 +358,7 @@ impl Default for TrayState {
             devices: Vec::new(),
             language: String::new(),
             windows_parity: WindowsParity::Off,
+            microphone_hidden: false,
         }
     }
 }
@@ -404,9 +409,12 @@ impl TrayState {
         format!("{}{device}", tr(key))
     }
 
-    /// The two device lines, output first.
+    /// The two device lines, output first; the output's alone while the microphone is hidden.
     #[must_use]
     pub fn device_lines(&self) -> String {
+        if self.microphone_hidden {
+            return self.device_line(DeviceDirection::Output);
+        }
         format!(
             "{}\n{}",
             self.device_line(DeviceDirection::Output),

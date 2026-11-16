@@ -460,14 +460,24 @@ impl SettingsTab {
         }
     }
 
-    /// The row of the nav the tab's button takes on `platform`: its place among the tabs offered
-    /// there, so that a tab a platform lacks leaves no gap.
+    /// Whether the tab has a button with `settings` on `platform`: offered there, and for
+    /// Microphone not hidden ([`Settings::microphone_hidden`]: on Windows until Experimental's
+    /// "Microphone processing" allows it).
     #[must_use]
-    pub fn row(self, platform: Platform) -> usize {
+    pub fn shown(self, platform: Platform, settings: &Settings) -> bool {
+        self.offered_on(platform)
+            && !(self == Self::Microphone && settings.microphone_hidden(platform))
+    }
+
+    /// The row of the nav the tab's button takes on `platform` with `settings`: its place among
+    /// the tabs shown there ([`SettingsTab::shown`]), so that a tab a platform lacks, or a hidden
+    /// microphone's, leaves no gap.
+    #[must_use]
+    pub fn row(self, platform: Platform, settings: &Settings) -> usize {
         Self::ALL
             .into_iter()
             .take(self.index())
-            .filter(|tab| tab.offered_on(platform))
+            .filter(|tab| tab.shown(platform, settings))
             .count()
     }
 
@@ -1163,6 +1173,9 @@ pub enum SettingsAction {
     /// click on a position or its label, an arrow key, a wheel notch, a right-click (back to Off),
     /// or a drag let go — never the positions a drag passes on its way.
     SetWindowsParity(WindowsParity),
+    /// «Обработка микрофона» / "Microphone processing" ticked or unticked, where it is offered
+    /// (no echo canceller: Windows): `Settings::windows_microphone`.
+    SetWindowsMicrophone(bool),
     /// "Smooth moves in WirePlumber" ticked or unticked: install CrossFX's hook in the user's
     /// WirePlumber, or take it away. Only emitted while it is available.
     SetWirePlumberHook(bool),
@@ -1248,17 +1261,19 @@ impl<'a> SettingsDialog<'a> {
             .offered_or_below()
             .windows_look(WindowsLook::NavCaptions);
         let platform = self.state.platform;
-        // A tab the platform lacks has no button, and is never shown: the first tab is instead.
-        let shown = if self.state.tab.offered_on(platform) {
+        let settings = &self.state.settings;
+        // A tab the platform lacks, or the hidden microphone's, has no button, and is never
+        // shown: the first tab is instead.
+        let shown = if self.state.tab.shown(platform, settings) {
             self.state.tab
         } else {
             SettingsTab::default()
         };
         for tab in SettingsTab::ALL {
-            if !tab.offered_on(platform) {
+            if !tab.shown(platform, settings) {
                 continue;
             }
-            let rect = nav_button_rect(content, tab.row(platform));
+            let rect = nav_button_rect(content, tab.row(platform, settings));
             let windows_caption = windows_captions && tab.windows_has();
             if nav_button(ui, rect, tab, shown == tab, windows_caption, palette, icons) {
                 response.push(SettingsAction::SelectTab(tab));
@@ -3571,6 +3586,11 @@ pub mod experimental {
     pub const HOOK_LINE_HEIGHT: f32 = 54.0;
     /// Above "Restart WirePlumber", as above the Microphone pane's button.
     pub const GAP_BEFORE_RESTART: f32 = 10.0;
+    /// y of "Microphone processing": the hook's place, since the platform that offers it — the
+    /// one with no echo canceller, Windows — has no WirePlumber.
+    pub const MICROPHONE_Y: f32 = HOOK_Y;
+    /// Room for seven lines of the small font: the warning under the checkbox, in every language.
+    pub const MICROPHONE_WARNING_HEIGHT: f32 = 126.0;
 }
 
 /// The heading over the slider, the mode's one name on Linux and on Windows. It names the
@@ -3611,6 +3631,15 @@ pub const WIREPLUMBER_RESTART_FAILED: &str =
 /// The button that restarts WirePlumber, after asking.
 pub const RESTART_WIREPLUMBER: &str = "Restart WirePlumber";
 
+/// The checkbox that allows the microphone where nothing cancels echo in front of it (Windows):
+/// `Settings::windows_microphone`.
+pub const MICROPHONE_PROCESSING: &str = "Microphone processing";
+/// The warning under it, always shown: why it is off, what it suits, and what it needs. No
+/// version and no date: echo cancellation on Windows is "not yet".
+pub const MICROPHONE_PROCESSING_WARNING: &str = "CrossFX does not cancel echo on Windows yet: in \
+a call the other person may hear themselves, even with headphones, and presets with gain such as \
+“Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE).";
+
 /// "Smooth moves in WirePlumber": a checkbox the width of the row.
 #[must_use]
 pub fn wireplumber_hook_rect(pane: Rect) -> Rect {
@@ -3642,6 +3671,30 @@ pub fn restart_wireplumber_rect(pane: Rect, size: Vec2) -> Rect {
             wireplumber_line_rect(pane).bottom() + experimental::GAP_BEFORE_RESTART,
         ),
         size,
+    )
+}
+
+/// "Microphone processing": a checkbox the width of the row, where the hook is on Linux.
+#[must_use]
+pub fn microphone_processing_rect(pane: Rect) -> Rect {
+    let row = parity_row(pane);
+    Rect::from_min_size(
+        pos2(row.left(), pane.top() + experimental::MICROPHONE_Y),
+        vec2(row.width(), experimental::HOOK_HEIGHT),
+    )
+}
+
+/// The warning under it, indented to its caption, as the hook's lines are.
+#[must_use]
+pub fn microphone_warning_rect(pane: Rect) -> Rect {
+    let toggle = microphone_processing_rect(pane);
+    let indent = TICK_BOX_SIDE + TICK_BOX_GAP;
+    Rect::from_min_size(
+        pos2(toggle.left() + indent, toggle.bottom()),
+        vec2(
+            toggle.width() - indent,
+            experimental::MICROPHONE_WARNING_HEIGHT,
+        ),
     )
 }
 
@@ -3886,6 +3939,41 @@ fn experimental_pane(
     if state.platform.wireplumber {
         wireplumber_hook(ui, pane, state.wireplumber_hook, palette, id, response);
     }
+    // Where nothing cancels echo in front of the voice chain, the microphone waits to be allowed.
+    if !state.platform.echo_cancel {
+        microphone_processing(ui, pane, state, palette, id, response);
+    }
+}
+
+/// «Обработка микрофона» / "Microphone processing" and the warning under it, which is always
+/// there: ticked or not, it says what the microphone does in a call on Windows.
+fn microphone_processing(
+    ui: &mut Ui,
+    pane: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let on = state.settings.windows_microphone;
+    if toggle(
+        ui,
+        microphone_processing_rect(pane),
+        &tr(MICROPHONE_PROCESSING),
+        on,
+        true,
+        palette,
+        id.with("microphone-processing"),
+    ) {
+        response.push(SettingsAction::SetWindowsMicrophone(!on));
+    }
+    draw_wrapped(
+        ui.painter(),
+        &tr(MICROPHONE_PROCESSING_WARNING),
+        small_font(),
+        palette.color(FxColor::HintText),
+        microphone_warning_rect(pane),
+    );
 }
 
 /// "Smooth moves in WirePlumber", the line under it, and "Restart WirePlumber" while a restart is
@@ -7461,6 +7549,87 @@ mod tests {
         assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
+    // ---- Microphone processing (Windows) ----------------------------------------------------
+
+    fn windows_experimental(allowed: bool) -> SettingsState {
+        let mut state = experimental_state(WindowsParity::Off);
+        state.platform = Platform::WINDOWS;
+        state.settings.windows_microphone = allowed;
+        state
+    }
+
+    #[test]
+    fn microphone_processing_and_its_warning_are_windows_own_and_the_warning_is_always_there() {
+        // The platform with no echo canceller has no WirePlumber, whose place the box takes.
+        assert!(!Platform::WINDOWS.echo_cancel && !Platform::WINDOWS.wireplumber);
+        for allowed in [false, true] {
+            let drawn = experimental_texts(&windows_experimental(allowed)).join(" ");
+            assert!(drawn.contains(MICROPHONE_PROCESSING), "{drawn}");
+            assert!(
+                MICROPHONE_PROCESSING_WARNING
+                    .split_whitespace()
+                    .all(|word| drawn.contains(word)),
+                "{allowed}: {drawn}"
+            );
+        }
+        let linux = experimental_texts(&experimental_state(WindowsParity::Off)).join(" ");
+        assert!(!linux.contains(MICROPHONE_PROCESSING), "{linux}");
+        assert!(!linux.contains("VB-CABLE"), "{linux}");
+    }
+
+    #[test]
+    fn ticking_microphone_processing_allows_the_microphone_and_unticking_hides_it() {
+        let pane = shown_pane();
+        let box_rect = microphone_processing_rect(pane);
+        let warning = microphone_warning_rect(pane);
+        assert!(parity_hint_rect(pane).bottom() < box_rect.top());
+        assert!(box_rect.bottom() <= warning.top() && warning.bottom() <= pane.bottom());
+        let at = box_rect.left_center() + vec2(5.0, 0.0);
+        assert_eq!(
+            click_settings(&windows_experimental(false), at),
+            [SettingsAction::SetWindowsMicrophone(true)]
+        );
+        assert_eq!(
+            click_settings(&windows_experimental(true), at),
+            [SettingsAction::SetWindowsMicrophone(false)]
+        );
+    }
+
+    #[test]
+    fn every_language_fits_microphone_processing_and_its_warning() {
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let box_room = microphone_processing_rect(pane).width() - TICK_BOX_SIDE - TICK_BOX_GAP;
+        let warning = microphone_warning_rect(pane);
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            problems.extend(wider_than(
+                ui,
+                MICROPHONE_PROCESSING,
+                &normal_font(),
+                box_room,
+            ));
+            for (code, text) in every_translation(MICROPHONE_PROCESSING_WARNING) {
+                let size = ui
+                    .painter()
+                    .layout(
+                        text.clone(),
+                        small_font(),
+                        Color32::PLACEHOLDER,
+                        warning.width(),
+                    )
+                    .size();
+                if size.y > warning.height() || size.x > warning.width() {
+                    problems.push(format!(
+                        "{code}: {text:?} is {size:?} in {:?}",
+                        warning.size()
+                    ));
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
     #[test]
     fn the_pane_shows_the_chosen_positions_hint_and_draws_in_both_palettes() {
         for level in WindowsParity::SLIDER_LEVELS {
@@ -7497,15 +7666,20 @@ mod tests {
 
     #[test]
     fn windows_has_no_applications_tab_and_its_nav_leaves_no_gap() {
+        let defaults = Settings::default();
         for tab in SettingsTab::ALL {
             assert!(tab.offered_on(Platform::LINUX), "{tab:?}");
-            assert_eq!(tab.row(Platform::LINUX), tab.index(), "{tab:?}");
+            assert_eq!(tab.row(Platform::LINUX, &defaults), tab.index(), "{tab:?}");
         }
         assert!(!SettingsTab::Applications.offered_on(Platform::WINDOWS));
+        let allowed = Settings {
+            windows_microphone: true,
+            ..Settings::default()
+        };
         let rows: Vec<usize> = SettingsTab::ALL
             .into_iter()
-            .filter(|tab| tab.offered_on(Platform::WINDOWS))
-            .map(|tab| tab.row(Platform::WINDOWS))
+            .filter(|tab| tab.shown(Platform::WINDOWS, &allowed))
+            .map(|tab| tab.row(Platform::WINDOWS, &allowed))
             .collect();
         assert_eq!(rows, (0..SettingsTab::ALL.len() - 1).collect::<Vec<_>>());
 
@@ -7528,6 +7702,47 @@ mod tests {
                 texts.iter().any(|text| text == OUTPUT_PREFERENCE_TITLE),
                 !applications,
                 "{texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_hides_the_microphone_tab_until_microphone_processing_is_on_and_linux_never_does() {
+        let defaults = Settings::default();
+        assert!(!SettingsTab::Microphone.shown(Platform::WINDOWS, &defaults));
+        assert!(SettingsTab::Microphone.shown(Platform::LINUX, &defaults));
+        // No gap where it was: Experimental moves up to Microphone's row.
+        let rows: Vec<usize> = SettingsTab::ALL
+            .into_iter()
+            .filter(|tab| tab.shown(Platform::WINDOWS, &defaults))
+            .map(|tab| tab.row(Platform::WINDOWS, &defaults))
+            .collect();
+        assert_eq!(rows, (0..SettingsTab::ALL.len() - 2).collect::<Vec<_>>());
+
+        // Asked for anyway — the tray's microphone item, a remembered tab — the hidden pane shows
+        // the first one instead, and its tab is drawn nowhere; ticked, it is back.
+        for (platform, allowed, shown) in [
+            (Platform::WINDOWS, false, false),
+            (Platform::WINDOWS, true, true),
+            (Platform::LINUX, false, true),
+        ] {
+            let mut state = SettingsState {
+                tab: SettingsTab::Microphone,
+                platform,
+                ..linux()
+            };
+            state.settings.windows_microphone = allowed;
+            let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            assert_eq!(
+                texts.iter().any(|text| text == "Microphone"),
+                shown,
+                "{platform:?} {allowed}: {texts:?}"
+            );
+            assert_eq!(
+                texts.iter().any(|text| text == OUTPUT_PREFERENCE_TITLE),
+                !shown,
+                "{platform:?} {allowed}: {texts:?}"
             );
         }
     }
@@ -7606,12 +7821,14 @@ mod tests {
         assert!(on_windows.top() >= last.bottom(), "{on_windows:?} {last:?}");
 
         for (platform, echo) in [(Platform::LINUX, true), (Platform::WINDOWS, false)] {
-            let state = SettingsState {
+            let mut state = SettingsState {
                 tab: SettingsTab::Microphone,
                 platform,
                 has_microphone: true,
                 ..linux()
             };
+            // The pane Windows shows once microphone processing is on.
+            state.settings.windows_microphone = true;
             let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
             let texts = painted(&shapes);
             assert_eq!(

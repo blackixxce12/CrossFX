@@ -160,3 +160,5 @@ countries: vn
 "The Windows audio service is not available" = "Dịch vụ âm thanh của Windows không khả dụng"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Tệp %s đang được chương trình khác sử dụng: CrossFX đã khởi động với cài đặt mặc định và sẽ lưu các thay đổi của bạn vào tệp đó"
 "Your changes are not saved: CrossFX cannot read %s" = "Các thay đổi của bạn không được lưu: CrossFX không thể đọc tệp %s"
+"Microphone processing" = "Xử lý micrô"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX chưa khử tiếng vọng trên Windows: trong cuộc gọi, người bên kia có thể nghe thấy chính mình, kể cả khi bạn dùng tai nghe, và các preset có tăng âm như “Noisy Room” có thể gây hú. Phù hợp để thu âm và phát trực tiếp. Cần một cáp ảo riêng (VB-CABLE)."

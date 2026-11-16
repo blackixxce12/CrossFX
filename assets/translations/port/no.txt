@@ -164,3 +164,5 @@ countries: no
 "The Windows audio service is not available" = "Lydtjenesten i Windows er ikke tilgjengelig"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Filen %s var i bruk av et annet program: CrossFX startet med standardinnstillingene og lagrer endringene dine i den"
 "Your changes are not saved: CrossFX cannot read %s" = "Endringene dine lagres ikke: CrossFX kan ikke lese filen %s"
+"Microphone processing" = "Mikrofonbehandling"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX fjerner ikke ekko på Windows ennå: i en samtale kan den andre høre seg selv, selv med hodetelefoner, og forhåndsinnstillinger med forsterkning som «Noisy Room» kan gi hyling. Egner seg for opptak og strømming. Trenger en egen virtuell kabel (VB-CABLE)."

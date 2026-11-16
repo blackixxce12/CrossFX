@@ -159,3 +159,5 @@ countries: kr
 "The Windows audio service is not available" = "Windows 오디오 서비스를 사용할 수 없습니다"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "파일 %s을(를) 다른 프로그램이 사용 중이었습니다. CrossFX는 기본 설정으로 시작했으며 변경 사항은 그 파일에 저장됩니다"
 "Your changes are not saved: CrossFX cannot read %s" = "변경 사항이 저장되지 않습니다. CrossFX가 파일 %s을(를) 읽을 수 없습니다"
+"Microphone processing" = "마이크 처리"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX는 Windows에서 아직 에코를 제거하지 않습니다. 통화 중에는 헤드폰을 써도 상대방이 자기 목소리를 들을 수 있고, “Noisy Room”처럼 게인을 높이는 프리셋은 하울링을 일으킬 수 있습니다. 녹음과 방송에 적합합니다. 전용 가상 케이블(VB-CABLE)이 필요합니다."

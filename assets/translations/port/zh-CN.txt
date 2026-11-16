@@ -160,3 +160,5 @@ countries: cn sg
 "The Windows audio service is not available" = "Windows 音频服务不可用"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "文件 %s 正被其他程序占用：CrossFX 已使用默认设置启动，并会将您的更改保存到该文件"
 "Your changes are not saved: CrossFX cannot read %s" = "您的更改未保存：CrossFX 无法读取文件 %s"
+"Microphone processing" = "麦克风处理"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX 在 Windows 上暂不支持回声消除：通话时，即使戴着耳机，对方也可能听到自己的声音，而“Noisy Room”等带增益的预设可能引起啸叫。适合录音和直播。需要一条专用的虚拟线缆（VB-CABLE）。"

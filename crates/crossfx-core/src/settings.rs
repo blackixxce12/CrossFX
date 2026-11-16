@@ -25,7 +25,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::messages::TargetVolume;
-use crate::parity::WindowsParity;
+use crate::parity::{ParityClass, WindowsParity};
+use crate::platform::{PLATFORM, Platform};
 use crate::{
     DeEsserMode, DenoiseChannelsOverride, DereverbLevel, DeviceDirection, NoiseSuppressionOverride,
 };
@@ -520,6 +521,17 @@ pub struct Settings {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub export_unshifted: bool,
 
+    // ---- experimental ------------------------------------------------------------------------
+    /// Settings ▸ Experimental ▸ «Обработка микрофона» / "Microphone processing": whether the
+    /// microphone's lane may run where nothing cancels echo in front of it — Windows, which has no
+    /// echo canceller of its own yet ([`Platform::echo_cancel`]). Off by default: in a call the
+    /// headphones' leak into the microphone, which the call application's canceller would take
+    /// out, survives CrossFX's time-varying voice chain, and the other side hears themselves. On
+    /// Linux, where PipeWire's canceller can stand in front of the chain, it is never shown and
+    /// changes nothing ([`Settings::microphone_hidden`]). Written only when set.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub windows_microphone: bool,
+
     /// Every key of the file this version does not know, kept and written back as it was read.
     /// This is the file's top level; a key inside an entry of `device_configs` or
     /// `device_volumes`, or inside `[calibration]`, is kept by that entry's own `extra`.
@@ -574,6 +586,7 @@ impl Default for Settings {
 
             windows_parity: WindowsParity::Off,
             export_unshifted: false,
+            windows_microphone: false,
             extra: toml::Table::new(),
         }
     }
@@ -967,12 +980,43 @@ impl Settings {
         self.device_direction = direction;
     }
 
-    /// Whether a lane comes up at start.
+    /// The chain the window edits: the saved one, except that it is the speakers' while the
+    /// microphone is hidden ([`Settings::microphone_hidden`]). The saved key is kept, so turning
+    /// the microphone back on finds it as it was.
+    #[must_use]
+    pub fn edit_direction(&self) -> DeviceDirection {
+        if self.microphone_hidden(PLATFORM) {
+            DeviceDirection::Output
+        } else {
+            self.device_direction
+        }
+    }
+
+    /// Whether the microphone is hidden on `platform`, and its lane kept down: at «Like the
+    /// original FxSound LLC» = Everything, which hides what only CrossFX has
+    /// ([`ParityClass::Full`]), and where nothing cancels echo in front of the voice chain
+    /// ([`Platform::echo_cancel`]: Windows) until Settings ▸ Experimental ▸ "Microphone
+    /// processing" allows it ([`Settings::windows_microphone`]). Never on Linux by that setting.
+    ///
+    /// The one question every place that shows or drives the microphone asks: the main window,
+    /// the Lite view, Settings' Microphone pane, the tray, the notices, the status document, the
+    /// command line and the lane itself ([`Settings::lane_enabled`]).
+    #[must_use]
+    pub fn microphone_hidden(&self, platform: Platform) -> bool {
+        self.windows_parity
+            .offered_or_below()
+            .changes(ParityClass::Full)
+            || (!platform.echo_cancel && !self.windows_microphone)
+    }
+
+    /// Whether a lane comes up at start. The microphone's never does while it is hidden
+    /// ([`Settings::microphone_hidden`]), whatever `input_enabled` says: the key is kept, and
+    /// decides again once it is shown.
     #[must_use]
     pub fn lane_enabled(&self, direction: DeviceDirection) -> bool {
         match direction {
             DeviceDirection::Output => self.output_enabled,
-            DeviceDirection::Input => self.input_enabled,
+            DeviceDirection::Input => self.input_enabled && !self.microphone_hidden(PLATFORM),
         }
     }
 
@@ -1021,12 +1065,12 @@ impl Settings {
     /// The preset of the edit direction — what the picker shows on launch.
     #[must_use]
     pub fn selected_preset(&self) -> &str {
-        self.preset_for_direction(self.device_direction)
+        self.preset_for_direction(self.edit_direction())
     }
 
     /// Record the preset for the edit direction, leaving the other direction's alone.
     pub fn set_selected_preset(&mut self, name: &str) {
-        self.set_preset_for_direction(self.device_direction, name);
+        self.set_preset_for_direction(self.edit_direction(), name);
     }
 
     /// The language code the UI should be shown in right now: the system's, or the explicit
@@ -1211,7 +1255,10 @@ mod tests {
 
     #[test]
     fn the_two_directions_remember_their_own_presets() {
-        let mut s = Settings::default();
+        let mut s = Settings {
+            windows_microphone: true,
+            ..Settings::default()
+        };
         s.set_device_name(DeviceDirection::Output, "alsa_output.pci");
         s.set_edit_direction(DeviceDirection::Output);
         s.set_selected_preset("Rock");
@@ -1439,7 +1486,10 @@ num_bands = 4000000
 
     #[test]
     fn the_lane_switches_are_written_and_read_back() {
-        let mut s = Settings::default();
+        let mut s = Settings {
+            windows_microphone: true,
+            ..Settings::default()
+        };
         s.set_lane_enabled(DeviceDirection::Output, false);
         s.set_lane_enabled(DeviceDirection::Input, true);
         assert!(!s.lane_enabled(DeviceDirection::Output));
@@ -1450,6 +1500,76 @@ num_bands = 4000000
         let back: Settings = toml::from_str(&text).expect("parse");
         assert!(back.input_enabled);
         assert!(!back.output_enabled);
+    }
+
+    #[test]
+    fn microphone_processing_is_off_by_default_and_written_only_when_on() {
+        let s = Settings::default();
+        assert!(!s.windows_microphone);
+        let text = toml::to_string_pretty(&s).expect("serialise");
+        assert!(!text.contains("windows_microphone"), "{text}");
+        let on = Settings {
+            windows_microphone: true,
+            ..Settings::default()
+        };
+        let text = toml::to_string_pretty(&on).expect("serialise");
+        assert!(text.contains("windows_microphone = true"), "{text}");
+        let back: Settings = toml::from_str(&text).expect("parse");
+        assert!(back.windows_microphone);
+    }
+
+    #[test]
+    fn the_microphone_is_hidden_on_windows_until_allowed_at_everything_and_never_by_it_on_linux() {
+        let mut s = Settings::default();
+        assert!(s.microphone_hidden(Platform::WINDOWS));
+        assert!(!s.microphone_hidden(Platform::LINUX));
+        s.windows_microphone = true;
+        assert!(!s.microphone_hidden(Platform::WINDOWS));
+        assert!(!s.microphone_hidden(Platform::LINUX));
+        // Everything hides it on both, whatever the setting — read as it runs, so a later
+        // version's `full`, which this one runs as Interface and sound, hides nothing.
+        for (level, hidden) in [
+            (WindowsParity::Off, false),
+            (WindowsParity::Interface, false),
+            (WindowsParity::Sound, false),
+            (WindowsParity::Full, WindowsParity::Full.offered()),
+        ] {
+            s.windows_parity = level;
+            for platform in [Platform::LINUX, Platform::WINDOWS] {
+                assert_eq!(
+                    s.microphone_hidden(platform),
+                    hidden,
+                    "{level:?} {platform:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_release_candidate_file_on_the_microphone_opens_on_the_speakers_with_no_microphone_lane() {
+        // What 1.0.0-rc.1 wrote for a tester editing the microphone, with its lane on.
+        let text = "device_direction = \"input\"\ninput_enabled = true\n\
+                    input_device_name = \"{0.0.1.00000000}.{mic}\"\ninput_preset = \"Noisy Room\"\n";
+        let parsed: Settings = toml::from_str(text).expect("parse");
+        assert!(!parsed.windows_microphone);
+        assert!(parsed.input_enabled, "the key is kept");
+        let hidden = parsed.microphone_hidden(PLATFORM);
+        assert_eq!(hidden, cfg!(windows));
+        assert_eq!(parsed.lane_enabled(DeviceDirection::Input), !hidden);
+        let edited = if hidden {
+            DeviceDirection::Output
+        } else {
+            DeviceDirection::Input
+        };
+        assert_eq!(parsed.edit_direction(), edited);
+        assert_eq!(
+            parsed.selected_preset(),
+            parsed.preset_for_direction(edited)
+        );
+        // Written back as it was read: turning it on finds the lane where it was.
+        let back = toml::to_string_pretty(&parsed).expect("serialise");
+        assert!(back.contains("input_enabled = true"), "{back}");
+        assert!(back.contains("device_direction = \"input\""), "{back}");
     }
 
     #[test]

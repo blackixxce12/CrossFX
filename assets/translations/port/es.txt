@@ -159,3 +159,5 @@ countries: ar co es mx
 "The Windows audio service is not available" = "El servicio de audio de Windows no está disponible"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Otro programa estaba usando el archivo %s: CrossFX se inició con los valores predeterminados y guardará en él sus cambios"
 "Your changes are not saved: CrossFX cannot read %s" = "Sus cambios no se guardan: CrossFX no puede leer el archivo %s"
+"Microphone processing" = "Procesamiento del micrófono"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX aún no cancela el eco en Windows: en una llamada, la otra persona puede oírse a sí misma, incluso con auriculares, y los presets con ganancia como «Noisy Room» pueden provocar acoples. Adecuado para grabar y hacer streaming. Necesita un cable virtual propio (VB-CABLE)."
