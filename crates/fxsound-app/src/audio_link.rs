@@ -34,7 +34,7 @@ impl AudioLink {
     /// The audio thread, its notifications waking the GUI thread through `waker`.
     pub(crate) fn engine(engine: EngineHandle, waker: &Waker) -> Self {
         let notifications =
-            wake::forward("fxsound-audio-wake", engine.notifications(), waker.clone());
+            wake::forward("crossfx-audio-wake", engine.notifications(), waker.clone());
         Self::Engine {
             engine,
             notifications,
