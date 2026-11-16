@@ -10,7 +10,7 @@
 
 export DH_VERBOSE = 1
 
-# rust-toolchain.toml pins channel = "1.98.1". Only rustup's proxies read that
+# rust-toolchain.toml pins channel = "1.100.0". Only rustup's proxies read that
 # file, and on a build host that happens to have rustup installed the proxy
 # tries to *download* the pinned toolchain — which fails on a builder with no
 # network, with an error that says nothing about rust-toolchain.toml. Setting
@@ -18,11 +18,11 @@ export DH_VERBOSE = 1
 # on PATH. packaging/PKGBUILD does the same thing for the same reason.
 #
 # `?=` and not `=`: a caller that has already chosen a toolchain — the CI
-# container that installs exactly 1.98.1 through rustup and sets
-# RUSTUP_TOOLCHAIN=1.98.1 — must not have it overridden to a `stable` that is
+# container that installs exactly 1.100.0 through rustup and sets
+# RUSTUP_TOOLCHAIN=1.100.0 — must not have it overridden to a `stable` that is
 # either a different version or not installed at all.
 #
-# This does NOT get past `rust-version = "1.98.1"` in Cargo.toml, which cargo
+# This does NOT get past `rust-version = "1.100.0"` in Cargo.toml, which cargo
 # enforces itself against any rustc. Nothing in this file can; that is what the
 # versioned Build-Depends on rustc is for.
 export RUSTUP_TOOLCHAIN ?= stable

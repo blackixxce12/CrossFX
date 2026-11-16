@@ -1,7 +1,7 @@
 # Fedora packaging for CrossFX (Fedora 43 and newer, and rawhide).
 #
-# Not older: Cargo.toml sets edition = "2024" and rust-version = "1.98.1", and Fedora 43 is the
-# oldest release whose `rust` package is 1.98.1.
+# Not older: Cargo.toml sets edition = "2024" and rust-version = "1.100.0". A release whose `rust`
+# package is older builds with rustup instead (packaging/fedora/README.md).
 #
 # Build it with mock or rpmbuild; see packaging/fedora/README.md for the two commands and for
 # how to feed this spec to COPR. The vendor tarball referenced as Source1 is not in the git
@@ -49,7 +49,7 @@
 # into CrossFX-<version>: that is srcname, which %%prep gives %%autosetup.
 %global srcname CrossFX
 Name:           crossfx
-Version:        0.5.0
+Version:        1.0.0
 Release:        1%{?dist}
 Summary:        System-wide audio enhancement: EQ, ambience, surround, bass and dynamic boost
 
@@ -142,11 +142,11 @@ Source1:        %{name}-%{version}-vendor.tar.xz
 
 # %%cargo_prep -v, %%cargo_build and %%cargo_vendor_manifest all need at least version 24.
 BuildRequires:  cargo-rpm-macros >= 24
-# Cargo.toml declares `edition = "2024"` and `rust-version = "1.98.1"`. Naming the floor here
+# Cargo.toml declares `edition = "2024"` and `rust-version = "1.100.0"`. Naming the floor here
 # turns "this Fedora's rustc is older than the workspace asks for" into a readable dependency
 # error instead of a wall of compiler output halfway through the build.
-BuildRequires:  rust >= 1.98.1
-BuildRequires:  cargo >= 1.98.1
+BuildRequires:  rust >= 1.100.0
+BuildRequires:  cargo >= 1.100.0
 # libpipewire is the only C library the binary actually links (see the Requires comment below).
 BuildRequires:  pkgconfig(libpipewire-0.3)
 # Not optional and not transitively pulled in by anything else: the pipewire-sys build script
@@ -392,8 +392,9 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/io.github.blackixxce1
 
 
 %changelog
-* Sun Nov 15 2026 CrossFX contributors <blackixxce12@users.noreply.github.com> - 0.5.0-1
-- Renamed from fxsound-linux
+* Tue Nov 17 2026 CrossFX contributors <blackixxce12@users.noreply.github.com> - 1.0.0-1
+- First release as CrossFX, for Linux and Windows; renamed from fxsound-linux, with no migration from 0.x
+- Own icon; the Gilroy font is no longer shipped; every bundled component's licence notice is installed
 
 * Wed Sep 30 2026 FxSound Linux port contributors <blackixxce12@users.noreply.github.com> - 0.5.0-1
 - Update to 0.5.0

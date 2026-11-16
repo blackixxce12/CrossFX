@@ -7,7 +7,7 @@
 # rather than fetched from a remote. Install the result with `pacman -U`.
 
 pkgname=crossfx
-pkgver=0.5.0
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="System-wide audio enhancement for Linux: EQ, ambience, surround, bass and dynamic boost (Rust/egui port of FxSound)"
 arch=('x86_64')
@@ -33,11 +33,11 @@ sha256sums=()
 
 _srcdir="$(cd "${startdir}/.." && pwd)"
 
-# rust-toolchain.toml pins channel = "1.98.1", which only rustup's proxies read: Arch's own
+# rust-toolchain.toml pins channel = "1.100.0", which only rustup's proxies read: Arch's own
 # cargo ignores it (and RUSTUP_TOOLCHAIN with it), which is the case this recipe was written for.
-# On a machine that builds with rustup the pin would make the proxy download 1.98.1, so the
+# On a machine that builds with rustup the pin would make the proxy download 1.100.0, so the
 # variable steers it to an installed channel instead — but only when the caller has not already
-# chosen one: CI sets RUSTUP_TOOLCHAIN=1.98.1 and expects it honoured.
+# chosen one: CI sets RUSTUP_TOOLCHAIN=1.100.0 and expects it honoured.
 _toolchain="${RUSTUP_TOOLCHAIN:-stable}"
 
 prepare() {
