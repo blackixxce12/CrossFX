@@ -21,6 +21,7 @@
         crossfx.exe
         presets\Factsoft\*.fac   presets\BonusPresets\*.fac   presets\Input\*.toml
         LICENSE   COPYING.rnnoise   OFL.noto   OFL.manrope   UFL.ubuntu   MIT.hack   MIT.emoji-icons
+        THIRD-PARTY-NOTICES.txt
         README.txt
 
     The fonts and the translations are compiled into crossfx.exe. The virtual playback device it
@@ -451,7 +452,8 @@ foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', 
 # whose licences make shipping the text a condition of shipping the binary: the RNNoise code and
 # model (BSD-3-Clause), the Noto and the Manrope faces (SIL OFL 1.1, each with its own notice), and
 # the three faces of egui's epaint_default_fonts (Ubuntu Light under the Ubuntu Font Licence 1.0,
-# Hack, egui's icons). The names and files are build-tarball.sh's, as every Linux package's are; a
+# Hack, egui's icons), and THIRD-PARTY-NOTICES.txt, the notices of the Rust crates compiled in. The
+# names and files are build-tarball.sh's, as every Linux package's are; a
 # file missing from the tree stops the build here.
 $notices = [ordered]@{
     'LICENSE' = 'LICENSE'
@@ -461,6 +463,7 @@ $notices = [ordered]@{
     'UFL.ubuntu' = 'assets\fonts\UFL-Ubuntu.txt'
     'MIT.hack' = 'assets\fonts\MIT-Hack.txt'
     'MIT.emoji-icons' = 'assets\fonts\MIT-emoji-icon-font.txt'
+    'THIRD-PARTY-NOTICES.txt' = 'THIRD-PARTY-NOTICES.txt'
 }
 foreach ($name in $notices.Keys) {
     Copy-Item -LiteralPath (Join-Path $root $notices[$name]) -Destination (Join-Path $stage $name)

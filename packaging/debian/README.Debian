@@ -112,7 +112,9 @@ Decisions you might otherwise have to rediscover
   reproduces the RNNoise code's BSD-3-Clause notice, the SIL OFL 1.1 in full
   with the Noto and the Manrope faces' notices, and the licences of the three
   faces of egui's that are compiled in (Ubuntu Light, Hack, egui's icons). Its
-  header says what the rest of the crates the binary is built from bring.
+  header points to THIRD-PARTY-NOTICES.txt, which the package installs, gzipped, in
+  /usr/share/doc/crossfx and which has the notices of the rest of the crates the
+  binary is built from.
 
 * There is no postinst. The icon cache and the desktop database are updated by
   dpkg triggers that hicolor-icon-theme and desktop-file-utils declare on

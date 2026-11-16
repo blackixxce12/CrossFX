@@ -86,6 +86,10 @@ const ORIGINAL_IMAGES: [&str; 56] = [
 /// the Licence section counts them apart from the three it has.
 const EGUI_FACE_NOTICES: [&str; 3] = ["UFL.ubuntu", "MIT.hack", "MIT.emoji-icons"];
 
+/// The generated notices of the Rust crates compiled into the binary, at the root of the tree and
+/// installed under the same name by every package (`tests/third_party_notices.rs` generates it).
+const THIRD_PARTY: &str = "THIRD-PARTY-NOTICES.txt";
+
 /// The repository this test binary was built from.
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -274,10 +278,11 @@ fn the_readme_counts_and_names_the_notice_of_every_part_of_the_tree_under_a_lice
             "packaging/build-tarball.sh no longer installs {expected}: {all:?}"
         );
     }
-    // The faces of egui are counted and named by the test below; these are the tree's own.
+    // The faces of egui and the generated notices are counted and named by the tests below; these
+    // are the tree's own.
     let notices: Vec<String> = all
         .into_iter()
-        .filter(|notice| !EGUI_FACE_NOTICES.contains(&notice.as_str()))
+        .filter(|notice| !EGUI_FACE_NOTICES.contains(&notice.as_str()) && notice != THIRD_PARTY)
         .collect();
     for expected in ["COPYING.rnnoise", "OFL.noto", "OFL.manrope"] {
         assert!(
@@ -569,4 +574,51 @@ fn every_image_in_assets_images_is_used_by_the_source() {
         unused.is_empty(),
         "assets/images holds images no crate refers to; remove them: {unused:?}"
     );
+}
+
+/// The notices of the Rust crates compiled into the binary are a file of the tree, which every
+/// package installs, and the Licence section says so: what the file is, that it is generated from
+/// `Cargo.lock` by a test, and the command that rewrites it. The archive's and the packages' lists
+/// name it too.
+#[test]
+fn the_readme_names_the_generated_notices_of_the_crates_and_how_they_are_kept_current() {
+    assert!(
+        notices().iter().any(|notice| notice == THIRD_PARTY),
+        "packaging/build-tarball.sh no longer installs {THIRD_PARTY}"
+    );
+    assert!(
+        !text(THIRD_PARTY).trim().is_empty(),
+        "{THIRD_PARTY} is empty"
+    );
+    let readme = text("README.md");
+    let section = licence_section(&readme);
+    let flat = flowing(section);
+    for needed in [
+        format!("`{THIRD_PARTY}`"),
+        "crates/crossfx-app/tests/third_party_notices.rs".to_string(),
+        "CROSSFX_WRITE_NOTICES=1 cargo test -p crossfx-app --test third_party_notices".to_string(),
+    ] {
+        assert!(
+            flat.contains(&needed),
+            "README.md's Licence section does not mention {needed}:\n{section}"
+        );
+    }
+    let archive = readme
+        .split_once("`share/doc/crossfx/` (")
+        .and_then(|(_, rest)| rest.split_once(')'))
+        .map(|(list, _)| list)
+        .expect("README.md says what the archive's share/doc/crossfx holds");
+    let packages = readme
+        .lines()
+        .find(|line| line.starts_with("| `/usr/share/licenses/crossfx/` |"))
+        .expect("README.md says what /usr/share/licenses/crossfx holds");
+    for (what, list) in [
+        ("the archive's share/doc/crossfx", archive),
+        ("/usr/share/licenses/crossfx", packages),
+    ] {
+        assert!(
+            list.contains(THIRD_PARTY),
+            "README.md leaves {THIRD_PARTY} out of what {what} holds: {list}"
+        );
+    }
 }

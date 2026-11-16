@@ -177,7 +177,7 @@ archive is a prefix in miniature: `bin/crossfx`, `lib/systemd/user/crossfx.servi
 app icon and the tray's three status icons), `share/crossfx/presets/`, `share/man/man1/crossfx.1`,
 `share/metainfo/` and `share/doc/crossfx/` (README, CHANGELOG, LICENSE, the licences of
 the bundled RNNoise code, the Noto and Manrope faces and egui's Ubuntu Light, Hack and icon faces,
-the Hyprland rules and the autostart
+`THIRD-PARTY-NOTICES.txt`, the Hyprland rules and the autostart
 entry).
 `install.sh` copies all of that into the prefix and rewrites the unit's `ExecStart` and
 `ExecStop`, and the activation file's `Exec`, to `<prefix>/bin/crossfx`; it warns if the prefix
@@ -211,7 +211,7 @@ On an older distribution than Debian 12, build from source instead.
 | `/usr/share/man/man1/crossfx.1` | the manual page: every option, the status document and the D-Bus interface |
 | `/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml` | what GNOME Software and Discover show |
 | `/usr/share/doc/crossfx/` | the Hyprland rules and the autostart entry |
-| `/usr/share/licenses/crossfx/` | the AGPL, and the licences of the RNNoise code, the Noto and Manrope faces and egui's Ubuntu Light, Hack and icon faces built into the binary (the `.deb` carries them in `/usr/share/doc/crossfx/copyright`); the Fedora package adds `LICENSE.dependencies`, the licence of each crate the binary is built from, and `cargo-vendor.txt`, the list of those crates |
+| `/usr/share/licenses/crossfx/` | the AGPL, and the licences of the RNNoise code, the Noto and Manrope faces and egui's Ubuntu Light, Hack and icon faces built into the binary, and `THIRD-PARTY-NOTICES.txt`, the notices of the Rust crates it is built from (the `.deb` carries the licences in `/usr/share/doc/crossfx/copyright` and the crates' notices gzipped beside it); the Fedora package adds `LICENSE.dependencies`, the licence of each crate the binary is built from, and `cargo-vendor.txt`, the list of those crates |
 
 CrossFX started by the user unit — enabled, or by a D-Bus call such as a status bar's — runs in the
 systemd user manager's environment, not the compositor's. Where the compositor does not import
@@ -1121,8 +1121,14 @@ faces are SIL OFL 1.1, each with its own notice (`OFL.noto`, from `assets/fonts/
 `OFL.manrope`, from `assets/fonts/OFL-Manrope.txt`).
 
 The binary is also built from the crates `Cargo.lock` resolves from crates.io, which are not in
-the tree. Each comes under a licence of its own, whose text the packages do not reproduce; the
-Fedora package names each crate's in `LICENSE.dependencies`. One of them brings faces rather than
+the tree. Each comes under a licence of its own, and `THIRD-PARTY-NOTICES.txt` at the root of the
+tree reproduces the licence and copyright notices of every one of them, as their sources ship them,
+and every package installs it beside the other notices (the `.deb` gzipped in
+`/usr/share/doc/crossfx`); the Fedora package also names each crate's licence in
+`LICENSE.dependencies`. The file is generated from `Cargo.lock` by
+`crates/crossfx-app/tests/third_party_notices.rs`, whose test fails when the file is not current:
+`CROSSFX_WRITE_NOTICES=1 cargo test -p crossfx-app --test third_party_notices` rewrites it after a
+change to `Cargo.lock`. One of them brings faces rather than
 code: egui's `epaint_default_fonts` 0.37.0. The window starts from egui's own set of faces and puts
 its own before them, so three of that crate's faces are compiled into the binary as well: Ubuntu
 Light (Ubuntu Font Licence 1.0, copyright Canonical Ltd.), Hack (MIT, and the Bitstream Vera

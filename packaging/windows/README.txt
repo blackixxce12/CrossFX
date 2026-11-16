@@ -22,6 +22,8 @@ What is in this folder
   UFL.ubuntu        Ubuntu Font Licence 1.0, for the Ubuntu Light font built into crossfx.exe
   MIT.hack          MIT and Bitstream Vera licences, for the Hack font built into crossfx.exe
   MIT.emoji-icons   MIT licence, for the icons (from emoji-icon-font) built into crossfx.exe
+  THIRD-PARTY-NOTICES.txt
+                    licences and copyright notices of the Rust libraries built into crossfx.exe
   README.txt        this file
 
 The setup program and the .msi install CrossFX into Program Files, and only there, for every
@@ -63,6 +65,9 @@ FxSound Audio Enhancer из оригинального FxSound. Пока раб�
   UFL.ubuntu        Ubuntu Font Licence 1.0 для встроенного в crossfx.exe шрифта Ubuntu Light
   MIT.hack          лицензии MIT и Bitstream Vera для встроенного в crossfx.exe шрифта Hack
   MIT.emoji-icons   лицензия MIT для встроенных в crossfx.exe значков (из emoji-icon-font)
+  THIRD-PARTY-NOTICES.txt
+                    лицензии и уведомления об авторских правах библиотек Rust, встроенных в
+                    crossfx.exe
   README.txt        этот файл
 
 Программа установки и пакет .msi устанавливают CrossFX в Program Files, и только туда, для

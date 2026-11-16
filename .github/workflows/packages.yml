@@ -396,7 +396,9 @@ jobs:
           # Parts compiled into the binary are not AGPL, and each licence makes shipping its text a
           # condition of shipping the binary: the RNNoise code (BSD-3-Clause), the Noto and the
           # Manrope faces (SIL OFL 1.1, each with its own notice), and the three faces of egui's
-          # epaint_default_fonts (Ubuntu Light, Hack, egui's icons). Which
+          # epaint_default_fonts (Ubuntu Light, Hack, egui's icons), and the licence and copyright
+          # notices of every Rust crate compiled in (THIRD-PARTY-NOTICES.txt, which crossfx-app's
+          # tests/third_party_notices.rs holds to Cargo.lock). Which
           # notices those are is read from packaging/build-tarball.sh, which installs each under
           # the name every package gives it, so that a notice added there is checked on every leg
           # here as well. Read out of the package this leg built wherever a container image may
@@ -414,7 +416,8 @@ jobs:
           notices=$(sed -n \
             's|^install -Dm644 \([^ ]*\) "${pkg}/share/doc/crossfx/\([^"]*\)"$|\2 \1|p' \
             "$GITHUB_WORKSPACE/packaging/build-tarball.sh")
-          for name in COPYING.rnnoise OFL.noto OFL.manrope UFL.ubuntu MIT.hack MIT.emoji-icons; do
+          for name in COPYING.rnnoise OFL.noto OFL.manrope UFL.ubuntu MIT.hack MIT.emoji-icons \
+            THIRD-PARTY-NOTICES.txt; do
             if ! awk -v name="$name" '$1 == name { found = 1 } END { exit !found }' <<<"$notices"; then
               echo "::error::packaging/build-tarball.sh does not install $name the way this check reads it"
               exit 1
@@ -431,9 +434,15 @@ jobs:
             deb)
               deb=$(ls dist/crossfx_*.deb)
               dpkg-deb --fsys-tarfile "$deb" \
-                | tar -xf - -C "$unpacked" ./usr/share/doc/crossfx/copyright
+                | tar -xf - -C "$unpacked" ./usr/share/doc/crossfx/copyright \
+                  ./usr/share/doc/crossfx/THIRD-PARTY-NOTICES.txt.gz
               same "$unpacked/usr/share/doc/crossfx/copyright" \
                 "$GITHUB_WORKSPACE/packaging/debian/copyright" copyright
+              # Policy gzips what is over 4 KiB in /usr/share/doc; the text is the tree's.
+              gzip -dc "$unpacked/usr/share/doc/crossfx/THIRD-PARTY-NOTICES.txt.gz" \
+                > "$unpacked/THIRD-PARTY-NOTICES.txt"
+              same "$unpacked/THIRD-PARTY-NOTICES.txt" \
+                "$GITHUB_WORKSPACE/THIRD-PARTY-NOTICES.txt" THIRD-PARTY-NOTICES.txt
               ;;
             rpm)
               licences=/usr/share/licenses/crossfx

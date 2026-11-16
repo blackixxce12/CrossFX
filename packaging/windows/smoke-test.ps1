@@ -123,6 +123,7 @@ $expected['OFL.manrope'] = Join-Path $root 'assets\fonts\OFL-Manrope.txt'
 $expected['UFL.ubuntu'] = Join-Path $root 'assets\fonts\UFL-Ubuntu.txt'
 $expected['MIT.hack'] = Join-Path $root 'assets\fonts\MIT-Hack.txt'
 $expected['MIT.emoji-icons'] = Join-Path $root 'assets\fonts\MIT-emoji-icon-font.txt'
+$expected['THIRD-PARTY-NOTICES.txt'] = Join-Path $root 'THIRD-PARTY-NOTICES.txt'
 foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', '.toml'))) {
     $from = Join-Path $root "assets\presets\$($set[0])"
     foreach ($file in @(Get-ChildItem -LiteralPath $from -File | Where-Object { $_.Extension -eq $set[1] })) {

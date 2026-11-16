@@ -65,8 +65,9 @@ fn transcript(output: &Output) -> String {
 }
 
 /// The notices every package has to carry beside `LICENSE`, as (installed name, source): the three
-/// of the tree, and the three of the faces egui's `epaint_default_fonts` compiles in.
-fn notices() -> [(&'static str, PathBuf); 6] {
+/// of the tree, the three of the faces egui's `epaint_default_fonts` compiles in, and the generated
+/// notices of the Rust crates compiled in.
+fn notices() -> [(&'static str, PathBuf); 7] {
     [
         (
             "COPYING.rnnoise",
@@ -79,6 +80,10 @@ fn notices() -> [(&'static str, PathBuf); 6] {
         (
             "MIT.emoji-icons",
             repo().join("assets/fonts/MIT-emoji-icon-font.txt"),
+        ),
+        (
+            "THIRD-PARTY-NOTICES.txt",
+            repo().join("THIRD-PARTY-NOTICES.txt"),
         ),
     ]
 }
@@ -107,7 +112,14 @@ impl Tree {
             symlink(entry.path(), root.join("packaging").join(entry.file_name()))
                 .expect("a packaging file is linked");
         }
-        for shared in ["assets", "crates", "README.md", "CHANGELOG.md", "LICENSE"] {
+        for shared in [
+            "assets",
+            "crates",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "THIRD-PARTY-NOTICES.txt",
+        ] {
             symlink(repo.join(shared), root.join(shared)).expect("a source path is linked");
         }
         fs::write(
@@ -428,14 +440,17 @@ fn the_fedora_package_ships_the_notices_of_rnnoise_and_noto_as_licence_files() {
             .expect("the notice is in the tree")
             .display()
             .to_string();
-        // Under its own name, so that it does not land in %{_licensedir} as a bare COPYING.
+        // Under its own name, so that it does not land in %{_licensedir} as a bare COPYING. A file
+        // that already has the name it is installed under (THIRD-PARTY-NOTICES.txt) needs no
+        // copy: `%license` takes it from the source tree as it is.
         assert!(
-            install.iter().any(|line| {
-                let words: Vec<&str> = line.split_whitespace().collect();
-                words.first() == Some(&"cp")
-                    && words.contains(&source.as_str())
-                    && words.last() == Some(&name)
-            }),
+            source == name
+                || install.iter().any(|line| {
+                    let words: Vec<&str> = line.split_whitespace().collect();
+                    words.first() == Some(&"cp")
+                        && words.contains(&source.as_str())
+                        && words.last() == Some(&name)
+                }),
             "the spec's %install does not copy {source} to {name}"
         );
         assert!(
@@ -900,6 +915,34 @@ fn the_fedora_package_installs_and_lists_the_notification_icon_under_the_applica
             "the spec's %files does not list {path}"
         );
     }
+}
+
+/// Both Debian builds put the notices of the Rust crates in `/usr/share/doc/crossfx`, gzipped as
+/// policy has what is over 4 KiB there (`debian/crossfx.docs` for `dh_installdocs` and
+/// `dh_compress`, the hand-rolled builder's own `gzip`), and `debian/copyright` says where they
+/// are, since no package of this tree ships them as a `copyright` stanza.
+#[test]
+fn both_debian_builds_install_the_notices_of_the_crates_and_copyright_says_where() {
+    let docs = text(repo().join("packaging/debian/crossfx.docs"));
+    assert!(
+        docs.lines()
+            .any(|line| line.trim() == "THIRD-PARTY-NOTICES.txt"),
+        "debian/crossfx.docs does not install THIRD-PARTY-NOTICES.txt"
+    );
+    let script = text(repo().join("packaging/build-deb.sh"));
+    assert!(
+        script.contains(
+            "gzip -9nc \"$REPO/THIRD-PARTY-NOTICES.txt\" > \"$DOCDIR/THIRD-PARTY-NOTICES.txt.gz\""
+        ),
+        "packaging/build-deb.sh does not gzip THIRD-PARTY-NOTICES.txt into the package's doc folder"
+    );
+    let copyright = text(repo().join("packaging/debian/copyright"));
+    assert!(
+        words(&copyright)
+            .join(" ")
+            .contains("/usr/share/doc/crossfx/THIRD-PARTY-NOTICES.txt.gz"),
+        "debian/copyright does not say where THIRD-PARTY-NOTICES.txt is installed"
+    );
 }
 
 #[test]
