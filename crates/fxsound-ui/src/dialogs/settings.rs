@@ -6727,12 +6727,10 @@ mod tests {
     /// Applications page's combos, as the original's combos cut any label too long for them
     /// (`FxTheme.cpp:130`), in the tables' order. Held exactly: a language that comes to fit
     /// leaves the list, and every other one must be shown whole.
-    const FOLLOW_PRESET_ELIDED: &[&str] = &[
-        "es", "fr", "nl", "no", "pt", "pt-br", "sl", "fi", "sv", "vi", "tr", "bg", "fa", "th", "ja",
-    ];
+    const FOLLOW_PRESET_ELIDED: &[&str] =
+        &["nl", "no", "sl", "fi", "sv", "vi", "tr", "bg", "th", "ja"];
 
     #[test]
-    #[ignore = "crossfx-rename: until integration"]
     fn every_languages_follow_entry_is_shown_whole_in_the_applications_combo_but_the_listed_ones() {
         // E6b: German, cut short as "Preset von …", says "Wie CrossFX" instead; before the tag,
         // Italian ("Come CrossFX") and Arabic, cut before the name ("قالب CrossFX", the word the

@@ -112,10 +112,12 @@ pub const ICON_PROCESSING: &str = "io.github.blackixxce12.CrossFX-processing";
 /// The three icons as the packages install them, compiled in to be drawn where no icon theme has
 /// them: the Linux tray's pixmaps (`TrayPixmaps::rasterised`), the Windows notification area and
 /// its toasts.
-const SVG_OFF: &[u8] = include_bytes!("../../../assets/icons/status/com.fxsound.FxSound-off.svg");
-const SVG_ON: &[u8] = include_bytes!("../../../assets/icons/status/com.fxsound.FxSound-on.svg");
+const SVG_OFF: &[u8] =
+    include_bytes!("../../../assets/icons/status/io.github.blackixxce12.CrossFX-off.svg");
+const SVG_ON: &[u8] =
+    include_bytes!("../../../assets/icons/status/io.github.blackixxce12.CrossFX-on.svg");
 const SVG_PROCESSING: &[u8] =
-    include_bytes!("../../../assets/icons/status/com.fxsound.FxSound-processing.svg");
+    include_bytes!("../../../assets/icons/status/io.github.blackixxce12.CrossFX-processing.svg");
 
 /// The pixel sizes each icon is rasterised at: the panel sizes in common use, 16 to 64 pixels,
 /// so a host picks one that needs no scaling rather than blurring one that does.

@@ -2749,12 +2749,10 @@ mod tests {
         }
     }
 
-    /// `packaging/crossfx.1` is packaging's, and this reads it once the integrator points the
-    /// `include_str!` at it.
+    /// The manual page as it ships, `packaging/crossfx.1`.
     #[test]
-    #[ignore = "crossfx-rename: until integration"]
     fn the_manual_page_documents_every_member_the_interface_serves() {
-        let page = include_str!("../../../packaging/fxsound.1");
+        let page = include_str!("../../../packaging/crossfx.1");
         let section = &page[page.find(".SH D\\-BUS").expect("a D-BUS section")..];
         let section = &section[..section[4..]
             .find(".SH ")

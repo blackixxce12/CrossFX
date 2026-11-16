@@ -4,10 +4,8 @@
 //! icons and the Hyprland example are read here as they lie in the tree, so a name that one of
 //! them spells otherwise fails on this machine and not only on Linux CI.
 //!
-//! The files are packaging's, under CrossFX's names: each test carries the rename's marker until
-//! the integrator has merged them. The Linux-only tests that hold the same files against the
-//! Linux-only code (the self-test's unit and activation-file checks, `dbus.rs`'s manual-page
-//! check, `tests/packaging.rs`) stay as they are and run on Linux CI.
+//! The tests that hold the same files against the Linux-only code (the self-test's unit and
+//! activation-file checks, `dbus.rs`'s manual-page check, `tests/packaging.rs`) run on Linux only.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -50,7 +48,6 @@ fn escaped_app_id() -> String {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_desktop_file_is_named_after_the_application_id_and_starts_crossfx() {
     let name = format!("packaging/{APP_ID}.desktop");
     let desktop = text(&name);
@@ -67,7 +64,6 @@ fn the_desktop_file_is_named_after_the_application_id_and_starts_crossfx() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_user_unit_owns_the_bus_name_and_starts_and_stops_crossfx() {
     let name = "packaging/crossfx.service";
     let unit = text(name);
@@ -88,7 +84,6 @@ fn the_user_unit_owns_the_bus_name_and_starts_and_stops_crossfx() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_activation_file_is_named_after_the_bus_name_and_hands_the_start_to_the_unit() {
     let name = format!("packaging/{APP_ID}.service");
     let activation = text(&name);
@@ -110,7 +105,6 @@ fn the_activation_file_is_named_after_the_bus_name_and_hands_the_start_to_the_un
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_metainfo_is_the_application_ids_and_provides_the_binary_and_the_bus_name() {
     let name = format!("packaging/{APP_ID}.metainfo.xml");
     let metainfo = text(&name);
@@ -125,7 +119,6 @@ fn the_metainfo_is_the_application_ids_and_provides_the_binary_and_the_bus_name(
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_manual_page_is_crossfx_1_of_this_version_and_names_the_bus() {
     let name = format!("packaging/{BINARY}.1");
     let page = text(&name);
@@ -148,7 +141,6 @@ fn the_manual_page_is_crossfx_1_of_this_version_and_names_the_bus() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_shipped_autostart_example_is_the_entry_the_application_writes() {
     let name = "packaging/crossfx-autostart.desktop";
     // Byte for byte, line endings included: the file is what "Launch on system startup" writes.
@@ -163,7 +155,6 @@ fn the_shipped_autostart_example_is_the_entry_the_application_writes() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn every_status_icon_the_tray_names_is_in_the_tree() {
     for icon in [
         fxsound_app::tray::ICON_OFF,
@@ -176,7 +167,6 @@ fn every_status_icon_the_tray_names_is_in_the_tree() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_hyprland_example_rules_the_window_by_its_class_and_binds_crossfx() {
     let name = "packaging/hyprland.conf.example";
     let example = text(name);

@@ -830,7 +830,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "crossfx-rename: until integration"]
     fn the_port_repairs_both_chinese_hotkey_lines() {
         let get = |code: &str, key: &str| {
             Catalogue::for_language(language(code).expect(code))

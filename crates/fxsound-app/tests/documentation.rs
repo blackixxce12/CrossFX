@@ -37,7 +37,6 @@ fn commands_of(relative: &str) -> String {
 
 /// The README (docs) and `packaging/crossfx.1` (packaging) under CrossFX's names.
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_documented_way_to_read_a_property_never_starts_crossfx() {
     for document in ["README.md", "packaging/crossfx.1"] {
         let commands = commands_of(document);

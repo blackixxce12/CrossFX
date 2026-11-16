@@ -11,21 +11,9 @@
 //! [`Platform::LINUX`] and [`Platform::WINDOWS`] are both ordinary values on both platforms: a
 //! test can draw the other platform's interface without building for it.
 
-/// The FxSound whose behaviour «Like FxSound for Windows» brings back, as the interface names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Original {
-    /// FxSound for Windows: what FxSound for Linux is a port of. «Как в Windows».
-    WindowsBuild,
-    /// FxSound LLC's own FxSound, which this one sits beside on Windows. «Как в оригинальном
-    /// FxSound LLC»: "like Windows" would mean nothing on Windows.
-    FxSoundLlc,
-}
-
 /// One platform's description.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Platform {
-    /// Which FxSound the «Like …» mode follows, and so what its option and lines call it.
-    pub original: Original,
     /// The D-Bus service, its methods and its properties, which "Always kept" names.
     pub dbus: bool,
     /// PipeWire's echo canceller in front of the microphone (`module-echo-cancel`): Settings ▸
@@ -47,7 +35,6 @@ pub struct Platform {
 impl Platform {
     /// CrossFX on Linux.
     pub const LINUX: Self = Self {
-        original: Original::WindowsBuild,
         dbus: true,
         echo_cancel: true,
         wireplumber: true,
@@ -55,9 +42,8 @@ impl Platform {
         compositor_shortcuts: true,
     };
 
-    /// CrossFX on Windows: none of the Linux plumbing, and FxSound LLC's FxSound as the original.
+    /// CrossFX on Windows: none of the Linux plumbing.
     pub const WINDOWS: Self = Self {
-        original: Original::FxSoundLlc,
         dbus: false,
         echo_cancel: false,
         wireplumber: false,
@@ -89,25 +75,21 @@ mod tests {
     #[test]
     fn linux_has_all_of_its_plumbing_and_windows_none_of_it() {
         let Platform {
-            original,
             dbus,
             echo_cancel,
             wireplumber,
             app_presets,
             compositor_shortcuts,
         } = Platform::LINUX;
-        assert_eq!(original, Original::WindowsBuild);
         assert!(dbus && echo_cancel && wireplumber && app_presets && compositor_shortcuts);
 
         let Platform {
-            original,
             dbus,
             echo_cancel,
             wireplumber,
             app_presets,
             compositor_shortcuts,
         } = Platform::WINDOWS;
-        assert_eq!(original, Original::FxSoundLlc);
         assert!(!(dbus || echo_cancel || wireplumber || app_presets || compositor_shortcuts));
     }
 }

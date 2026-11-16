@@ -14,9 +14,8 @@
 //! out under the 0.4.0 name. And the tarball's `install.sh` refuses a prefix inside a home folder,
 //! where its copy would lay the factory presets over the user's own.
 //!
-//! The recipes and files are packaging's, under CrossFX's names (`crossfx`, `crossfx-bin`,
-//! `crossfx.spec`, `debian/crossfx.install`): a test that runs or reads one carries the rename's
-//! marker until the integrator has merged them.
+//! The recipes and files are read under CrossFX's names: `crossfx`, `crossfx-bin`,
+//! `crossfx.spec`, `debian/crossfx.install`.
 
 // The Linux packages' recipes, run in a POSIX shell with Unix permissions.
 #![cfg(unix)]
@@ -274,7 +273,6 @@ fn assert_declares_the_notices(declared: &[String], package: &str) {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_tarball_script_builds_the_tree_it_sits_in_even_when_a_binary_is_already_there() {
     let tree = Tree::new("tarball-rebuilds");
     // A binary from an older checkout, and a shell that sends cargo's output somewhere else: the
@@ -302,7 +300,6 @@ fn the_tarball_script_builds_the_tree_it_sits_in_even_when_a_binary_is_already_t
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_tarball_script_refuses_a_binary_that_is_not_the_trees_version() {
     let tree = Tree::new("tarball-refuses");
     tree.leave_binary("0.3.0", "left by an older checkout");
@@ -329,7 +326,6 @@ fn the_tarball_script_refuses_a_binary_that_is_not_the_trees_version() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_tarball_and_the_bin_package_made_from_it_carry_the_notices_of_rnnoise_and_noto() {
     let tree = Tree::new("tarball-notices");
     let run = tree.build_tarball(Some(TREE_VERSION), None);
@@ -357,7 +353,6 @@ fn the_tarball_and_the_bin_package_made_from_it_carry_the_notices_of_rnnoise_and
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_arch_package_installs_the_notices_of_rnnoise_and_noto_beside_its_licence() {
     let tree = Tree::new("arch-notices");
     tree.leave_binary(TREE_VERSION, "built from this tree");
@@ -404,7 +399,6 @@ fn spec_section<'a>(spec: &'a str, header: &str) -> Vec<&'a str> {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_fedora_package_ships_the_notices_of_rnnoise_and_noto_as_licence_files() {
     let spec = text(repo().join("packaging/fedora/crossfx.spec"));
     let install = spec_section(&spec, "%install");
@@ -764,7 +758,6 @@ fn installs(commands: &[Vec<String>], source: &str, destination: &str) -> bool {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_tarball_and_the_bin_package_made_from_it_install_the_notification_icon_under_the_application_id()
  {
     let tree = Tree::new("tarball-icon");
@@ -790,7 +783,6 @@ fn the_tarball_and_the_bin_package_made_from_it_install_the_notification_icon_un
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_arch_package_installs_the_notification_icon_under_the_application_id() {
     let tree = Tree::new("arch-icon");
     tree.leave_binary(TREE_VERSION, "built from this tree");
@@ -807,7 +799,6 @@ fn the_arch_package_installs_the_notification_icon_under_the_application_id() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_fedora_package_installs_and_lists_the_notification_icon_under_the_application_id() {
     let spec = text(repo().join("packaging/fedora/crossfx.spec"));
     let install = shell_commands(spec_section(&spec, "%install"));
@@ -826,7 +817,6 @@ fn the_fedora_package_installs_and_lists_the_notification_icon_under_the_applica
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn both_debian_builds_install_the_notification_icon_under_the_application_id() {
     for recipe in ["packaging/debian/rules", "packaging/build-deb.sh"] {
         let commands = shell_commands(text(repo().join(recipe)).lines());
@@ -953,7 +943,6 @@ fn assert_refused(run: &Output, prefix: &Path) {
 /// lay the factory presets over every one of the same name: refused, and the user's file and
 /// everything else under the prefix stay as they were.
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn install_sh_refuses_a_prefix_in_the_users_home_and_leaves_their_presets_alone() {
     let installer = Installer::new("install-home");
     let home = installer.dir("home");
@@ -979,7 +968,6 @@ fn install_sh_refuses_a_prefix_in_the_users_home_and_leaves_their_presets_alone(
 /// (b) Under `sudo`, `$HOME` is root's: the home that counts is the invoking user's, which
 /// `getent passwd "$SUDO_USER"` names.
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn install_sh_under_sudo_refuses_the_home_getent_names_for_the_invoking_user() {
     let installer = Installer::new("install-sudo");
     let home = installer.dir("someone");
@@ -1011,7 +999,6 @@ fn install_sh_under_sudo_refuses_the_home_getent_names_for_the_invoking_user() {
 
 /// (c) A prefix outside the home whose `share` is the user's data home, `$XDG_DATA_HOME`.
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn install_sh_refuses_a_prefix_whose_share_is_the_users_data_home() {
     let installer = Installer::new("install-data-home");
     let home = installer.dir("home");
@@ -1039,7 +1026,6 @@ fn install_sh_refuses_a_prefix_whose_share_is_the_users_data_home() {
 /// (d) A prefix outside the home: installed under CrossFX's names, with the user unit and the
 /// D-Bus activation file starting the binary where it now is.
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn install_sh_installs_into_a_prefix_outside_the_home_and_starts_crossfx_from_there() {
     let installer = Installer::new("install-prefix");
     let home = installer.dir("home");

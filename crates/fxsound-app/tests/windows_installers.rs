@@ -10,9 +10,6 @@
 //! its keys under `HKCU\Software`, its AppUserModelID, its folders in the application data — not
 //! to write it, not to read it, not to assert it untouched, not in a comment: they are the
 //! original's whatever their case, since Windows does not tell one spelling from another.
-//!
-//! The files are packaging's, under CrossFX's names: each test carries the rename's marker until
-//! the integrator has merged them.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -110,7 +107,6 @@ fn assigned<'a>(ps1: &'a str, name: &str) -> &'a str {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_setup_program_installs_crossfx_under_crossfx_names() {
     let iss = text("crossfx.iss");
     assert_eq!(define(&iss, "AppName"), PRODUCT);
@@ -157,7 +153,6 @@ fn the_setup_program_installs_crossfx_under_crossfx_names() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_package_installs_crossfx_under_crossfx_names() {
     let wxs = text("crossfx.wxs");
     let package = tags(&wxs, "Package");
@@ -198,7 +193,6 @@ fn the_package_installs_crossfx_under_crossfx_names() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn the_smoke_test_looks_for_crossfx_and_installs_only_on_a_throw_away_runner() {
     let ps1 = text("smoke-test.ps1");
     assert_eq!(assigned(&ps1, "product"), PRODUCT);
@@ -222,7 +216,6 @@ fn the_smoke_test_looks_for_crossfx_and_installs_only_on_a_throw_away_runner() {
 }
 
 #[test]
-#[ignore = "crossfx-rename: until integration"]
 fn no_installer_names_a_value_key_or_folder_of_the_original_fxsound() {
     for name in ["crossfx.iss", "crossfx.wxs", "smoke-test.ps1"] {
         // Windows does not tell `fxsound` from `FxSound`, so neither does this.

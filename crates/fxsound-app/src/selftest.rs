@@ -1627,15 +1627,13 @@ pub(crate) mod tests {
         }
     }
 
-    /// Packaging's files under CrossFX's names, which the integrator points the `include_str!`s
-    /// at.
+    /// The activation file and the unit as they ship, from `packaging/`.
     #[cfg(target_os = "linux")]
     #[test]
-    #[ignore = "crossfx-rename: until integration"]
     fn the_shipped_dbus_activation_file_passes_where_it_is_installed_as_it_ships() {
         // packaging/io.github.blackixxce12.CrossFX.service itself, under /usr as every package
         // puts it.
-        let shipped = include_str!("../../../packaging/org.fxsound.FxSound.service");
+        let shipped = include_str!("../../../packaging/io.github.blackixxce12.CrossFX.service");
         let (tmp, env) = installed();
         let rewritten = shipped.replace(
             "/usr/bin/crossfx",
@@ -1643,7 +1641,7 @@ pub(crate) mod tests {
         );
         write(&tmp.path().join(DBUS_SERVICE), &rewritten);
         assert_eq!(check(&run(&env), "dbus_service").status, Status::Ok);
-        let unit = include_str!("../../../packaging/fxsound.service");
+        let unit = include_str!("../../../packaging/crossfx.service");
         assert!(
             unit.lines()
                 .any(|line| line == "BusName=io.github.blackixxce12.CrossFX"),
@@ -1656,7 +1654,7 @@ pub(crate) mod tests {
     /// reach succeed.
     #[cfg(target_os = "linux")]
     fn shipped_stop_script() -> &'static str {
-        let unit = include_str!("../../../packaging/fxsound.service");
+        let unit = include_str!("../../../packaging/crossfx.service");
         let stops: Vec<&str> = unit
             .lines()
             .filter_map(|line| line.strip_prefix("ExecStop="))
@@ -1692,11 +1690,9 @@ pub(crate) mod tests {
         assert_eq!(run_stop_script(None), "");
     }
 
-    /// The stop names `/usr/bin/crossfx` once the integrator points [`shipped_stop_script`] at
-    /// packaging's `crossfx.service`.
+    /// The stop names `/usr/bin/crossfx`, as `packaging/crossfx.service` ships it.
     #[cfg(target_os = "linux")]
     #[test]
-    #[ignore = "crossfx-rename: until integration"]
     fn the_units_stop_quits_the_instance_it_started_while_that_runs() {
         assert_eq!(run_stop_script(Some("4242")), "/usr/bin/crossfx --quit\n");
     }
@@ -1704,7 +1700,7 @@ pub(crate) mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn no_line_of_the_shipped_unit_quits_crossfx_outside_the_guarded_stop() {
-        let unit = include_str!("../../../packaging/fxsound.service");
+        let unit = include_str!("../../../packaging/crossfx.service");
         let quitting: Vec<&str> = unit
             .lines()
             .filter(|line| !line.starts_with('#') && line.contains("--quit"))

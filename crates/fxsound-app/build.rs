@@ -51,8 +51,8 @@ mod resources {
 
     pub fn embed() {
         let assets = assets_dir();
-        let icon = assets.join("fxsound.ico");
-        let manifest = assets.join("fxsound.exe.manifest");
+        let icon = assets.join("crossfx.ico");
+        let manifest = assets.join("crossfx.exe.manifest");
         for input in [&icon, &manifest] {
             println!("cargo::rerun-if-changed={}", input.display());
         }

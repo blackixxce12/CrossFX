@@ -28,7 +28,7 @@ pub use messages::{
     AppRoute, AppStream, AudioToUi, DspCompat, RouteParams, TargetVolume, UiToAudio,
 };
 pub use parity::{LaterFeature, ParityClass, WindowsLook, WindowsParity};
-pub use platform::{Original, PLATFORM, Platform};
+pub use platform::{PLATFORM, Platform};
 pub use settings::{InterfaceFont, Settings, ThemeMode, ViewMode};
 
 /// The five user-facing effects, in the order the GUI lays them out.
