@@ -445,12 +445,12 @@ mic ─► RNNoise ─► de-reverb ─► high-pass ─► gate ─► 10-band 
 | Limiter | 1 ms look-ahead, linked across the channels with a 20 ms hold, always running. It is the only stage that cannot be switched off: makeup gain is the one control here that can push a sample past full scale |
 
 The order is not a preference — each position is argued, with its reason, at the top of
-[`crates/fxsound-dsp/src/input/chain.rs`](crates/fxsound-dsp/src/input/chain.rs). Denoising goes
+[`crates/crossfx-dsp/src/input/chain.rs`](crates/crossfx-dsp/src/input/chain.rs). Denoising goes
 first because everything below it measures a level. The gate goes before the equalizer so that what
 it measures is the microphone and not the preset's own presence lift. The de-esser goes before the
 compressor, because a compressor in front would ride the sibilant and duck the word behind it. A
 voice preset may still name another order, `chain = "podcast"`, `"broadcast"` or `"streaming"`, each
-argued in [`crates/fxsound-dsp/src/input/processor.rs`](crates/fxsound-dsp/src/input/processor.rs).
+argued in [`crates/crossfx-dsp/src/input/processor.rs`](crates/crossfx-dsp/src/input/processor.rs).
 
 **Echo cancellation** is PipeWire's own WebRTC canceller, loaded into CrossFX: the microphone and
 what the speakers actually play go in, and the voice chain records from the echo-cancelled result,
@@ -877,18 +877,18 @@ Settings tabs among them, stay as they are.
 
 | Component | Tests | State |
 |---|---:|---|
-| `fxsound-core` — shared types, scales, settings, the application store, translations | 232 | complete |
-| `fxsound-preset` — `.fac` reader/writer, TOML voice presets, preset stores, the trash | 108 | complete |
-| `fxsound-dsp` — biquads, graphic EQ, five effects, limiter, leveller, spectrum, engine, voice chain | 505 | complete |
-| `fxsound-rnnoise` — RNNoise, vendored from `nnnoiseless`, with an in-place reset and its band gains exposed | 15 | complete |
-| `fxsound-ui` — palettes, geometry, assets, widgets, views, dialogs | 568 | complete |
-| `fxsound-audio` — PipeWire backend: two lanes, per-application routes, echo cancellation | 616 | complete, verified on a live PipeWire 1.6 session; its graph tests run a private daemon |
-| `fxsound-app` — controller, CLI, IPC, D-Bus, event stream, tray, notifications, window shell | 886 | complete |
+| `crossfx-core` — shared types, scales, settings, the application store, translations | 232 | complete |
+| `crossfx-preset` — `.fac` reader/writer, TOML voice presets, preset stores, the trash | 108 | complete |
+| `crossfx-dsp` — biquads, graphic EQ, five effects, limiter, leveller, spectrum, engine, voice chain | 505 | complete |
+| `crossfx-rnnoise` — RNNoise, vendored from `nnnoiseless`, with an in-place reset and its band gains exposed | 15 | complete |
+| `crossfx-ui` — palettes, geometry, assets, widgets, views, dialogs | 568 | complete |
+| `crossfx-audio` — PipeWire backend: two lanes, per-application routes, echo cancellation | 616 | complete, verified on a live PipeWire 1.6 session; its graph tests run a private daemon |
+| `crossfx-app` — controller, CLI, IPC, D-Bus, event stream, tray, notifications, window shell | 886 | complete |
 
 Verified end to end: the window opens on Wayland at the original's exact geometry, a preset loads
 from disk and drives both the sliders and the equalizer curve, the Settings pane opens, the CLI
 parses every original option and reaches a running instance over the control socket, audio rendered
-offline through `cargo run -p fxsound-dsp --example process_wav` measures the preset's equalizer
+offline through `cargo run -p crossfx-dsp --example process_wav` measures the preset's equalizer
 curve back out of the rendered file, and on a live PipeWire session the sink is published as
 **CrossFX (Output)**, claims the session default, accepts a stream, and hands processed samples to
 the chosen output device. Verified on Hyprland 0.56 as well: the window survives on a hidden
@@ -959,7 +959,7 @@ its own reasoning in `docs/voice-presets-research.md`, `docs/input-presets-decis
 AGPL-3.0-or-later, inherited from the original FxSound.
 
 Two parts of the binary are under other licences, and every package installs their text beside
-`LICENSE` (the `.deb` in its `copyright` file): the noise suppression in `crates/fxsound-rnnoise`,
+`LICENSE` (the `.deb` in its `copyright` file): the noise suppression in `crates/crossfx-rnnoise`,
 Joe Neeman's `nnnoiseless` port of Xiph's RNNoise with its model, is BSD-3-Clause
 (`COPYING.rnnoise`), and the Noto fallback faces are SIL OFL 1.1 (`OFL.noto`, from
 `assets/fonts/OFL.txt`).

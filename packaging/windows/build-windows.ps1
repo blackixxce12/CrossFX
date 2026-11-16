@@ -16,7 +16,7 @@
 
     All three carry the same tree: what build-tarball.sh ships, laid out as Windows finds it,
     everything in the folder of the executable (install_data_dirs in
-    crates/fxsound-preset/src/lib.rs looks for "presets" beside crossfx.exe):
+    crates/crossfx-preset/src/lib.rs looks for "presets" beside crossfx.exe):
 
         crossfx.exe
         presets\Factsoft\*.fac   presets\BonusPresets\*.fac   presets\Input\*.toml
@@ -369,7 +369,7 @@ if ($Binary) {
     $exe = (Resolve-Path -LiteralPath $Binary).Path
     Write-Step "Packing $exe"
 } else {
-    Write-Step 'cargo build --release --locked -p fxsound-app'
+    Write-Step 'cargo build --release --locked -p crossfx-app'
     $cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue
     if (-not $cargo) {
         throw 'cargo was not found; install Rust, or pass -Binary'
@@ -389,7 +389,7 @@ if ($Binary) {
         } else {
             $env:RUSTFLAGS = (@($env:RUSTFLAGS, '-C target-feature=+crt-static') | Where-Object { $_ }) -join ' '
         }
-        Invoke-Tool $cargo.Source @('build', '--release', '--locked', '-p', 'fxsound-app', '--bin', 'crossfx')
+        Invoke-Tool $cargo.Source @('build', '--release', '--locked', '-p', 'crossfx-app', '--bin', 'crossfx')
     } finally {
         foreach ($name in $saved.Keys) {
             # $null removes a variable that was not set before.
@@ -452,7 +452,7 @@ foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', 
 # (BSD-3-Clause) and the embedded fonts (SIL OFL 1.1).
 $notices = [ordered]@{
     'LICENSE' = 'LICENSE'
-    'COPYING.rnnoise' = 'crates\fxsound-rnnoise\COPYING'
+    'COPYING.rnnoise' = 'crates\crossfx-rnnoise\COPYING'
     'OFL.noto' = 'assets\fonts\OFL.txt'
 }
 if (Test-Path -LiteralPath (Join-Path $root $manropeOfl) -PathType Leaf) {

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Check an older commit out beside this one, ready to be the other side of a two-build comparison:
 # the bit-exactness harness of «Like the original FxSound LLC»
-# (crates/fxsound-dsp/tests/windows_parity_bitexact.rs, scripts/windows-parity-bitexact.sh), the
-# drift measurement (crates/fxsound-dsp/tests/preset_drift.rs) and the "two engines" listening
+# (crates/crossfx-dsp/tests/windows_parity_bitexact.rs, scripts/windows-parity-bitexact.sh), the
+# drift measurement (crates/crossfx-dsp/tests/preset_drift.rs) and the "two engines" listening
 # comparison (scripts/voicing/README.md).
 #
-# All three render a .fac the way the application plays it, through
-# fxsound_dsp::preset::preset_params. A commit older than 0.5.0 has no such function: there the
-# reading lived in the application (crates/fxsound-app/src/app.rs), where nothing outside it could
-# call it. So when the checkout has no crates/fxsound-dsp/src/preset.rs, this writes one from that
-# commit's own application — its music_controls, write_music_params, MusicLevels and ladder,
-# copied as they are — and a preset_params that joins them the way 0.5.0's does. A commit older
-# than the application's music_controls (0f05ba5 and before) played a preset on the preset's own
-# band count, with the effects read through the sliders; its preset.rs says so and does that.
+# All three render a .fac the way the application plays it, through the DSP crate's
+# preset::preset_params. A commit older than 0.5.0 has no such function: there the reading lived
+# in the application (its app.rs), where nothing outside it could call it. So when the checkout's
+# DSP crate has no src/preset.rs, this writes one from that commit's own application — its
+# music_controls, write_music_params, MusicLevels and ladder, copied as they are — and a
+# preset_params that joins them the way 0.5.0's does. A commit older than the application's
+# music_controls (0f05ba5 and before) played a preset on the preset's own band count, with the
+# effects read through the sliders; its preset.rs says so and does that.
 #
 # A commit older than the Windows DSP of «Like the original FxSound LLC» (0.5.0's W1b) has one
 # DSP only, and no MusicLevels::with_windows_dsp to choose it with; the comparisons call it on both
@@ -21,7 +21,10 @@
 # and value_to_slider that are its own ladder and slider mappings.
 #
 # The measuring files are this checkout's, copied over: the harness, preset_drift.rs, their
-# material modules and, with --with-process-wav, the process_wav example.
+# material modules and, with --with-process-wav, the process_wav example. The workspace's crates
+# are crossfx-* (crates/crossfx-dsp, crossfx_dsp::…) from the commit that gave them that name, and
+# fxsound-* before it, the names of every reference CI compares with (v0.4.0, 3596e99): in such a
+# checkout the copied files are pointed at its crates, and the crate it is built with is printed.
 #
 # Keep the directory off /tmp: two release builds of the workspace do not fit a tmpfs of a few
 # gigabytes. The copy's target directory is inside it.
@@ -55,6 +58,13 @@ dir="${args[1]}"
 repo_root="$(git -C "$(dirname "$0")/.." rev-parse --show-toplevel)"
 commit="$(git -C "$repo_root" rev-parse --verify --quiet "${ref}^{commit}")" \
     || die "no commit $ref"
+# The commit's DSP crate, crates/<name>-dsp, and the name its crates go by: crossfx from the
+# commit that renamed them (crates/crossfx-dsp, crossfx_dsp), another before it.
+dsp="$(git -C "$repo_root" ls-tree --name-only "$commit" crates/ | grep -e '-dsp$')" \
+    || die "$ref has no crates/*-dsp"
+[ "$(printf '%s\n' "$dsp" | wc -l)" -eq 1 ] || die "$ref has more than one crates/*-dsp"
+crates="${dsp#crates/}"
+crates="${crates%-dsp}"
 
 if [ -e "$dir" ]; then
     [ -e "$dir/.git" ] || die "$dir exists and is not a checkout"
@@ -63,24 +73,39 @@ if [ -e "$dir" ]; then
     # The files this script adds are its own; put them back as the commit has them, so that a
     # second run writes them afresh.
     git -C "$dir" checkout --quiet -- .
-    git -C "$dir" clean --quiet -fd -- crates/fxsound-dsp
+    git -C "$dir" clean --quiet -fd -- "$dsp"
 else
     mkdir -p "$(dirname "$dir")"
     git -C "$repo_root" worktree add --quiet --detach "$dir" "$commit"
 fi
 dir="$(cd "$dir" && pwd)"
 
-tests="crates/fxsound-dsp/tests"
-cp "$repo_root/$tests/windows_parity_bitexact.rs" "$repo_root/$tests/preset_drift.rs" "$dir/$tests/"
+ours="crates/crossfx-dsp"
+copied=("$dsp/tests/windows_parity_bitexact.rs" "$dsp/tests/preset_drift.rs")
+cp "$repo_root/$ours/tests/windows_parity_bitexact.rs" "$repo_root/$ours/tests/preset_drift.rs" \
+    "$dir/$dsp/tests/"
 for module in genre_material voice_material output_material; do
-    rm -rf "${dir:?}/$tests/$module"
-    cp -r "$repo_root/$tests/$module" "$dir/$tests/"
+    rm -rf "${dir:?}/$dsp/tests/$module"
+    cp -r "$repo_root/$ours/tests/$module" "$dir/$dsp/tests/"
+    for file in "$dir/$dsp/tests/$module"/*.rs; do
+        copied+=("${file#"$dir/"}")
+    done
 done
 if [ "$with_process_wav" = 1 ]; then
-    cp "$repo_root/crates/fxsound-dsp/examples/process_wav.rs" "$dir/crates/fxsound-dsp/examples/"
+    cp "$repo_root/$ours/examples/process_wav.rs" "$dir/$dsp/examples/"
+    copied+=("$dsp/examples/process_wav.rs")
+fi
+# The copied files call this checkout's crates by their paths, crossfx_core::, crossfx_dsp::,
+# crossfx_preset::; a commit from before the rename calls the same crates fxsound_*.
+if [ "$crates" != crossfx ]; then
+    for file in "${copied[@]}"; do
+        sed -E "s/(^|[^A-Za-z0-9_])crossfx_(core|dsp|rnnoise|preset|audio|ui|app)::/\1${crates}_\2::/g" \
+            "$dir/$file" > "$dir/$file.renamed"
+        mv "$dir/$file.renamed" "$dir/$file"
+    done
 fi
 
-preset_rs="$dir/crates/fxsound-dsp/src/preset.rs"
+preset_rs="$dir/$dsp/src/preset.rs"
 one_dsp='
 /// Written by scripts/reference-checkout.sh: this commit has one DSP, which it plays either way.
 impl MusicLevels {
@@ -112,10 +137,10 @@ impl MusicLevels {
 '
 if [ -f "$preset_rs" ]; then
     if grep -q 'fn with_windows_dsp' "$preset_rs"; then
-        echo "reference-checkout: $ref has fxsound_dsp::preset and the Windows DSP"
+        echo "reference-checkout: $ref has ${crates}_dsp::preset and the Windows DSP"
     else
         printf '%s' "$one_dsp" >> "$preset_rs"
-        echo "reference-checkout: $ref has fxsound_dsp::preset and one DSP; added with_windows_dsp"
+        echo "reference-checkout: $ref has ${crates}_dsp::preset and one DSP; added with_windows_dsp"
     fi
     if grep -q 'pub fn ladder(self' "$preset_rs"; then
         echo "reference-checkout: $ref reads a preset as its DSP does; nothing to add"
@@ -124,11 +149,11 @@ if [ -f "$preset_rs" ]; then
         echo "reference-checkout: $ref reads a preset one way; added the levels' reading"
     fi
 else
-    python3 - "$dir/crates/fxsound-app/src/app.rs" "$preset_rs" "$ref" <<'PYTHON'
+    python3 - "$dir/crates/$crates-app/src/app.rs" "$preset_rs" "$ref" "$crates" <<'PYTHON'
 import re
 import sys
 
-app_rs, preset_rs, ref = sys.argv[1:4]
+app_rs, preset_rs, ref, crates = sys.argv[1:5]
 source = open(app_rs, encoding="utf-8").read().split("\n")
 
 
@@ -154,7 +179,7 @@ def public(text):
     text = re.sub(r"^struct ", "pub struct ", text, flags=re.M)
     text = re.sub(r"^    const fn ", "    pub const fn ", text, flags=re.M)
     text = re.sub(r"^    fn ", "    pub fn ", text, flags=re.M)
-    return text.replace("fxsound_dsp::", "crate::")
+    return text.replace(f"{crates}_dsp::", "crate::")
 
 
 names = [
@@ -169,14 +194,14 @@ names = [
 items = [item(name) for name in names]
 
 header = f"""//! The application's reading of a music preset at {ref}, where it lived in
-//! `crates/fxsound-app/src/app.rs`, written here by `scripts/reference-checkout.sh` so that the
+//! `crates/{crates}-app/src/app.rs`, written here by `scripts/reference-checkout.sh` so that the
 //! two-build comparisons render this commit's presets as its application played them. Not part of
 //! {ref}.
 
 #![allow(dead_code, unused_imports, clippy::all, clippy::pedantic)]
 
-use fxsound_core::messages::DspParams;
-use fxsound_core::{{Effect, EqBand, Preset, Settings, scale}};
+use {crates}_core::messages::DspParams;
+use {crates}_core::{{Effect, EqBand, Preset, Settings, scale}};
 """
 
 if all(items):
@@ -265,12 +290,12 @@ pub fn preset_params(preset: &Preset, _ladder: &[f32], levels: MusicLevels) -> D
     note = "its application's reading of that time: the preset's own band count"
 
 open(preset_rs, "w", encoding="utf-8").write(header + "\n" + body.lstrip("\n"))
-print(f"reference-checkout: wrote fxsound_dsp::preset for {ref}, {note}")
+print(f"reference-checkout: wrote {crates}_dsp::preset for {ref}, {note}")
 PYTHON
     printf '%s' "$one_dsp" >> "$preset_rs"
     printf '%s' "$one_reading" >> "$preset_rs"
-    lib_rs="$dir/crates/fxsound-dsp/src/lib.rs"
+    lib_rs="$dir/$dsp/src/lib.rs"
     printf '\n/// Written by scripts/reference-checkout.sh; not part of this commit.\npub mod preset;\n' >> "$lib_rs"
 fi
 
-echo "reference-checkout: $ref ready in $dir"
+echo "reference-checkout: $ref ready in $dir; its DSP crate is $crates-dsp (cargo -p $crates-dsp)"

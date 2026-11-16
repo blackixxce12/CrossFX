@@ -89,7 +89,7 @@ Decisions you might otherwise have to rediscover
 ------------------------------------------------
 
 * /usr/share/crossfx/presets is not a name this packaging chose. It is one
-  of the two places install_data_dirs in crates/fxsound-preset/src/lib.rs
+  of the two places install_data_dirs in crates/crossfx-preset/src/lib.rs
   searches (the other is /usr/local/share/crossfx). Install the presets
   anywhere else and you get an application that starts fine and has no
   presets.

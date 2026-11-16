@@ -3,9 +3,9 @@
 .\" Kept in packaging/ rather than packaging/debian/ because every package installs it: the
 .\" systemd unit says Documentation=man:crossfx(1), and a unit that names a manual page nobody
 .\" ships is worse than no line at all. The option list is taken from
-.\" crates/fxsound-app/src/cli.rs; if an option is added there and not here, the two have
+.\" crates/crossfx-app/src/cli.rs; if an option is added there and not here, the two have
 .\" drifted and cli.rs is the one that is right. The D-Bus section follows
-.\" crates/fxsound-app/src/dbus.rs the same way. packaging/check-manpage.sh compares the page
+.\" crates/crossfx-app/src/dbus.rs the same way. packaging/check-manpage.sh compares the page
 .\" with both files — ci.yml runs it on every push, release.yml before a tag is built — so the
 .\" drift is refused rather than hoped against.
 .\"

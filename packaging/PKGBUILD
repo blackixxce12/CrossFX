@@ -96,7 +96,7 @@ package() {
   install -Dm644 "packaging/io.github.blackixxce12.CrossFX.service" \
     "${pkgdir}/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
   # The application icon under the application id, the one name the desktop entry, the
-  # notifications (crates/fxsound-app/src/notify.rs) and the sound settings look it up by.
+  # notifications (crates/crossfx-app/src/notify.rs) and the sound settings look it up by.
   install -Dm644 "assets/images/fxsound_large.png" \
     "${pkgdir}/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
   install -Dm644 "assets/images/fxsound.png" \
@@ -126,10 +126,10 @@ package() {
 
   install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   # Three parts of the binary are not AGPL, and each licence makes shipping its text a condition
-  # of shipping the binary: the RNNoise code and model compiled in from crates/fxsound-rnnoise
+  # of shipping the binary: the RNNoise code and model compiled in from crates/crossfx-rnnoise
   # (BSD-3-Clause), and the Noto fallback faces and the Manrope interface faces embedded in the
   # window (both SIL OFL 1.1, each with its own notice).
-  install -Dm644 "crates/fxsound-rnnoise/COPYING" \
+  install -Dm644 "crates/crossfx-rnnoise/COPYING" \
     "${pkgdir}/usr/share/licenses/${pkgname}/COPYING.rnnoise"
   install -Dm644 "assets/fonts/OFL.txt" "${pkgdir}/usr/share/licenses/${pkgname}/OFL.noto"
   install -Dm644 "assets/fonts/OFL-Manrope.txt" \

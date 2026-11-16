@@ -42,6 +42,9 @@ whose entries keep the names of their time. The format follows
 - **Exported presets** go to `Documents/CrossFX/Presets/Export`.
 - **WirePlumber's log topic of the hook** is `s-crossfx` (it was `s-fxsound`):
   `WIREPLUMBER_DEBUG=2,s-crossfx:4`.
+- **CrossFX's own log lines name its modules `crossfx_…`** (`crossfx_audio::engine`,
+  `crossfx_app::tray`; they were `fxsound_…`), so a `RUST_LOG` that picks a module needs the new
+  name. `RUST_LOG=debug` is as it was.
 - **`--output` and D-Bus `SetOutput` refuse a microphone,** as `--input` and `SetInput` refuse a
   speaker: `--input` selects it. They took it for the input lane and switched that lane on.
 - **`--status --json`, D-Bus `GetStatus` and `--watch`'s `status` event name the edit direction

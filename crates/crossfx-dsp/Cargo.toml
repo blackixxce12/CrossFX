@@ -1,0 +1,15 @@
+[package]
+name = "crossfx-dsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CrossFX's real-time-safe port of FxSound's DSP engine"
+
+[dependencies]
+crossfx-core = { workspace = true }
+crossfx-rnnoise = { workspace = true }
+realfft = { workspace = true }
+
+[dev-dependencies]
+crossfx-preset = { workspace = true }

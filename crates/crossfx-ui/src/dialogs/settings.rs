@@ -1,0 +1,7701 @@
+//! The Settings window: a side nav and six panes.
+//!
+//! Port of `FxSettingsDialog` (`GUI/FxSettingsDialog.{h,cpp}`) and of the device-priority list it
+//! owns (`GUI/FxOutputPreference.{h,cpp}`). 610 × 597 outside, 600 × 510 of content, six tab
+//! buttons down the left and one pane to the right of a vertical rule
+//! (`docs/spec/06-dialogs.md` §1). The original has three; the other three are CrossFX's, each
+//! in the row the next button would have had in the original's own grid:
+//!
+//! - **Microphone** (0.4.0 design §1.4, §8): the global overrides over every voice preset, echo
+//!   cancellation and the calibration wizard's entry point, built from the same checkbox, stepper
+//!   and text button as the original's three, and the microphones' priority list, each row with
+//!   the voice preset of its microphone in the Audio pane's row.
+//! - **Applications** (`docs/0.4.0-apps.md`, "Interface"): every application that has played or
+//!   recorded through CrossFX, each with a preset of its own per direction or CrossFX's, in a list
+//!   built from the device priority list's box, combo, ✕ and rules.
+//! - **Experimental** (`docs/0.5.0-windows-parity.md`): «Как в оригинальном FxSound LLC» /
+//!   "Like the original FxSound LLC", one slider of three positions (four from 0.6.0) with a line
+//!   under it that says what the position does. Always the last tab, and never hidden: it is the
+//!   way back from every level.
+//!
+//! ## Pure view
+//!
+//! [`SettingsDialog`] borrows [`SettingsState`] **immutably** and returns a
+//! [`DialogResponse<SettingsAction>`]. Nothing here writes a setting, reorders a device, deletes a
+//! preset file or even changes the selected tab: the app layer applies every action and hands the
+//! new state back next frame, which is the same contract [`crate::state`] sets for the main
+//! window. It is also what makes the whole window testable without a sound server, a settings
+//! file or a compositor.
+//!
+//! ## Three deliberate departures
+//!
+//! 1. **The five hotkey rows are read-only.** A Wayland client cannot register a global shortcut —
+//!    `RegisterHotKey` has no equivalent, and the `GlobalShortcuts` portal hands the binding UI to
+//!    the desktop, not to the app (`docs/spec/06-dialogs.md` §9.5). The rows still list the five
+//!    commands and the chords the original ships, because those are what a user wants to
+//!    reproduce, but they are a **reference table**, not editors: there is no border to click
+//!    into, no focus ring and no "press a chord now" state, and the note above them says where the
+//!    binding really lives. The "Disable keyboard shortcuts" checkbox is gone with them — with
+//!    nothing to register there is nothing for it to switch off, and a checkbox whose only effect
+//!    is to grey out a table of text is exactly the dead control §9.5 warns against. The `hotkeys`
+//!    key and the five chord strings stay in [`crossfx_core::Settings`] regardless, so the schema
+//!    still migrates (Open question 5).
+//! 2. **"Automatic updates" is gone.** `updater.exe /silent` has no Linux analogue and CrossFX
+//!    never contacts the network; §9.6 says to drop the toggle and keep the key, and
+//!    `crossfx_core::settings` already documents it as inert. The Maintenance section says so in
+//!    one line instead of offering a switch that does nothing.
+//! 3. **"Reset presets to factory defaults" asks first, and does less.** The original deletes every
+//!    user preset file with no confirmation at all (`FxController.cpp:1334-1382`, Open question
+//!    4). CrossFX's reset discards unsaved changes and keeps every saved preset, so the button
+//!    is offered only while some preset has unsaved changes. It only emits
+//!    [`SettingsAction::ResetPresets`]; the window puts a [`super::MessageBox`] in front of it
+//!    that says what it does (0.4.0 audit #21).
+//!
+//! `launch_toggle_`, on the other hand, is *restored*: the original hides "Launch on system
+//! startup" behind `OperatingSystemType == Windows7` (`FxSettingsDialog.cpp:402-406`), so nobody
+//! has seen it since 2015. It is always shown: on Linux it writes CrossFX's autostart entry,
+//! `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` (§9.6), and on Windows its own
+//! `CrossFX` Run value.
+
+use super::{
+    ChromeResponse, DialogChrome, DialogResponse, TextButton, draw_fitted, draw_truncated,
+    draw_wrapped, link, normal_font, small_font, title_font,
+};
+use crate::assets::{AssetCache, FxImage, rasterise};
+use crate::state::EchoCancelTrouble;
+use crate::theme::{FxColor, Palette};
+use crate::widgets::FxComboBox;
+use crate::widgets::icon_button::{self, IconButton};
+use crate::widgets::slider::{self, FxSlider};
+use egui::{
+    Align2, Color32, Context, CornerRadius, CursorIcon, Id, Key, Rect, Sense, Stroke, StrokeKind,
+    TextureHandle, TextureOptions, Ui, UiBuilder, Vec2, pos2, vec2,
+};
+use crossfx_core::{
+    AppKey, DeEsserMode, DenoiseChannelsOverride, DereverbLevel, DeviceDirection, InterfaceFont,
+    NoiseSuppressionOverride, ParityClass, Platform, Settings, WindowsLook, WindowsParity,
+};
+use std::collections::HashMap;
+
+// =============================================================================================
+// Window and nav geometry (`docs/spec/06-dialogs.md` §1.3)
+// =============================================================================================
+
+/// `SettingsComponent::WIDTH` × `HEIGHT` (`FxSettingsDialog.h:190-191`).
+use crossfx_core::i18n::{self, tr};
+
+/// `SettingsComponent`'s content size.
+pub const CONTENT_SIZE: Vec2 = vec2(600.0, 510.0);
+/// Outer window size, from the shared formula.
+pub const WINDOW_SIZE: Vec2 = vec2(610.0, 597.0);
+/// `SettingsComponent::BUTTON_X` (`FxSettingsDialog.h:201`).
+pub const BUTTON_X: f32 = 20.0;
+/// `SettingsComponent::BUTTON_Y` — where the first tab button starts (`FxSettingsDialog.h:202`).
+pub const BUTTON_Y: f32 = 50.0;
+/// `BUTTON_WIDTH` × `BUTTON_HEIGHT` (`FxSettingsDialog.h:203-204`).
+pub const BUTTON_SIZE: Vec2 = vec2(150.0, 40.0);
+/// Vertical gap between tab buttons (`FxSettingsDialog.cpp:122-123`).
+pub const BUTTON_GAP: f32 = 20.0;
+/// `SettingsComponent::SEPARATOR_X` (`FxSettingsDialog.h:205`) — the pane starts one point right.
+pub const SEPARATOR_X: f32 = 152.0;
+/// `SettingsPane::X_MARGIN` (`FxSettingsDialog.h:85`).
+pub const X_MARGIN: f32 = 20.0;
+/// `SettingsPane::Y_MARGIN` (`FxSettingsDialog.h:86`).
+pub const Y_MARGIN: f32 = 5.0;
+/// `SettingsPane::TITLE_HEIGHT` (`FxSettingsDialog.h:87`).
+pub const TITLE_HEIGHT: f32 = 24.0;
+
+/// The tab button's icon square: side = button height, corner = height / 4
+/// (`FxSettingsDialog.cpp:58-60`).
+pub const NAV_ICON_CORNER: f32 = BUTTON_SIZE.y / 4.0;
+/// The icon is drawn in that square `reduced(10, 10)` (`FxSettingsDialog.cpp:62`).
+pub const NAV_ICON_INSET: f32 = 10.0;
+/// The label starts `height + 5` points in (`FxSettingsDialog.cpp:73-75`).
+pub const NAV_LABEL_GAP: f32 = 5.0;
+/// How far short of the rule a tab's caption stops (0.4.0 audit #29).
+pub const NAV_LABEL_CLEARANCE: f32 = 6.0;
+/// The smallest a tab's caption is set in to fit, before it is elided: 0.7 of the normal font,
+/// the least a JUCE label squeezes a line to (`Font::getDefaultMinimumHorizontalScaleFactor`).
+pub const MIN_NAV_FONT: f32 = 12.0;
+
+/// The pane, to the right of the rule.
+///
+/// The original computes `(SEPARATOR_X + 1, 1, getWidth() - SEPARATOR_X + 1, getHeight() - 1)`
+/// (`FxSettingsDialog.cpp:125`), and `153 + 449 = 602` overhangs the 600-point content by two
+/// points — a sign error. `docs/spec/06-dialogs.md` §1.3 says to use 447 and to note the
+/// difference, which is what this does; every widget inside is then derived from *this* rect, so
+/// the panes are two points narrower than the original's and nothing else moves.
+#[must_use]
+pub fn pane_rect(content: Rect) -> Rect {
+    Rect::from_min_max(
+        pos2(content.left() + SEPARATOR_X + 1.0, content.top() + 1.0),
+        pos2(content.right(), content.bottom()),
+    )
+}
+
+/// The vertical rule between the nav and the pane.
+///
+/// `FxSettingsDialog::paint` draws this at *window* x 152 while `SettingsComponent` lays the pane
+/// out at *content* x 153, and the content is offset by `SHADOW_WIDTH`, so the original's line
+/// lands five points to the left of the pane's edge and shows through the tab buttons' labels
+/// (§1.2). Drawn once, whole, at the pane's edge, here; the captions stop short of it
+/// ([`nav_label_rect`]).
+#[must_use]
+pub fn divider_x(content: Rect) -> f32 {
+    pane_rect(content).left() - 1.0
+}
+
+/// One of the six tab buttons: `(20, 50, 150, 40)`, `(20, 110, …)`, `(20, 170, …)`
+/// (`FxSettingsDialog.cpp:121-123`), and CrossFX's Microphone at `(20, 230, …)`, Applications
+/// at `(20, 290, …)` and Experimental at `(20, 350, …)` — the next rows of the same grid.
+#[must_use]
+pub fn nav_button_rect(content: Rect, index: usize) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            content.left() + BUTTON_X,
+            content.top() + BUTTON_Y + index as f32 * (BUTTON_SIZE.y + BUTTON_GAP),
+        ),
+        BUTTON_SIZE,
+    )
+}
+
+/// Where a tab button's caption goes: from `height + 5` points in, as the original's
+/// (`FxSettingsDialog.cpp:73-75`), to [`NAV_LABEL_CLEARANCE`] short of the rule — 81 points.
+///
+/// The original's box is `width - height + 5` wide, 115 points, and runs past the rule at 87: its
+/// three English captions stop short of it, but a translation did not (Bosnian `Opšte Opcije` for
+/// General, about 103 points), nor do CrossFX's `Microphone` and `Applications` in English (about
+/// 93 and 98), and the rule ran through them — 0.3.0 broke the rule around them instead, which
+/// hid the collision and left the text over the pane's edge (0.4.0 audit #29). A caption now fits
+/// this box: [`nav_caption_font`] sets one too long for it in a smaller size.
+#[must_use]
+pub fn nav_label_rect(button: Rect) -> Rect {
+    let left = button.left() + button.height() + NAV_LABEL_GAP;
+    // The button's own left is `BUTTON_X` into the content, and the rule `SEPARATOR_X`.
+    let rule = button.left() - BUTTON_X + SEPARATOR_X;
+    Rect::from_min_max(
+        pos2(left, button.top()),
+        pos2(rule - NAV_LABEL_CLEARANCE, button.bottom()),
+    )
+}
+
+/// Where the original sets a tab's caption: `height + 5` points in and `width - height + 5`
+/// wide, 115 points, past the rule (`FxSettingsDialog.cpp:73-75`). The button, 150 points wide,
+/// clips what runs further. What «Like the original FxSound LLC» = Interface and above caption the
+/// original's three tabs in ([`WindowsLook::NavCaptions`], 0.4.0 audit #29 set back).
+#[must_use]
+pub fn windows_nav_label_rect(button: Rect) -> Rect {
+    let left = button.left() + button.height() + NAV_LABEL_GAP;
+    Rect::from_min_size(
+        pos2(left, button.top()),
+        vec2(
+            button.width() - button.height() + NAV_LABEL_GAP,
+            button.height(),
+        ),
+    )
+}
+
+/// The font a tab's caption is set in: the normal font where the caption fits [`nav_label_rect`],
+/// and otherwise the largest size down to [`MIN_NAV_FONT`] that does, in half points. A caption
+/// too long even for that is elided at the smallest size by `draw_truncated`.
+///
+/// A smaller size rather than an ellipsis: `Applicati…` would not say which pane the button opens,
+/// and JUCE's own labels squeeze a line that does not fit rather than cut it. egui cannot squeeze
+/// a glyph sideways, so the whole caption is set smaller; the other captions keep the normal font.
+#[must_use]
+pub fn nav_caption_font(ctx: &Context, text: &str, room: f32) -> egui::FontId {
+    let width = |size: f32| {
+        ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(
+                    text.to_owned(),
+                    crate::theme::semibold(size),
+                    Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        })
+    };
+    let normal = width(super::NORMAL_FONT);
+    if normal <= room || normal <= 0.0 {
+        return normal_font();
+    }
+    // Width follows the size closely; start from the proportion and step down to be sure.
+    let mut size = ((super::NORMAL_FONT * room / normal) * 2.0).floor() / 2.0;
+    size = size.clamp(MIN_NAV_FONT, super::NORMAL_FONT);
+    while size > MIN_NAV_FONT && width(size) > room {
+        size = (size - 0.5).max(MIN_NAV_FONT);
+    }
+    crate::theme::semibold(size)
+}
+
+/// How a tab's caption is set: one line where it fits one, as [`nav_caption_font`] sets it, and
+/// otherwise two, broken where the translation marks a long word ([`i18n::BREAK`], drawn as a
+/// hyphen at the end of the first line) or at a space — whichever lets the two lines be set
+/// largest.
+///
+/// Two lines are what CrossFX's own long captions need: «Экспериментальное» is 117.6 points
+/// even at 12 points, in a box of 81, and an ellipsis would not say which pane the button opens.
+/// They are set in the `nav_caption` role ([`crate::theme::nav_caption`]), whose line pitch is
+/// explicit so that the two lines stay inside the 40-point button whichever face comes first in
+/// the chain.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NavCaption {
+    /// One line, or two.
+    pub lines: Vec<String>,
+    /// The size they are set in.
+    pub size: f32,
+}
+
+impl NavCaption {
+    /// The caption as it is laid out: one line in the tab's font, or two in the `nav_caption`
+    /// role, one under the other.
+    #[must_use]
+    pub fn layout(&self, ctx: &Context, colour: Color32) -> std::sync::Arc<egui::Galley> {
+        let mut job = egui::text::LayoutJob::default();
+        if let [line] = self.lines.as_slice() {
+            job.append(
+                line,
+                0.0,
+                egui::TextFormat::simple(crate::theme::semibold(self.size), colour),
+            );
+        } else {
+            job.append(
+                &self.lines.join("\n"),
+                0.0,
+                crate::theme::nav_caption(self.size, colour),
+            );
+        }
+        ctx.fonts_mut(|fonts| fonts.layout_job(job))
+    }
+}
+
+/// [`NavCaption`] for `text` in `room` points: `text` as [`i18n::tr_breakable`] gives it, with the
+/// translation's break marks in it.
+#[must_use]
+pub fn nav_caption(ctx: &Context, text: &str, room: f32) -> NavCaption {
+    let whole = text.replace(i18n::BREAK, "");
+    let width = |text: &str, size: f32| {
+        ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(
+                    text.to_owned(),
+                    crate::theme::semibold(size),
+                    Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        })
+    };
+    let font = nav_caption_font(ctx, &whole, room);
+    if width(&whole, font.size) <= room {
+        return NavCaption {
+            lines: vec![whole],
+            size: font.size,
+        };
+    }
+    // Every place the caption may break: at a mark, with a hyphen, and at a space.
+    let mut breaks: Vec<(String, String)> = Vec::new();
+    for (at, _) in text.match_indices(i18n::BREAK) {
+        let first = text[..at].replace(i18n::BREAK, "");
+        let second = text[at + i18n::BREAK.len()..].replace(i18n::BREAK, "");
+        breaks.push((
+            format!("{}-", first.trim_end()),
+            second.trim_start().to_owned(),
+        ));
+    }
+    for (at, space) in text.char_indices().filter(|(_, c)| c.is_whitespace()) {
+        let first = text[..at].replace(i18n::BREAK, "");
+        let second = text[at + space.len_utf8()..].replace(i18n::BREAK, "");
+        if !first.trim().is_empty() && !second.trim().is_empty() {
+            breaks.push((first.trim().to_owned(), second.trim().to_owned()));
+        }
+    }
+    // For each, the largest size in half points both lines fit at; the largest of those wins, and
+    // of two at one size the better balanced.
+    let mut best: Option<(f32, f32, (String, String))> = None;
+    for (first, second) in breaks {
+        let mut size = super::NORMAL_FONT;
+        let fits = loop {
+            let widest = width(&first, size).max(width(&second, size));
+            if widest <= room {
+                break Some(widest);
+            }
+            if size <= MIN_NAV_FONT {
+                break None;
+            }
+            size = (size - 0.5).max(MIN_NAV_FONT);
+        };
+        if let Some(widest) = fits {
+            let better = best.as_ref().is_none_or(|(best_size, best_widest, _)| {
+                size > *best_size || (size == *best_size && widest < *best_widest)
+            });
+            if better {
+                best = Some((size, widest, (first, second)));
+            }
+        }
+    }
+    match best {
+        Some((size, _, (first, second))) => NavCaption {
+            lines: vec![first, second],
+            size,
+        },
+        // Nowhere to break, or no break that fits: one line at the smallest size, elided.
+        None => NavCaption {
+            lines: vec![whole],
+            size: font.size,
+        },
+    }
+}
+
+/// A pane's title: `(20, 5, paneWidth - 20, 24)` (`FxSettingsDialog.cpp:168-172`).
+#[must_use]
+pub fn pane_title_rect(pane: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(pane.left() + X_MARGIN, pane.top() + Y_MARGIN),
+        vec2(pane.width() - X_MARGIN, TITLE_HEIGHT),
+    )
+}
+
+// =============================================================================================
+// Tabs
+// =============================================================================================
+
+/// Which pane is showing. Audio is selected at construction (`FxSettingsDialog.cpp:93`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SettingsTab {
+    #[default]
+    Audio,
+    General,
+    Help,
+    /// CrossFX's fourth pane: the microphone's global settings and the calibration wizard.
+    /// Appended rather than slotted in beside Audio, so the original's three keep their rows.
+    Microphone,
+    /// CrossFX's fifth: a preset of its own for each application (`docs/0.4.0-apps.md`).
+    Applications,
+    /// CrossFX's sixth, and always the last: «Как в оригинальном FxSound LLC» / "Like the original
+    /// FxSound LLC" (`docs/0.5.0-windows-parity.md`).
+    Experimental,
+}
+
+impl SettingsTab {
+    /// In nav order.
+    pub const ALL: [Self; 6] = [
+        Self::Audio,
+        Self::General,
+        Self::Help,
+        Self::Microphone,
+        Self::Applications,
+        Self::Experimental,
+    ];
+
+    /// The tab button's caption — also the component's name, which is what `TRANS` is given
+    /// (`FxSettingsDialog.cpp:92-105`).
+    #[must_use]
+    pub const fn nav_label(self) -> &'static str {
+        match self {
+            Self::Audio => "Audio",
+            Self::General => "General",
+            Self::Help => "Help",
+            Self::Microphone => "Microphone",
+            Self::Applications => "Applications",
+            Self::Experimental => "Experimental",
+        }
+    }
+
+    /// The pane's own heading, which is **not** the same string as the tab's for General
+    /// (`FxSettingsDialog.cpp:336`).
+    #[must_use]
+    pub const fn pane_title(self) -> &'static str {
+        match self {
+            Self::Audio => "Audio",
+            Self::General => "General Preferences",
+            Self::Help => "Help",
+            Self::Microphone => "Microphone",
+            Self::Applications => "Applications",
+            Self::Experimental => "Experimental",
+        }
+    }
+
+    /// The icon in the tab button's rounded square.
+    #[must_use]
+    pub const fn icon(self) -> NavIcon {
+        match self {
+            Self::Audio => NavIcon::Speaker,
+            Self::General => NavIcon::Settings,
+            Self::Help => NavIcon::Question,
+            Self::Microphone => NavIcon::Microphone,
+            Self::Applications => NavIcon::Applications,
+            Self::Experimental => NavIcon::Experimental,
+        }
+    }
+
+    #[must_use]
+    const fn index(self) -> usize {
+        match self {
+            Self::Audio => 0,
+            Self::General => 1,
+            Self::Help => 2,
+            Self::Microphone => 3,
+            Self::Applications => 4,
+            Self::Experimental => 5,
+        }
+    }
+
+    /// Whether the original has this tab: Audio, General and Help.
+    #[must_use]
+    pub const fn windows_has(self) -> bool {
+        matches!(self, Self::Audio | Self::General | Self::Help)
+    }
+
+    /// Whether `platform` has what the tab sets: every tab but Applications, whose per-application
+    /// presets need PipeWire's routing ([`Platform::app_presets`]).
+    #[must_use]
+    pub const fn offered_on(self, platform: Platform) -> bool {
+        match self {
+            Self::Applications => platform.app_presets,
+            Self::Audio | Self::General | Self::Help | Self::Microphone | Self::Experimental => {
+                true
+            }
+        }
+    }
+
+    /// The row of the nav the tab's button takes on `platform`: its place among the tabs offered
+    /// there, so that a tab a platform lacks leaves no gap.
+    #[must_use]
+    pub fn row(self, platform: Platform) -> usize {
+        Self::ALL
+            .into_iter()
+            .take(self.index())
+            .filter(|tab| tab.offered_on(platform))
+            .count()
+    }
+
+    /// The level of «Like the original FxSound LLC» at which this tab stops being what it is in
+    /// CrossFX (`docs/0.5.0-windows-parity.md`, "Classification"). Exhaustive on purpose: a new tab
+    /// does not compile until its level is decided.
+    ///
+    /// The original's three keep their place at every level — what changes inside them is
+    /// classified with the things themselves. CrossFX's Microphone and Applications panes are
+    /// hidden at Everything. Experimental never is: it is the way back.
+    #[must_use]
+    pub const fn parity_class(self) -> ParityClass {
+        match self {
+            Self::Audio | Self::General | Self::Help | Self::Experimental => ParityClass::Never,
+            Self::Microphone | Self::Applications => ParityClass::Full,
+        }
+    }
+}
+
+// =============================================================================================
+// The six nav icons
+// =============================================================================================
+
+/// The side-nav artwork.
+///
+/// The original's three are the only images in the app that `FxTheme`'s table does not hold: the
+/// dialog loads them straight from `BinaryData` (`FxSettingsDialog.cpp:92-105`), and they have no
+/// per-theme variant — they are drawn in the same neutral grey in both palettes. The fourth,
+/// fifth and sixth, `microphone.svg`, `applications.svg` and `experimental.svg`, are CrossFX's
+/// own, drawn to match: a 24-point grid, one `#7E7E7E` fill and 1.5-point strokes, like
+/// `speaker.svg`.
+/// [`crate::AssetCache`] is keyed by [`FxImage`] and has nowhere to put them, so [`NavIcons`] is
+/// the same rasterise-once-and-keep-the-texture cache with its own key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NavIcon {
+    /// `speaker.svg`.
+    Speaker,
+    /// `settings.svg`.
+    Settings,
+    /// `question.svg`.
+    Question,
+    /// `microphone.svg`.
+    Microphone,
+    /// `applications.svg`: a window with its title bar.
+    Applications,
+    /// `experimental.svg`: a flask.
+    Experimental,
+}
+
+const NAV_SVGS: [&[u8]; 6] = [
+    include_bytes!("../../../../assets/images/speaker.svg"),
+    include_bytes!("../../../../assets/images/settings.svg"),
+    include_bytes!("../../../../assets/images/question.svg"),
+    include_bytes!("../../../../assets/images/microphone.svg"),
+    include_bytes!("../../../../assets/images/applications.svg"),
+    include_bytes!("../../../../assets/images/experimental.svg"),
+];
+
+impl NavIcon {
+    /// The raw SVG bytes.
+    #[must_use]
+    pub fn svg_bytes(self) -> &'static [u8] {
+        NAV_SVGS[self as usize]
+    }
+}
+
+/// Textures for the six nav icons, one per physical size.
+///
+/// Held by the application next to its [`crate::AssetCache`]; `load_texture` must never run per
+/// frame.
+#[derive(Default)]
+pub struct NavIcons {
+    textures: HashMap<(NavIcon, u32, u32), TextureHandle>,
+}
+
+impl std::fmt::Debug for NavIcons {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NavIcons")
+            .field("textures", &self.textures.len())
+            .finish()
+    }
+}
+
+impl NavIcons {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A texture for `icon` at `size_points`, rasterised at the context's current scale.
+    pub fn texture(
+        &mut self,
+        ctx: &Context,
+        icon: NavIcon,
+        size_points: Vec2,
+    ) -> Option<&TextureHandle> {
+        let scale = ctx.pixels_per_point().max(0.1);
+        let width_px = (size_points.x * scale).round().max(1.0) as u32;
+        let height_px = (size_points.y * scale).round().max(1.0) as u32;
+        let key = (icon, width_px, height_px);
+
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.textures.entry(key) {
+            let image = rasterise(icon.svg_bytes(), width_px, height_px)?;
+            let handle = ctx.load_texture(
+                format!("{icon:?}-{width_px}x{height_px}"),
+                image,
+                TextureOptions::LINEAR,
+            );
+            slot.insert(handle);
+        }
+        self.textures.get(&key)
+    }
+
+    /// Drop every cached texture.
+    pub fn clear(&mut self) {
+        self.textures.clear();
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.textures.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.textures.is_empty()
+    }
+}
+
+// =============================================================================================
+// Hotkeys (`docs/spec/06-dialogs.md` §1.8, §9.5)
+// =============================================================================================
+
+/// The five commands a global shortcut can run, in the original's order
+/// (`FxSettingsDialog.cpp:342-344`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HotkeyCommand {
+    OnOff,
+    OpenClose,
+    NextPreset,
+    PreviousPreset,
+    ChangeOutput,
+}
+
+impl HotkeyCommand {
+    pub const ALL: [Self; 5] = [
+        Self::OnOff,
+        Self::OpenClose,
+        Self::NextPreset,
+        Self::PreviousPreset,
+        Self::ChangeOutput,
+    ];
+
+    /// The row's caption.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::OnOff => "Turn CrossFX On/Off",
+            Self::OpenClose => "Open/Close CrossFX",
+            Self::NextPreset => "Use Next Preset",
+            Self::PreviousPreset => "Use Previous Preset",
+            Self::ChangeOutput => "Change Playback Device",
+        }
+    }
+
+    /// What a compositor keybinding should actually run.
+    ///
+    /// These are the flags `packaging/hyprland.conf.example` binds; each one reaches the running
+    /// instance over the control socket. This is the column that makes the table useful rather
+    /// than decorative — it is the thing the user copies. Each one runs the program by its
+    /// command, [`crossfx_core::identity::BINARY`].
+    #[must_use]
+    pub const fn command_line(self) -> &'static str {
+        match self {
+            Self::OnOff => "crossfx --toggle-power",
+            Self::OpenClose => "crossfx --toggle-window",
+            Self::NextPreset => "crossfx --next-preset",
+            Self::PreviousPreset => "crossfx --prev-preset",
+            Self::ChangeOutput => "crossfx --next-output",
+        }
+    }
+}
+
+/// What the note above the hotkey table says.
+pub const HOTKEY_NOTE: &str = "A Wayland client cannot bind global shortcuts: the compositor owns \
+them. Bind these commands in your compositor's configuration — each one reaches the running \
+instance over CrossFX's control socket.";
+/// The shipped example the note points at.
+pub const HOTKEY_EXAMPLE_FILE: &str = "packaging/hyprland.conf.example";
+/// Heading of the hotkey block, which replaces the original's "Disable keyboard shortcuts".
+pub const HOTKEY_TITLE: &str = "Keyboard shortcuts";
+
+// =============================================================================================
+// Languages (`docs/spec/06-dialogs.md` §1.8)
+// =============================================================================================
+
+/// One position of the language switch.
+///
+/// The original's `FxLanguage` cycles through its 30 codes; CrossFX puts the desktop
+/// session's language first — the position a fresh install is in — and then the same languages,
+/// minus Hungarian, which the original's binary never actually shipped a table for: English, then
+/// the rest in the order of their own names ([`i18n::LANGUAGES`], 0.4.0 audit #28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LanguageChoice {
+    /// Follow the desktop session (`Settings::language_follows_system`).
+    System,
+    /// One of [`i18n::LANGUAGES`], by code.
+    Code(&'static str),
+}
+
+impl LanguageChoice {
+    /// Every position, in order.
+    #[must_use]
+    pub fn all() -> Vec<Self> {
+        Self::all_at(WindowsParity::Off)
+    }
+
+    /// Every position at a level of «Like the original FxSound LLC»: [`LanguageChoice::all`], or
+    /// from Interface on the system entry and then the original's order ([`i18n::WINDOWS_ORDER`],
+    /// [`WindowsLook::LanguageOrder`]) — the order only; every language keeps its own name.
+    #[must_use]
+    pub fn all_at(level: WindowsParity) -> Vec<Self> {
+        let codes: Vec<&'static str> = if level.windows_look(WindowsLook::LanguageOrder) {
+            i18n::WINDOWS_ORDER.to_vec()
+        } else {
+            i18n::LANGUAGES
+                .iter()
+                .map(|language| language.code)
+                .collect()
+        };
+        std::iter::once(Self::System)
+            .chain(codes.into_iter().map(Self::Code))
+            .collect()
+    }
+
+    /// The position the settings are in right now. An explicit code is read as
+    /// [`i18n::canonical_code`] reads it (`uk` is Ukrainian's `ua`); one with no table falls back to
+    /// the system entry, which is also what [`i18n::resolve`] does with it.
+    #[must_use]
+    pub fn current(settings: &Settings) -> Self {
+        if settings.language_follows_system {
+            return Self::System;
+        }
+        i18n::canonical_code(&settings.language).map_or(Self::System, Self::Code)
+    }
+
+    /// What the switch shows: the native name, untranslated, as `getLanguageName` returns it
+    /// (`FxController.cpp:2471-2594`) — and, for the system entry, which language that is.
+    #[must_use]
+    pub fn label(self) -> String {
+        match self {
+            Self::System => format!(
+                "{} · {}",
+                tr("System language"),
+                i18n::native_name(i18n::system_language())
+            ),
+            Self::Code(code) => i18n::native_name(code).to_owned(),
+        }
+    }
+
+    /// The position `steps` away, wrapping in both directions (`FxLanguage.cpp:80-111`).
+    #[must_use]
+    pub fn step(self, steps: isize) -> Self {
+        self.step_at(steps, WindowsParity::Off)
+    }
+
+    /// [`LanguageChoice::step`] through the order of [`LanguageChoice::all_at`] `level`.
+    #[must_use]
+    pub fn step_at(self, steps: isize, level: WindowsParity) -> Self {
+        let all = Self::all_at(level);
+        let count = all.len() as isize;
+        let current = all.iter().position(|choice| *choice == self).unwrap_or(0) as isize;
+        all[(current + steps).rem_euclid(count) as usize]
+    }
+
+    /// What [`SettingsAction::SetLanguage`] carries for this position: `None` follows the system.
+    #[must_use]
+    pub fn setting(self) -> Option<String> {
+        match self {
+            Self::System => None,
+            Self::Code(code) => Some(code.to_owned()),
+        }
+    }
+}
+
+/// One row of a device priority list (`FxOutputPreference.cpp:104-181`): the Audio pane's of
+/// outputs, or the Microphone pane's of microphones.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DevicePriority {
+    /// `node.name` — stable across restarts, and what `device_configs` is keyed on. Also the id
+    /// salt for the row's preset combo, because salting by row index would leave an open popup
+    /// attached to the wrong device after a reorder (`docs/spec/06-dialogs.md` §9.2).
+    pub id: String,
+    /// `node.description`, what the row shows after its `"1. "` rank prefix.
+    pub name: String,
+    /// The preset the device remembers: an index into [`SettingsState::presets`] for an output,
+    /// into [`SettingsState::input_presets`] for a microphone, or `None` for the
+    /// `"Select preset"` placeholder — a device that remembers nothing, or a preset that is gone.
+    pub preset: Option<usize>,
+    /// `false` for a remembered device that is not currently usable: the name greys out
+    /// (`FxOutputPreference.cpp:141`).
+    pub connected: bool,
+    /// `false` for a device that is not enumerated at all any more: the ✕ appears, and only then
+    /// (`FxOutputPreference.cpp:130`).
+    pub present: bool,
+}
+
+impl DevicePriority {
+    /// `sprintf("%d. ", row + 1) + device_name` (`FxOutputPreference.cpp:140`).
+    #[must_use]
+    pub fn label(&self, index: usize) -> String {
+        format!("{}. {}", index + 1, self.name)
+    }
+}
+
+/// One application of Settings ▸ Applications (`docs/0.4.0-apps.md`, "Interface").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppRow {
+    /// Which application: the store's key for it, handed back in [`SettingsAction::SetAppPreset`]
+    /// and [`SettingsAction::ForgetApp`]. Also the id salt of the row's combos, so that an open
+    /// popup stays with its application when the list reorders under it.
+    pub app: AppKey,
+    /// What the row shows: [`AppKey::display`].
+    pub name: String,
+    /// Whether it plays or records now: drawn with a dot, full colour and first, where a
+    /// remembered one is grey, as a device that is not connected is in the priority lists.
+    pub running: bool,
+    /// A combo per direction the application has used, outputs first — both when that is not
+    /// known — each with the preset chosen for it.
+    pub lanes: Vec<AppLane>,
+}
+
+/// One of an [`AppRow`]'s combos.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppLane {
+    pub direction: DeviceDirection,
+    /// The preset the application runs through in this direction, or `None` for CrossFX's own.
+    /// A name the direction's list does not carry — a preset removed behind CrossFX's back —
+    /// is shown dimmed: the application follows CrossFX's preset until it is back.
+    pub preset: Option<String>,
+}
+
+impl AppRow {
+    /// Whether the ✕ has anything to forget: the row of an application that is not running, or
+    /// a preset of its own. A running application that follows CrossFX's preset both ways is
+    /// remembered again the moment it is forgotten, so its ✕ would do nothing, and it has none.
+    #[must_use]
+    pub fn can_forget(&self) -> bool {
+        !self.running || self.lanes.iter().any(|lane| lane.preset.is_some())
+    }
+
+    /// How many lines the row takes: one per combo, and one for a row with none.
+    #[must_use]
+    pub fn lines(&self) -> usize {
+        self.lanes.len().max(1)
+    }
+}
+
+/// Everything the Settings window draws.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettingsState {
+    /// The persisted settings, read-only here: every change leaves as a [`SettingsAction`].
+    pub settings: Settings,
+    /// Which pane is showing.
+    pub tab: SettingsTab,
+    /// The output device priority list, in priority order. Output devices only: a microphone
+    /// remembers its voice preset in the same settings, and has its row in
+    /// [`SettingsState::microphones`].
+    pub devices: Vec<DevicePriority>,
+    /// The microphones' priority list, in priority order, for the Microphone pane. Each row's
+    /// preset counts in [`SettingsState::input_presets`].
+    pub microphones: Vec<DevicePriority>,
+    /// The selected row of the Audio pane's list, which is what ▲/▼ and Shift+Up/Shift+Down act
+    /// on.
+    pub selected_device: Option<usize>,
+    /// Every speakers' preset name, for the Audio pane's per-device preset combos and the
+    /// Applications pane's output combos.
+    pub presets: Vec<String>,
+    /// Every voice preset name, for the Microphone pane's per-device preset combos and the
+    /// Applications pane's input combos.
+    pub input_presets: Vec<String>,
+    /// Settings ▸ Applications: the applications playing or recording now, then the ones
+    /// remembered, most recently seen first.
+    pub apps: Vec<AppRow>,
+    /// Whether the reset has anything to do: the button is enabled iff some preset, on either lane,
+    /// has unsaved changes. The original also enables it with any user preset saved
+    /// (`FxSettingsDialog.cpp:210-220`), because its reset deletes them; this one keeps them
+    /// (0.4.0 audit #21).
+    pub can_reset_presets: bool,
+    /// The application version, shown as `"v" + version` and never translated
+    /// (`FxSettingsDialog.cpp:542`). Pass `env!("CARGO_PKG_VERSION")`.
+    pub version: String,
+    /// Whether CrossFX starts with the session.
+    ///
+    /// Not part of [`Settings`], and deliberately so: the original reads it live out of
+    /// `HKCU\…\CurrentVersion\Run` rather than from its own settings file
+    /// (`FxController.cpp:2789-2812`), and CrossFX's equivalent is its own `CrossFX` Run value on
+    /// Windows and, on Linux, the existence of
+    /// `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` with `Hidden=false`
+    /// (`docs/spec/06-dialogs.md` §9.6). The app layer reads them and fills this in.
+    pub launch_on_startup: bool,
+    /// Whether PipeWire's echo canceller is actually loaded, why not when the engine says, and
+    /// whether the microphone lane is delivering — live state rather than settings, so the app
+    /// layer refreshes them while the window is open. `settings.echo_cancel` is what the user
+    /// asked for; these are what they got.
+    pub echo_cancel_running: bool,
+    pub echo_cancel_trouble: Option<EchoCancelTrouble>,
+    pub input_processing: bool,
+    /// Whether a microphone is selected. Calibration measures one, so without it the button is
+    /// disabled rather than opening a wizard with nothing to listen to (0.4.0 design §8).
+    pub has_microphone: bool,
+    /// Settings ▸ Experimental's "Smooth moves in WirePlumber". Not part of [`Settings`], for the
+    /// reason [`SettingsState::launch_on_startup`] is not: it is two files in WirePlumber's own
+    /// directories, and the app layer reads them and fills this in.
+    pub wireplumber_hook: WirePlumberHook,
+    /// Settings ▸ General ▸ "Interface font": the Gilroy CrossFX found, and what the last action
+    /// there came to. Live state, as the hook's is: the app layer fills it in; the choice itself
+    /// is `settings.interface_font`.
+    pub font: FontPane,
+    /// The platform the window is drawn for: this build's ([`crossfx_core::PLATFORM`]). What it
+    /// lacks is not drawn — the Applications tab, echo cancellation, the WirePlumber hook, the
+    /// Wayland note over the shortcuts — and the parity mode's tip names D-Bus only where there is
+    /// one. A field rather than the constant, so that a test can draw either platform's window on
+    /// either.
+    pub platform: Platform,
+}
+
+/// What Settings ▸ General says about Gilroy under "Interface font".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FontPane {
+    /// The Gilroy CrossFX found: in its own data folder, where "Add Gilroy files…" copies the
+    /// user's files, or installed on the system.
+    pub gilroy: GilroyFound,
+    /// Whether the Gilroy found lacks letters the language in force needs, which leaves the
+    /// window in Manrope (`typeface::GilroyFaces::sets`).
+    pub lacks_letters: bool,
+    /// What the last "Add Gilroy files…" or "Buy Gilroy" came to, when it was not what was
+    /// asked; `None` once it was.
+    pub message: Option<FontMessage>,
+}
+
+/// How much of Gilroy CrossFX found.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum GilroyFound {
+    /// No Gilroy face at all.
+    #[default]
+    None,
+    /// Some of its faces, not all three the window is set in: Regular, SemiBold or Medium, Bold.
+    Incomplete,
+    /// All three.
+    Whole,
+}
+
+/// What an action under "Interface font" came to, when it was not what was asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontMessage {
+    /// Of the files the user picked, these are not Gilroy faces the window uses, by file name.
+    LeftOut(Vec<String>),
+    /// The Gilroy files could not be copied into CrossFX's folder.
+    NotCopied,
+    /// The file picker could not be opened.
+    NoPicker,
+    /// The store's page could not be opened.
+    NoBrowser,
+}
+
+/// The designer's own store for Gilroy, which "Buy Gilroy" opens: Radomir Tinkov's family on
+/// MyFonts. CrossFX neither sells nor downloads it.
+pub const GILROY_STORE: &str = "https://www.myfonts.com/collections/gilroy-font-radomir-tinkov";
+
+/// "Smooth moves in WirePlumber" (roadmap 0.5.0 §7, D5): CrossFX's hook in the user's WirePlumber,
+/// which fades the streams WirePlumber moves itself — a device picked in the desktop's sound
+/// settings among them — as CrossFX fades the ones it moves (`crossfx_audio::wireplumber_hook`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WirePlumberHook {
+    /// Whether it can be offered: WirePlumber 0.5 or later is installed. Unticked and greyed out
+    /// otherwise, with the line saying why.
+    pub available: bool,
+    /// Whether it is ticked: the hook's files are where WirePlumber reads them.
+    pub on: bool,
+    /// Whether the WirePlumber that runs has read them as they are.
+    pub restart: WirePlumberRestart,
+}
+
+/// Whether the WirePlumber that runs has what the tick box says: it reads the hook's files only
+/// when it starts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WirePlumberRestart {
+    /// It has, or no WirePlumber runs to say otherwise.
+    #[default]
+    NotNeeded,
+    /// It started before the box was last ticked or unticked: "Restart WirePlumber" is offered.
+    Due,
+    /// A restart was asked for and WirePlumber is still the one from before — it was not started
+    /// by systemd, or systemd could not restart it. The next login brings the change.
+    Failed,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self::new(Settings::default())
+    }
+}
+
+impl SettingsState {
+    #[must_use]
+    pub fn new(settings: Settings) -> Self {
+        Self {
+            settings,
+            tab: SettingsTab::default(),
+            devices: Vec::new(),
+            microphones: Vec::new(),
+            selected_device: None,
+            presets: Vec::new(),
+            input_presets: Vec::new(),
+            apps: Vec::new(),
+            can_reset_presets: false,
+            version: String::new(),
+            launch_on_startup: false,
+            echo_cancel_running: false,
+            echo_cancel_trouble: None,
+            input_processing: false,
+            has_microphone: false,
+            wireplumber_hook: WirePlumberHook::default(),
+            font: FontPane::default(),
+            platform: crossfx_core::PLATFORM,
+        }
+    }
+
+    /// `"v1.1.25"` (`FxSettingsDialog.cpp:542`).
+    #[must_use]
+    pub fn version_text(&self) -> String {
+        format!("v{}", self.version)
+    }
+
+    /// The line under "Echo cancellation", or `None` when there is nothing to say. It says
+    /// `unavailable` only for a fault: the engine gave a reason, which follows the word, short and
+    /// translated — or the microphone lane is delivering and the canceller still is not there.
+    /// Ticked with no microphone, or with one that is not delivering yet, the canceller is simply
+    /// not needed yet, and nothing is wrong (the same honesty rule the readout strip keeps, 0.4.0
+    /// design §7).
+    #[must_use]
+    pub fn echo_cancel_status(&self) -> Option<String> {
+        if !self.settings.echo_cancel || self.echo_cancel_running {
+            return None;
+        }
+        match self.echo_cancel_trouble {
+            Some(trouble) => Some(match trouble.reason() {
+                Some(reason) => format!("{} · {reason}", tr("unavailable")),
+                None => tr("unavailable"),
+            }),
+            None => self.input_processing.then(|| tr("unavailable")),
+        }
+    }
+
+    /// The last calibration, as the pane prints it: `Floor −48 dB · Speech −19 dB · 2026-09-23`.
+    #[must_use]
+    pub fn calibration_text(&self) -> String {
+        match &self.settings.calibration {
+            Some(record) => format!(
+                "{} {} · {} {} · {}",
+                tr("Floor"),
+                super::whole_db(record.noise_floor_db),
+                tr("Speech"),
+                super::whole_db(record.speech_rms_db),
+                super::iso_date(record.unix_time),
+            ),
+            None => tr(NOT_CALIBRATED),
+        }
+    }
+
+    /// The row above `index`, if it can move up.
+    #[must_use]
+    pub fn can_move_up(&self, index: usize) -> bool {
+        index > 0 && index < self.devices.len()
+    }
+
+    /// Whether `index` can move down.
+    #[must_use]
+    pub fn can_move_down(&self, index: usize) -> bool {
+        index + 1 < self.devices.len()
+    }
+}
+
+/// Something the user did in the Settings window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsAction {
+    /// A tab button was pressed. Plain radio behaviour (`FxSettingsDialog.cpp:131-163`).
+    SelectTab(SettingsTab),
+
+    // ---- audio pane ---------------------------------------------------------------------------
+    /// A device row was clicked; it becomes the one ▲/▼ and Shift+Up/Down act on.
+    SelectDeviceRow(usize),
+    /// Swap this row with the one above and persist (`FxOutputPreference.cpp:238-248`).
+    MoveDeviceUp(usize),
+    /// Swap with the one below (`:250-260`).
+    MoveDeviceDown(usize),
+    /// Forget a device that is no longer present (`:262-272`).
+    RemoveDevice(usize),
+    /// Bind a preset to a device, by the name the combo showed: row `device` of the Audio pane's
+    /// list and a speakers' preset for [`DeviceDirection::Output`], of the Microphone pane's and
+    /// a voice preset for [`DeviceDirection::Input`]. If the row is the device its lane is on now,
+    /// the app also applies the preset live (`FxOutputPreference.cpp:63-75`).
+    ///
+    /// A name rather than an index into [`SettingsState::presets`], so that a store that changed
+    /// under the open pane — a save or delete from the command line — cannot bind another preset.
+    SetDevicePreset {
+        direction: DeviceDirection,
+        device: usize,
+        preset: String,
+    },
+    /// `prioritize_new_output` — a newly seen device goes to the top of the list rather than the
+    /// bottom (`DeviceConfig.cpp:57`, `:78-85`).
+    SetPrioritizeNewOutput(bool),
+    /// `follow_system_default` — the priority lists stop choosing the device and the system's
+    /// default does (U4, the original's issue #629). A CrossFX addition.
+    SetFollowSystemDefault(bool),
+    /// The user asked to restore the factory presets.
+    ///
+    /// **Destructive** in the original, which deletes every user preset file with no
+    /// confirmation whatsoever (`FxController.cpp:1353-1366`). Here it discards the unsaved
+    /// changes of every preset and deletes nothing, and the window asks first
+    /// (`docs/spec/06-dialogs.md` Open question 4, 0.4.0 audit #21).
+    ResetPresets,
+
+    // ---- general pane -------------------------------------------------------------------------
+    /// A new UI language: a code from [`i18n::LANGUAGES`], or `None` to follow the desktop
+    /// session (see [`LanguageChoice`]).
+    SetLanguage(Option<String>),
+    /// Write or remove CrossFX's start-up entry (§9.6): the autostart file
+    /// `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` on Linux, the `CrossFX` Run
+    /// value on Windows.
+    SetLaunchOnStartup(bool),
+    /// `hide_help_tooltips` — suppresses every control tooltip in the main window.
+    SetHideHelpTips(bool),
+    /// `hide_notifications` — suppresses the desktop notifications.
+    SetHideNotifications(bool),
+    /// Show the shipped `packaging/hyprland.conf.example`. The app knows where its own data files
+    /// were installed; this crate must not guess.
+    ShowHotkeyExample,
+    /// Something under "Interface font": the face chosen, or one of Gilroy's two buttons.
+    Font(FontAction),
+
+    // ---- help pane ----------------------------------------------------------------------------
+    /// Open a URL in the user's browser.
+    OpenUrl(String),
+    /// Show the bundled changelog — what the original's "Changelog" link opened on the web
+    /// (`FxSettingsDialog.cpp:474-475`); CrossFX carries it in the package instead.
+    ShowChangelog,
+
+    // ---- microphone pane ----------------------------------------------------------------------
+    /// The noise-suppression level over every voice preset, or `Preset` to follow each preset.
+    SetNoiseSuppression(NoiseSuppressionOverride),
+    /// The denoiser's channel mode over every voice preset, or `Preset` to follow each preset.
+    SetDenoiseChannels(DenoiseChannelsOverride),
+    /// Where the de-esser puts its band.
+    SetDeEsserMode(DeEsserMode),
+    /// Late-reverberation suppression on the microphone.
+    SetDereverb(DereverbLevel),
+    /// PipeWire's echo canceller in front of the microphone. The app layer also tells the audio
+    /// thread, which answers with whether the module actually loaded.
+    SetEchoCancel(bool),
+    /// Open the calibration wizard. Only emitted while a microphone is selected.
+    OpenCalibration,
+    /// Swap this row of the Input Device Preference with the one above.
+    MoveMicrophoneUp(usize),
+    /// Swap it with the one below.
+    MoveMicrophoneDown(usize),
+    /// Forget a microphone that is no longer present.
+    RemoveMicrophone(usize),
+
+    // ---- applications pane --------------------------------------------------------------------
+    /// Run the application's `direction` through `preset`, or through CrossFX's own with `None`
+    /// (`docs/0.4.0-apps.md`). By name, for the reason [`SettingsAction::SetDevicePreset`] is.
+    SetAppPreset {
+        app: AppKey,
+        direction: DeviceDirection,
+        preset: Option<String>,
+    },
+    /// Forget an application: its presets, and its row unless it is running (the ✕).
+    ForgetApp(AppKey),
+
+    // ---- experimental pane --------------------------------------------------------------------
+    /// «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC" moved to this level: a
+    /// click on a position or its label, an arrow key, a wheel notch, a right-click (back to Off),
+    /// or a drag let go — never the positions a drag passes on its way.
+    SetWindowsParity(WindowsParity),
+    /// "Smooth moves in WirePlumber" ticked or unticked: install CrossFX's hook in the user's
+    /// WirePlumber, or take it away. Only emitted while it is available.
+    SetWirePlumberHook(bool),
+    /// "Restart WirePlumber", so that it reads the hook's files as they are now. The window asks
+    /// first: the sound stops for a moment. Only emitted while a restart is due.
+    RestartWirePlumber,
+
+    /// Close the window — the ✕ or Escape (`FxSettingsDialog.cpp:78-88`). The caller then runs
+    /// the equivalent of `FxController::refreshOutputList()` (`FxMainWindow.cpp:454`).
+    Close,
+}
+
+/// What Settings ▸ General ▸ "Interface font" asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontAction {
+    /// The option moved to this face. `interface_font` is written as it is: Gilroy chosen and
+    /// not found keeps the window in Manrope, and the pane says what to do about it.
+    Choose(InterfaceFont),
+    /// "Buy Gilroy": open [`GILROY_STORE`] in the user's browser.
+    Buy,
+    /// "Add Gilroy files…": the file picker, for the files the user licensed, which the app reads,
+    /// checks and copies into CrossFX's own folder, and sets the window in at once.
+    AddFiles,
+}
+
+// =============================================================================================
+// The window
+// =============================================================================================
+
+/// The Settings window.
+pub struct SettingsDialog<'a> {
+    state: &'a SettingsState,
+}
+
+impl<'a> SettingsDialog<'a> {
+    #[must_use]
+    pub fn new(state: &'a SettingsState) -> Self {
+        Self { state }
+    }
+
+    /// Draw the whole window into `outer`, which should be [`WINDOW_SIZE`].
+    pub fn show(
+        self,
+        ui: &mut Ui,
+        outer: Rect,
+        palette: Palette,
+        assets: &mut AssetCache,
+        icons: &mut NavIcons,
+    ) -> DialogResponse<SettingsAction> {
+        let id = Id::unique("fx_settings_dialog");
+        let mut response = DialogResponse::default();
+        // The face chosen in the General pane, or the Gilroy just added there, at once.
+        crate::typeface::sync(ui.ctx(), palette.is_windows());
+
+        let ChromeResponse {
+            content,
+            close_clicked,
+            ..
+        } = DialogChrome::titled(&tr("Settings")).show(
+            ui,
+            outer,
+            palette,
+            assets,
+            id.with("chrome"),
+        );
+        response.push_if(close_clicked, SettingsAction::Close);
+        response.push_if(
+            ui.input(|i| i.key_pressed(Key::Escape)),
+            SettingsAction::Close,
+        );
+
+        // §1.2's rule, drawn once, whole, at the pane's edge; the captions stop short of it.
+        ui.painter().vline(
+            divider_x(content),
+            content.y_range(),
+            Stroke::new(1.0, palette.divider()),
+        );
+
+        let windows_captions = self
+            .state
+            .settings
+            .windows_parity
+            .offered_or_below()
+            .windows_look(WindowsLook::NavCaptions);
+        let platform = self.state.platform;
+        // A tab the platform lacks has no button, and is never shown: the first tab is instead.
+        let shown = if self.state.tab.offered_on(platform) {
+            self.state.tab
+        } else {
+            SettingsTab::default()
+        };
+        for tab in SettingsTab::ALL {
+            if !tab.offered_on(platform) {
+                continue;
+            }
+            let rect = nav_button_rect(content, tab.row(platform));
+            let windows_caption = windows_captions && tab.windows_has();
+            if nav_button(ui, rect, tab, shown == tab, windows_caption, palette, icons) {
+                response.push(SettingsAction::SelectTab(tab));
+            }
+        }
+
+        let pane = pane_rect(content);
+        let title = if shown == self.state.tab {
+            tr(self.state.tab.pane_title())
+        } else {
+            // `SettingsTab::default()`'s.
+            tr("Audio")
+        };
+        draw_truncated(
+            ui.painter(),
+            &title,
+            title_font(),
+            palette.color(FxColor::HighlightedText),
+            pane_title_rect(pane),
+            Align2::LEFT_CENTER,
+        );
+
+        match shown {
+            SettingsTab::Audio => {
+                audio_pane(ui, pane, self.state, palette, assets, id, &mut response);
+            }
+            SettingsTab::General => {
+                general_pane(ui, pane, self.state, palette, assets, id, &mut response);
+            }
+            SettingsTab::Help => help_pane(ui, pane, self.state, palette, id, &mut response),
+            SettingsTab::Microphone => {
+                microphone_pane(ui, pane, self.state, palette, assets, id, &mut response);
+            }
+            SettingsTab::Applications => {
+                applications_pane(ui, pane, self.state, palette, assets, id, &mut response);
+            }
+            SettingsTab::Experimental => {
+                experimental_pane(ui, pane, self.state, palette, assets, id, &mut response);
+            }
+        }
+        // A drag cut short by closing the pane chose nothing: its preview goes with the pane,
+        // so the next time the pane is drawn it is not taken for a drag let go.
+        if response.actions.contains(&SettingsAction::Close) {
+            ui.data_mut(|d| d.remove::<ParityDrag>(parity_drag_id(id)));
+        }
+        response
+    }
+}
+
+/// One tab button (`FxSettingsDialog.cpp:46-76`). Returns whether it was clicked.
+///
+/// `windows_caption` sets the caption as the original does: the normal font on one line in
+/// [`windows_nav_label_rect`], cut with an ellipsis there and clipped by the button, so a long
+/// translation runs into the rule as it does in the original ([`WindowsLook::NavCaptions`]).
+fn nav_button(
+    ui: &mut Ui,
+    rect: Rect,
+    tab: SettingsTab,
+    selected: bool,
+    windows_caption: bool,
+    palette: Palette,
+    icons: &mut NavIcons,
+) -> bool {
+    let response = ui.interact(
+        rect,
+        Id::unique("fx_settings_nav").with(tab.nav_label()),
+        Sense::click(),
+    );
+
+    let square = Rect::from_min_size(rect.min, Vec2::splat(rect.height()));
+    let fill = if selected {
+        palette.color(FxColor::MenuHighlightBackground)
+    } else {
+        palette.color(FxColor::MenuBackground)
+    };
+    ui.painter()
+        .rect_filled(square, CornerRadius::same(NAV_ICON_CORNER as u8), fill);
+
+    let art = square.shrink(NAV_ICON_INSET);
+    if let Some(texture) = icons.texture(ui.ctx(), tab.icon(), art.size()) {
+        ui.painter().image(
+            texture.id(),
+            art,
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    }
+
+    let colour = if selected {
+        palette.color(FxColor::HighlightedText)
+    } else {
+        palette.color(FxColor::DefaultText)
+    };
+    if windows_caption {
+        draw_truncated(
+            &ui.painter().with_clip_rect(rect),
+            &tr(tab.nav_label()),
+            normal_font(),
+            colour,
+            windows_nav_label_rect(rect),
+            Align2::LEFT_CENTER,
+        );
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
+        return response.clicked();
+    }
+    let label = nav_label_rect(rect);
+    let caption = nav_caption(
+        ui.ctx(),
+        &i18n::tr_breakable(tab.nav_label()),
+        label.width(),
+    );
+    if let [line] = caption.lines.as_slice() {
+        draw_truncated(
+            ui.painter(),
+            line,
+            crate::theme::semibold(caption.size),
+            colour,
+            label,
+            Align2::LEFT_CENTER,
+        );
+    } else {
+        let galley = caption.layout(ui.ctx(), colour);
+        let placed = Align2::LEFT_CENTER.align_size_within_rect(galley.size(), label);
+        ui.painter().galley(placed.min, galley, colour);
+    }
+
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    response.clicked()
+}
+
+// =============================================================================================
+// Audio pane (`docs/spec/06-dialogs.md` §1.6)
+// =============================================================================================
+
+/// Audio-pane geometry (`FxSettingsDialog.h:101-109`, `.cpp:241-262`).
+pub mod audio {
+    /// `GROUP_MARGIN` — how far the backdrop spreads past the widgets it groups.
+    pub const GROUP_MARGIN: f32 = 10.0;
+    /// `ENDPOINT_Y` — y of the "Output Device Preference" heading.
+    pub const ENDPOINT_Y: f32 = 50.0;
+    /// `LABEL_WIDTH` × `LABEL_HEIGHT` of that heading.
+    /// The original's 220 (`FxSettingsDialog.cpp:243`) fits its English caption and nothing
+    /// longer; nothing sits to the caption's right, so CrossFX lets it run to the group's edge.
+    pub const LABEL_WIDTH: f32 = 400.0;
+    pub const LABEL_HEIGHT: f32 = 14.0;
+    /// `OUTPUT_PREFERENCE_HEIGHT`.
+    pub const LIST_HEIGHT: f32 = 260.0;
+    /// `TOGGLE_BUTTON_HEIGHT`.
+    pub const TOGGLE_HEIGHT: f32 = 30.0;
+    /// `RESET_PRESETS_BUTTON_WIDTH` — the reset button never gets narrower than this.
+    pub const RESET_MIN_WIDTH: f32 = 220.0;
+    /// `MAX_BUTTON_WIDTH` — nor wider than this.
+    pub const RESET_MAX_WIDTH: f32 = 315.0;
+    /// `BUTTON_HEIGHT`, per line of label.
+    pub const RESET_LINE_HEIGHT: f32 = 24.0;
+    /// The reset button grows to at most three lines (`FxSettingsDialog.cpp:296`).
+    pub const RESET_MAX_LINES: usize = 3;
+    /// The group backdrop's corner (`FxSettingsDialog.cpp:270`).
+    pub const GROUP_CORNER: f32 = 8.0;
+    /// …and its alpha over `DefaultFill` (`FxSettingsDialog.cpp:268`).
+    pub const GROUP_ALPHA: f32 = 0.2;
+}
+
+/// `"Output Device Preference"` (`FxSettingsDialog.cpp:281`).
+pub const OUTPUT_PREFERENCE_TITLE: &str = "Output Device Preference";
+/// `"Prioritize new output devices"` (`FxSettingsDialog.cpp:283`).
+pub const PRIORITIZE_NEW_OUTPUT: &str = "Prioritize new output devices";
+/// `"Reset presets to factory defaults"` (`FxSettingsDialog.cpp:285`).
+pub const RESET_PRESETS: &str = "Reset presets to factory defaults";
+/// The list's tooltip (`FxOutputPreference.cpp:316`).
+pub const PRIORITY_TOOLTIP: &str = "Use Shift+Up or Shift+Down to change the device priority";
+/// The switch under the list that hands the choice of device to the system (U4, the original's
+/// issue #629). A CrossFX addition.
+pub const FOLLOW_SYSTEM_DEFAULT: &str = "Follow the system's default device";
+
+/// `(20, 50, 220, 14)`.
+#[must_use]
+pub fn output_title_rect(pane: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(pane.left() + X_MARGIN, pane.top() + audio::ENDPOINT_Y),
+        vec2(audio::LABEL_WIDTH, audio::LABEL_HEIGHT),
+    )
+}
+
+/// `(20, 74, paneWidth - 50, 260)` — the width is `paneW - (X_MARGIN + 5) * 2`
+/// (`FxSettingsDialog.cpp:246-248`).
+#[must_use]
+pub fn output_list_rect(pane: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            output_title_rect(pane).bottom() + 10.0,
+        ),
+        vec2(pane.width() - (X_MARGIN + 5.0) * 2.0, audio::LIST_HEIGHT),
+    )
+}
+
+/// `(20, 344, paneWidth - 50, 30)` (`FxSettingsDialog.cpp:250-251`).
+#[must_use]
+pub fn prioritize_toggle_rect(pane: Rect) -> Rect {
+    let list = output_list_rect(pane);
+    Rect::from_min_size(
+        pos2(list.left(), list.bottom() + 10.0),
+        vec2(list.width(), audio::TOGGLE_HEIGHT),
+    )
+}
+
+/// `(20, 384, paneWidth - 50, 30)`: "Follow the system's default device", CrossFX's second
+/// checkbox, ten points under the original's as the General pane spaces its own.
+#[must_use]
+pub fn follow_toggle_rect(pane: Rect) -> Rect {
+    let above = prioritize_toggle_rect(pane);
+    Rect::from_min_size(
+        pos2(above.left(), above.bottom() + 10.0),
+        vec2(above.width(), audio::TOGGLE_HEIGHT),
+    )
+}
+
+/// The rounded backdrop behind the heading, the list and the two checkboxes: each edge ten points
+/// out (`FxSettingsDialog.cpp:254-258`), grown by CrossFX's second checkbox.
+#[must_use]
+pub fn group_rect(pane: Rect) -> Rect {
+    let title = output_title_rect(pane);
+    Rect::from_min_max(
+        pos2(
+            title.left() - audio::GROUP_MARGIN,
+            title.top() - audio::GROUP_MARGIN,
+        ),
+        pos2(
+            output_list_rect(pane).right() + audio::GROUP_MARGIN,
+            follow_toggle_rect(pane).bottom() + audio::GROUP_MARGIN,
+        ),
+    )
+}
+
+/// `resizeResetButton` (`FxSettingsDialog.cpp:289-315`).
+///
+/// `text_width` is the label measured in the button's own font; `getBestWidthForHeight` adds the
+/// button's height to it **[JUCE semantics]**. The height is 24 per line of label, up to three;
+/// the width is clamped into `220..=315`.
+#[must_use]
+pub fn reset_button_size(label: &str, text_width: f32) -> Vec2 {
+    let explicit = label.lines().count().max(1);
+    // The original only counted explicit line breaks; a translation wider than the button's
+    // maximum wraps inside it, so those lines are counted too, or the second line would hang
+    // out of the bottom of the button (CrossFX addition).
+    let usable = audio::RESET_MAX_WIDTH - audio::RESET_LINE_HEIGHT;
+    let wrapped = (text_width / usable).ceil().max(1.0) as usize;
+    let lines = explicit.max(wrapped).clamp(1, audio::RESET_MAX_LINES) as f32;
+    let height = audio::RESET_LINE_HEIGHT * lines;
+    // `min(MAX_BUTTON_WIDTH)` and then `if (width < RESET_PRESETS_BUTTON_WIDTH) width = …`, which
+    // is a clamp written out (`FxSettingsDialog.cpp:308-313`).
+    let width = (text_width + height).clamp(audio::RESET_MIN_WIDTH, audio::RESET_MAX_WIDTH);
+    vec2(width, height)
+}
+
+/// `(20, 444, …)` — thirty points below the last checkbox (`FxSettingsDialog.cpp:259-260`), which
+/// is CrossFX's "Follow the system's default device"; the original's is at 404.
+#[must_use]
+pub fn reset_button_rect(pane: Rect, size: Vec2) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            follow_toggle_rect(pane).bottom() + 30.0,
+        ),
+        size,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn audio_pane(
+    ui: &mut Ui,
+    pane: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    ui.painter().rect_filled(
+        group_rect(pane),
+        CornerRadius::same(audio::GROUP_CORNER as u8),
+        palette.color_alpha(FxColor::DefaultFill, audio::GROUP_ALPHA),
+    );
+
+    draw_truncated(
+        ui.painter(),
+        &tr(OUTPUT_PREFERENCE_TITLE),
+        normal_font(),
+        palette.color(FxColor::HighlightedText),
+        output_title_rect(pane),
+        Align2::LEFT_CENTER,
+    );
+
+    output_preference(
+        ui,
+        output_list_rect(pane),
+        state,
+        palette,
+        assets,
+        id.with("outputs"),
+        response,
+    );
+
+    // While the system's default decides, the list places a new device but no longer picks one,
+    // so "Prioritize" has nothing to say and is greyed out.
+    let following = state.settings.follow_system_default;
+    if toggle(
+        ui,
+        prioritize_toggle_rect(pane),
+        &tr(PRIORITIZE_NEW_OUTPUT),
+        state.settings.prioritize_new_output,
+        !following,
+        palette,
+        id.with("prioritize"),
+    ) {
+        response.push(SettingsAction::SetPrioritizeNewOutput(
+            !state.settings.prioritize_new_output,
+        ));
+    }
+    if toggle(
+        ui,
+        follow_toggle_rect(pane),
+        &tr(FOLLOW_SYSTEM_DEFAULT),
+        following,
+        true,
+        palette,
+        id.with("follow"),
+    ) {
+        response.push(SettingsAction::SetFollowSystemDefault(!following));
+    }
+
+    let reset_label = tr(RESET_PRESETS);
+    let text_width = ui
+        .painter()
+        .layout_no_wrap(reset_label.clone(), normal_font(), Color32::PLACEHOLDER)
+        .size()
+        .x;
+    let size = reset_button_size(&reset_label, text_width);
+    if TextButton::new(&reset_label)
+        .enabled(state.can_reset_presets)
+        .show(ui, reset_button_rect(pane, size), palette, id.with("reset"))
+        .clicked()
+    {
+        response.push(SettingsAction::ResetPresets);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The device priority list (`docs/spec/06-dialogs.md` §1.7)
+// ---------------------------------------------------------------------------------------------
+
+/// Row geometry (`FxOutputPreference.h:35-37`, `:103`).
+pub mod device_row {
+    /// `ROW_HEIGHT`.
+    pub const HEIGHT: f32 = 40.0;
+    /// `BUTTON_WIDTH` — the ▲, ▼ and ✕ buttons are square.
+    pub const BUTTON_WIDTH: f32 = 18.0;
+    /// `MARGIN`.
+    pub const MARGIN: f32 = 5.0;
+    /// `PRESET_LIST_WIDTH`.
+    pub const PRESET_WIDTH: f32 = 150.0;
+    /// The container's rounded corner (`FxOutputPreference.cpp:360`).
+    pub const CORNER: f32 = 8.0;
+    /// The list is inset `reduced(5, 10)` inside it (`FxOutputPreference.cpp:364`).
+    pub const LIST_INSET_X: f32 = 5.0;
+    pub const LIST_INSET_Y: f32 = 10.0;
+    /// An unselected row's separator is half a point thick; a selected one's is a whole point
+    /// (`FxOutputPreference.cpp:183-195`).
+    pub const SEPARATOR_THICKNESS: f32 = 0.5;
+    pub const SELECTED_SEPARATOR_THICKNESS: f32 = 1.0;
+    /// The outline alpha of an unselected row's preset combo (`FxOutputPreference.cpp:156`).
+    pub const UNSELECTED_OUTLINE_ALPHA: f32 = 0.5;
+}
+
+/// The ▲ button: at the margin, but pulled in half a button's width on the last row, where there
+/// is no ▼ beside it (`FxOutputPreference.cpp:108-118`).
+#[must_use]
+pub fn up_button_rect(row: Rect, index: usize, count: usize) -> Rect {
+    let x = if index + 1 < count {
+        device_row::MARGIN
+    } else {
+        device_row::MARGIN + device_row::BUTTON_WIDTH / 2.0
+    };
+    button_square(row, x)
+}
+
+/// The ▼ button: immediately right of ▲, or in ▲'s place on the first row, which has no ▲
+/// (`FxOutputPreference.cpp:119-127`).
+#[must_use]
+pub fn down_button_rect(row: Rect, index: usize, count: usize) -> Rect {
+    let x = if index == 0 {
+        device_row::MARGIN + device_row::BUTTON_WIDTH / 2.0
+    } else {
+        up_button_rect(row, index, count).right() - row.left()
+    };
+    button_square(row, x)
+}
+
+/// The ✕ button.
+///
+/// The original computes `bounds.getWidth() - BUTTON_WIDTH - MARGIN` where `bounds` is the row
+/// `reduced(2)` (`FxOutputPreference.cpp:129`) — a width used as an x, which lands the button four
+/// points left of where the five-point margin implies. Corrected here: the ✕ is a margin in from
+/// the inset row's right edge, like everything else.
+///
+/// Centred in the row's own height, so the Microphone pane's shorter rows use it too.
+#[must_use]
+pub fn remove_button_rect(row: Rect) -> Rect {
+    let bounds = row.shrink(2.0);
+    Rect::from_min_size(
+        pos2(
+            bounds.right() - device_row::MARGIN - device_row::BUTTON_WIDTH,
+            row.top() + (row.height() - device_row::BUTTON_WIDTH) / 2.0,
+        ),
+        Vec2::splat(device_row::BUTTON_WIDTH),
+    )
+}
+
+/// The per-device preset combo: 150 wide, full inset height, left of the ✕
+/// (`FxOutputPreference.cpp:133`).
+#[must_use]
+pub fn preset_combo_rect(row: Rect) -> Rect {
+    let bounds = row.shrink(2.0);
+    Rect::from_min_size(
+        pos2(
+            remove_button_rect(row).left() - device_row::PRESET_WIDTH - device_row::MARGIN,
+            bounds.top(),
+        ),
+        vec2(device_row::PRESET_WIDTH, bounds.height()),
+    )
+}
+
+/// The device name: from past both arrow buttons to a margin short of the combo
+/// (`FxOutputPreference.cpp:135-137`).
+#[must_use]
+pub fn device_name_rect(row: Rect) -> Rect {
+    let bounds = row.shrink(2.0);
+    let left = row.left() + device_row::MARGIN * 2.0 + device_row::BUTTON_WIDTH * 2.0;
+    Rect::from_min_max(
+        pos2(left, bounds.top()),
+        pos2(
+            preset_combo_rect(row).left() - device_row::MARGIN,
+            bounds.bottom(),
+        ),
+    )
+}
+
+/// An 18-point button `x` into the row, centred in the row's height.
+fn button_square(row: Rect, x: f32) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            row.left() + x,
+            row.top() + (row.height() - device_row::BUTTON_WIDTH) / 2.0,
+        ),
+        Vec2::splat(device_row::BUTTON_WIDTH),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn output_preference(
+    ui: &mut Ui,
+    rect: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    ui.painter().rect_filled(
+        rect,
+        CornerRadius::same(device_row::CORNER as u8),
+        palette.color(FxColor::WidgetBackground),
+    );
+    let list = rect.shrink2(vec2(device_row::LIST_INSET_X, device_row::LIST_INSET_Y));
+    let count = state.devices.len();
+
+    let hovered = ui.interact(rect, id.with("list"), Sense::hover());
+    if !state.settings.hide_help_tooltips {
+        // `ListBox::setTooltip` (`FxOutputPreference.cpp:316`), suppressed by the General pane's
+        // "Hide help tips" checkbox like every other tooltip in the app.
+        let _ = hovered.on_hover_text(
+            egui::RichText::new(PRIORITY_TOOLTIP)
+                .font(small_font())
+                .color(palette.color(FxColor::DefaultText)),
+        );
+    }
+
+    ui.scope_builder(UiBuilder::new().max_rect(list).id_salt(id), |ui| {
+        ui.spacing_mut().item_spacing = Vec2::ZERO;
+        egui::ScrollArea::vertical()
+            .id_salt(id)
+            .max_height(list.height())
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (index, device) in state.devices.iter().enumerate() {
+                    let (row, click) = ui.allocate_exact_size(
+                        vec2(ui.available_width(), device_row::HEIGHT),
+                        Sense::click(),
+                    );
+                    let selected = state.selected_device == Some(index);
+                    if click.clicked() {
+                        response.push(SettingsAction::SelectDeviceRow(index));
+                    }
+                    let list = RowList {
+                        direction: DeviceDirection::Output,
+                        count,
+                        presets: &state.presets,
+                    };
+                    device_row(
+                        ui, row, index, device, selected, list, palette, assets, response,
+                    );
+                }
+            });
+    });
+
+    // `keyPressed` moves the selected row while the list has keyboard focus
+    // (`FxOutputPreference.cpp:339-351`). There is no invisible focus target here, so the gate is
+    // simply "a row is selected", which is the same condition from the user's side.
+    if let Some(index) = state.selected_device {
+        let (up, down) = ui.input(|i| {
+            (
+                i.modifiers.shift && i.key_pressed(Key::ArrowUp),
+                i.modifiers.shift && i.key_pressed(Key::ArrowDown),
+            )
+        });
+        if up && state.can_move_up(index) {
+            response.push(SettingsAction::MoveDeviceUp(index));
+        }
+        if down && state.can_move_down(index) {
+            response.push(SettingsAction::MoveDeviceDown(index));
+        }
+    }
+}
+
+/// Which of the two priority lists a row is drawn in: what its buttons and its combo ask for,
+/// how many rows the list has, and the presets its combo offers — the speakers' `.fac` presets
+/// on the Audio pane, the voice presets on the Microphone pane.
+#[derive(Clone, Copy)]
+struct RowList<'a> {
+    direction: DeviceDirection,
+    count: usize,
+    presets: &'a [String],
+}
+
+impl RowList<'_> {
+    const fn move_up(self, row: usize) -> SettingsAction {
+        match self.direction {
+            DeviceDirection::Output => SettingsAction::MoveDeviceUp(row),
+            DeviceDirection::Input => SettingsAction::MoveMicrophoneUp(row),
+        }
+    }
+
+    const fn move_down(self, row: usize) -> SettingsAction {
+        match self.direction {
+            DeviceDirection::Output => SettingsAction::MoveDeviceDown(row),
+            DeviceDirection::Input => SettingsAction::MoveMicrophoneDown(row),
+        }
+    }
+
+    const fn remove(self, row: usize) -> SettingsAction {
+        match self.direction {
+            DeviceDirection::Output => SettingsAction::RemoveDevice(row),
+            DeviceDirection::Input => SettingsAction::RemoveMicrophone(row),
+        }
+    }
+
+    /// The id every widget of a row is salted from: the device's `node.name`, under the list's
+    /// own key, so that an open popup stays with its device when the list reorders under it.
+    fn row_id(self, device: &DevicePriority) -> Id {
+        let list = match self.direction {
+            DeviceDirection::Output => "fx_device_row",
+            DeviceDirection::Input => "fx_microphone_row",
+        };
+        Id::unique(list).with(&device.id)
+    }
+}
+
+/// One row of a priority list (`FxOutputPreference.cpp:104-195`): ▲ and ▼, the ranked name over
+/// its rule, the preset combo, and the ✕ of a device that is not there. The Audio pane's rows are
+/// 40 points tall and one of them can be selected; the Microphone pane's are shorter and never
+/// are, and are otherwise the same row.
+#[allow(clippy::too_many_arguments)]
+fn device_row(
+    ui: &mut Ui,
+    row: Rect,
+    index: usize,
+    device: &DevicePriority,
+    selected: bool,
+    list: RowList<'_>,
+    palette: Palette,
+    assets: &mut AssetCache,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let id = list.row_id(device);
+    let count = list.count;
+
+    // The arrows swap to the accent-coloured "selected" artwork for the selected row, and hover
+    // to it otherwise (`FxOutputPreference.cpp:148-155`).
+    if index > 0 {
+        let button = if selected {
+            IconButton::new(FxImage::ArrowUpSelected)
+        } else {
+            IconButton::new(FxImage::ArrowUp).hover(FxImage::ArrowUpSelected)
+        };
+        if button
+            .min_hit_size(device_row::BUTTON_WIDTH)
+            .show(
+                ui,
+                up_button_rect(row, index, count),
+                palette,
+                assets,
+                id.with("up"),
+            )
+            .clicked()
+        {
+            response.push(list.move_up(index));
+        }
+    }
+    if index + 1 < count {
+        let button = if selected {
+            IconButton::new(FxImage::ArrowDownSelected)
+        } else {
+            IconButton::new(FxImage::ArrowDown).hover(FxImage::ArrowDownSelected)
+        };
+        if button
+            .min_hit_size(device_row::BUTTON_WIDTH)
+            .show(
+                ui,
+                down_button_rect(row, index, count),
+                palette,
+                assets,
+                id.with("down"),
+            )
+            .clicked()
+        {
+            response.push(list.move_down(index));
+        }
+    }
+    // The ✕ only exists for an entry whose device is not there any anymore
+    // (`FxOutputPreference.cpp:130`).
+    if !device.present
+        && IconButton::new(FxImage::RemoveButton)
+            .min_hit_size(device_row::BUTTON_WIDTH)
+            .show(
+                ui,
+                remove_button_rect(row),
+                palette,
+                assets,
+                id.with("remove"),
+            )
+            .clicked()
+    {
+        response.push(list.remove(index));
+    }
+
+    let name = device_name_rect(row);
+    let colour = if device.connected {
+        palette.color(FxColor::DefaultText)
+    } else {
+        palette.color(FxColor::HintText)
+    };
+    draw_truncated(
+        ui.painter(),
+        &device.label(index),
+        normal_font(),
+        colour,
+        name,
+        Align2::LEFT_CENTER,
+    );
+
+    // `drawLine(x, bottom - 0.5, right, bottom - 1.0)` gives the selected row's rule a half-point
+    // slope (`FxOutputPreference.cpp:188`). Drawn flat.
+    let (thickness, rule) = if selected {
+        (
+            device_row::SELECTED_SEPARATOR_THICKNESS,
+            palette.color(FxColor::SelectedRowOutline),
+        )
+    } else {
+        (
+            device_row::SEPARATOR_THICKNESS,
+            palette.color(FxColor::RowOutline),
+        )
+    };
+    ui.painter().hline(
+        name.left()..=name.right(),
+        name.bottom() - 0.5,
+        Stroke::new(thickness, rule),
+    );
+
+    let (_, picked) = FxComboBox::new(list.presets, device.preset)
+        .placeholder(&tr("Select preset"))
+        .show(
+            ui,
+            preset_combo_rect(row),
+            palette,
+            assets,
+            id.with("preset"),
+        );
+    if let Some(preset) = picked.and_then(|picked| list.presets.get(picked)) {
+        response.push(SettingsAction::SetDevicePreset {
+            direction: list.direction,
+            device: index,
+            preset: preset.clone(),
+        });
+    }
+
+    // The combo's own outline is the row's selection marker: full strength when selected, half
+    // when not (`FxOutputPreference.cpp:150`, `:156`).
+    let outline = if selected {
+        palette.color(FxColor::SelectedRowOutline)
+    } else {
+        palette.color_alpha(FxColor::RowOutline, device_row::UNSELECTED_OUTLINE_ALPHA)
+    };
+    ui.painter().rect_stroke(
+        preset_combo_rect(row),
+        CornerRadius::same(
+            crate::widgets::combo::corner_radius(preset_combo_rect(row).height()) as u8,
+        ),
+        Stroke::new(1.0, outline),
+        StrokeKind::Inside,
+    );
+}
+
+// =============================================================================================
+// General pane (`docs/spec/06-dialogs.md` §1.8)
+// =============================================================================================
+
+/// General-pane geometry (`FxSettingsDialog.h:137-143`, `.cpp:420-448`).
+pub mod general {
+    use super::X_MARGIN;
+
+    /// `LANGUAGE_SWITCH_Y`.
+    pub const LANGUAGE_Y: f32 = 50.0;
+    /// `FxLanguage`'s own size (`FxLanguage.cpp:40-48`).
+    /// The original's switch is 180 wide (`FxLanguage.h:31`); CrossFX's first entry names the
+    /// language it resolves to ("System language · Русский"), which needs the room.
+    pub const LANGUAGE_WIDTH: f32 = 300.0;
+    pub const LANGUAGE_HEIGHT: f32 = 30.0;
+    /// `TOGGLE_BUTTON_HEIGHT`.
+    pub const TOGGLE_HEIGHT: f32 = 30.0;
+    /// Gap from the language switch to the first checkbox (`FxSettingsDialog.cpp:426`).
+    pub const GAP_AFTER_LANGUAGE: f32 = 20.0;
+    /// Gap from "Launch on system startup" to the next checkbox — twenty, not ten
+    /// (`FxSettingsDialog.cpp:430`).
+    pub const GAP_AFTER_LAUNCH: f32 = 20.0;
+    /// Gap between the remaining checkboxes (`FxSettingsDialog.cpp:436`, `:439`).
+    pub const GAP_BETWEEN_TOGGLES: f32 = 10.0;
+    /// `HOTKEY_LABEL_X = X_MARGIN + 25`.
+    pub const HOTKEY_X: f32 = X_MARGIN + 25.0;
+    /// `HOTKEY_LABEL_HEIGHT`.
+    pub const HOTKEY_ROW_HEIGHT: f32 = 20.0;
+    /// `HOTKEY_LABEL_HEIGHT + 10` (`FxSettingsDialog.cpp:446`).
+    pub const HOTKEY_PITCH: f32 = HOTKEY_ROW_HEIGHT + 10.0;
+    /// `FxHotkeyLabel::HOTKEY_LABEL_WIDTH` — the command's name column
+    /// (`FxHotkeyLabel.h:56`, `.cpp:34-43`).
+    /// The original's 170 (`FxHotkeyLabel.cpp:56`) plus the chord column it no longer needs: on
+    /// Wayland the binding lives in the compositor, so the row shows the command to bind instead.
+    pub const HOTKEY_NAME_WIDTH: f32 = 200.0;
+    /// `FxHotkeyEditor::HOTKEY_EDITOR_WIDTH` — the chord column, which is a label here, not an
+    /// editor.
+    pub const HOTKEY_CHORD_WIDTH: f32 = 120.0;
+    /// A one-point gutter, as in `.withX(171)`.
+    /// The original's columns touch (`FxHotkeyLabel.cpp:56-60`); a translated command name
+    /// runs right up to the command line without a gutter, so CrossFX keeps ten points clear.
+    pub const HOTKEY_GUTTER: f32 = 10.0;
+    /// Height of the explanatory note above the table — four lines of the small font, which is
+    /// what the English text wraps to at the pane's width.
+    pub const NOTE_HEIGHT: f32 = 70.0;
+    /// The "Interface font" row: the checkboxes' height, in the slot under them that the
+    /// original's fourth, "Disable keyboard shortcuts", had.
+    pub const FONT_ROW_HEIGHT: f32 = TOGGLE_HEIGHT;
+    /// Its stepper: the Microphone pane's.
+    pub const FONT_STEPPER_WIDTH: f32 = 200.0;
+    /// Between its caption and its stepper, as on the Microphone pane.
+    pub const FONT_LABEL_GAP: f32 = 10.0;
+    /// Between the row and the lines under it, and between those lines.
+    pub const FONT_LINE_GAP: f32 = 5.0;
+    /// "Buy Gilroy" and "Add Gilroy files…": a line of the reset button's height each…
+    pub const FONT_BUTTON_HEIGHT: f32 = 24.0;
+    /// …side by side, this far apart.
+    pub const FONT_BUTTON_GAP: f32 = 10.0;
+    /// Between the font's row, or the lines under it, and the shortcuts' heading.
+    pub const GAP_BEFORE_SHORTCUTS: f32 = 5.0;
+    /// Kept clear under the last row.
+    pub const BOTTOM_MARGIN: f32 = 4.0;
+    /// When what the pane holds is taller than the pane, everything from here down scrolls: the
+    /// pane's title stays.
+    pub const SCROLL_TOP: f32 = 40.0;
+}
+
+/// The caption of the face option.
+pub const INTERFACE_FONT: &str = "Interface font";
+/// Under it, with Gilroy chosen and none found: what Gilroy is — the original FxSound's look, and
+/// a typeface sold by its designer — and what to do about it.
+pub const GILROY_EXPLAINED: &str = "Gilroy, the font of the original FxSound, is Radomir Tinkov's \
+commercial typeface, so CrossFX cannot include it. You can buy a licence and add its files here.";
+/// The same, with some of Gilroy found and not all three faces.
+pub const GILROY_INCOMPLETE: &str = "Some of Gilroy is missing: add its Regular, SemiBold (or \
+Medium) and Bold files.";
+/// The button that opens [`GILROY_STORE`].
+pub const BUY_GILROY: &str = "Buy Gilroy";
+/// The button that opens the file picker.
+pub const ADD_GILROY_FILES: &str = "Add Gilroy files…";
+/// The note by the option whenever Gilroy is chosen: whose files they are.
+pub const GILROY_LICENCE: &str = "The files are used only on this computer, and your licence has \
+to allow it.";
+/// With a Gilroy found that lacks letters of the language in force.
+pub const GILROY_LACKS_LETTERS: &str = "Gilroy lacks letters of this language, so Manrope is \
+used.";
+/// With Manrope chosen, a Gilroy found and the original look on: `%s` is the mode's name, which
+/// each language puts in its own quotation marks.
+pub const ORIGINAL_LOOK_USES_GILROY: &str = "“%s” uses Gilroy while it is on.";
+/// Files the user picked that were not added — not a Gilroy face the window uses, or not
+/// readable: `%s` is their names.
+pub const GILROY_LEFT_OUT: &str =
+    "Not added: %s. CrossFX uses Gilroy Regular, Medium, SemiBold and Bold.";
+/// The files could not be copied into CrossFX's folder.
+pub const GILROY_NOT_COPIED: &str = "The Gilroy files could not be copied.";
+/// The file picker could not be opened.
+pub const NO_FILE_PICKER: &str = "Could not open the file picker";
+/// The store's page could not be opened.
+pub const NO_BROWSER: &str = "Could not open the link";
+
+/// `"Launch on system startup"` (`FxSettingsDialog.cpp:337`).
+pub const LAUNCH_ON_STARTUP: &str = "Launch on system startup";
+/// `"Hide help tips for audio controls"` (`FxSettingsDialog.cpp:338`).
+pub const HIDE_HELP_TIPS: &str = "Hide help tips for audio controls";
+/// `"Hide notifications"` (`FxSettingsDialog.cpp:339`).
+pub const HIDE_NOTIFICATIONS: &str = "Hide notifications";
+
+/// `(20, 50, 180, 30)`.
+#[must_use]
+pub fn language_rect(pane: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(pane.left() + X_MARGIN, pane.top() + general::LANGUAGE_Y),
+        vec2(general::LANGUAGE_WIDTH, general::LANGUAGE_HEIGHT),
+    )
+}
+
+/// The three checkboxes: `(20, 100, …)`, `(20, 150, …)`, `(20, 190, …)`.
+///
+/// The gaps are not uniform — twenty below the language switch, twenty below
+/// "Launch on system startup", ten between the rest (`FxSettingsDialog.cpp:426-439`). These are
+/// the y values the original only ever reaches with `launch_toggle_` visible, which it is there
+/// only on Windows 7; here it always is.
+#[must_use]
+pub fn toggle_rect(pane: Rect, index: usize) -> Rect {
+    let mut top = language_rect(pane).bottom() + general::GAP_AFTER_LANGUAGE;
+    for previous in 0..index {
+        top += general::TOGGLE_HEIGHT
+            + if previous == 0 {
+                general::GAP_AFTER_LAUNCH
+            } else {
+                general::GAP_BETWEEN_TOGGLES
+            };
+    }
+    Rect::from_min_size(
+        pos2(pane.left() + X_MARGIN, top),
+        vec2(pane.width() - X_MARGIN, general::TOGGLE_HEIGHT),
+    )
+}
+
+/// The "Interface font" row: the caption and its stepper, in the slot the original's fourth
+/// checkbox, "Disable keyboard shortcuts", had — ten points under the third
+/// (`FxSettingsDialog.cpp:438-440`), as wide as the Microphone pane's rows.
+#[must_use]
+pub fn font_row_rect(pane: Rect) -> Rect {
+    let last = toggle_rect(pane, 2);
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            last.bottom() + general::GAP_BETWEEN_TOGGLES,
+        ),
+        vec2(pane.width() - X_MARGIN * 2.0, general::FONT_ROW_HEIGHT),
+    )
+}
+
+/// The face's stepper, flush with the row's right end.
+#[must_use]
+pub fn font_stepper_rect(pane: Rect) -> Rect {
+    let row = font_row_rect(pane);
+    Rect::from_min_size(
+        pos2(row.right() - general::FONT_STEPPER_WIDTH, row.top()),
+        vec2(general::FONT_STEPPER_WIDTH, row.height()),
+    )
+}
+
+/// "Interface font", from the margin to a gap short of the stepper.
+#[must_use]
+pub fn font_caption_rect(pane: Rect) -> Rect {
+    let row = font_row_rect(pane);
+    Rect::from_min_max(
+        row.min,
+        pos2(
+            font_stepper_rect(pane).left() - general::FONT_LABEL_GAP,
+            row.bottom(),
+        ),
+    )
+}
+
+/// Where the General pane puts what follows the font's row, for `font_lines` points of lines and
+/// buttons under that row ([`font_lines`]) on `platform`.
+///
+/// The shortcut table, CrossFX's in place of the original's five editors, starts five points
+/// under them. Where the compositor owns the shortcuts (Wayland, [`Platform::compositor_shortcuts`])
+/// the note saying so stands between its heading and its rows, and the link to the example
+/// configuration at the right end of the heading's row; elsewhere there is neither.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeneralLayout {
+    /// The lines and buttons under the font's row.
+    pub font_lines: Rect,
+    /// The shortcut table's heading, its row as wide as the pane allows.
+    pub hotkey_title: Rect,
+    /// The note under the heading: the compositor owns the bindings.
+    pub hotkey_note: Option<Rect>,
+    /// The five rows: `(45, …, paneWidth - 45, 20)`, thirty apart (`FxSettingsDialog.cpp:442-447`).
+    pub hotkey_rows: [Rect; 5],
+    /// The link to `packaging/hyprland.conf.example`: the heading's row, which it ends.
+    pub hotkey_link: Option<Rect>,
+}
+
+impl GeneralLayout {
+    #[must_use]
+    pub fn new(pane: Rect, font_lines: f32, platform: Platform) -> Self {
+        let row = font_row_rect(pane);
+        let lines = Rect::from_min_size(
+            pos2(
+                row.left(),
+                row.bottom()
+                    + if font_lines > 0.0 {
+                        general::FONT_LINE_GAP
+                    } else {
+                        0.0
+                    },
+            ),
+            vec2(row.width(), font_lines.max(0.0)),
+        );
+        let hotkey_title = Rect::from_min_size(
+            pos2(
+                pane.left() + X_MARGIN,
+                lines.bottom() + general::GAP_BEFORE_SHORTCUTS,
+            ),
+            vec2(pane.width() - X_MARGIN * 2.0, general::HOTKEY_ROW_HEIGHT),
+        );
+        // As wide as the original's rows, to the pane's edge: the width the note's four lines
+        // were measured in.
+        let hotkey_note = platform.compositor_shortcuts.then(|| {
+            Rect::from_min_size(
+                pos2(hotkey_title.left(), hotkey_title.bottom() + 5.0),
+                vec2(pane.width() - X_MARGIN, general::NOTE_HEIGHT),
+            )
+        });
+        let first = hotkey_note.unwrap_or(hotkey_title).bottom() + 5.0;
+        let hotkey_rows = std::array::from_fn(|index| {
+            Rect::from_min_size(
+                pos2(
+                    pane.left() + general::HOTKEY_X,
+                    first + index as f32 * general::HOTKEY_PITCH,
+                ),
+                vec2(pane.width() - general::HOTKEY_X, general::HOTKEY_ROW_HEIGHT),
+            )
+        });
+        Self {
+            font_lines: lines,
+            hotkey_title,
+            hotkey_note,
+            hotkey_rows,
+            hotkey_link: platform.compositor_shortcuts.then_some(hotkey_title),
+        }
+    }
+
+    /// The bottom of the last row.
+    #[must_use]
+    pub fn bottom(&self) -> f32 {
+        self.hotkey_rows[HotkeyCommand::ALL.len() - 1].bottom()
+    }
+}
+
+/// One line, or a few, under the "Interface font" row ([`font_lines`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontLine {
+    /// Text in the small font, wrapped to the row; `note` sets it in the hint colour.
+    Text { text: String, note: bool },
+    /// "Buy Gilroy" and "Add Gilroy files…", side by side.
+    Buttons,
+}
+
+/// What stands under the "Interface font" row, top to bottom: nothing for Manrope as it is; for
+/// Gilroy chosen and found, the note on whose the files are; for Gilroy chosen and not found, what
+/// Gilroy is, the two buttons and the note. And what the last action came to, when it went wrong.
+#[must_use]
+pub fn font_lines(state: &SettingsState) -> Vec<FontLine> {
+    let text = |text: String| FontLine::Text { text, note: false };
+    let note = || FontLine::Text {
+        text: tr(GILROY_LICENCE),
+        note: true,
+    };
+    let pane = &state.font;
+    let original_look = state.settings.windows_parity.offered_or_below().interface();
+    let mut lines = match (state.settings.interface_font, pane.gilroy) {
+        (InterfaceFont::Gilroy, GilroyFound::Whole) if pane.lacks_letters => {
+            vec![text(tr(GILROY_LACKS_LETTERS)), note()]
+        }
+        (InterfaceFont::Gilroy, GilroyFound::Whole) => vec![note()],
+        (InterfaceFont::Gilroy, GilroyFound::None) => {
+            vec![text(tr(GILROY_EXPLAINED)), FontLine::Buttons, note()]
+        }
+        (InterfaceFont::Gilroy, GilroyFound::Incomplete) => {
+            vec![text(tr(GILROY_INCOMPLETE)), FontLine::Buttons, note()]
+        }
+        // The original look sets the window in a Gilroy that is there, whatever was chosen.
+        (InterfaceFont::Manrope, GilroyFound::Whole) if original_look && !pane.lacks_letters => {
+            let mode = parity_title();
+            vec![text(i18n::tr_args(ORIGINAL_LOOK_USES_GILROY, &[&mode]))]
+        }
+        (InterfaceFont::Manrope, _) => Vec::new(),
+    };
+    if let Some(message) = &pane.message {
+        lines.push(text(match message {
+            FontMessage::LeftOut(names) => i18n::tr_args(GILROY_LEFT_OUT, &[&names.join(", ")]),
+            FontMessage::NotCopied => tr(GILROY_NOT_COPIED),
+            FontMessage::NoPicker => tr(NO_FILE_PICKER),
+            FontMessage::NoBrowser => tr(NO_BROWSER),
+        }));
+    }
+    lines
+}
+
+/// How tall `line` is in a row `width` wide.
+fn font_line_height(ctx: &Context, line: &FontLine, width: f32) -> f32 {
+    match line {
+        FontLine::Text { text, .. } => ctx.fonts_mut(|fonts| {
+            fonts
+                .layout(text.clone(), small_font(), Color32::PLACEHOLDER, width)
+                .size()
+                .y
+        }),
+        FontLine::Buttons => general::FONT_BUTTON_HEIGHT,
+    }
+}
+
+/// How tall `lines` stand, one under the other.
+#[must_use]
+pub fn font_lines_height(ctx: &Context, lines: &[FontLine], width: f32) -> f32 {
+    let gaps = lines.len().saturating_sub(1) as f32 * general::FONT_LINE_GAP;
+    lines
+        .iter()
+        .map(|line| font_line_height(ctx, line, width))
+        .sum::<f32>()
+        + gaps
+}
+
+/// "Buy Gilroy" and "Add Gilroy files…" in `row`, `labels` being the two as translated: each as
+/// wide as its label and a button's height more (`getBestWidthForHeight`), no narrower than a
+/// third of the row and no wider than half of it less the gap.
+#[must_use]
+pub fn gilroy_button_rects(ctx: &Context, row: Rect, labels: [&str; 2]) -> [Rect; 2] {
+    let widest = (row.width() - general::FONT_BUTTON_GAP) / 2.0;
+    let narrowest = (row.width() / 3.0).min(widest);
+    let mut left = row.left();
+    labels.map(|label| {
+        let text = ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(label.to_owned(), normal_font(), Color32::PLACEHOLDER)
+                .size()
+                .x
+        });
+        let width = (text + general::FONT_BUTTON_HEIGHT).clamp(narrowest, widest);
+        let rect = Rect::from_min_size(
+            pos2(left, row.top()),
+            vec2(width, general::FONT_BUTTON_HEIGHT),
+        );
+        left = rect.right() + general::FONT_BUTTON_GAP;
+        rect
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn general_pane(
+    ui: &mut Ui,
+    pane: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let lines = font_lines(state);
+    let height = font_lines_height(ui.ctx(), &lines, font_row_rect(pane).width());
+    let needed = GeneralLayout::new(pane, height, state.platform).bottom() + general::BOTTOM_MARGIN;
+    if needed <= pane.bottom() {
+        general_contents(
+            ui, pane, &lines, height, state, palette, assets, id, response,
+        );
+        return;
+    }
+    // Taller than the pane — Gilroy explained under the font's row, or a long translation —
+    // everything under the title scrolls, rather than anything being cut off.
+    let viewport = Rect::from_min_max(
+        pos2(pane.left(), pane.top() + general::SCROLL_TOP),
+        pane.max,
+    );
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(viewport)
+            .id_salt(id.with("general")),
+        |ui| {
+            // The bar stays up, thin and over the pane's margin: without it, a row cut at the
+            // pane's edge would be all that said there is more under it.
+            ui.style_mut().spacing.scroll = egui::style::ScrollStyle::thin();
+            egui::ScrollArea::vertical()
+                .id_salt(id.with("general-scroll"))
+                .auto_shrink([false, false])
+                .max_height(viewport.height())
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                .show_viewport(ui, |ui, visible| {
+                    ui.set_min_size(vec2(viewport.width(), needed - viewport.top()));
+                    // egui keeps the bar's room out of the content's clip; the bar floats over
+                    // the pane's margin instead, and the note under the shortcuts' heading, which
+                    // wraps to the pane's edge, keeps its last point.
+                    ui.set_clip_rect(ui.clip_rect().with_max_x(pane.right()));
+                    let scrolled = pane.translate(vec2(0.0, -visible.min.y));
+                    general_contents(
+                        ui, scrolled, &lines, height, state, palette, assets, id, response,
+                    );
+                });
+        },
+    );
+}
+
+/// Everything the General pane draws, laid out in `pane` — the pane itself, or a copy of it
+/// moved up by as far as the pane is scrolled.
+#[allow(clippy::too_many_arguments)]
+fn general_contents(
+    ui: &mut Ui,
+    pane: Rect,
+    lines: &[FontLine],
+    lines_height: f32,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let layout = GeneralLayout::new(pane, lines_height, state.platform);
+    let choice = LanguageChoice::current(&state.settings);
+    if let Some(next) = language_switch(
+        ui,
+        language_rect(pane),
+        choice,
+        state.settings.windows_parity.offered_or_below(),
+        palette,
+        assets,
+        id.with("language"),
+    ) {
+        response.push(SettingsAction::SetLanguage(next.setting()));
+    }
+
+    let toggles = [
+        (
+            tr(LAUNCH_ON_STARTUP),
+            state.launch_on_startup,
+            SettingsAction::SetLaunchOnStartup(!state.launch_on_startup),
+        ),
+        (
+            tr(HIDE_HELP_TIPS),
+            state.settings.hide_help_tooltips,
+            SettingsAction::SetHideHelpTips(!state.settings.hide_help_tooltips),
+        ),
+        (
+            tr(HIDE_NOTIFICATIONS),
+            state.settings.hide_notifications,
+            SettingsAction::SetHideNotifications(!state.settings.hide_notifications),
+        ),
+    ];
+    for (index, (label, checked, action)) in toggles.into_iter().enumerate() {
+        if toggle(
+            ui,
+            toggle_rect(pane, index),
+            &label,
+            checked,
+            true,
+            palette,
+            id.with(("toggle", index)),
+        ) {
+            response.push(action);
+        }
+    }
+
+    interface_font(
+        ui, pane, &layout, lines, state, palette, assets, id, response,
+    );
+
+    // The link to the example ends the heading's row; the heading has what is left of it.
+    let mut title = layout.hotkey_title;
+    if let Some(row) = layout.hotkey_link {
+        let placed = super::link_in(
+            ui,
+            row,
+            HOTKEY_EXAMPLE_FILE,
+            small_font(),
+            palette,
+            Align2::RIGHT_CENTER,
+            id.with("hotkey-example"),
+        );
+        if placed.clicked() {
+            response.push(SettingsAction::ShowHotkeyExample);
+        }
+        title.set_right(placed.rect.left() - general::HOTKEY_GUTTER);
+    }
+    draw_fitted(
+        ui.painter(),
+        &tr(HOTKEY_TITLE),
+        normal_font(),
+        palette.color(FxColor::HighlightedText),
+        title,
+        Align2::LEFT_CENTER,
+    );
+    if let Some(note) = layout.hotkey_note {
+        draw_wrapped(
+            ui.painter(),
+            &tr(HOTKEY_NOTE),
+            small_font(),
+            palette.color(FxColor::DefaultText),
+            note,
+        );
+    }
+
+    let names = hotkey_name_font(ui.ctx());
+    for (row, command) in layout.hotkey_rows.into_iter().zip(HotkeyCommand::ALL) {
+        hotkey_row(ui, row, command, &names, palette);
+    }
+}
+
+/// "Interface font": its caption and stepper, and what stands under them ([`font_lines`]).
+#[allow(clippy::too_many_arguments)]
+fn interface_font(
+    ui: &mut Ui,
+    pane: Rect,
+    layout: &GeneralLayout,
+    lines: &[FontLine],
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    super::draw_fitted(
+        ui.painter(),
+        &tr(INTERFACE_FONT),
+        normal_font(),
+        palette.color(FxColor::HighlightedText),
+        font_caption_rect(pane),
+        Align2::LEFT_CENTER,
+    );
+    let chosen = state.settings.interface_font;
+    // A face's own name, never translated.
+    if let Some(steps) = stepper(
+        ui,
+        font_stepper_rect(pane),
+        chosen.name(),
+        palette,
+        assets,
+        id.with("interface-font"),
+    ) {
+        response.push(SettingsAction::Font(FontAction::Choose(cycle(
+            &InterfaceFont::ALL,
+            chosen,
+            steps,
+        ))));
+    }
+
+    let width = layout.font_lines.width();
+    let mut top = layout.font_lines.top();
+    for line in lines {
+        let height = font_line_height(ui.ctx(), line, width);
+        let rect = Rect::from_min_size(pos2(layout.font_lines.left(), top), vec2(width, height));
+        match line {
+            FontLine::Text { text, note } => {
+                let colour = if *note {
+                    palette.color(FxColor::HintText)
+                } else {
+                    palette.color(FxColor::DefaultText)
+                };
+                draw_wrapped(ui.painter(), text, small_font(), colour, rect);
+            }
+            FontLine::Buttons => {
+                let (buy_label, add_label) = (tr(BUY_GILROY), tr(ADD_GILROY_FILES));
+                let [buy, add] = gilroy_button_rects(ui.ctx(), rect, [&buy_label, &add_label]);
+                if TextButton::new(&buy_label)
+                    .show(ui, buy, palette, id.with("buy-gilroy"))
+                    .clicked()
+                {
+                    response.push(SettingsAction::Font(FontAction::Buy));
+                }
+                if TextButton::new(&add_label)
+                    .show(ui, add, palette, id.with("add-gilroy"))
+                    .clicked()
+                {
+                    response.push(SettingsAction::Font(FontAction::AddFiles));
+                }
+            }
+        }
+        top = rect.bottom() + general::FONT_LINE_GAP;
+    }
+}
+
+/// The font the hotkey table's names are set in: the small font, or the size down to
+/// [`super::MIN_FIT_SCALE`] of it the longest name needs to fit its column — one size for the
+/// five, so the column reads as one. Russian "Использовать предыдущий шаблон" and German
+/// "Vorherige Voreinstellung verwenden" were cut at the small font's size (E6b).
+#[must_use]
+pub fn hotkey_name_font(ctx: &Context) -> egui::FontId {
+    let names = HotkeyCommand::ALL.map(|command| tr(command.label()));
+    hotkey_names_font(ctx, &names)
+}
+
+/// [`hotkey_name_font`] for these five names.
+fn hotkey_names_font(ctx: &Context, names: &[String]) -> egui::FontId {
+    names
+        .iter()
+        .map(|name| super::fitted_font(ctx, name, small_font(), general::HOTKEY_NAME_WIDTH))
+        .min_by(|a, b| a.size.total_cmp(&b.size))
+        .unwrap_or_else(small_font)
+}
+
+/// One row of the hotkey reference table.
+///
+/// `FxHotkeyLabel` puts a 170-point name beside a 120-point `FxHotkeyEditor` — a focusable text
+/// field with a rounded two-point border that thickens on focus and accepts a chord
+/// (`FxHotkeyLabel.cpp:56-222`). None of that is drawn here: the field cannot accept a binding on
+/// Wayland, and a bordered box that takes focus and then refuses to do anything is worse than no
+/// box at all. What is left is two columns of text — the command and the command line to bind.
+fn hotkey_row(
+    ui: &mut Ui,
+    rect: Rect,
+    command: HotkeyCommand,
+    name_font: &egui::FontId,
+    palette: Palette,
+) {
+    let name = Rect::from_min_size(rect.min, vec2(general::HOTKEY_NAME_WIDTH, rect.height()));
+    draw_truncated(
+        ui.painter(),
+        &tr(command.label()),
+        name_font.clone(),
+        palette.color(FxColor::DefaultText),
+        name,
+        Align2::LEFT_CENTER,
+    );
+
+    // The original's chord is not shown, and since 0.4.0 not kept in the settings either
+    // (audit #35): it is not what runs the command here, and the compositor's own binding is the
+    // user's to choose (`packaging/hyprland.conf.example` suggests some).
+    let line = Rect::from_min_max(
+        pos2(name.right() + general::HOTKEY_GUTTER, rect.top()),
+        rect.max,
+    );
+    draw_truncated(
+        ui.painter(),
+        command.command_line(),
+        small_font(),
+        palette.color(FxColor::DefaultText),
+        line,
+        Align2::LEFT_CENTER,
+    );
+}
+
+/// `FxLanguage` (`FxLanguage.h:29-38`, `.cpp:40-111`): a rounded box with a ‹ and a › either side
+/// of the current language's own name. Returns the code the user moved to.
+fn language_switch(
+    ui: &mut Ui,
+    rect: Rect,
+    choice: LanguageChoice,
+    level: WindowsParity,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+) -> Option<LanguageChoice> {
+    // Both directions wrap, so neither arrow is ever disabled (`FxLanguage.cpp:80-111`).
+    stepper(ui, rect, &choice.label(), palette, assets, id)
+        .map(|steps| choice.step_at(steps, level))
+}
+
+/// The language switch's box, for any short list: ‹ and › either side of the current value.
+/// Returns `-1` or `+1` when an arrow was pressed; the caller decides what that moves to, and
+/// every caller wraps, so neither arrow is ever disabled.
+fn stepper(
+    ui: &mut Ui,
+    rect: Rect,
+    label: &str,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+) -> Option<isize> {
+    ui.painter().rect_filled(
+        rect,
+        CornerRadius::same(5),
+        palette.color(FxColor::ControlBackground),
+    );
+
+    let arrow = |index: f32| {
+        Rect::from_min_size(
+            pos2(
+                rect.left()
+                    + if index < 0.0 {
+                        10.0
+                    } else {
+                        rect.width() - 14.0 - 10.0
+                    },
+                rect.top() + 4.0,
+            ),
+            vec2(14.0, 22.0),
+        )
+    };
+    let prev = IconButton::new(FxImage::ArrowPrev)
+        .disabled_image(FxImage::ArrowPrevBW)
+        .show(ui, arrow(-1.0), palette, assets, id.with("prev"))
+        .clicked();
+    let next = IconButton::new(FxImage::ArrowNext)
+        .disabled_image(FxImage::ArrowNextBW)
+        .show(ui, arrow(1.0), palette, assets, id.with("next"))
+        .clicked();
+
+    draw_truncated(
+        ui.painter(),
+        label,
+        normal_font(),
+        palette.color(FxColor::DefaultText),
+        stepper_label_rect(rect),
+        Align2::CENTER_CENTER,
+    );
+
+    match (prev, next) {
+        (true, _) => Some(-1),
+        (_, true) => Some(1),
+        _ => None,
+    }
+}
+
+/// Where a stepper's value is written: between the two arrows, as the language switch writes it.
+#[must_use]
+pub fn stepper_label_rect(rect: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(rect.left() + 24.0, rect.top() + 4.0),
+        vec2(rect.width() - 48.0, 22.0),
+    )
+}
+
+/// The value `steps` away from `current` in `all`, wrapping in both directions — what every
+/// stepper in this window does with an arrow press. A `current` not in the list steps from the
+/// first entry.
+#[must_use]
+pub fn cycle<T: Copy + PartialEq>(all: &[T], current: T, steps: isize) -> T {
+    let count = all.len() as isize;
+    let at = all.iter().position(|v| *v == current).unwrap_or(0) as isize;
+    all[(at + steps).rem_euclid(count) as usize]
+}
+
+// =============================================================================================
+// Microphone pane (0.4.0 design §1.4, §7, §8)
+// =============================================================================================
+
+/// Microphone-pane geometry. The original has no such pane, so these numbers are CrossFX's,
+/// chosen from the other three panes' own: rows start at the same `y = 50`, a stepper is the
+/// language switch's 30 points tall, the checkbox is `TOGGLE_BUTTON_HEIGHT`, and the button is the
+/// reset button's shape. Everything is ten points apart — the steppers' own gap, and the General
+/// pane's between its checkboxes — which is what leaves room under the calibration line for four
+/// rows of the microphones' priority list, each with its preset combo.
+pub mod microphone {
+    /// y of the first row, as in every other pane.
+    pub const FIRST_ROW_Y: f32 = 50.0;
+    /// A stepper row: `FxLanguage`'s height…
+    pub const ROW_HEIGHT: f32 = 30.0;
+    /// …ten points apart, the General pane's gap between checkboxes.
+    pub const ROW_PITCH: f32 = ROW_HEIGHT + 10.0;
+    /// The stepper's width: `FxLanguage`'s 180 (`FxLanguage.h:31`) and twenty more, so that
+    /// "Linked stereo" and its translations fit between the arrows.
+    pub const STEPPER_WIDTH: f32 = 200.0;
+    /// Between a row's caption and its stepper.
+    pub const LABEL_GAP: f32 = 10.0;
+    /// The four stepper rows: noise suppression, denoiser channels, de-esser, de-reverb.
+    pub const STEPPER_ROWS: usize = 4;
+    /// The steppers' own gap: the checkbox is the fifth row of their grid.
+    pub const GAP_BEFORE_TOGGLE: f32 = 10.0;
+    /// `TOGGLE_BUTTON_HEIGHT`.
+    pub const TOGGLE_HEIGHT: f32 = 30.0;
+    /// One line of the small font, for the echo canceller's status and the last calibration.
+    pub const LINE_HEIGHT: f32 = 20.0;
+    /// Above the button, and above the last-calibration line.
+    pub const GAP_BEFORE_BUTTON: f32 = 10.0;
+    pub const GAP_BEFORE_RECORD: f32 = 10.0;
+    /// Above the Input Device Preference heading, as above the button.
+    pub const GAP_BEFORE_PREFERENCE: f32 = 10.0;
+    /// A row of the microphones' priority list: the Audio pane's row — ▲ and ▼, the name, the
+    /// 150-point preset combo and the ✕, laid out by the same functions — 32 points tall rather
+    /// than 40, so that four fit. Its combo is the row less two points above and below, as the
+    /// Audio pane's is: 28 points, which sets its text in the combo's small face, as the
+    /// Applications pane's 30-point combos are.
+    pub const PREFERENCE_ROW_HEIGHT: f32 = 32.0;
+    /// Rows the list shows before it scrolls.
+    pub const PREFERENCE_ROWS: usize = 4;
+    /// The rows are inset this far inside the list's rounded box on every side.
+    pub const PREFERENCE_INSET: f32 = 5.0;
+    /// Kept clear under the list, the pane's last ten points.
+    pub const BOTTOM_MARGIN: f32 = 10.0;
+}
+
+/// `"Noise suppression"`.
+pub const NOISE_SUPPRESSION: &str = "Noise suppression";
+/// `"Denoiser channels"`.
+pub const DENOISER_CHANNELS: &str = "Denoiser channels";
+/// `"De-esser"` — the readout strip's word for the same stage.
+pub const DE_ESSER: &str = "De-esser";
+/// `"De-reverb"`.
+pub const DE_REVERB: &str = "De-reverb";
+/// `"Echo cancellation"`.
+pub const ECHO_CANCELLATION: &str = "Echo cancellation";
+/// The wizard's entry point (0.4.0 design §8).
+pub const CALIBRATE_MICROPHONE: &str = "Calibrate microphone…";
+/// The heading of the microphones' priority list (U4), after the Audio pane's "Output Device
+/// Preference".
+pub const INPUT_PREFERENCE_TITLE: &str = "Input Device Preference";
+/// What the last-calibration line says before the wizard has ever run.
+pub const NOT_CALIBRATED: &str = "Not calibrated yet";
+
+/// One of the four stepper rows: the whole row, caption and stepper together.
+#[must_use]
+pub fn microphone_row_rect(pane: Rect, index: usize) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            pane.top() + microphone::FIRST_ROW_Y + index as f32 * microphone::ROW_PITCH,
+        ),
+        vec2(pane.width() - X_MARGIN * 2.0, microphone::ROW_HEIGHT),
+    )
+}
+
+/// A row's stepper, flush with the pane's right margin.
+#[must_use]
+pub fn microphone_stepper_rect(pane: Rect, index: usize) -> Rect {
+    let row = microphone_row_rect(pane, index);
+    Rect::from_min_size(
+        pos2(row.right() - microphone::STEPPER_WIDTH, row.top()),
+        vec2(microphone::STEPPER_WIDTH, row.height()),
+    )
+}
+
+/// A row's caption, from the margin to a gap short of its stepper.
+#[must_use]
+pub fn microphone_label_rect(pane: Rect, index: usize) -> Rect {
+    let row = microphone_row_rect(pane, index);
+    Rect::from_min_max(
+        row.min,
+        pos2(
+            microphone_stepper_rect(pane, index).left() - microphone::LABEL_GAP,
+            row.bottom(),
+        ),
+    )
+}
+
+/// The "Echo cancellation" checkbox, ten points below the last stepper: the fifth row of their
+/// grid.
+#[must_use]
+pub fn echo_toggle_rect(pane: Rect) -> Rect {
+    let last = microphone_row_rect(pane, microphone::STEPPER_ROWS - 1);
+    Rect::from_min_size(
+        pos2(last.left(), last.bottom() + microphone::GAP_BEFORE_TOGGLE),
+        vec2(last.width(), microphone::TOGGLE_HEIGHT),
+    )
+}
+
+/// The echo canceller's status line, directly under the checkbox and indented to its caption.
+#[must_use]
+pub fn echo_status_rect(pane: Rect) -> Rect {
+    let toggle = echo_toggle_rect(pane);
+    let indent = TICK_BOX_SIDE + TICK_BOX_GAP;
+    Rect::from_min_size(
+        pos2(toggle.left() + indent, toggle.bottom()),
+        vec2(toggle.width() - indent, microphone::LINE_HEIGHT),
+    )
+}
+
+/// "Calibrate microphone…", sized like the reset button (see [`reset_button_size`]).
+#[must_use]
+pub fn calibrate_button_rect(pane: Rect, size: Vec2) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            echo_status_rect(pane).bottom() + microphone::GAP_BEFORE_BUTTON,
+        ),
+        size,
+    )
+}
+
+/// "Calibrate microphone…" on `platform`: under the echo canceller's line where the platform has
+/// one ([`Platform::echo_cancel`]), and ten points under the last stepper, in the checkbox's
+/// place, where it does not. What stands under the button follows it up.
+#[must_use]
+pub fn calibrate_button_rect_on(pane: Rect, size: Vec2, platform: Platform) -> Rect {
+    if platform.echo_cancel {
+        return calibrate_button_rect(pane, size);
+    }
+    let last = microphone_row_rect(pane, microphone::STEPPER_ROWS - 1);
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            last.bottom() + microphone::GAP_BEFORE_TOGGLE,
+        ),
+        size,
+    )
+}
+
+/// The last calibration's one line, under the button.
+#[must_use]
+pub fn calibration_record_rect(pane: Rect, button: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            button.bottom() + microphone::GAP_BEFORE_RECORD,
+        ),
+        vec2(pane.width() - X_MARGIN * 2.0, microphone::LINE_HEIGHT),
+    )
+}
+
+/// "Input Device Preference": the Microphone pane's heading for its priority list, ten points
+/// under the last-calibration line, as wide as the Audio pane's list.
+#[must_use]
+pub fn input_preference_title_rect(pane: Rect, button: Rect) -> Rect {
+    let record = calibration_record_rect(pane, button);
+    Rect::from_min_size(
+        pos2(
+            pane.left() + X_MARGIN,
+            record.bottom() + microphone::GAP_BEFORE_PREFERENCE,
+        ),
+        vec2(output_list_rect(pane).width(), audio::LABEL_HEIGHT),
+    )
+}
+
+/// The microphones' priority list, ten points under its heading as the Audio pane's is: four
+/// rows tall, or whatever is left above the pane's bottom margin if that is less — which only a
+/// calibration button of two or three lines would leave, and no translation's label needs one.
+#[must_use]
+pub fn input_preference_list_rect(pane: Rect, button: Rect) -> Rect {
+    let title = input_preference_title_rect(pane, button);
+    let top = title.bottom() + 10.0;
+    let wanted = microphone::PREFERENCE_ROWS as f32 * microphone::PREFERENCE_ROW_HEIGHT
+        + microphone::PREFERENCE_INSET * 2.0;
+    let room = (pane.bottom() - microphone::BOTTOM_MARGIN - top).max(0.0);
+    Rect::from_min_size(
+        pos2(title.left(), top),
+        vec2(title.width(), wanted.min(room)),
+    )
+}
+
+/// The four stepper rows as the pane draws them: caption, the value shown, and the action one
+/// step either way would emit. A function rather than four copies of the drawing code, and what
+/// the tests read to check that every arrow means what it says.
+#[must_use]
+pub fn microphone_rows(settings: &Settings) -> [(String, String, [SettingsAction; 2]); 4] {
+    let noise = settings.noise_suppression;
+    let channels = settings.denoise_channels;
+    let deesser = settings.deesser_mode;
+    let dereverb = settings.dereverb;
+    let all_noise = NoiseSuppressionOverride::ALL;
+    let all_channels = DenoiseChannelsOverride::ALL;
+    let all_deesser = DeEsserMode::ALL;
+    let all_dereverb = DereverbLevel::ALL;
+    [
+        (
+            tr(NOISE_SUPPRESSION),
+            tr(noise.label()),
+            [-1, 1].map(|s| SettingsAction::SetNoiseSuppression(cycle(&all_noise, noise, s))),
+        ),
+        (
+            tr(DENOISER_CHANNELS),
+            tr(channels.label()),
+            [-1, 1].map(|s| SettingsAction::SetDenoiseChannels(cycle(&all_channels, channels, s))),
+        ),
+        (
+            tr(DE_ESSER),
+            tr(deesser.label()),
+            [-1, 1].map(|s| SettingsAction::SetDeEsserMode(cycle(&all_deesser, deesser, s))),
+        ),
+        (
+            tr(DE_REVERB),
+            tr(dereverb.label()),
+            [-1, 1].map(|s| SettingsAction::SetDereverb(cycle(&all_dereverb, dereverb, s))),
+        ),
+    ]
+}
+
+/// The label "Calibrate microphone…" is given, and the size it is drawn at.
+fn calibrate_button_size(ui: &Ui) -> (String, Vec2) {
+    let label = tr(CALIBRATE_MICROPHONE);
+    let text_width = ui
+        .painter()
+        .layout_no_wrap(label.clone(), normal_font(), Color32::PLACEHOLDER)
+        .size()
+        .x;
+    let size = reset_button_size(&label, text_width);
+    (label, size)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn microphone_pane(
+    ui: &mut Ui,
+    pane: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    for (index, (caption, value, [back, forward])) in
+        microphone_rows(&state.settings).into_iter().enumerate()
+    {
+        draw_truncated(
+            ui.painter(),
+            &caption,
+            normal_font(),
+            palette.color(FxColor::HighlightedText),
+            microphone_label_rect(pane, index),
+            Align2::LEFT_CENTER,
+        );
+        match stepper(
+            ui,
+            microphone_stepper_rect(pane, index),
+            &value,
+            palette,
+            assets,
+            id.with(("microphone-row", index)),
+        ) {
+            Some(steps) if steps < 0 => response.push(back),
+            Some(_) => response.push(forward),
+            None => {}
+        }
+    }
+
+    // PipeWire's echo canceller, where there is one.
+    if state.platform.echo_cancel {
+        if toggle(
+            ui,
+            echo_toggle_rect(pane),
+            &tr(ECHO_CANCELLATION),
+            state.settings.echo_cancel,
+            true,
+            palette,
+            id.with("echo-cancel"),
+        ) {
+            response.push(SettingsAction::SetEchoCancel(!state.settings.echo_cancel));
+        }
+        if let Some(status) = state.echo_cancel_status() {
+            draw_truncated(
+                ui.painter(),
+                &status,
+                small_font(),
+                palette.color(FxColor::HintText),
+                echo_status_rect(pane),
+                Align2::LEFT_CENTER,
+            );
+        }
+    }
+
+    let (label, size) = calibrate_button_size(ui);
+    let button = calibrate_button_rect_on(pane, size, state.platform);
+    if TextButton::new(&label)
+        .enabled(state.has_microphone)
+        .show(ui, button, palette, id.with("calibrate"))
+        .clicked()
+    {
+        response.push(SettingsAction::OpenCalibration);
+    }
+
+    let colour = if state.settings.calibration.is_some() {
+        palette.color(FxColor::DefaultText)
+    } else {
+        palette.color(FxColor::HintText)
+    };
+    draw_truncated(
+        ui.painter(),
+        &state.calibration_text(),
+        small_font(),
+        colour,
+        calibration_record_rect(pane, button),
+        Align2::LEFT_CENTER,
+    );
+
+    draw_truncated(
+        ui.painter(),
+        &tr(INPUT_PREFERENCE_TITLE),
+        normal_font(),
+        palette.color(FxColor::HighlightedText),
+        input_preference_title_rect(pane, button),
+        Align2::LEFT_CENTER,
+    );
+    input_preference(
+        ui,
+        input_preference_list_rect(pane, button),
+        state,
+        palette,
+        assets,
+        id.with("microphones"),
+        response,
+    );
+}
+
+/// The microphones' priority list (U4): the Audio pane's list, in rows short enough for four to
+/// fit under the calibration line. ▲ and ▼ move a microphone, ✕ forgets one that is not there,
+/// the one the input lane is on is drawn in full colour, and each row's combo gives its
+/// microphone a voice preset of its own ([`SettingsAction::SetDevicePreset`] for
+/// [`DeviceDirection::Input`]). No row is selected: the list moves by its arrows alone.
+#[allow(clippy::too_many_arguments)]
+fn input_preference(
+    ui: &mut Ui,
+    rect: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    if rect.height() <= 0.0 {
+        return;
+    }
+    ui.painter().rect_filled(
+        rect,
+        CornerRadius::same(device_row::CORNER as u8),
+        palette.color(FxColor::WidgetBackground),
+    );
+    let rows = rect.shrink(microphone::PREFERENCE_INSET);
+    let list = RowList {
+        direction: DeviceDirection::Input,
+        count: state.microphones.len(),
+        presets: &state.input_presets,
+    };
+    ui.scope_builder(UiBuilder::new().max_rect(rows).id_salt(id), |ui| {
+        ui.spacing_mut().item_spacing = Vec2::ZERO;
+        egui::ScrollArea::vertical()
+            .id_salt(id)
+            .max_height(rows.height())
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (index, device) in state.microphones.iter().enumerate() {
+                    let (row, _) = ui.allocate_exact_size(
+                        vec2(ui.available_width(), microphone::PREFERENCE_ROW_HEIGHT),
+                        Sense::hover(),
+                    );
+                    device_row(
+                        ui, row, index, device, false, list, palette, assets, response,
+                    );
+                }
+            });
+    });
+}
+
+// =============================================================================================
+// Applications pane (`docs/0.4.0-apps.md`, "Interface")
+// =============================================================================================
+
+/// Applications-pane geometry: the device priority list's box, insets, margins, ✕ and rules, with
+/// a row of one line per combo.
+pub mod applications {
+    /// y of the list: where every pane's first row starts.
+    pub const LIST_Y: f32 = 50.0;
+    /// Kept clear under the list, as under the Microphone pane's.
+    pub const BOTTOM_MARGIN: f32 = 10.0;
+    /// A combo's height: the tallest the combo still sets its text in the small face at
+    /// (`combo::SMALL_FONT_MAX_HEIGHT`), which is what lets a preset name fit beside a caption.
+    pub const COMBO_HEIGHT: f32 = 30.0;
+    /// One line of a row: a combo, and the two points above and below it the device row insets
+    /// its own by.
+    pub const LINE_HEIGHT: f32 = COMBO_HEIGHT + 4.0;
+    /// The preset combo: the device row's 150 and five more, so that its text box holds
+    /// "CrossFX's preset" whole in English.
+    pub const PRESET_WIDTH: f32 = 155.0;
+    /// The dot of a running application.
+    pub const DOT_DIAMETER: f32 = 6.0;
+    /// The most a direction caption is given; a longer one is elided. The captions are measured
+    /// each frame in the language in force, so a short language leaves the room to the names.
+    /// Finnish `Sisääntulo`, the longest the tables have, is about 67.
+    pub const CAPTION_MAX_WIDTH: f32 = 72.0;
+    /// The empty list's text is wrapped this far inside the box.
+    pub const EMPTY_TEXT_INSET: f32 = 20.0;
+}
+
+/// The first entry of every combo: follow the lane's own preset.
+pub const FOLLOW_PRESET: &str = "CrossFX's preset";
+/// What the empty list says.
+pub const NO_APPLICATIONS: &str = "No application has played or recorded through CrossFX yet";
+
+/// The list: at the pane's first row, as wide as the Audio pane's, down to the bottom margin.
+#[must_use]
+pub fn app_list_rect(pane: Rect) -> Rect {
+    Rect::from_min_max(
+        pos2(pane.left() + X_MARGIN, pane.top() + applications::LIST_Y),
+        pos2(
+            pane.left() + X_MARGIN + output_list_rect(pane).width(),
+            pane.bottom() - applications::BOTTOM_MARGIN,
+        ),
+    )
+}
+
+/// Where the rows scroll: the list inset as the device list's is (`reduced(5, 10)`).
+#[must_use]
+pub fn app_rows_rect(list: Rect) -> Rect {
+    list.shrink2(vec2(device_row::LIST_INSET_X, device_row::LIST_INSET_Y))
+}
+
+/// Line `line` of a row that starts at `row`'s top.
+#[must_use]
+pub fn app_line_rect(row: Rect, line: usize) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            row.left(),
+            row.top() + line as f32 * applications::LINE_HEIGHT,
+        ),
+        vec2(row.width(), applications::LINE_HEIGHT),
+    )
+}
+
+/// A line's preset combo: left of where the ✕ goes, on every line, so that the combos of every
+/// row stand in one column.
+#[must_use]
+pub fn app_combo_rect(line: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            remove_button_rect(line).left() - device_row::MARGIN - applications::PRESET_WIDTH,
+            line.center().y - applications::COMBO_HEIGHT / 2.0,
+        ),
+        vec2(applications::PRESET_WIDTH, applications::COMBO_HEIGHT),
+    )
+}
+
+/// A line's direction caption, `caption_width` wide and right against its combo.
+#[must_use]
+pub fn app_caption_rect(line: Rect, caption_width: f32) -> Rect {
+    let bounds = line.shrink(2.0);
+    let right = app_combo_rect(line).left() - device_row::MARGIN;
+    Rect::from_min_max(
+        pos2(right - caption_width, bounds.top()),
+        pos2(right, bounds.bottom()),
+    )
+}
+
+/// The running dot, a margin in from the row, in the first line's middle.
+#[must_use]
+pub fn app_dot_rect(line: Rect) -> Rect {
+    let bounds = line.shrink(2.0);
+    Rect::from_center_size(
+        pos2(
+            bounds.left() + device_row::MARGIN + applications::DOT_DIAMETER / 2.0,
+            line.center().y,
+        ),
+        Vec2::splat(applications::DOT_DIAMETER),
+    )
+}
+
+/// The application's name: past the dot, to a margin short of the caption.
+#[must_use]
+pub fn app_name_rect(line: Rect, caption_width: f32) -> Rect {
+    let bounds = line.shrink(2.0);
+    Rect::from_min_max(
+        pos2(
+            app_dot_rect(line).right() + device_row::MARGIN,
+            bounds.top(),
+        ),
+        pos2(
+            app_caption_rect(line, caption_width).left() - device_row::MARGIN,
+            bounds.bottom(),
+        ),
+    )
+}
+
+/// How wide the captions are drawn: the wider of the two as measured, up to
+/// [`applications::CAPTION_MAX_WIDTH`].
+#[must_use]
+pub fn app_caption_width(measured: f32) -> f32 {
+    measured
+        .max(0.0)
+        .ceil()
+        .min(applications::CAPTION_MAX_WIDTH)
+}
+
+/// A combo's entries: CrossFX's preset, then the direction's presets.
+fn app_preset_items(presets: &[String]) -> Vec<String> {
+    std::iter::once(tr(FOLLOW_PRESET))
+        .chain(presets.iter().cloned())
+        .collect()
+}
+
+/// Which of `app_preset_items` a lane shows: CrossFX's for `None`, the preset's own entry, or
+/// nothing — the name dimmed as a placeholder — for a preset the list does not carry.
+#[must_use]
+pub fn app_preset_index(presets: &[String], preset: Option<&str>) -> Option<usize> {
+    match preset {
+        None => Some(0),
+        Some(name) => presets.iter().position(|p| p == name).map(|i| i + 1),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn applications_pane(
+    ui: &mut Ui,
+    pane: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let list = app_list_rect(pane);
+    ui.painter().rect_filled(
+        list,
+        CornerRadius::same(device_row::CORNER as u8),
+        palette.color(FxColor::WidgetBackground),
+    );
+    let rows = app_rows_rect(list);
+
+    if state.apps.is_empty() {
+        // Wrapped and centred line by line in the middle of the box, clipped to it.
+        let colour = palette.color(FxColor::HintText);
+        let width = rows.width() - applications::EMPTY_TEXT_INSET * 2.0;
+        let mut job = egui::text::LayoutJob::simple(
+            tr(NO_APPLICATIONS),
+            small_font(),
+            colour,
+            width.max(0.0),
+        );
+        job.halign = egui::Align::Center;
+        let galley = ui.painter().layout_job(job);
+        let at = pos2(rows.center().x, rows.center().y - galley.size().y / 2.0);
+        ui.painter()
+            .with_clip_rect(rows.intersect(ui.painter().clip_rect()))
+            .galley(at, galley, colour);
+        return;
+    }
+
+    let captions = DeviceDirection::ALL.map(|direction| tr(direction.label()));
+    let caption_width = app_caption_width(
+        captions
+            .iter()
+            .map(|caption| {
+                ui.painter()
+                    .layout_no_wrap(caption.clone(), small_font(), Color32::PLACEHOLDER)
+                    .size()
+                    .x
+            })
+            .fold(0.0, f32::max),
+    );
+    let items = [
+        app_preset_items(&state.presets),
+        app_preset_items(&state.input_presets),
+    ];
+    let names = [&state.presets, &state.input_presets];
+
+    ui.scope_builder(UiBuilder::new().max_rect(rows).id_salt(id), |ui| {
+        ui.spacing_mut().item_spacing = Vec2::ZERO;
+        egui::ScrollArea::vertical()
+            .id_salt(id.with("applications"))
+            .max_height(rows.height())
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for app in &state.apps {
+                    let (row, _) = ui.allocate_exact_size(
+                        vec2(
+                            ui.available_width(),
+                            app.lines() as f32 * applications::LINE_HEIGHT,
+                        ),
+                        Sense::hover(),
+                    );
+                    // The store keeps up to 500 applications: a row scrolled out of sight takes
+                    // its room and draws nothing.
+                    if !ui.is_rect_visible(row) {
+                        continue;
+                    }
+                    app_row(
+                        ui,
+                        row,
+                        app,
+                        AppRowStyle {
+                            caption_width,
+                            captions: &captions,
+                            items: &items,
+                            names,
+                        },
+                        palette,
+                        assets,
+                        response,
+                    );
+                }
+            });
+    });
+}
+
+/// What every row of the list shares, worked out once a frame.
+struct AppRowStyle<'a> {
+    caption_width: f32,
+    /// `Output` and `Input`, translated, in [`DeviceDirection::ALL`]'s order.
+    captions: &'a [String; 2],
+    /// Each direction's combo entries ([`app_preset_items`]) and its presets' own names.
+    items: &'a [Vec<String>; 2],
+    names: [&'a Vec<String>; 2],
+}
+
+#[allow(clippy::too_many_arguments)]
+fn app_row(
+    ui: &mut Ui,
+    row: Rect,
+    app: &AppRow,
+    style: AppRowStyle<'_>,
+    palette: Palette,
+    assets: &mut AssetCache,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let id = Id::unique("fx_app_row").with(&app.app);
+    let first = app_line_rect(row, 0);
+
+    if app.running {
+        ui.painter().circle_filled(
+            app_dot_rect(first).center(),
+            applications::DOT_DIAMETER / 2.0,
+            palette.color(FxColor::SelectedRowOutline),
+        );
+    }
+    let name = app_name_rect(first, style.caption_width);
+    let colour = if app.running {
+        palette.color(FxColor::DefaultText)
+    } else {
+        palette.color(FxColor::HintText)
+    };
+    draw_truncated(
+        ui.painter(),
+        &app.name,
+        normal_font(),
+        colour,
+        name,
+        Align2::LEFT_CENTER,
+    );
+
+    for (line, lane) in app.lanes.iter().enumerate() {
+        let line = app_line_rect(row, line);
+        let lane_index = match lane.direction {
+            DeviceDirection::Output => 0,
+            DeviceDirection::Input => 1,
+        };
+        draw_truncated(
+            ui.painter(),
+            &style.captions[lane_index],
+            small_font(),
+            palette.color(FxColor::HintText),
+            app_caption_rect(line, style.caption_width),
+            Align2::RIGHT_CENTER,
+        );
+
+        let names = style.names[lane_index];
+        let selected = app_preset_index(names, lane.preset.as_deref());
+        let combo = app_combo_rect(line);
+        let (_, picked) = FxComboBox::new(&style.items[lane_index], selected)
+            .placeholder(lane.preset.as_deref().unwrap_or_default())
+            .separator_before(Some(1))
+            .show(ui, combo, palette, assets, id.with(lane.direction.key()));
+        if let Some(picked) = picked.filter(|&picked| Some(picked) != selected) {
+            let preset = picked
+                .checked_sub(1)
+                .and_then(|index| names.get(index))
+                .cloned();
+            if picked == 0 || preset.is_some() {
+                response.push(SettingsAction::SetAppPreset {
+                    app: app.app.clone(),
+                    direction: lane.direction,
+                    preset,
+                });
+            }
+        }
+        // The device row's unselected outline, so the two lists' combos look alike
+        // (`FxOutputPreference.cpp:156`).
+        ui.painter().rect_stroke(
+            combo,
+            CornerRadius::same(crate::widgets::combo::corner_radius(combo.height()) as u8),
+            Stroke::new(
+                1.0,
+                palette.color_alpha(FxColor::RowOutline, device_row::UNSELECTED_OUTLINE_ALPHA),
+            ),
+            StrokeKind::Inside,
+        );
+    }
+
+    if app.can_forget()
+        && IconButton::new(FxImage::RemoveButton)
+            .min_hit_size(device_row::BUTTON_WIDTH)
+            .show(
+                ui,
+                remove_button_rect(first),
+                palette,
+                assets,
+                id.with("forget"),
+            )
+            .clicked()
+    {
+        response.push(SettingsAction::ForgetApp(app.app.clone()));
+    }
+
+    // The device rows' half-point rule, under the whole row: a row can be two lines tall, and the
+    // rule is what says where the next application starts.
+    let bounds = row.shrink(2.0);
+    ui.painter().hline(
+        bounds.left() + device_row::MARGIN..=bounds.right() - device_row::MARGIN,
+        row.bottom() - 0.5,
+        Stroke::new(
+            device_row::SEPARATOR_THICKNESS,
+            palette.color(FxColor::RowOutline),
+        ),
+    );
+}
+
+// =============================================================================================
+// Experimental pane (`docs/0.5.0-windows-parity.md`)
+// =============================================================================================
+
+/// Experimental-pane geometry, on the General pane's grid: the heading where the language switch
+/// is, the slider under it, the positions' labels under their detents, and the hint.
+pub mod experimental {
+    /// y of the heading.
+    pub const HEADING_Y: f32 = 50.0;
+    /// Height of the heading.
+    pub const HEADING_HEIGHT: f32 = 24.0;
+    /// y of the slider.
+    pub const SLIDER_Y: f32 = 85.0;
+    /// The slider's height, every slider's in the original.
+    pub const SLIDER_HEIGHT: f32 = 18.0;
+    /// y of the positions' labels.
+    pub const LABELS_Y: f32 = 110.0;
+    /// Room for two lines of a label in the small font.
+    pub const LABELS_HEIGHT: f32 = 36.0;
+    /// y of the hint.
+    pub const HINT_Y: f32 = 155.0;
+    /// Height of the hint's one line.
+    pub const HINT_HEIGHT: f32 = 20.0;
+    /// y of "Smooth moves in WirePlumber": twenty under the hint, as the General pane's first
+    /// checkbox is under the language switch.
+    pub const HOOK_Y: f32 = 195.0;
+    /// The checkbox's height, the Microphone pane's.
+    pub const HOOK_HEIGHT: f32 = 30.0;
+    /// Room for three lines of the small font: the lines under the checkbox.
+    pub const HOOK_LINE_HEIGHT: f32 = 54.0;
+    /// Above "Restart WirePlumber", as above the Microphone pane's button.
+    pub const GAP_BEFORE_RESTART: f32 = 10.0;
+}
+
+/// The heading over the slider, the mode's one name on Linux and on Windows. It names the
+/// original FxSound by its maker: CrossFX has a Windows build of its own, so "like Windows" would
+/// no longer say which program the mode follows.
+pub const LIKE_ORIGINAL_TITLE: &str = "Like the original FxSound LLC";
+/// The slider's tooltip: what no level takes away. Shown unless help tips are hidden.
+pub const LIKE_ORIGINAL_TIP: &str = "Always kept: the preset trash and autosave, CrossFX's own \
+fixes, click-free switching and the command line. No setting is deleted.";
+/// The same tooltip where CrossFX serves D-Bus ([`Platform::dbus`]), which no level takes away
+/// either.
+pub const LIKE_ORIGINAL_TIP_DBUS: &str = "Always kept: the preset trash and autosave, CrossFX's \
+own fixes, click-free switching, the command line and D-Bus. No setting is deleted.";
+
+/// The line under the position `shown`: [`WindowsParity::hint`]'s, the same on both platforms.
+#[must_use]
+pub fn parity_hint(shown: WindowsParity) -> String {
+    tr(shown.hint())
+}
+
+/// The heading, «Like the original FxSound LLC».
+#[must_use]
+pub fn parity_title() -> String {
+    tr(LIKE_ORIGINAL_TITLE)
+}
+
+/// The checkbox of CrossFX's hook in WirePlumber.
+pub const WIREPLUMBER_HOOK: &str = "Smooth moves in WirePlumber";
+/// The line under it: what it does, and whose settings it changes.
+pub const WIREPLUMBER_HOOK_HINT: &str = "Fades the sound WirePlumber moves, as when the desktop picks another device. Changes WirePlumber's settings.";
+/// The line under it where there is no WirePlumber 0.5.
+pub const WIREPLUMBER_TOO_OLD: &str = "Needs WirePlumber 0.5 or newer.";
+/// The line under it once it was ticked or unticked, until WirePlumber restarts.
+pub const WIREPLUMBER_RESTART_DUE: &str = "WirePlumber takes the change when it restarts.";
+/// The line under it when a restart was asked for and did not happen.
+pub const WIREPLUMBER_RESTART_FAILED: &str =
+    "WirePlumber could not be restarted here. It takes the change at your next login.";
+/// The button that restarts WirePlumber, after asking.
+pub const RESTART_WIREPLUMBER: &str = "Restart WirePlumber";
+
+/// "Smooth moves in WirePlumber": a checkbox the width of the row.
+#[must_use]
+pub fn wireplumber_hook_rect(pane: Rect) -> Rect {
+    let row = parity_row(pane);
+    Rect::from_min_size(
+        pos2(row.left(), pane.top() + experimental::HOOK_Y),
+        vec2(row.width(), experimental::HOOK_HEIGHT),
+    )
+}
+
+/// The lines under the checkbox, indented to its caption, as the echo canceller's status is.
+#[must_use]
+pub fn wireplumber_line_rect(pane: Rect) -> Rect {
+    let toggle = wireplumber_hook_rect(pane);
+    let indent = TICK_BOX_SIDE + TICK_BOX_GAP;
+    Rect::from_min_size(
+        pos2(toggle.left() + indent, toggle.bottom()),
+        vec2(toggle.width() - indent, experimental::HOOK_LINE_HEIGHT),
+    )
+}
+
+/// "Restart WirePlumber", sized like the reset button (see [`reset_button_size`]), under the
+/// lines at the pane's margin, as "Calibrate microphone…" is under the echo canceller's.
+#[must_use]
+pub fn restart_wireplumber_rect(pane: Rect, size: Vec2) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            parity_row(pane).left(),
+            wireplumber_line_rect(pane).bottom() + experimental::GAP_BEFORE_RESTART,
+        ),
+        size,
+    )
+}
+
+impl WirePlumberHook {
+    /// The line under the checkbox, untranslated.
+    #[must_use]
+    pub const fn line(self) -> &'static str {
+        match (self.available, self.restart) {
+            (_, WirePlumberRestart::Due) => WIREPLUMBER_RESTART_DUE,
+            (_, WirePlumberRestart::Failed) => WIREPLUMBER_RESTART_FAILED,
+            (false, WirePlumberRestart::NotNeeded) => WIREPLUMBER_TOO_OLD,
+            (true, WirePlumberRestart::NotNeeded) => WIREPLUMBER_HOOK_HINT,
+        }
+    }
+}
+
+/// The row the heading, the labels and the hint share: the pane less a margin each side.
+#[must_use]
+pub fn parity_row(pane: Rect) -> Rect {
+    Rect::from_min_max(
+        pos2(pane.left() + X_MARGIN, pane.top()),
+        pos2(pane.right() - X_MARGIN, pane.bottom()),
+    )
+}
+
+/// The heading, "Like the original FxSound LLC".
+#[must_use]
+pub fn parity_heading_rect(pane: Rect) -> Rect {
+    let row = parity_row(pane);
+    Rect::from_min_size(
+        pos2(row.left(), pane.top() + experimental::HEADING_Y),
+        vec2(row.width(), experimental::HEADING_HEIGHT),
+    )
+}
+
+/// The label of position `index`: the row in equal columns, one per position offered
+/// ([`WindowsParity::SLIDER_LEVELS`]: three in 0.5.0; Everything is a fourth from 0.6.0).
+#[must_use]
+pub fn parity_label_rect(pane: Rect, index: usize) -> Rect {
+    let row = parity_row(pane);
+    let column = row.width() / WindowsParity::SLIDER_LEVELS.len() as f32;
+    Rect::from_min_size(
+        pos2(
+            row.left() + index as f32 * column,
+            pane.top() + experimental::LABELS_Y,
+        ),
+        vec2(column, experimental::LABELS_HEIGHT),
+    )
+}
+
+/// The slider: sized so that its track runs from the first label's centre to the last's, and
+/// each of its positions sits over its own label.
+#[must_use]
+pub fn parity_slider_rect(pane: Rect) -> Rect {
+    let first = parity_label_rect(pane, 0).center().x;
+    let last = parity_label_rect(pane, WindowsParity::SLIDER_LEVELS.len() - 1)
+        .center()
+        .x;
+    // `slider::track_rect` starts the track one thumb radius in and ends it five short.
+    Rect::from_min_size(
+        pos2(
+            first - slider::THUMB_RADIUS,
+            pane.top() + experimental::SLIDER_Y,
+        ),
+        vec2(
+            last - first + slider::THUMB_RADIUS * 6.0,
+            experimental::SLIDER_HEIGHT,
+        ),
+    )
+}
+
+/// The one line under the labels that says what the position does.
+#[must_use]
+pub fn parity_hint_rect(pane: Rect) -> Rect {
+    let row = parity_row(pane);
+    Rect::from_min_size(
+        pos2(row.left(), pane.top() + experimental::HINT_Y),
+        vec2(row.width(), experimental::HINT_HEIGHT),
+    )
+}
+
+/// Where a drag of the «Like the original FxSound LLC» thumb is, while the button is held, and the
+/// frame that last saw it held on the slider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ParityDrag {
+    level: WindowsParity,
+    /// [`egui::Context::cumulative_frame_nr`] of the last frame the pane was drawn with the
+    /// button held on the slider. A let-go counts only on the frame straight after it: a preview
+    /// any older belongs to a drag the pane stopped seeing (Settings closed, another tab, the
+    /// window hidden) and is dropped unapplied.
+    seen: u64,
+}
+
+/// Where [`experimental_pane`] keeps its [`ParityDrag`] between frames.
+fn parity_drag_id(id: Id) -> Id {
+    id.with("parity-drag")
+}
+
+/// «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC": the positions offered, Off
+/// to Interface and sound in 0.5.0 ([`WindowsParity::SLIDER_LEVELS`]; Everything arrives in 0.6.0).
+///
+/// Nothing is applied while a drag is on its way: the pane remembers where the thumb is until the
+/// pointer lets go, and shows that position's label and hint meanwhile, so a drag from Off to
+/// Interface and sound never passes Interface on to the application, and one cut short — Escape
+/// with the button held, the pane closed or not drawn before the let-go — passes nothing on at
+/// all ([`ParityDrag`]). A click on a
+/// position or on its label, an arrow key, a wheel notch and a right-click (back to Off, as every
+/// slider resets) apply at once.
+#[allow(clippy::too_many_arguments)]
+fn experimental_pane(
+    ui: &mut Ui,
+    pane: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    assets: &mut AssetCache,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let current = state.settings.windows_parity;
+    let heading = parity_title();
+    draw_truncated(
+        ui.painter(),
+        &heading,
+        normal_font(),
+        palette.color(FxColor::HighlightedText),
+        parity_heading_rect(pane),
+        Align2::LEFT_CENTER,
+    );
+
+    let preview_id = parity_drag_id(id);
+    let frame = ui.ctx().cumulative_frame_nr();
+    let preview = match ui.data(|d| d.get_temp::<ParityDrag>(preview_id)) {
+        Some(drag) if drag.seen + 1 >= frame => Some(drag.level),
+        Some(_) => {
+            // A drag the pane lost sight of before it let go: nothing was chosen.
+            ui.data_mut(|d| d.remove::<ParityDrag>(preview_id));
+            None
+        }
+        None => None,
+    };
+    // A level past the last position offered — Everything, which a later version's
+    // settings.toml may hold and this one runs as Interface and sound — shows at the last.
+    let shown = preview.unwrap_or(current).offered_or_below();
+    let mut position = shown.index() as f32;
+    let last = (WindowsParity::SLIDER_LEVELS.len() - 1) as f32;
+    let mut slider = FxSlider::new(&mut position, 0.0, last, 1.0)
+        .default_value(0.0)
+        .reset_on_secondary_click(true)
+        .show(
+            ui,
+            parity_slider_rect(pane),
+            palette,
+            assets,
+            id.with("parity"),
+        );
+    let moved = WindowsParity::from_index(position.round().max(0.0) as usize);
+    let mut chosen = None;
+    if slider.is_pointer_button_down_on() {
+        if moved != shown || preview.is_some() {
+            let drag = ParityDrag {
+                level: moved,
+                seen: frame,
+            };
+            ui.data_mut(|d| d.insert_temp(preview_id, drag));
+        }
+    } else if preview.is_some() {
+        ui.data_mut(|d| d.remove::<ParityDrag>(preview_id));
+        // The drag let go: this is the position it chose. With the button still held it was
+        // Escape that ended it (egui aborts a drag on Escape), and a drag cancelled chooses
+        // nothing.
+        if !ui.input(|i| i.pointer.primary_down()) {
+            chosen = Some(moved);
+        }
+    } else if slider.changed() {
+        chosen = Some(moved);
+    }
+    let shown = if chosen.is_some() || slider.is_pointer_button_down_on() {
+        moved
+    } else {
+        shown
+    };
+
+    let hint = parity_hint(shown);
+    let label = tr(shown.label());
+    slider.widget_info(|| {
+        let mut info = egui::WidgetInfo::slider(true, shown.index() as f64, &heading);
+        info.current_text_value = Some(label.clone());
+        info.hint_text = Some(hint.clone());
+        info
+    });
+    if !state.settings.hide_help_tooltips {
+        // D-Bus is kept where there is one to keep.
+        let kept = if state.platform.dbus {
+            tr(LIKE_ORIGINAL_TIP_DBUS)
+        } else {
+            tr(LIKE_ORIGINAL_TIP)
+        };
+        slider = slider.on_hover_text(icon_button::tooltip_text(
+            &slider::with_reset_tip(Some(&kept)),
+            palette,
+        ));
+    }
+    let _ = slider;
+
+    for level in WindowsParity::SLIDER_LEVELS {
+        let rect = parity_label_rect(pane, level.index());
+        let colour = if level == shown {
+            palette.color(FxColor::HighlightedText)
+        } else {
+            palette.color(FxColor::DefaultText)
+        };
+        draw_centred_wrapped(ui.painter(), &tr(level.label()), small_font(), colour, rect);
+        let click = ui.interact(
+            rect,
+            id.with(("parity-label", level.index())),
+            Sense::click(),
+        );
+        if click.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
+        if click.clicked() {
+            chosen = Some(level);
+        }
+    }
+
+    super::draw_fitted(
+        ui.painter(),
+        &hint,
+        small_font(),
+        palette.color(FxColor::DefaultText),
+        parity_hint_rect(pane),
+        Align2::LEFT_CENTER,
+    );
+
+    if let Some(level) = chosen
+        && level != current
+    {
+        response.push(SettingsAction::SetWindowsParity(level));
+    }
+
+    // Where there is no WirePlumber, there is nothing to make smooth.
+    if state.platform.wireplumber {
+        wireplumber_hook(ui, pane, state.wireplumber_hook, palette, id, response);
+    }
+}
+
+/// "Smooth moves in WirePlumber", the line under it, and "Restart WirePlumber" while a restart is
+/// due (roadmap 0.5.0 §7, D5). Greyed out without WirePlumber 0.5 — ticked all the same if the
+/// hook is there, so that it can still be taken away.
+fn wireplumber_hook(
+    ui: &mut Ui,
+    pane: Rect,
+    hook: WirePlumberHook,
+    palette: Palette,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    if toggle(
+        ui,
+        wireplumber_hook_rect(pane),
+        &tr(WIREPLUMBER_HOOK),
+        hook.on,
+        hook.available || hook.on,
+        palette,
+        id.with("wireplumber-hook"),
+    ) {
+        response.push(SettingsAction::SetWirePlumberHook(!hook.on));
+    }
+    draw_wrapped(
+        ui.painter(),
+        &tr(hook.line()),
+        small_font(),
+        palette.color(FxColor::HintText),
+        wireplumber_line_rect(pane),
+    );
+    if hook.restart == WirePlumberRestart::Due {
+        let label = tr(RESTART_WIREPLUMBER);
+        let text_width = ui
+            .painter()
+            .layout_no_wrap(label.clone(), normal_font(), Color32::PLACEHOLDER)
+            .size()
+            .x;
+        let button = restart_wireplumber_rect(pane, reset_button_size(&label, text_width));
+        if TextButton::new(&label)
+            .show(ui, button, palette, id.with("restart-wireplumber"))
+            .clicked()
+        {
+            response.push(SettingsAction::RestartWirePlumber);
+        }
+    }
+}
+
+/// `text` wrapped to `rect`'s width with each line centred in it, from its top, clipped to it.
+/// Returns the size the text came out at.
+fn draw_centred_wrapped(
+    painter: &egui::Painter,
+    text: &str,
+    font: egui::FontId,
+    colour: Color32,
+    rect: Rect,
+) -> Vec2 {
+    let galley = centred_wrapped(painter.ctx(), text, font, colour, rect.width());
+    let size = galley.size();
+    painter
+        .with_clip_rect(rect)
+        .galley(pos2(rect.center().x, rect.top()), galley, colour);
+    size
+}
+
+/// The galley [`draw_centred_wrapped`] draws: `text` wrapped at `width`, its lines centred on x 0.
+fn centred_wrapped(
+    ctx: &Context,
+    text: &str,
+    font: egui::FontId,
+    colour: Color32,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_owned(),
+        egui::TextFormat::simple(font, colour),
+    );
+    job.wrap.max_width = width.max(0.0);
+    job.halign = egui::Align::Center;
+    ctx.fonts_mut(|fonts| fonts.layout_job(job))
+}
+
+// =============================================================================================
+// Help pane (`docs/spec/06-dialogs.md` §1.9)
+// =============================================================================================
+
+/// Help-pane geometry (`FxSettingsDialog.h:165-170`, `.cpp:512-524`).
+pub mod help {
+    /// `TEXT_Y` — y of the first section title.
+    pub const TEXT_Y: f32 = 50.0;
+    /// `TITLE_HEIGHT` of a section heading.
+    pub const SECTION_HEIGHT: f32 = 24.0;
+    /// `TEXT_HEIGHT` of a line of body text.
+    pub const TEXT_HEIGHT: f32 = 20.0;
+    /// `HYPERLINK_HEIGHT`.
+    pub const LINK_HEIGHT: f32 = 24.0;
+    /// Links and the body text under a heading are indented five points past it
+    /// (`FxSettingsDialog.cpp:519`).
+    pub const INDENT: f32 = 5.0;
+    /// Gap from a heading to its text, and from that text to its link.
+    pub const GAP: f32 = 10.0;
+    /// Gap from a section's last row to the next heading (`FxSettingsDialog.cpp:523`).
+    pub const SECTION_GAP: f32 = 20.0;
+}
+
+/// `"Version"` (`FxSettingsDialog.cpp:472`).
+pub const VERSION_TITLE: &str = "Version";
+/// `"Changelog"` (`FxSettingsDialog.cpp:474`).
+pub const CHANGELOG_LINK: &str = "Changelog";
+
+/// The three rows of the Help pane, top to bottom — what is left of the original's eight
+/// (`docs/spec/06-dialogs.md` §1.9). "Support" and its "Help center" link pointed at the
+/// original's website, "Maintenance" only held the updater's toggle, and neither belongs in
+/// CrossFX, which never contacts the network; the changelog is bundled and shown in-app instead.
+#[must_use]
+fn help_rows(pane: Rect) -> [Rect; 3] {
+    let left = pane.left() + X_MARGIN;
+    let width = pane.width() - X_MARGIN;
+    let indent = left + help::INDENT;
+    let indent_width = width - help::INDENT;
+
+    let version_title = Rect::from_min_size(
+        pos2(left, pane.top() + help::TEXT_Y),
+        vec2(width, help::SECTION_HEIGHT),
+    );
+    let version_text = Rect::from_min_size(
+        pos2(left, version_title.bottom() + help::GAP),
+        vec2(width, help::TEXT_HEIGHT),
+    );
+    let changelog = Rect::from_min_size(
+        pos2(indent, version_text.bottom() + help::GAP),
+        vec2(indent_width, help::LINK_HEIGHT),
+    );
+    [version_title, version_text, changelog]
+}
+
+fn help_pane(
+    ui: &mut Ui,
+    pane: Rect,
+    state: &SettingsState,
+    palette: Palette,
+    id: Id,
+    response: &mut DialogResponse<SettingsAction>,
+) {
+    let [version_title, version_text, changelog] = help_rows(pane);
+
+    draw_truncated(
+        ui.painter(),
+        &tr(VERSION_TITLE),
+        normal_font(),
+        palette.color(FxColor::HighlightedText),
+        version_title,
+        Align2::LEFT_CENTER,
+    );
+    // Never translated (`FxSettingsDialog.cpp:542`).
+    draw_truncated(
+        ui.painter(),
+        &state.version_text(),
+        small_font(),
+        palette.color(FxColor::DefaultText),
+        version_text,
+        Align2::LEFT_CENTER,
+    );
+    if link(
+        ui,
+        changelog,
+        &tr(CHANGELOG_LINK),
+        palette,
+        Align2::LEFT_TOP,
+        id.with("changelog"),
+    )
+    .clicked()
+    {
+        response.push(SettingsAction::ShowChangelog);
+    }
+}
+
+// =============================================================================================
+// The checkbox
+// =============================================================================================
+
+/// The tick box's side **[JUCE semantics]**.
+///
+/// `FxTheme` overrides neither `drawToggleButton` nor `drawTickBox`, and the JUCE modules are not
+/// vendored in this tree, so the tick's size, its inset and the label's offset have **no citable
+/// value** (`docs/spec/06-dialogs.md` Open question 1). These three numbers are CrossFX's own.
+pub const TICK_BOX_SIDE: f32 = 18.0;
+/// Gap between the tick box and its label **[JUCE semantics]**.
+pub const TICK_BOX_GAP: f32 = 10.0;
+/// The tick box's corner **[JUCE semantics]**.
+pub const TICK_BOX_CORNER: f32 = 4.0;
+
+/// A `juce::ToggleButton`. Tick colour and text colour are both `TextButton::textColourOnId`, i.e.
+/// `HighlightedText` (`FxSettingsDialog.cpp:352-353`). Returns whether it was clicked.
+fn toggle(
+    ui: &mut Ui,
+    rect: Rect,
+    label: &str,
+    checked: bool,
+    enabled: bool,
+    palette: Palette,
+    id: Id,
+) -> bool {
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let response = ui.interact(rect, id, sense);
+
+    let colour = if enabled {
+        palette.color(FxColor::HighlightedText)
+    } else {
+        palette.color(FxColor::HintText)
+    };
+    let box_ = Align2::LEFT_CENTER.align_size_within_rect(Vec2::splat(TICK_BOX_SIDE), rect);
+    ui.painter().rect_stroke(
+        box_,
+        CornerRadius::same(TICK_BOX_CORNER as u8),
+        Stroke::new(1.5, colour),
+        StrokeKind::Inside,
+    );
+    if checked {
+        let tick = box_.shrink(4.0);
+        let stroke = Stroke::new(2.0, colour);
+        let elbow = pos2(
+            tick.left() + tick.width() * 0.36,
+            tick.top() + tick.height() * 0.82,
+        );
+        ui.painter()
+            .line_segment([pos2(tick.left(), tick.center().y), elbow], stroke);
+        ui.painter()
+            .line_segment([elbow, pos2(tick.right(), tick.top())], stroke);
+    }
+
+    // JUCE draws a toggle's text with `drawFittedText`, which squeezes a line too long for the
+    // button before it cuts it: Polish and Japanese "Hide help tips for audio controls" are set
+    // smaller rather than elided.
+    draw_fitted(
+        ui.painter(),
+        label,
+        normal_font(),
+        colour,
+        Rect::from_min_max(
+            pos2(box_.right() + TICK_BOX_GAP, rect.top()),
+            pos2(rect.right(), rect.bottom()),
+        ),
+        Align2::LEFT_CENTER,
+    );
+
+    if enabled && response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    response.clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::{every_translation, frame, test_context};
+    use super::*;
+    use crossfx_core::ThemeMode;
+
+    fn content() -> Rect {
+        Rect::from_min_size(pos2(5.0, 62.0), CONTENT_SIZE)
+    }
+
+    /// The pane the *original* lays its widgets out in: two points wider than CrossFX's, so the
+    /// spec's tables can be checked against the same functions.
+    fn original_pane() -> Rect {
+        Rect::from_min_size(pos2(158.0, 63.0), vec2(449.0, 509.0))
+    }
+
+    fn local(pane: Rect, r: Rect) -> Rect {
+        r.translate(-pane.min.to_vec2())
+    }
+
+    /// The state of a window drawn as CrossFX draws it — the window these tests
+    /// describe, on whichever platform they run. Windows' own is drawn where a test says so.
+    fn linux() -> SettingsState {
+        SettingsState {
+            platform: Platform::LINUX,
+            ..SettingsState::default()
+        }
+    }
+
+    fn populated() -> SettingsState {
+        let devices = vec![
+            DevicePriority {
+                id: "alsa_output.pci-0000_00_1f.3".into(),
+                name: "Speakers".into(),
+                preset: Some(1),
+                connected: true,
+                present: true,
+            },
+            DevicePriority {
+                id: "bluez_output.AC_12".into(),
+                name: "Headphones".into(),
+                preset: None,
+                connected: false,
+                present: false,
+            },
+        ];
+        SettingsState {
+            version: "0.1.0".into(),
+            presets: vec!["General".into(), "Rock".into(), "Jazz".into()],
+            devices,
+            selected_device: Some(0),
+            can_reset_presets: true,
+            ..linux()
+        }
+    }
+
+    #[test]
+    fn the_window_is_six_hundred_and_ten_by_five_hundred_and_ninety_seven() {
+        assert!((super::super::outer_size(CONTENT_SIZE) - WINDOW_SIZE).length() < 1e-4);
+    }
+
+    #[test]
+    fn the_original_three_tab_buttons_keep_their_rows_and_crossfx_three_take_the_next() {
+        // FxSettingsDialog.cpp:121-123, in content-local coordinates, and CrossFX's fourth to
+        // sixth on the same sixty-point pitch: Experimental at (20, 350, 150, 40).
+        let content = content();
+        for (index, top) in [
+            (0, 50.0),
+            (1, 110.0),
+            (2, 170.0),
+            (3, 230.0),
+            (4, 290.0),
+            (5, 350.0),
+        ] {
+            let button = local(content, nav_button_rect(content, index));
+            assert!((button.min - pos2(20.0, top)).length() < 1e-4, "{button:?}");
+            assert!((button.size() - vec2(150.0, 40.0)).length() < 1e-4);
+        }
+        assert_eq!(
+            SettingsTab::ALL.map(SettingsTab::index),
+            [0, 1, 2, 3, 4, 5],
+            "the nav order is the index order"
+        );
+        assert_eq!(SettingsTab::ALL[3], SettingsTab::Microphone);
+        assert_eq!(SettingsTab::Microphone.icon(), NavIcon::Microphone);
+        assert_eq!(SettingsTab::ALL[4], SettingsTab::Applications);
+        assert_eq!(SettingsTab::Applications.icon(), NavIcon::Applications);
+        assert_eq!(SettingsTab::Applications.nav_label(), "Applications");
+        assert_eq!(SettingsTab::Applications.pane_title(), "Applications");
+        assert_eq!(SettingsTab::ALL[5], SettingsTab::Experimental);
+        assert_eq!(SettingsTab::Experimental.icon(), NavIcon::Experimental);
+        assert_eq!(SettingsTab::Experimental.nav_label(), "Experimental");
+        assert_eq!(SettingsTab::Experimental.pane_title(), "Experimental");
+        // The sixth button ends above the content's bottom with a row to spare, in the same
+        // column: a seventh, Customization, fits at (20, 410, 150, 40) and ends at 450 of 510.
+        let last = nav_button_rect(content, 5);
+        assert!(nav_button_rect(content, 6).bottom() < content.bottom());
+        assert!(last.bottom() < content.bottom());
+        assert!((last.left() - nav_button_rect(content, 0).left()).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_pane_is_two_points_narrower_than_the_originals_overhanging_one() {
+        let content = content();
+        let pane = pane_rect(content);
+        assert!((pane.left() - (content.left() + 153.0)).abs() < 1e-4);
+        assert!((pane.top() - (content.top() + 1.0)).abs() < 1e-4);
+        // The original's `getWidth() - SEPARATOR_X + 1` is 449 and overhangs by two points; 447
+        // stops exactly at the content's edge.
+        assert!((pane.width() - 447.0).abs() < 1e-4, "{pane:?}");
+        assert!((pane.right() - content.right()).abs() < 1e-4);
+        assert!((pane.height() - 509.0).abs() < 1e-4);
+        // The rule sits at the pane's edge, not five points to its left as in the original.
+        assert!((divider_x(content) - (pane.left() - 1.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_audio_panes_widgets_match_the_specs_table_when_given_the_originals_pane() {
+        // docs/spec/06-dialogs.md §1.6, which is derived from the 449-wide pane.
+        let pane = original_pane();
+        let expect = |r: Rect, min: egui::Pos2, size: Vec2| {
+            let r = local(pane, r);
+            assert!(
+                (r.min - min).length() < 1e-4,
+                "{r:?} should start at {min:?}"
+            );
+            assert!(
+                (r.size() - size).length() < 1e-4,
+                "{r:?} should be {size:?}"
+            );
+        };
+        expect(pane_title_rect(pane), pos2(20.0, 5.0), vec2(429.0, 24.0));
+        expect(output_title_rect(pane), pos2(20.0, 50.0), vec2(400.0, 14.0));
+        expect(output_list_rect(pane), pos2(20.0, 74.0), vec2(399.0, 260.0));
+        expect(
+            prioritize_toggle_rect(pane),
+            pos2(20.0, 344.0),
+            vec2(399.0, 30.0),
+        );
+        // CrossFX's second checkbox ten points under the original's, the group grown to hold it
+        // and the reset button moved down by as much.
+        expect(
+            follow_toggle_rect(pane),
+            pos2(20.0, 384.0),
+            vec2(399.0, 30.0),
+        );
+        expect(group_rect(pane), pos2(10.0, 40.0), vec2(419.0, 384.0));
+        // The reset button's row, whatever its measured width comes out as.
+        let row = local(pane, reset_button_rect(pane, vec2(220.0, 24.0)));
+        assert!((row.min - pos2(20.0, 444.0)).length() < 1e-4, "{row:?}");
+    }
+
+    #[test]
+    fn the_follow_checkbox_asks_for_the_opposite_of_what_it_shows_and_greys_prioritize() {
+        let pane = shown_pane();
+        let follow = follow_toggle_rect(pane).left_center() + vec2(9.0, 0.0);
+        let prioritize = prioritize_toggle_rect(pane).left_center() + vec2(9.0, 0.0);
+        let mut state = populated();
+        assert_eq!(
+            click_settings(&state, follow),
+            [SettingsAction::SetFollowSystemDefault(true)]
+        );
+        assert_eq!(
+            click_settings(&state, prioritize),
+            [SettingsAction::SetPrioritizeNewOutput(true)]
+        );
+        state.settings.follow_system_default = true;
+        assert_eq!(
+            click_settings(&state, follow),
+            [SettingsAction::SetFollowSystemDefault(false)]
+        );
+        // While the system decides, where a new device goes decides nothing.
+        assert!(click_settings(&state, prioritize).is_empty());
+    }
+
+    #[test]
+    fn every_languages_hotkey_names_fit_their_column_set_no_smaller_than_seven_tenths() {
+        // E6b: Russian "Использовать следующий шаблон" and German "Nächste Voreinstellung
+        // verwenden" were cut to "Использовать следующий ш…" and "Nächste Voreinstellung verwe…".
+        let ctx = test_context();
+        let mut problems = Vec::new();
+        let per_command = HotkeyCommand::ALL.map(|command| every_translation(command.label()));
+        frame(&ctx, |ui| {
+            for language in 0..per_command[0].len() {
+                let code = per_command[0][language].0;
+                let names: Vec<String> = per_command
+                    .iter()
+                    .map(|all| all[language].1.clone())
+                    .collect();
+                let font = hotkey_names_font(ui.ctx(), &names);
+                for name in &names {
+                    let used = ui
+                        .painter()
+                        .layout_no_wrap(name.clone(), font.clone(), Color32::PLACEHOLDER)
+                        .size()
+                        .x;
+                    if used > general::HOTKEY_NAME_WIDTH {
+                        problems.push(format!("{code}: {name:?} is {used:.0} at {}", font.size));
+                    }
+                }
+                // One size for the column; the small font wherever every name fits it.
+                if code == "en" {
+                    assert_eq!(font, small_font());
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn every_languages_reset_button_stays_inside_the_audio_pane() {
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for (code, label) in every_translation(RESET_PRESETS) {
+                let width = ui
+                    .painter()
+                    .layout_no_wrap(label.clone(), normal_font(), Color32::PLACEHOLDER)
+                    .size()
+                    .x;
+                let button = reset_button_rect(pane, reset_button_size(&label, width));
+                if button.bottom() > pane.bottom() {
+                    problems.push(format!("{code}: {label:?} ends at {:.0}", button.bottom()));
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn every_language_fits_the_follow_checkbox_and_the_input_preference_heading() {
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let follow_room = follow_toggle_rect(pane).width() - TICK_BOX_SIDE - TICK_BOX_GAP;
+        let heading_room =
+            input_preference_title_rect(pane, calibrate_button_rect(pane, vec2(220.0, 24.0)))
+                .width();
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for (key, room) in [
+                (FOLLOW_SYSTEM_DEFAULT, follow_room),
+                (INPUT_PREFERENCE_TITLE, heading_room),
+            ] {
+                for (code, text) in every_translation(key) {
+                    let used = ui
+                        .painter()
+                        .layout_no_wrap(text.clone(), normal_font(), Color32::PLACEHOLDER)
+                        .size()
+                        .x;
+                    if used > room {
+                        problems.push(format!("{code}: {text:?} is {used:.0} in {room:.0}"));
+                    }
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn the_reset_button_is_clamped_between_two_twenty_and_three_fifteen() {
+        // FxSettingsDialog.cpp:308-313.
+        let one_line = reset_button_size(RESET_PRESETS, 10.0);
+        assert!((one_line.y - 24.0).abs() < 1e-4);
+        assert!(
+            (one_line.x - 220.0).abs() < 1e-4,
+            "a tiny label should still be 220 wide"
+        );
+
+        let wide = reset_button_size(RESET_PRESETS, 1000.0);
+        assert!((wide.x - 315.0).abs() < 1e-4, "{wide:?}");
+        // …and a label that has to wrap gets a line per wrap, so the text stays inside: 400
+        // points of text in a 291-point line is two lines.
+        let translated = reset_button_size(RESET_PRESETS, 400.0);
+        assert!((translated.y - 48.0).abs() < 1e-4, "{translated:?}");
+        assert!(
+            (wide.y - 72.0).abs() < 1e-4,
+            "1000 points wraps to the three-line cap: {wide:?}"
+        );
+
+        // Height is 24 per line, up to three; a fourth line does not make it taller.
+        let two = reset_button_size("Reset presets to\nfactory defaults", 10.0);
+        assert!((two.y - 48.0).abs() < 1e-4);
+        let many = reset_button_size("a\nb\nc\nd\ne", 10.0);
+        assert!((many.y - 72.0).abs() < 1e-4, "{many:?}");
+    }
+
+    #[test]
+    fn a_device_row_lays_out_like_the_specs_diagram() {
+        // docs/spec/06-dialogs.md §1.7 for a 389 x 40 row: buttons at y 11, the combo 150 wide.
+        let row = Rect::from_min_size(pos2(0.0, 0.0), vec2(389.0, 40.0));
+        let middle_up = up_button_rect(row, 1, 3);
+        assert!(
+            (middle_up.min - pos2(5.0, 11.0)).length() < 1e-4,
+            "{middle_up:?}"
+        );
+        assert!((middle_up.size() - vec2(18.0, 18.0)).length() < 1e-4);
+
+        let middle_down = down_button_rect(row, 1, 3);
+        assert!((middle_down.left() - 23.0).abs() < 1e-4, "{middle_down:?}");
+
+        // The first row has no ▲, so its ▼ moves into the gap; the last has no ▼, so its ▲ does.
+        assert!((down_button_rect(row, 0, 3).left() - 14.0).abs() < 1e-4);
+        assert!((up_button_rect(row, 2, 3).left() - 14.0).abs() < 1e-4);
+
+        let combo = preset_combo_rect(row);
+        assert!((combo.width() - 150.0).abs() < 1e-4);
+        assert!((combo.top() - 2.0).abs() < 1e-4);
+        assert!((combo.height() - 36.0).abs() < 1e-4);
+
+        let name = device_name_rect(row);
+        assert!((name.left() - 46.0).abs() < 1e-4, "{name:?}");
+        assert!((name.right() - (combo.left() - 5.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_remove_button_is_a_margin_in_from_the_row_not_four_points_further_left() {
+        // FxOutputPreference.cpp:129 uses `bounds.getWidth()` where `bounds.getRight()` is meant,
+        // which would put a 389 point row's ✕ at x 366 instead of 364. CrossFX corrects it.
+        let row = Rect::from_min_size(pos2(0.0, 0.0), vec2(389.0, 40.0));
+        let remove = remove_button_rect(row);
+        assert!(
+            (remove.right() - (389.0 - 2.0 - 5.0)).abs() < 1e-4,
+            "{remove:?}"
+        );
+        assert!((remove.size() - vec2(18.0, 18.0)).length() < 1e-4);
+        assert!((remove.top() - 11.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn nothing_in_a_device_row_overlaps_anything_else() {
+        let row = Rect::from_min_size(pos2(0.0, 0.0), vec2(389.0, 40.0));
+        let name_left = device_name_rect(row).left();
+        for (index, count) in [(0, 3), (1, 3), (2, 3), (0, 1)] {
+            // A button only has a rect worth checking on the rows that draw it: the first row has
+            // no ▲ and the last no ▼ (`FxOutputPreference.cpp:100-101`).
+            let up = (index > 0).then(|| up_button_rect(row, index, count));
+            let down = (index + 1 < count).then(|| down_button_rect(row, index, count));
+            if let (Some(up), Some(down)) = (up, down) {
+                assert!(up.right() <= down.left() + 1e-4, "{up:?} overlaps {down:?}");
+            }
+            for button in [up, down].into_iter().flatten() {
+                assert!(
+                    button.right() <= name_left + 1e-4,
+                    "{button:?} runs under the device name"
+                );
+            }
+        }
+        assert!(device_name_rect(row).right() <= preset_combo_rect(row).left());
+        assert!(preset_combo_rect(row).right() <= remove_button_rect(row).left());
+    }
+
+    #[test]
+    fn a_device_row_is_numbered_from_one() {
+        let device = DevicePriority {
+            id: "id".into(),
+            name: "Speakers (Realtek)".into(),
+            preset: None,
+            connected: true,
+            present: true,
+        };
+        assert_eq!(device.label(0), "1. Speakers (Realtek)");
+        assert_eq!(device.label(9), "10. Speakers (Realtek)");
+    }
+
+    #[test]
+    fn the_general_pane_keeps_the_originals_hotkey_column_geometry() {
+        let pane = original_pane();
+        let language = local(pane, language_rect(pane));
+        assert!(
+            (language.min - pos2(20.0, 50.0)).length() < 1e-4,
+            "{language:?}"
+        );
+        assert!((language.size() - vec2(300.0, 30.0)).length() < 1e-4);
+
+        // Exactly where the original puts them once `launch_toggle_` is visible: 20 below the
+        // switch, 20 below the launch checkbox, then 10 apart (`FxSettingsDialog.cpp:426-439`).
+        for (index, top) in [(0, 100.0), (1, 150.0), (2, 190.0)] {
+            let row = local(pane, toggle_rect(pane, index));
+            assert!((row.min - pos2(20.0, top)).length() < 1e-4, "{row:?}");
+            assert!((row.size() - vec2(429.0, 30.0)).length() < 1e-4);
+        }
+        // …the interface font's row in the slot "Disable keyboard shortcuts" used to occupy…
+        let font = local(pane, font_row_rect(pane));
+        assert!((font.min - pos2(20.0, 230.0)).length() < 1e-4, "{font:?}");
+        assert!((font.height() - 30.0).abs() < 1e-4);
+        // …and the shortcut table five points under it.
+        for platform in [Platform::LINUX, Platform::WINDOWS] {
+            let layout = GeneralLayout::new(pane, 0.0, platform);
+            let title = local(pane, layout.hotkey_title);
+            assert!((title.top() - 265.0).abs() < 1e-4, "{title:?}");
+            let first = layout.hotkey_note.unwrap_or(layout.hotkey_title);
+            assert!(first.bottom() <= layout.hotkey_rows[0].top());
+
+            // Five rows, thirty apart, indented to x 45 and 20 tall — all as in the original.
+            for row in &layout.hotkey_rows {
+                assert!((row.left() - (pane.left() + 45.0)).abs() < 1e-4);
+                assert!((row.height() - 20.0).abs() < 1e-4);
+            }
+            for pair in layout.hotkey_rows.windows(2) {
+                assert!((pair[1].top() - pair[0].top() - 30.0).abs() < 1e-4);
+            }
+            // And the whole of it fits the pane without scrolling.
+            assert!(layout.bottom() + general::BOTTOM_MARGIN <= pane.bottom());
+        }
+        // The note and the link to the example are Wayland's: the link ends the heading's row.
+        let linux = GeneralLayout::new(pane, 0.0, Platform::LINUX);
+        assert_eq!(linux.hotkey_link, Some(linux.hotkey_title));
+        assert!(linux.hotkey_note.is_some());
+        let windows = GeneralLayout::new(pane, 0.0, Platform::WINDOWS);
+        assert!(windows.hotkey_note.is_none() && windows.hotkey_link.is_none());
+    }
+
+    #[test]
+    fn every_languages_hotkey_note_fits_the_box_it_is_wrapped_into() {
+        // Measured with the real faces, because a note that overflows would be painted straight
+        // over the first row of the table. Italian wraps to four lines, and Chinese lines are
+        // taller for the CJK face.
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let box_ = GeneralLayout::new(pane, 0.0, Platform::LINUX)
+            .hotkey_note
+            .expect("Linux has the note");
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for (code, text) in every_translation(HOTKEY_NOTE) {
+                let size = ui
+                    .painter()
+                    .layout(
+                        text.clone(),
+                        small_font(),
+                        Color32::PLACEHOLDER,
+                        box_.width(),
+                    )
+                    .size();
+                if size.y > box_.height() || size.x > box_.width() {
+                    problems.push(format!("{code}: {size:?} in {:?}", box_.size()));
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn the_five_hotkey_commands_are_the_originals_five_in_order() {
+        let expected = [
+            ("Turn CrossFX On/Off", "crossfx --toggle-power"),
+            ("Open/Close CrossFX", "crossfx --toggle-window"),
+            ("Use Next Preset", "crossfx --next-preset"),
+            ("Use Previous Preset", "crossfx --prev-preset"),
+            ("Change Playback Device", "crossfx --next-output"),
+        ];
+        for (command, (label, line)) in HotkeyCommand::ALL.into_iter().zip(expected) {
+            assert_eq!(command.label(), label);
+            assert_eq!(command.command_line(), line);
+            // Every row names a command a compositor can actually run: the program's own.
+            assert!(
+                command
+                    .command_line()
+                    .starts_with(&format!("{} --", crossfx_core::identity::BINARY)),
+                "{:?} offers {}",
+                command,
+                command.command_line()
+            );
+        }
+    }
+
+    #[test]
+    fn the_language_switch_starts_with_the_system_entry_and_then_the_originals_list() {
+        let all = LanguageChoice::all();
+        assert_eq!(all[0], LanguageChoice::System);
+        assert_eq!(all.len(), 1 + i18n::LANGUAGES.len());
+        assert_eq!(all[1], LanguageChoice::Code("en"));
+        assert_eq!(all[2], LanguageChoice::Code("id"), "Bahasa Indonesia");
+        assert_eq!(all[all.len() - 1], LanguageChoice::Code("ko"), "한국어");
+        // No Hungarian: the original's binary declares it but never shipped its table.
+        assert!(!all.contains(&LanguageChoice::Code("hu")));
+    }
+
+    #[test]
+    fn the_language_switch_wraps_in_both_directions() {
+        assert_eq!(LanguageChoice::System.step(-1), LanguageChoice::Code("ko"));
+        assert_eq!(LanguageChoice::Code("ko").step(1), LanguageChoice::System);
+        assert_eq!(LanguageChoice::System.step(1), LanguageChoice::Code("en"));
+        assert_eq!(
+            LanguageChoice::Code("en").step(1),
+            LanguageChoice::Code("id")
+        );
+        // Russian, 21 presses away in the original, is 9 back from the system entry.
+        assert_eq!(LanguageChoice::System.step(-9), LanguageChoice::Code("ru"));
+    }
+
+    #[test]
+    fn at_interface_the_language_switch_runs_in_the_windows_order_with_the_same_names() {
+        // 0.4.0 audit #28 set back at «Like the original FxSound LLC» = Interface
+        // (`FxLanguage.cpp:25`): the order only; Türkçe, ไทย and Čeština keep their real names.
+        let level = WindowsParity::Interface;
+        let all = LanguageChoice::all_at(level);
+        assert_eq!(all.len(), LanguageChoice::all().len());
+        assert_eq!(
+            all[..6],
+            [
+                LanguageChoice::System,
+                LanguageChoice::Code("en"),
+                LanguageChoice::Code("ar"),
+                LanguageChoice::Code("ba"),
+                LanguageChoice::Code("bg"),
+                LanguageChoice::Code("hr"),
+            ]
+        );
+        assert_eq!(all[all.len() - 1], LanguageChoice::Code("zh-TW"));
+        // Russian is twenty-one presses on from English again, as in the original.
+        assert_eq!(
+            LanguageChoice::Code("en").step_at(21, level),
+            LanguageChoice::Code("ru")
+        );
+        assert_eq!(
+            LanguageChoice::System.step_at(-1, level),
+            LanguageChoice::Code("zh-TW")
+        );
+        assert_eq!(LanguageChoice::Code("tr").label(), "Türkçe");
+        // Off keeps the order of the names.
+        assert_eq!(
+            LanguageChoice::all_at(WindowsParity::Off),
+            LanguageChoice::all()
+        );
+        assert_eq!(
+            LanguageChoice::Code("en").step_at(1, WindowsParity::Off),
+            LanguageChoice::Code("id")
+        );
+    }
+
+    #[test]
+    fn the_current_choice_follows_the_settings_and_falls_back_to_the_system() {
+        let mut settings = Settings::default();
+        assert_eq!(LanguageChoice::current(&settings), LanguageChoice::System);
+        settings.choose_language(Some("ru"));
+        assert_eq!(
+            LanguageChoice::current(&settings),
+            LanguageChoice::Code("ru")
+        );
+        assert_eq!(LanguageChoice::Code("ru").setting().as_deref(), Some("ru"));
+        assert_eq!(LanguageChoice::System.setting(), None);
+        // An explicit code without a table (an old settings file, say) is the system entry.
+        settings.choose_language(Some("hu"));
+        assert_eq!(LanguageChoice::current(&settings), LanguageChoice::System);
+        // The ISO spelling of one with a table is that table (0.4.0 audit #28).
+        settings.choose_language(Some("uk"));
+        assert_eq!(
+            LanguageChoice::current(&settings),
+            LanguageChoice::Code("ua")
+        );
+    }
+
+    #[test]
+    fn the_switch_shows_native_names_and_names_the_system_language() {
+        assert_eq!(LanguageChoice::Code("pt").label(), "Português");
+        assert_eq!(LanguageChoice::Code("pt-br").label(), "Português (Brasil)");
+        assert_eq!(LanguageChoice::Code("tr").label(), "Türkçe");
+        let system = LanguageChoice::System.label();
+        assert!(
+            system.contains(i18n::native_name(i18n::system_language())),
+            "{system}"
+        );
+    }
+
+    #[test]
+    fn the_help_pane_matches_the_specs_table() {
+        // docs/spec/06-dialogs.md §1.9.
+        let pane = original_pane();
+        let [version_title, version_text, changelog] = help_rows(pane);
+        let expect = |r: Rect, min: egui::Pos2, size: Vec2| {
+            let r = local(pane, r);
+            assert!(
+                (r.min - min).length() < 1e-4,
+                "{r:?} should start at {min:?}"
+            );
+            assert!(
+                (r.size() - size).length() < 1e-4,
+                "{r:?} should be {size:?}"
+            );
+        };
+        expect(version_title, pos2(20.0, 50.0), vec2(429.0, 24.0));
+        expect(version_text, pos2(20.0, 84.0), vec2(429.0, 20.0));
+        expect(changelog, pos2(25.0, 114.0), vec2(424.0, 24.0));
+    }
+
+    #[test]
+    fn the_version_string_is_not_translated_and_carries_its_v() {
+        let state = SettingsState {
+            version: "1.1.25".into(),
+            ..linux()
+        };
+        assert_eq!(state.version_text(), "v1.1.25");
+    }
+
+    #[test]
+    fn the_defaults_match_the_persistence_table() {
+        // docs/spec/06-dialogs.md §8.
+        let settings = Settings::default();
+        assert!(!settings.prioritize_new_output);
+        assert!(!settings.hide_help_tooltips);
+        assert!(!settings.hide_notifications);
+        assert_eq!(settings.language, "en");
+        assert!(settings.language_follows_system);
+        assert_eq!(settings.max_user_presets, 120);
+        assert!(!settings.run_minimized);
+    }
+
+    #[test]
+    fn a_row_can_only_move_where_there_is_room() {
+        let state = populated();
+        assert!(!state.can_move_up(0));
+        assert!(state.can_move_down(0));
+        assert!(state.can_move_up(1));
+        assert!(!state.can_move_down(1));
+        // An index past the end cannot move at all.
+        assert!(!state.can_move_up(9));
+        assert!(!state.can_move_down(9));
+    }
+
+    #[test]
+    fn every_pane_draws_in_both_palettes_and_asks_for_nothing_on_its_own() {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let mut icons = NavIcons::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let mut state = populated();
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            for tab in SettingsTab::ALL {
+                state.tab = tab;
+                frame(&ctx, |ui| {
+                    let response = SettingsDialog::new(&state).show(
+                        ui,
+                        outer,
+                        Palette::new(mode),
+                        &mut assets,
+                        &mut icons,
+                    );
+                    assert!(
+                        response.is_empty(),
+                        "{tab:?} in {mode:?} emitted {:?}",
+                        response.actions
+                    );
+                });
+            }
+        }
+        // The six nav icons were rasterised exactly once each per size.
+        assert!(!icons.is_empty());
+        let cached = icons.len();
+        icons.clear();
+        assert!(icons.is_empty());
+        assert_eq!(cached, 6);
+    }
+
+    #[test]
+    fn an_empty_device_list_and_an_empty_preset_list_still_draw() {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let mut icons = NavIcons::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let state = linux();
+        frame(&ctx, |ui| {
+            let response = SettingsDialog::new(&state).show(
+                ui,
+                outer,
+                Palette::new(ThemeMode::Dark),
+                &mut assets,
+                &mut icons,
+            );
+            assert!(response.is_empty());
+        });
+    }
+
+    #[test]
+    fn the_five_nav_icons_rasterise() {
+        for icon in [
+            NavIcon::Speaker,
+            NavIcon::Settings,
+            NavIcon::Question,
+            NavIcon::Microphone,
+            NavIcon::Applications,
+        ] {
+            let raster = rasterise(icon.svg_bytes(), 20, 20)
+                .unwrap_or_else(|| panic!("{icon:?} failed to render"));
+            assert_eq!(raster.size, [20, 20]);
+            assert!(
+                raster.pixels.iter().any(|p| p.a() > 0),
+                "{icon:?} rendered blank"
+            );
+        }
+    }
+
+    #[test]
+    fn crossfx_own_icons_are_the_same_single_grey_as_the_others() {
+        // Every inked pixel of CrossFX's icons is #7E7E7E, as in `speaker.svg`: no second colour,
+        // and nothing themed, because the nav icons have no per-theme variant.
+        for icon in [NavIcon::Microphone, NavIcon::Applications] {
+            let raster = rasterise(icon.svg_bytes(), 48, 48).expect("renders");
+            let mut inked = 0;
+            for pixel in &raster.pixels {
+                let [r, g, b, a] = pixel.to_srgba_unmultiplied();
+                if a > 64 {
+                    inked += 1;
+                    for channel in [r, g, b] {
+                        assert!(
+                            channel.abs_diff(0x7E) <= 2,
+                            "{icon:?}: a pixel of {r:02x}{g:02x}{b:02x}"
+                        );
+                    }
+                }
+            }
+            // A capsule, a cradle and a stand; a window and its title bar: a real share of the
+            // square, but far from all of it.
+            let share = inked as f32 / raster.pixels.len() as f32;
+            assert!(
+                (0.1..0.5).contains(&share),
+                "{icon:?}: {share} of the square is inked"
+            );
+        }
+    }
+
+    #[test]
+    fn the_applications_icon_is_a_window_with_its_title_bar_filled() {
+        // Rendered at 24, one pixel per unit of the grid: the bar across the top is solid, the
+        // window's inside is empty, and its frame is there on both sides.
+        let raster = rasterise(NavIcon::Applications.svg_bytes(), 24, 24).expect("renders");
+        let alpha = |x: usize, y: usize| raster.pixels[y * 24 + x].a();
+        assert!(alpha(12, 6) > 200, "the title bar is filled");
+        assert!(alpha(12, 14) == 0, "the window is empty inside");
+        assert!(
+            alpha(4, 14) > 100 && alpha(19, 14) > 100,
+            "the frame's sides"
+        );
+        assert!(alpha(12, 19) > 100, "the frame's bottom");
+        assert!(
+            alpha(0, 0) == 0 && alpha(23, 23) == 0,
+            "the corners are clear"
+        );
+    }
+
+    // ---- the microphone pane ------------------------------------------------------------------
+
+    fn microphone_state() -> SettingsState {
+        SettingsState {
+            tab: SettingsTab::Microphone,
+            has_microphone: true,
+            ..populated()
+        }
+    }
+
+    /// Every rectangle the Microphone pane draws into, by name, for a button of `button_size`.
+    fn microphone_rects(pane: Rect, button_size: Vec2) -> Vec<(String, Rect)> {
+        let mut rects = Vec::new();
+        for index in 0..microphone::STEPPER_ROWS {
+            rects.push((
+                format!("caption {index}"),
+                microphone_label_rect(pane, index),
+            ));
+            rects.push((
+                format!("stepper {index}"),
+                microphone_stepper_rect(pane, index),
+            ));
+        }
+        let button = calibrate_button_rect(pane, button_size);
+        rects.extend([
+            ("echo".to_owned(), echo_toggle_rect(pane)),
+            ("echo status".to_owned(), echo_status_rect(pane)),
+            ("calibrate".to_owned(), button),
+            ("record".to_owned(), calibration_record_rect(pane, button)),
+            (
+                "preference heading".to_owned(),
+                input_preference_title_rect(pane, button),
+            ),
+            (
+                "preference list".to_owned(),
+                input_preference_list_rect(pane, button),
+            ),
+        ]);
+        rects
+    }
+
+    #[test]
+    fn the_microphone_pane_lays_out_on_the_other_panes_grid() {
+        let pane = pane_rect(content());
+        // Four stepper rows forty apart from the y every pane starts at, captions from the margin.
+        for (index, top) in [(0, 50.0), (1, 90.0), (2, 130.0), (3, 170.0)] {
+            let caption = local(pane, microphone_label_rect(pane, index));
+            let stepper = local(pane, microphone_stepper_rect(pane, index));
+            assert!(
+                (caption.min - pos2(20.0, top)).length() < 1e-4,
+                "{caption:?}"
+            );
+            // 447 - 20 - 200: the stepper is flush with the right margin.
+            assert!(
+                (stepper.min - pos2(227.0, top)).length() < 1e-4,
+                "{stepper:?}"
+            );
+            assert!((stepper.size() - vec2(200.0, 30.0)).length() < 1e-4);
+            assert!((caption.right() - 217.0).abs() < 1e-4, "{caption:?}");
+        }
+        // The checkbox ten below the last stepper — the fifth row of their grid — its status line
+        // under it and indented to its caption, the button ten below that.
+        let echo = local(pane, echo_toggle_rect(pane));
+        assert!((echo.min - pos2(20.0, 210.0)).length() < 1e-4, "{echo:?}");
+        assert!((echo.size() - vec2(407.0, 30.0)).length() < 1e-4);
+        let status = local(pane, echo_status_rect(pane));
+        assert!(
+            (status.min - pos2(48.0, 240.0)).length() < 1e-4,
+            "{status:?}"
+        );
+        let button = local(pane, calibrate_button_rect(pane, vec2(220.0, 24.0)));
+        assert!(
+            (button.min - pos2(20.0, 270.0)).length() < 1e-4,
+            "{button:?}"
+        );
+        let record = local(
+            pane,
+            calibration_record_rect(pane, calibrate_button_rect(pane, vec2(220.0, 24.0))),
+        );
+        assert!(
+            (record.min - pos2(20.0, 304.0)).length() < 1e-4,
+            "{record:?}"
+        );
+        // The microphones' priority list: its heading ten under the record line, the list ten
+        // under that, as wide as the Audio pane's, four 32-point rows and the insets tall, and
+        // clear of the bottom margin.
+        let button = calibrate_button_rect(pane, vec2(220.0, 24.0));
+        let heading = local(pane, input_preference_title_rect(pane, button));
+        assert!(
+            (heading.min - pos2(20.0, 334.0)).length() < 1e-4,
+            "{heading:?}"
+        );
+        let list = local(pane, input_preference_list_rect(pane, button));
+        assert!((list.min - pos2(20.0, 358.0)).length() < 1e-4, "{list:?}");
+        assert!(
+            (list.size() - vec2(397.0, 4.0 * 32.0 + 10.0)).length() < 1e-4,
+            "{list:?}"
+        );
+        assert!(list.bottom() <= pane.height() - microphone::BOTTOM_MARGIN);
+    }
+
+    #[test]
+    fn four_microphones_fit_the_list_under_every_languages_calibration_button() {
+        // Every translation of the button's label fits one line of it (see
+        // `every_language_fits_the_microphone_captions_and_values_between_their_edges`), and a
+        // one-line button of any width leaves the list its four whole rows.
+        let pane = pane_rect(content());
+        for width in [audio::RESET_MIN_WIDTH, audio::RESET_MAX_WIDTH] {
+            let button = calibrate_button_rect(pane, vec2(width, audio::RESET_LINE_HEIGHT));
+            let rows =
+                input_preference_list_rect(pane, button).shrink(microphone::PREFERENCE_INSET);
+            let fit = rows.height() / microphone::PREFERENCE_ROW_HEIGHT;
+            assert!(
+                (fit - microphone::PREFERENCE_ROWS as f32).abs() < 1e-4,
+                "{fit} rows fit a button {width} wide"
+            );
+        }
+        let ctx = test_context();
+        frame(&ctx, |ui| {
+            for (code, text) in every_translation(CALIBRATE_MICROPHONE) {
+                let used = ui
+                    .painter()
+                    .layout_no_wrap(text.clone(), normal_font(), Color32::PLACEHOLDER)
+                    .size()
+                    .x;
+                assert_eq!(
+                    reset_button_size(&text, used).y,
+                    audio::RESET_LINE_HEIGHT,
+                    "{code}: {text:?} wraps"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn a_microphones_row_is_the_audio_panes_row_eight_points_shorter() {
+        // The same functions lay both out: every column is where the Audio pane's is, the
+        // buttons are centred in the shorter row, and the combo is the row less two points each
+        // side, which the combo sets in its small face.
+        let width = 387.0;
+        let row = Rect::from_min_size(
+            pos2(0.0, 0.0),
+            vec2(width, microphone::PREFERENCE_ROW_HEIGHT),
+        );
+        let audio_row = Rect::from_min_size(pos2(0.0, 0.0), vec2(width, device_row::HEIGHT));
+        for (short, tall) in [
+            (up_button_rect(row, 1, 3), up_button_rect(audio_row, 1, 3)),
+            (
+                down_button_rect(row, 1, 3),
+                down_button_rect(audio_row, 1, 3),
+            ),
+            (remove_button_rect(row), remove_button_rect(audio_row)),
+        ] {
+            assert!((short.top() - 7.0).abs() < 1e-4, "{short:?}");
+            assert!(row.contains_rect(short), "{short:?}");
+            assert_eq!(short.x_range(), tall.x_range());
+        }
+        let combo = preset_combo_rect(row);
+        assert_eq!(combo.x_range(), preset_combo_rect(audio_row).x_range());
+        assert!((combo.size() - vec2(device_row::PRESET_WIDTH, 28.0)).length() < 1e-4);
+        assert!((combo.top() - 2.0).abs() < 1e-4, "{combo:?}");
+        assert_eq!(
+            crate::widgets::combo::font_size(combo.height()),
+            crate::widgets::combo::SMALL_FONT
+        );
+        let name = device_name_rect(row);
+        assert_eq!(name.x_range(), device_name_rect(audio_row).x_range());
+        assert!(name.left() >= down_button_rect(row, 1, 3).right());
+        assert!(name.right() <= combo.left());
+        assert!(combo.right() <= remove_button_rect(row).left());
+        assert!(row.contains_rect(combo) && row.contains_rect(name));
+    }
+
+    /// The Microphone pane with three microphones ranked, the second one gone: the first has
+    /// `Headset`, the voice preset of index 1, the second remembers `Streaming`, and the third
+    /// nothing, or a preset since deleted.
+    fn ranked_microphones() -> SettingsState {
+        let row = |id: &str, name: &str, preset, connected, present| DevicePriority {
+            id: id.into(),
+            name: name.into(),
+            preset,
+            connected,
+            present,
+        };
+        SettingsState {
+            microphones: vec![
+                row("alsa_input.usb", "USB Microphone", Some(1), true, true),
+                row("bluez_input.AC_12", "Headset", Some(2), false, false),
+                row("alsa_input.pci", "Built-in", None, false, true),
+            ],
+            input_presets: vec!["Clean Voice".into(), "Headset".into(), "Streaming".into()],
+            ..microphone_state()
+        }
+    }
+
+    /// The row the Microphone pane draws at `index`, with no scrolling.
+    fn microphone_list_row(index: usize) -> Rect {
+        let pane = shown_pane();
+        let list = input_preference_list_rect(pane, calibrate_button_rect(pane, vec2(220.0, 24.0)))
+            .shrink(microphone::PREFERENCE_INSET);
+        Rect::from_min_size(
+            pos2(
+                list.left(),
+                list.top() + index as f32 * microphone::PREFERENCE_ROW_HEIGHT,
+            ),
+            vec2(list.width(), microphone::PREFERENCE_ROW_HEIGHT),
+        )
+    }
+
+    #[test]
+    fn the_arrows_of_the_microphones_list_move_that_microphone() {
+        let state = ranked_microphones();
+        let count = state.microphones.len();
+        assert_eq!(
+            click_settings(
+                &state,
+                down_button_rect(microphone_list_row(0), 0, count).center()
+            ),
+            [SettingsAction::MoveMicrophoneDown(0)]
+        );
+        assert_eq!(
+            click_settings(
+                &state,
+                up_button_rect(microphone_list_row(1), 1, count).center()
+            ),
+            [SettingsAction::MoveMicrophoneUp(1)]
+        );
+        assert_eq!(
+            click_settings(
+                &state,
+                down_button_rect(microphone_list_row(1), 1, count).center()
+            ),
+            [SettingsAction::MoveMicrophoneDown(1)]
+        );
+        assert_eq!(
+            click_settings(
+                &state,
+                up_button_rect(microphone_list_row(2), 2, count).center()
+            ),
+            [SettingsAction::MoveMicrophoneUp(2)]
+        );
+        // The name is not a control.
+        assert!(
+            click_settings(&state, device_name_rect(microphone_list_row(0)).center()).is_empty()
+        );
+    }
+
+    #[test]
+    fn only_a_microphone_that_is_gone_can_be_forgotten() {
+        let state = ranked_microphones();
+        assert_eq!(
+            click_settings(&state, remove_button_rect(microphone_list_row(1)).center()),
+            [SettingsAction::RemoveMicrophone(1)]
+        );
+        assert!(
+            click_settings(&state, remove_button_rect(microphone_list_row(0)).center()).is_empty()
+        );
+        assert!(
+            click_settings(&state, remove_button_rect(microphone_list_row(2)).center()).is_empty()
+        );
+    }
+
+    #[test]
+    fn each_microphone_shows_its_own_voice_preset_or_the_placeholder() {
+        let state = ranked_microphones();
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let mut window = Window::new(mode);
+            window.frame(&state, Vec::new());
+            let (_, shapes) = window.frame(&state, Vec::new());
+            let texts = crate::views::testing::texts(&shapes);
+            let placeholder = Palette::new(mode).color_alpha(
+                FxColor::DefaultText,
+                crate::widgets::combo::PLACEHOLDER_ALPHA,
+            );
+            for (row, wanted, dimmed) in [
+                (0, "Headset", false),
+                (1, "Streaming", false),
+                (2, "Select preset", true),
+            ] {
+                let combo = preset_combo_rect(microphone_list_row(row));
+                let shown: Vec<_> = texts
+                    .iter()
+                    .filter(|(_, rect, _)| combo.contains(rect.center()))
+                    .collect();
+                assert_eq!(shown.len(), 1, "row {row}: {shown:?}");
+                let (text, rect, colour) = shown[0];
+                assert_eq!(text, wanted, "row {row}");
+                assert_eq!(*colour == placeholder, dimmed, "row {row}");
+                assert!(
+                    combo.contains_rect(*rect),
+                    "row {row}: {rect:?} in {combo:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_microphones_combo_offers_the_voice_presets_and_asks_for_the_one_picked_for_it() {
+        let state = ranked_microphones();
+        // The list the combo opens: the voice presets, and none of the speakers' `.fac` ones.
+        let combo = preset_combo_rect(microphone_list_row(2));
+        let mut window = Window::new(ThemeMode::Dark);
+        let count = |shapes: &[egui::epaint::ClippedShape], wanted: &str| {
+            crate::views::testing::texts(shapes)
+                .into_iter()
+                .filter(|(text, _, _)| text == wanted)
+                .count()
+        };
+        let (_, closed) = window.frame(&state, Vec::new());
+        window.click(&state, combo.center());
+        let (_, open) = window.frame(&state, Vec::new());
+        for voice in &state.input_presets {
+            assert_eq!(
+                count(&open, voice),
+                count(&closed, voice) + 1,
+                "{voice} is offered once"
+            );
+        }
+        // `General` is also a tab's caption: only what the open list adds counts.
+        for music in &state.presets {
+            assert_eq!(
+                count(&open, music),
+                count(&closed, music),
+                "{music} is offered"
+            );
+        }
+
+        for (row, entry) in [(0, "Streaming"), (1, "Clean Voice"), (2, "Headset")] {
+            let mut window = Window::new(ThemeMode::Light);
+            assert_eq!(
+                window.pick(&state, preset_combo_rect(microphone_list_row(row)), entry),
+                [SettingsAction::SetDevicePreset {
+                    direction: IN,
+                    device: row,
+                    preset: entry.to_owned(),
+                }],
+                "row {row}"
+            );
+        }
+    }
+
+    /// Everything the Microphone pane paints for `state`, with where each shape may be seen.
+    fn microphone_shapes(state: &SettingsState, mode: ThemeMode) -> Vec<(egui::Shape, Rect)> {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let pane = shown_pane();
+        let mut shapes = Vec::new();
+        // Twice: the artwork is uploaded on the first.
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE)),
+                ..Default::default()
+            };
+            let mut response = DialogResponse::default();
+            let mut output = ctx.run_ui(input, |ui| {
+                microphone_pane(
+                    ui,
+                    pane,
+                    state,
+                    Palette::new(mode),
+                    &mut assets,
+                    Id::unique("fx_settings_dialog"),
+                    &mut response,
+                );
+            });
+            assert!(response.is_empty(), "{:?}", response.actions);
+            shapes = std::mem::take(&mut output.shapes)
+                .into_iter()
+                .map(|clipped| {
+                    let bounds = clipped
+                        .shape
+                        .visual_bounding_rect()
+                        .intersect(clipped.clip_rect);
+                    (clipped.shape, bounds)
+                })
+                .filter(|(_, bounds)| bounds.is_positive())
+                .collect();
+            output.drop_without_applying_deltas();
+        }
+        shapes
+    }
+
+    #[test]
+    fn four_microphones_and_their_combos_fit_the_list_and_nothing_in_the_pane_overlaps() {
+        // Four microphones with long names, each with a preset, and a fifth that scrolls: what
+        // the list paints stays in its box, and no two texts of the pane touch.
+        let mut state = ranked_microphones();
+        state.microphones.extend([
+            DevicePriority {
+                id: "alsa_input.usb-C920".into(),
+                name: "HD Pro Webcam C920 Analogue Stereo".into(),
+                preset: Some(0),
+                connected: false,
+                present: true,
+            },
+            DevicePriority {
+                id: "alsa_input.dock".into(),
+                name: "Dock Microphone".into(),
+                preset: None,
+                connected: false,
+                present: false,
+            },
+        ]);
+        state.settings.echo_cancel = true;
+        state.echo_cancel_trouble = Some(EchoCancelTrouble::NotLoaded);
+        state.settings.calibration = Some(crossfx_core::settings::CalibrationRecord::default());
+        let pane = shown_pane();
+        let button = calibrate_button_rect(pane, vec2(220.0, 24.0));
+        let list = input_preference_list_rect(pane, button);
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let shapes = microphone_shapes(&state, mode);
+            for (shape, bounds) in &shapes {
+                assert!(
+                    pane.expand(0.5).contains_rect(*bounds),
+                    "{bounds:?} leaves the pane: {shape:?}"
+                );
+                if bounds.top() >= list.top() {
+                    assert!(
+                        list.expand(0.5).contains_rect(*bounds),
+                        "{bounds:?} leaves the list {list:?}: {shape:?}"
+                    );
+                }
+            }
+            let texts: Vec<(String, Rect)> = shapes
+                .iter()
+                .filter_map(|(shape, bounds)| match shape {
+                    egui::Shape::Text(text) => Some((text.galley.text().to_owned(), *bounds)),
+                    _ => None,
+                })
+                .collect();
+            // The four rows in sight, each with its name and its combo's text.
+            for row in 0..microphone::PREFERENCE_ROWS {
+                let rect = microphone_list_row(row);
+                let inside = texts
+                    .iter()
+                    .filter(|(_, at)| rect.contains_rect(*at))
+                    .count();
+                assert_eq!(inside, 2, "row {row}: {texts:?}");
+            }
+            for (i, (a_text, a)) in texts.iter().enumerate() {
+                for (b_text, b) in &texts[i + 1..] {
+                    assert!(
+                        !a.intersects(*b) || a.intersect(*b).area() <= 1e-3,
+                        "{a_text:?} {a:?} overlaps {b_text:?} {b:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn nothing_in_the_microphone_pane_overlaps_or_leaves_it_even_with_a_three_line_button() {
+        let pane = pane_rect(content());
+        // The smallest and the largest button `reset_button_size` can hand back.
+        for button in [vec2(220.0, 24.0), vec2(315.0, 72.0)] {
+            let rects = microphone_rects(pane, button);
+            for (name, rect) in &rects {
+                assert!(pane.contains_rect(*rect), "{name} {rect:?} leaves the pane");
+                assert!(
+                    rect.left() >= pane.left() + X_MARGIN - 1e-4
+                        && rect.right() <= pane.right() - X_MARGIN + 1e-4,
+                    "{name} {rect:?} is outside the margins"
+                );
+                assert!(
+                    rect.top() >= pane_title_rect(pane).bottom(),
+                    "{name} runs under the title"
+                );
+            }
+            for (i, (a_name, a)) in rects.iter().enumerate() {
+                for (b_name, b) in &rects[i + 1..] {
+                    // The status line sits inside the checkbox's own column, under it.
+                    assert!(
+                        a.intersect(*b).area() <= 1e-3 || !a.intersects(*b),
+                        "{a_name} {a:?} overlaps {b_name} {b:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_english_captions_and_values_fit_the_microphone_pane_unelided() {
+        // Measured with the real faces. A translation may be elided; the source language must not.
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        frame(&ctx, |ui| {
+            let width = |text: &str, font| {
+                ui.painter()
+                    .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER)
+                    .size()
+                    .x
+            };
+            for index in 0..microphone::STEPPER_ROWS {
+                let caption = [NOISE_SUPPRESSION, DENOISER_CHANNELS, DE_ESSER, DE_REVERB][index];
+                let room = microphone_label_rect(pane, index).width();
+                let used = width(caption, normal_font());
+                assert!(used <= room, "{caption:?} is {used} in {room}");
+            }
+            let values = NoiseSuppressionOverride::ALL
+                .map(NoiseSuppressionOverride::label)
+                .into_iter()
+                .chain(DenoiseChannelsOverride::ALL.map(DenoiseChannelsOverride::label))
+                .chain(DeEsserMode::ALL.map(DeEsserMode::label))
+                .chain(DereverbLevel::ALL.map(DereverbLevel::label));
+            let room = stepper_label_rect(microphone_stepper_rect(pane, 0)).width();
+            for value in values {
+                let used = width(value, normal_font());
+                assert!(
+                    used <= room,
+                    "{value:?} is {used} between arrows {room} apart"
+                );
+            }
+            let record = "Floor −48 dB · Speech −19 dB · 2026-09-23";
+            let used = width(record, small_font());
+            let room =
+                calibration_record_rect(pane, calibrate_button_rect(pane, vec2(220.0, 24.0)))
+                    .width();
+            assert!(used <= room, "the record line is {used} in {room}");
+        });
+    }
+
+    #[test]
+    fn every_arrow_on_a_microphone_row_steps_one_value_and_wraps() {
+        let mut settings = Settings::default();
+        let rows = microphone_rows(&settings);
+        assert_eq!(
+            rows.clone().map(|(_, value, _)| value),
+            ["Preset", "Preset", "Classic", "Off"].map(str::to_owned)
+        );
+        assert_eq!(
+            rows.map(|(_, _, actions)| actions),
+            [
+                [
+                    SettingsAction::SetNoiseSuppression(NoiseSuppressionOverride::Strong),
+                    SettingsAction::SetNoiseSuppression(NoiseSuppressionOverride::Off),
+                ],
+                [
+                    SettingsAction::SetDenoiseChannels(DenoiseChannelsOverride::Independent),
+                    SettingsAction::SetDenoiseChannels(DenoiseChannelsOverride::Mono),
+                ],
+                [
+                    SettingsAction::SetDeEsserMode(DeEsserMode::Adaptive),
+                    SettingsAction::SetDeEsserMode(DeEsserMode::Adaptive),
+                ],
+                [
+                    SettingsAction::SetDereverb(DereverbLevel::Strong),
+                    SettingsAction::SetDereverb(DereverbLevel::Light),
+                ],
+            ]
+        );
+
+        // From the far end, forward wraps back to the start.
+        settings.noise_suppression = NoiseSuppressionOverride::Strong;
+        settings.denoise_channels = DenoiseChannelsOverride::Linked;
+        settings.dereverb = DereverbLevel::Medium;
+        let rows = microphone_rows(&settings);
+        assert_eq!(
+            rows[0].2[1],
+            SettingsAction::SetNoiseSuppression(NoiseSuppressionOverride::Preset)
+        );
+        assert_eq!(
+            rows[1].2,
+            [
+                SettingsAction::SetDenoiseChannels(DenoiseChannelsOverride::Mono),
+                SettingsAction::SetDenoiseChannels(DenoiseChannelsOverride::Independent),
+            ]
+        );
+        assert_eq!(rows[3].1, "Medium");
+        // `Light` reads Mild, as it does everywhere else.
+        settings.noise_suppression = NoiseSuppressionOverride::Light;
+        assert_eq!(microphone_rows(&settings)[0].1, "Mild");
+    }
+
+    #[test]
+    fn cycle_wraps_both_ways_and_starts_from_the_top_for_a_stranger() {
+        let all = [1, 2, 3];
+        assert_eq!(cycle(&all, 1, -1), 3);
+        assert_eq!(cycle(&all, 3, 1), 1);
+        assert_eq!(cycle(&all, 2, 1), 3);
+        assert_eq!(cycle(&all, 2, 4), 3);
+        assert_eq!(cycle(&all, 9, 1), 2);
+    }
+
+    #[test]
+    fn the_echo_line_speaks_only_when_asked_for_and_not_running() {
+        let mut state = microphone_state();
+        state.input_processing = true;
+        assert_eq!(state.echo_cancel_status(), None, "not asked for");
+        state.settings.echo_cancel = true;
+        state.echo_cancel_running = true;
+        assert_eq!(state.echo_cancel_status(), None, "running");
+        state.echo_cancel_running = false;
+        assert_eq!(
+            state.echo_cancel_status().as_deref(),
+            Some("unavailable"),
+            "the microphone delivers and the canceller is not there"
+        );
+        state.echo_cancel_trouble = Some(EchoCancelTrouble::NotLoaded);
+        assert_eq!(
+            state.echo_cancel_status().as_deref(),
+            Some("unavailable · the echo canceller could not be loaded")
+        );
+        state.echo_cancel_trouble = Some(EchoCancelTrouble::Other);
+        assert_eq!(
+            state.echo_cancel_status().as_deref(),
+            Some("unavailable"),
+            "a reason this version cannot name is not printed"
+        );
+    }
+
+    #[test]
+    fn echo_cancellation_ticked_before_it_is_needed_is_not_called_unavailable() {
+        // Microphone lane off, or on and not delivering yet: the canceller is only loaded once
+        // the lane has its pair, and not having it then is nothing wrong.
+        let mut state = microphone_state();
+        state.settings.echo_cancel = true;
+        state.input_processing = false;
+        assert_eq!(state.echo_cancel_status(), None);
+        // A reason the engine gave still counts without a microphone.
+        state.echo_cancel_trouble = Some(EchoCancelTrouble::WaitingForSpeakers);
+        assert_eq!(
+            state.echo_cancel_status().as_deref(),
+            Some("unavailable · waiting for the speakers")
+        );
+    }
+
+    #[test]
+    fn the_last_calibration_reads_floor_speech_and_date_or_says_there_is_none() {
+        let mut state = microphone_state();
+        assert_eq!(state.calibration_text(), "Not calibrated yet");
+        state.settings.calibration = Some(crossfx_core::settings::CalibrationRecord {
+            noise_floor_db: -48.3,
+            speech_rms_db: -18.6,
+            speech_peak_db: -4.0,
+            clipped_ratio: 0.0,
+            unix_time: 1_790_121_600,
+            preset: "Calibrated — fifine".to_owned(),
+            device: "alsa_input.usb-fifine".to_owned(),
+            extra: Default::default(),
+        });
+        assert_eq!(
+            state.calibration_text(),
+            "Floor −48 dB · Speech −19 dB · 2026-09-23"
+        );
+    }
+
+    /// Click `at` in a Settings window drawing `state`, and collect what the three frames emitted.
+    fn click_settings(state: &SettingsState, at: egui::Pos2) -> Vec<SettingsAction> {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let mut icons = NavIcons::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        let mut actions = Vec::new();
+        for events in [
+            vec![egui::Event::PointerMoved(at)],
+            vec![egui::Event::PointerMoved(at), button(true)],
+            vec![button(false)],
+        ] {
+            let input = egui::RawInput {
+                screen_rect: Some(outer),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ui| {
+                actions.extend(
+                    SettingsDialog::new(state)
+                        .show(
+                            ui,
+                            outer,
+                            Palette::new(ThemeMode::Dark),
+                            &mut assets,
+                            &mut icons,
+                        )
+                        .actions,
+                );
+            })
+            .drop_without_applying_deltas();
+        }
+        actions
+    }
+
+    /// The pane as `SettingsDialog::show` lays it out in a window at the origin.
+    fn shown_pane() -> Rect {
+        pane_rect(shown_content())
+    }
+
+    /// The content rectangle of the window [`Window`] draws.
+    fn shown_content() -> Rect {
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        super::super::content_rect(outer)
+    }
+
+    #[test]
+    fn the_microphone_tab_button_selects_the_microphone_pane() {
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let content = super::super::content_rect(outer);
+        let actions = click_settings(&populated(), nav_button_rect(content, 3).center());
+        assert_eq!(
+            actions,
+            [SettingsAction::SelectTab(SettingsTab::Microphone)]
+        );
+    }
+
+    #[test]
+    fn the_arrows_of_a_microphone_row_emit_that_rows_setting() {
+        let state = microphone_state();
+        let pane = shown_pane();
+        for index in 0..microphone::STEPPER_ROWS {
+            let stepper = microphone_stepper_rect(pane, index);
+            let [back, forward] = microphone_rows(&state.settings)[index].2.clone();
+            let left = pos2(stepper.left() + 17.0, stepper.center().y);
+            let right = pos2(stepper.right() - 17.0, stepper.center().y);
+            assert_eq!(click_settings(&state, left), [back], "‹ on row {index}");
+            assert_eq!(click_settings(&state, right), [forward], "› on row {index}");
+            // The value between the arrows is not a control.
+            assert!(click_settings(&state, stepper.center()).is_empty());
+        }
+    }
+
+    #[test]
+    fn the_echo_checkbox_asks_for_the_opposite_of_what_it_shows() {
+        let mut state = microphone_state();
+        let at = echo_toggle_rect(shown_pane()).left_center() + vec2(9.0, 0.0);
+        assert_eq!(
+            click_settings(&state, at),
+            [SettingsAction::SetEchoCancel(true)]
+        );
+        state.settings.echo_cancel = true;
+        assert_eq!(
+            click_settings(&state, at),
+            [SettingsAction::SetEchoCancel(false)]
+        );
+    }
+
+    #[test]
+    fn calibrate_opens_the_wizard_only_with_a_microphone_selected() {
+        let mut state = microphone_state();
+        // The button's top-left corner is where it starts whatever its measured width.
+        let at = calibrate_button_rect(shown_pane(), vec2(220.0, 24.0)).min + vec2(20.0, 12.0);
+        assert_eq!(
+            click_settings(&state, at),
+            [SettingsAction::OpenCalibration]
+        );
+        state.has_microphone = false;
+        assert!(
+            click_settings(&state, at).is_empty(),
+            "a disabled button clicked"
+        );
+    }
+
+    #[test]
+    fn the_microphone_pane_draws_every_state_without_asking_for_anything() {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let mut icons = NavIcons::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let mut calibrated = microphone_state();
+        calibrated.settings.echo_cancel = true;
+        calibrated.echo_cancel_trouble = Some(EchoCancelTrouble::NotLoaded);
+        calibrated.settings.calibration =
+            Some(crossfx_core::settings::CalibrationRecord::default());
+        calibrated.settings.noise_suppression = NoiseSuppressionOverride::Strong;
+        calibrated.settings.denoise_channels = DenoiseChannelsOverride::Linked;
+        let no_microphone = SettingsState {
+            has_microphone: false,
+            ..microphone_state()
+        };
+        for state in [
+            microphone_state(),
+            calibrated,
+            no_microphone,
+            ranked_microphones(),
+        ] {
+            for mode in [ThemeMode::Dark, ThemeMode::Light] {
+                frame(&ctx, |ui| {
+                    let response = SettingsDialog::new(&state).show(
+                        ui,
+                        outer,
+                        Palette::new(mode),
+                        &mut assets,
+                        &mut icons,
+                    );
+                    assert!(response.is_empty(), "{:?}", response.actions);
+                });
+            }
+        }
+    }
+
+    // ---- fitting every language -----------------------------------------------------------------
+
+    #[test]
+    fn every_language_fits_the_microphone_captions_and_values_between_their_edges() {
+        // A translation that is elided in its own row is one the pane cannot show; the captions
+        // were chosen, and some translations shortened, until none is.
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let caption_room = microphone_label_rect(pane, 0).width();
+        let value_room = stepper_label_rect(microphone_stepper_rect(pane, 0)).width();
+        let echo_room = echo_toggle_rect(pane).width() - TICK_BOX_SIDE - TICK_BOX_GAP;
+        let values: Vec<&str> = NoiseSuppressionOverride::ALL
+            .map(NoiseSuppressionOverride::label)
+            .into_iter()
+            .chain(DenoiseChannelsOverride::ALL.map(DenoiseChannelsOverride::label))
+            .chain(DeEsserMode::ALL.map(DeEsserMode::label))
+            .chain(DereverbLevel::ALL.map(DereverbLevel::label))
+            .collect();
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            let mut check = |key: &str, room: f32| {
+                for (code, text) in every_translation(key) {
+                    let used = ui
+                        .painter()
+                        .layout_no_wrap(text.clone(), normal_font(), Color32::PLACEHOLDER)
+                        .size()
+                        .x;
+                    if used > room {
+                        problems.push(format!("{code}: {text:?} is {used:.0} in {room:.0}"));
+                    }
+                }
+            };
+            for caption in [NOISE_SUPPRESSION, DENOISER_CHANNELS, DE_ESSER, DE_REVERB] {
+                check(caption, caption_room);
+            }
+            for value in &values {
+                check(value, value_room);
+            }
+            check(ECHO_CANCELLATION, echo_room);
+            check(
+                CALIBRATE_MICROPHONE,
+                audio::RESET_MAX_WIDTH - audio::RESET_LINE_HEIGHT,
+            );
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    /// Every translation of every tab's caption, with the font [`nav_caption_font`] sets it in and
+    /// the width it comes to.
+    /// Every tab's caption in every language, as [`nav_caption`] sets it in `room`, with the
+    /// width of its widest line.
+    fn fitted_captions(ui: &Ui, room: f32) -> Vec<(SettingsTab, String, NavCaption, f32)> {
+        let mut all = Vec::new();
+        for tab in SettingsTab::ALL {
+            for (code, text) in every_translation(tab.nav_label()) {
+                let caption = nav_caption(ui.ctx(), &text, room);
+                let widest = caption
+                    .lines
+                    .iter()
+                    .map(|line| {
+                        ui.painter()
+                            .layout_no_wrap(
+                                line.clone(),
+                                crate::theme::semibold(caption.size),
+                                Color32::PLACEHOLDER,
+                            )
+                            .size()
+                            .x
+                    })
+                    .fold(0.0, f32::max);
+                all.push((tab, format!("{code}: {text}"), caption, widest));
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn a_tabs_caption_box_ends_six_points_short_of_the_rule() {
+        // 0.4.0 audit #29: the original's box ran 28 points past the rule.
+        let content = content();
+        for tab in SettingsTab::ALL {
+            let label = nav_label_rect(nav_button_rect(content, tab.index()));
+            assert!(
+                (divider_x(content) - label.right() - NAV_LABEL_CLEARANCE).abs() < 1e-4,
+                "{tab:?}: {label:?}"
+            );
+            assert!((label.width() - 81.0).abs() < 1e-4, "{label:?}");
+            let button = nav_button_rect(content, tab.index());
+            assert!((label.left() - (button.left() + 45.0)).abs() < 1e-4);
+            assert_eq!(label.y_range(), button.y_range());
+        }
+    }
+
+    #[test]
+    fn every_languages_tab_captions_fit_whole_short_of_the_rule() {
+        // Set smaller where they must, or in two lines, but never elided: every caption of the
+        // thirty languages fits at or above the smallest size, and two lines fit the button.
+        let ctx = test_context();
+        let content = content();
+        let room = nav_label_rect(nav_button_rect(content, 0)).width();
+        frame(&ctx, |ui| {
+            let mut problems = Vec::new();
+            for (tab, text, caption, widest) in fitted_captions(ui, room) {
+                let height = caption.layout(ui.ctx(), Color32::WHITE).size().y;
+                if widest > room || caption.size < MIN_NAV_FONT || height > BUTTON_SIZE.y {
+                    problems.push(format!(
+                        "{tab:?} {text}: {:?} {widest:.1} × {height:.1} at {}",
+                        caption.lines, caption.size
+                    ));
+                }
+                if caption.lines.iter().any(|line| line.contains('{')) {
+                    problems.push(format!("{tab:?} {text}: the break mark shows"));
+                }
+            }
+            assert!(problems.is_empty(), "{}", problems.join("\n"));
+        });
+    }
+
+    #[test]
+    fn the_windows_caption_box_is_the_originals_and_runs_past_the_rule() {
+        // `FxSettingsDialog.cpp:73-75`: from `height + 5` in, `width - height + 5` wide.
+        let content = content();
+        for tab in SettingsTab::ALL {
+            let button = nav_button_rect(content, tab.index());
+            let label = windows_nav_label_rect(button);
+            assert!((label.left() - (button.left() + 45.0)).abs() < 1e-4);
+            assert!((label.width() - 115.0).abs() < 1e-4, "{label:?}");
+            assert!(label.right() > divider_x(content));
+            assert_eq!(label.y_range(), button.y_range());
+        }
+        assert!(SettingsTab::Audio.windows_has() && SettingsTab::Help.windows_has());
+        assert!(!SettingsTab::Microphone.windows_has());
+        assert!(!SettingsTab::Experimental.windows_has());
+    }
+
+    #[test]
+    fn at_interface_the_three_windows_tabs_caption_in_the_normal_font_clipped_by_their_button() {
+        // 0.4.0 audit #29 set back at «Like the original FxSound LLC» = Interface; CrossFX's own
+        // tabs keep the fitted caption.
+        let caption = |level: WindowsParity, wanted: &str| {
+            let mut window = Window::new(ThemeMode::Dark);
+            let mut state = experimental_state(level);
+            state.tab = SettingsTab::Audio;
+            window.frame(&state, Vec::new());
+            let (_, shapes) = window.frame(&state, Vec::new());
+            shapes
+                .iter()
+                .find_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(text) if text.galley.text() == wanted => Some((
+                        clipped.clip_rect,
+                        text.galley.job.sections[0].format.font_id.size,
+                        clipped.shape.visual_bounding_rect(),
+                    )),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no {wanted:?} at {level:?}"))
+        };
+        for level in [WindowsParity::Interface, WindowsParity::Sound] {
+            for tab in [SettingsTab::Audio, SettingsTab::General, SettingsTab::Help] {
+                let (clip, size, _) = caption(level, tab.nav_label());
+                let button = nav_button_rect(shown_content(), tab.index());
+                assert_eq!(clip, button, "{tab:?}");
+                assert_eq!(size, super::super::NORMAL_FONT, "{tab:?}");
+            }
+            let (clip, size, bounds) = caption(level, "Microphone");
+            assert!(size < super::super::NORMAL_FONT, "fitted: {size}");
+            assert!(
+                bounds.right() <= divider_x(shown_content()),
+                "{bounds:?} {clip:?}"
+            );
+        }
+        // Off: every caption stops short of the rule.
+        let (clip, _, bounds) = caption(WindowsParity::Off, "Audio");
+        assert_ne!(clip, nav_button_rect(shown_content(), 0));
+        assert!(bounds.right() <= divider_x(shown_content()));
+    }
+
+    #[test]
+    fn a_caption_that_fits_keeps_the_normal_font_and_only_a_long_one_is_set_smaller() {
+        // In English the original's three captions keep getNormalFont(); CrossFX's Microphone,
+        // Applications and Experimental, about 93, 98 and 90 points in it, come down to fit 81.
+        let ctx = test_context();
+        let content = content();
+        let room = nav_label_rect(nav_button_rect(content, 0)).width();
+        frame(&ctx, |ui| {
+            for (tab, text, caption, widest) in fitted_captions(ui, room) {
+                if !text.starts_with("en: ") {
+                    continue;
+                }
+                assert_eq!(caption.lines.len(), 1, "{text}");
+                let long = matches!(
+                    tab,
+                    SettingsTab::Microphone | SettingsTab::Applications | SettingsTab::Experimental
+                );
+                assert_eq!(
+                    caption.size < super::super::NORMAL_FONT,
+                    long,
+                    "{text} at {}",
+                    caption.size
+                );
+                if long {
+                    // As large as fits, to the half point.
+                    assert!(widest > room - 5.0, "{text}: {widest} in {room}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn a_long_word_breaks_where_the_translation_marks_it_and_shows_a_hyphen_there() {
+        // «Экспериментальное» is 117.6 points even at the smallest size, in 81.
+        let ctx = test_context();
+        frame(&ctx, |ui| {
+            let caption = nav_caption(ui.ctx(), "Эксперимен{-}тальное", 81.0);
+            assert_eq!(caption.lines, ["Эксперимен-", "тальное"]);
+            assert!(caption.size >= MIN_NAV_FONT);
+            // A caption that fits one line keeps it, and the mark does not show.
+            let short = nav_caption(ui.ctx(), "Ау{-}дио", 81.0);
+            assert_eq!(short.lines, ["Аудио"]);
+            assert_eq!(short.size, super::super::NORMAL_FONT);
+        });
+    }
+
+    #[test]
+    fn a_caption_of_two_words_breaks_at_the_space_that_sets_it_largest() {
+        let ctx = test_context();
+        frame(&ctx, |ui| {
+            // About 115 points at the smallest size, and each word well inside 81 at a larger one.
+            let caption = nav_caption(ui.ctx(), "Postavke aplikacija", 81.0);
+            assert_eq!(caption.lines, ["Postavke", "aplikacija"]);
+            assert!(caption.size > MIN_NAV_FONT, "{caption:?}");
+        });
+    }
+
+    #[test]
+    fn two_lines_of_the_nav_caption_role_fit_the_button_whatever_face_draws_them() {
+        // The role's pitch is explicit: an Arabic face first in the chain would otherwise make
+        // each line 2.112 em tall, and two lines of 12 points 50.7.
+        let ctx = test_context();
+        frame(&ctx, |ui| {
+            for text in [["Eksperimen-", "talno"], ["تجريبية", "الإعدادات"]] {
+                let mut size = MIN_NAV_FONT;
+                while size <= super::super::NORMAL_FONT {
+                    let caption = NavCaption {
+                        lines: text.iter().map(|line| (*line).to_owned()).collect(),
+                        size,
+                    };
+                    let height = caption.layout(ui.ctx(), Color32::WHITE).size().y;
+                    assert!(height <= BUTTON_SIZE.y, "{text:?} at {size}: {height}");
+                    size += 0.5;
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn a_caption_too_long_even_at_the_smallest_size_is_elided_there() {
+        let ctx = test_context();
+        frame(&ctx, |ui| {
+            let text = "Einstellungen für Anwendungen und Geräte";
+            let font = nav_caption_font(ui.ctx(), text, 81.0);
+            assert_eq!(font.size, MIN_NAV_FONT);
+            let painter = ui.painter();
+            let label = Rect::from_min_size(pos2(0.0, 0.0), vec2(81.0, 40.0));
+            let placed = draw_truncated(
+                painter,
+                text,
+                font,
+                Color32::WHITE,
+                label,
+                Align2::LEFT_CENTER,
+            );
+            assert!(placed.width() <= 81.0 + 0.01, "{placed:?}");
+        });
+    }
+
+    #[test]
+    fn the_rule_is_one_whole_line_down_the_content_in_the_divider_colour() {
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let palette = Palette::new(mode);
+            let mut window = Window::new(mode);
+            let (_, shapes) = window.frame(&linux(), Vec::new());
+            let content = content();
+            let rule = divider_x(content);
+            let lines: Vec<(egui::Pos2, egui::Pos2)> = shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::LineSegment { points, stroke }
+                        if (points[0].x - rule).abs() < 1e-3
+                            && (points[1].x - rule).abs() < 1e-3
+                            && stroke.color == palette.divider() =>
+                    {
+                        Some((points[0], points[1]))
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(lines.len(), 1, "{mode:?}: {lines:?}");
+            let (top, bottom) = lines[0];
+            assert!((top.y - content.top()).abs() < 1e-3, "{top:?}");
+            assert!((bottom.y - content.bottom()).abs() < 1e-3, "{bottom:?}");
+        }
+    }
+
+    // ---- the applications pane ----------------------------------------------------------------
+
+    fn key(binary: &str, name: &str) -> AppKey {
+        AppKey {
+            binary: binary.to_owned(),
+            name: name.to_owned(),
+            flatpak: String::new(),
+        }
+    }
+
+    fn lane(direction: DeviceDirection, preset: Option<&str>) -> AppLane {
+        AppLane {
+            direction,
+            preset: preset.map(str::to_owned),
+        }
+    }
+
+    const OUT: DeviceDirection = DeviceDirection::Output;
+    const IN: DeviceDirection = DeviceDirection::Input;
+
+    /// The feature's example and its neighbours, as the app lists them: the running ones first.
+    ///
+    /// - Battlefield 6 plays through Gaming.
+    /// - Discord records through Headset and plays through CrossFX's preset.
+    /// - Firefox plays through CrossFX's preset, and so has nothing for its ✕ to forget.
+    /// - Brave is remembered, with Volume Boost.
+    /// - Spotify is remembered from an earlier session, lanes unknown: both combos.
+    /// - Chromium's rule names a preset that is not there any more.
+    fn apps_state() -> SettingsState {
+        SettingsState {
+            tab: SettingsTab::Applications,
+            presets: ["General", "Music", "Gaming", "Volume Boost"]
+                .map(str::to_owned)
+                .to_vec(),
+            input_presets: ["Clean", "Headset"].map(str::to_owned).to_vec(),
+            apps: vec![
+                AppRow {
+                    app: key("bf6.exe", "Battlefield 6"),
+                    name: "Battlefield 6".into(),
+                    running: true,
+                    lanes: vec![lane(OUT, Some("Gaming"))],
+                },
+                AppRow {
+                    app: key("Discord", "Discord"),
+                    name: "Discord".into(),
+                    running: true,
+                    lanes: vec![lane(OUT, None), lane(IN, Some("Headset"))],
+                },
+                AppRow {
+                    app: key("firefox", "Firefox"),
+                    name: "Firefox".into(),
+                    running: true,
+                    lanes: vec![lane(OUT, None)],
+                },
+                AppRow {
+                    app: key("brave", "Brave"),
+                    name: "Brave".into(),
+                    running: false,
+                    lanes: vec![lane(OUT, Some("Volume Boost"))],
+                },
+                AppRow {
+                    app: key("spotify", "Spotify"),
+                    name: "Spotify".into(),
+                    running: false,
+                    lanes: vec![lane(OUT, None), lane(IN, None)],
+                },
+                AppRow {
+                    app: key("chromium", "Chromium"),
+                    name: "Chromium".into(),
+                    running: false,
+                    lanes: vec![lane(OUT, Some("Loudness"))],
+                },
+            ],
+            ..populated()
+        }
+    }
+
+    /// `state`'s applications and forty more, some with names far too long for their room.
+    fn crowded_state() -> SettingsState {
+        let mut state = apps_state();
+        for index in 0..40 {
+            let name = if index % 3 == 0 {
+                format!("An application with a very long name indeed, number {index}")
+            } else {
+                format!("App {index}")
+            };
+            state.apps.push(AppRow {
+                app: key(&format!("app{index}"), &name),
+                name,
+                running: index % 5 == 0,
+                lanes: match index % 3 {
+                    0 => vec![lane(OUT, Some("Music"))],
+                    1 => vec![lane(IN, Some("Clean"))],
+                    _ => vec![lane(OUT, None), lane(IN, None)],
+                },
+            });
+        }
+        state
+    }
+
+    /// Where the pane shown in a window at the origin draws the row at `index`, unscrolled.
+    fn app_row(state: &SettingsState, index: usize) -> Rect {
+        let rows = app_rows_rect(app_list_rect(shown_pane()));
+        let lines: usize = state.apps[..index].iter().map(AppRow::lines).sum();
+        Rect::from_min_size(
+            pos2(
+                rows.left(),
+                rows.top() + lines as f32 * applications::LINE_HEIGHT,
+            ),
+            vec2(
+                rows.width(),
+                state.apps[index].lines() as f32 * applications::LINE_HEIGHT,
+            ),
+        )
+    }
+
+    /// A Settings window kept across frames, so that a combo opened in one can be picked from in
+    /// the next.
+    struct Window {
+        ctx: egui::Context,
+        assets: AssetCache,
+        icons: NavIcons,
+        mode: ThemeMode,
+    }
+
+    impl Window {
+        fn new(mode: ThemeMode) -> Self {
+            let ctx = test_context();
+            // Popups fade in over `animation_time`; at zero a painted menu is whole at once.
+            ctx.all_styles_mut(|style| style.animation_time = 0.0);
+            Self {
+                ctx,
+                assets: AssetCache::new(),
+                icons: NavIcons::new(),
+                mode,
+            }
+        }
+
+        fn frame(
+            &mut self,
+            state: &SettingsState,
+            events: Vec<egui::Event>,
+        ) -> (Vec<SettingsAction>, Vec<egui::epaint::ClippedShape>) {
+            let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+            let input = egui::RawInput {
+                screen_rect: Some(outer),
+                events,
+                ..Default::default()
+            };
+            let mut actions = Vec::new();
+            let Self {
+                ctx,
+                assets,
+                icons,
+                mode,
+            } = self;
+            let mut output = ctx.run_ui(input, |ui| {
+                actions = SettingsDialog::new(state)
+                    .show(ui, outer, Palette::new(*mode), assets, icons)
+                    .actions;
+            });
+            let shapes = std::mem::take(&mut output.shapes);
+            output.drop_without_applying_deltas();
+            (actions, shapes)
+        }
+
+        /// A frame of the main window with the Settings pane closed: `events` reach no pane.
+        fn closed_frame(&mut self, events: Vec<egui::Event>) {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE)),
+                events,
+                ..Default::default()
+            };
+            self.ctx
+                .run_ui(input, |_| {})
+                .drop_without_applying_deltas();
+        }
+
+        fn click(&mut self, state: &SettingsState, at: egui::Pos2) -> Vec<SettingsAction> {
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::default(),
+            };
+            let mut actions = Vec::new();
+            for events in [
+                vec![egui::Event::PointerMoved(at)],
+                vec![egui::Event::PointerMoved(at), button(true)],
+                vec![button(false)],
+            ] {
+                actions.extend(self.frame(state, events).0);
+            }
+            actions
+        }
+
+        /// Open the combo at `combo` and pick the entry reading `entry`.
+        fn pick(&mut self, state: &SettingsState, combo: Rect, entry: &str) -> Vec<SettingsAction> {
+            let mut actions = self.click(state, combo.center());
+            let (_, shapes) = self.frame(state, Vec::new());
+            // The last one painted: the list is in the foreground layer, which is painted after
+            // every closed box that might read the same.
+            let at = crate::views::testing::texts(&shapes)
+                .into_iter()
+                .rfind(|(text, rect, _)| text == entry && !combo.contains(rect.center()))
+                .map(|(_, rect, _)| rect.center())
+                .unwrap_or_else(|| panic!("no {entry:?} in the open list"));
+            actions.extend(self.click(state, at));
+            actions
+        }
+    }
+
+    /// Everything the Applications pane paints for `state`, clipped to where it may be.
+    fn applications_shapes(state: &SettingsState, mode: ThemeMode) -> Vec<(egui::Shape, Rect)> {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let pane = shown_pane();
+        let mut shapes = Vec::new();
+        // Twice: the artwork is uploaded on the first.
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE)),
+                ..Default::default()
+            };
+            let mut response = DialogResponse::default();
+            let mut output = ctx.run_ui(input, |ui| {
+                applications_pane(
+                    ui,
+                    pane,
+                    state,
+                    Palette::new(mode),
+                    &mut assets,
+                    Id::unique("fx_settings_dialog"),
+                    &mut response,
+                );
+            });
+            assert!(response.is_empty(), "{:?}", response.actions);
+            shapes = std::mem::take(&mut output.shapes)
+                .into_iter()
+                .map(|clipped| {
+                    let bounds = clipped
+                        .shape
+                        .visual_bounding_rect()
+                        .intersect(clipped.clip_rect);
+                    (clipped.shape, bounds)
+                })
+                .filter(|(_, bounds)| bounds.is_positive())
+                .collect();
+            output.drop_without_applying_deltas();
+        }
+        shapes
+    }
+
+    #[test]
+    fn the_applications_list_fills_the_pane_under_its_first_row() {
+        let pane = pane_rect(content());
+        let list = local(pane, app_list_rect(pane));
+        // At the y every pane's first row starts, as wide as the Audio pane's list, and down to
+        // the Microphone pane's bottom margin.
+        assert!((list.min - pos2(20.0, 50.0)).length() < 1e-4, "{list:?}");
+        assert!(
+            (list.width() - output_list_rect(pane).width()).abs() < 1e-4,
+            "{list:?}"
+        );
+        assert!((list.bottom() - (pane.height() - 10.0)).abs() < 1e-4);
+        // The rows are inset inside it as the device list's are.
+        let rows = app_rows_rect(app_list_rect(pane));
+        assert!((rows.left() - app_list_rect(pane).left() - 5.0).abs() < 1e-4);
+        assert!((rows.top() - app_list_rect(pane).top() - 10.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn an_application_line_lays_out_like_a_device_row() {
+        // A 387-point row, as in the Audio pane's list.
+        let line = Rect::from_min_size(pos2(0.0, 0.0), vec2(387.0, applications::LINE_HEIGHT));
+        let device = Rect::from_min_size(pos2(0.0, 0.0), vec2(387.0, device_row::HEIGHT));
+        // The ✕ is the device row's, in the same column.
+        let remove = remove_button_rect(line);
+        assert!(
+            (remove.left() - remove_button_rect(device).left()).abs() < 1e-4,
+            "{remove:?}"
+        );
+        assert!((remove.center().y - line.center().y).abs() < 1e-4);
+        // The combo is a margin left of it, a compact 30 points tall, centred in its line.
+        let combo = app_combo_rect(line);
+        assert!((combo.right() - (remove.left() - 5.0)).abs() < 1e-4);
+        assert!(
+            (combo.size() - vec2(155.0, 30.0)).length() < 1e-4,
+            "{combo:?}"
+        );
+        assert!((combo.top() - 2.0).abs() < 1e-4, "{combo:?}");
+        // The caption is right against it, the name from past the dot to the caption.
+        let caption = app_caption_rect(line, 47.0);
+        assert!((caption.right() - (combo.left() - 5.0)).abs() < 1e-4);
+        assert!((caption.width() - 47.0).abs() < 1e-4);
+        let dot = app_dot_rect(line);
+        assert!((dot.left() - 7.0).abs() < 1e-4, "{dot:?}");
+        assert!((dot.center().y - line.center().y).abs() < 1e-4);
+        let name = app_name_rect(line, 47.0);
+        assert!((name.left() - (dot.right() + 5.0)).abs() < 1e-4, "{name:?}");
+        assert!((name.right() - (caption.left() - 5.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn nothing_in_an_application_line_overlaps_anything_else_whatever_the_caption() {
+        let line = Rect::from_min_size(pos2(0.0, 0.0), vec2(387.0, applications::LINE_HEIGHT));
+        for caption_width in [0.0, 33.0, 47.0, 60.0, applications::CAPTION_MAX_WIDTH] {
+            let rects = [
+                ("dot", app_dot_rect(line)),
+                ("name", app_name_rect(line, caption_width)),
+                ("caption", app_caption_rect(line, caption_width)),
+                ("combo", app_combo_rect(line)),
+                ("forget", remove_button_rect(line)),
+            ];
+            for (name, rect) in &rects {
+                assert!(line.contains_rect(*rect), "{name} {rect:?} leaves its line");
+            }
+            for pair in rects.windows(2) {
+                let ((a_name, a), (b_name, b)) = (pair[0], pair[1]);
+                assert!(
+                    a.right() <= b.left() + 1e-4,
+                    "{a_name} {a:?} runs into {b_name} {b:?} with a {caption_width} caption"
+                );
+            }
+        }
+        // The widest caption still leaves the name more room than the caption.
+        let name = app_name_rect(line, applications::CAPTION_MAX_WIDTH);
+        assert!(name.width() > applications::CAPTION_MAX_WIDTH, "{name:?}");
+    }
+
+    #[test]
+    fn a_row_is_a_line_per_combo_and_its_lines_stack_without_a_gap() {
+        let state = apps_state();
+        assert_eq!(
+            state.apps.iter().map(AppRow::lines).collect::<Vec<_>>(),
+            [1, 2, 1, 1, 2, 1]
+        );
+        let row = app_row(&state, 1);
+        let first = app_line_rect(row, 0);
+        let second = app_line_rect(row, 1);
+        assert!((first.bottom() - second.top()).abs() < 1e-4);
+        assert!((second.bottom() - row.bottom()).abs() < 1e-4);
+        assert!(app_combo_rect(first).bottom() < app_combo_rect(second).top());
+        // A row with no lane at all still takes one line.
+        let bare = AppRow {
+            lanes: Vec::new(),
+            ..state.apps[0].clone()
+        };
+        assert_eq!(bare.lines(), 1);
+    }
+
+    #[test]
+    fn only_a_row_with_something_to_forget_offers_its_cross() {
+        let state = apps_state();
+        let can: Vec<bool> = state.apps.iter().map(AppRow::can_forget).collect();
+        // Firefox is running and follows CrossFX's preset: forgetting it would change nothing.
+        assert_eq!(can, [true, true, false, true, true, true]);
+    }
+
+    #[test]
+    fn a_combo_shows_crossfx_preset_its_own_or_a_missing_one_dimmed() {
+        let presets = ["General", "Gaming"].map(str::to_owned);
+        assert_eq!(app_preset_index(&presets, None), Some(0));
+        assert_eq!(app_preset_index(&presets, Some("General")), Some(1));
+        assert_eq!(app_preset_index(&presets, Some("Gaming")), Some(2));
+        assert_eq!(app_preset_index(&presets, Some("Loudness")), None);
+        assert_eq!(
+            app_preset_items(&presets),
+            ["CrossFX's preset", "General", "Gaming"].map(str::to_owned)
+        );
+    }
+
+    #[test]
+    fn a_caption_is_given_what_it_measures_up_to_the_most_the_pane_allows() {
+        assert!((app_caption_width(46.3) - 47.0).abs() < 1e-4);
+        assert!((app_caption_width(0.0)).abs() < 1e-4);
+        assert!((app_caption_width(400.0) - applications::CAPTION_MAX_WIDTH).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_applications_tab_button_selects_its_pane() {
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let content = super::super::content_rect(outer);
+        let actions = click_settings(&populated(), nav_button_rect(content, 4).center());
+        assert_eq!(
+            actions,
+            [SettingsAction::SelectTab(SettingsTab::Applications)]
+        );
+    }
+
+    #[test]
+    fn picking_a_preset_gives_the_application_its_own_and_the_first_entry_takes_it_back() {
+        let state = apps_state();
+        let mut window = Window::new(ThemeMode::Dark);
+        let battlefield = app_combo_rect(app_line_rect(app_row(&state, 0), 0));
+        assert_eq!(
+            window.pick(&state, battlefield, "Volume Boost"),
+            [SettingsAction::SetAppPreset {
+                app: key("bf6.exe", "Battlefield 6"),
+                direction: OUT,
+                preset: Some("Volume Boost".into()),
+            }]
+        );
+        let mut window = Window::new(ThemeMode::Dark);
+        assert_eq!(
+            window.pick(&state, battlefield, "CrossFX's preset"),
+            [SettingsAction::SetAppPreset {
+                app: key("bf6.exe", "Battlefield 6"),
+                direction: OUT,
+                preset: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn each_combo_of_a_row_speaks_for_its_own_direction_and_lists_that_directions_presets() {
+        let state = apps_state();
+        let discord = app_row(&state, 1);
+        let mut window = Window::new(ThemeMode::Light);
+        assert_eq!(
+            window.pick(&state, app_combo_rect(app_line_rect(discord, 1)), "Clean"),
+            [SettingsAction::SetAppPreset {
+                app: key("Discord", "Discord"),
+                direction: IN,
+                preset: Some("Clean".into()),
+            }]
+        );
+        let mut window = Window::new(ThemeMode::Light);
+        assert_eq!(
+            window.pick(&state, app_combo_rect(app_line_rect(discord, 0)), "Gaming"),
+            [SettingsAction::SetAppPreset {
+                app: key("Discord", "Discord"),
+                direction: OUT,
+                preset: Some("Gaming".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn picking_what_a_combo_already_shows_asks_for_nothing() {
+        let state = apps_state();
+        let mut window = Window::new(ThemeMode::Dark);
+        let battlefield = app_combo_rect(app_line_rect(app_row(&state, 0), 0));
+        assert!(window.pick(&state, battlefield, "Gaming").is_empty());
+        let mut window = Window::new(ThemeMode::Dark);
+        let firefox = app_combo_rect(app_line_rect(app_row(&state, 2), 0));
+        assert!(window.pick(&state, firefox, "CrossFX's preset").is_empty());
+    }
+
+    #[test]
+    fn a_rule_naming_a_missing_preset_shows_it_dimmed_and_can_be_taken_back() {
+        let state = apps_state();
+        let chromium = app_combo_rect(app_line_rect(app_row(&state, 5), 0));
+        let mut window = Window::new(ThemeMode::Dark);
+        window.frame(&state, Vec::new());
+        let (_, shapes) = window.frame(&state, Vec::new());
+        let shown: Vec<(String, Color32)> = crate::views::testing::texts(&shapes)
+            .into_iter()
+            .filter(|(_, rect, _)| chromium.contains(rect.center()))
+            .map(|(text, _, colour)| (text, colour))
+            .collect();
+        let palette = Palette::new(ThemeMode::Dark);
+        assert_eq!(
+            shown,
+            [(
+                "Loudness".to_owned(),
+                palette.color_alpha(
+                    FxColor::DefaultText,
+                    crate::widgets::combo::PLACEHOLDER_ALPHA
+                )
+            )]
+        );
+        let mut window = Window::new(ThemeMode::Dark);
+        assert_eq!(
+            window.pick(&state, chromium, "CrossFX's preset"),
+            [SettingsAction::SetAppPreset {
+                app: key("chromium", "Chromium"),
+                direction: OUT,
+                preset: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn the_cross_forgets_that_application_and_only_where_it_is_drawn() {
+        let state = apps_state();
+        for (index, expected) in [
+            (0, Some(key("bf6.exe", "Battlefield 6"))),
+            (1, Some(key("Discord", "Discord"))),
+            (2, None),
+            (3, Some(key("brave", "Brave"))),
+            (4, Some(key("spotify", "Spotify"))),
+        ] {
+            let cross = remove_button_rect(app_line_rect(app_row(&state, index), 0));
+            assert_eq!(
+                click_settings(&state, cross.center()),
+                expected
+                    .into_iter()
+                    .map(SettingsAction::ForgetApp)
+                    .collect::<Vec<_>>(),
+                "row {index}"
+            );
+        }
+        // The name and the caption are not controls, nor is the second line's end.
+        let discord = app_row(&state, 1);
+        for at in [
+            app_name_rect(app_line_rect(discord, 0), 47.0).center(),
+            app_caption_rect(app_line_rect(discord, 1), 47.0).center(),
+            remove_button_rect(app_line_rect(discord, 1)).center(),
+        ] {
+            assert!(click_settings(&state, at).is_empty(), "{at:?}");
+        }
+    }
+
+    #[test]
+    fn a_running_application_has_a_dot_and_full_colour_and_a_remembered_one_neither() {
+        let state = apps_state();
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let palette = Palette::new(mode);
+            let shapes = applications_shapes(&state, mode);
+            let dots: Vec<Rect> = shapes
+                .iter()
+                .filter_map(|(shape, bounds)| match shape {
+                    egui::Shape::Circle(circle)
+                        if circle.fill == palette.color(FxColor::SelectedRowOutline) =>
+                    {
+                        Some(*bounds)
+                    }
+                    _ => None,
+                })
+                .collect();
+            let expected: Vec<Rect> = (0..3)
+                .map(|index| app_dot_rect(app_line_rect(app_row(&state, index), 0)))
+                .collect();
+            assert_eq!(dots.len(), 3, "{mode:?}: {dots:?}");
+            for (dot, want) in dots.iter().zip(&expected) {
+                assert!((dot.center() - want.center()).length() < 0.5, "{dot:?}");
+            }
+            let colour_of = |name: &str| {
+                shapes.iter().find_map(|(shape, _)| match shape {
+                    egui::Shape::Text(text) if text.galley.text() == name => {
+                        Some(text.fallback_color)
+                    }
+                    _ => None,
+                })
+            };
+            assert_eq!(
+                colour_of("Battlefield 6"),
+                Some(palette.color(FxColor::DefaultText))
+            );
+            assert_eq!(colour_of("Brave"), Some(palette.color(FxColor::HintText)));
+        }
+    }
+
+    #[test]
+    fn nothing_the_applications_pane_paints_escapes_its_list_in_either_palette() {
+        let list = app_list_rect(shown_pane());
+        for state in [
+            apps_state(),
+            crowded_state(),
+            SettingsState {
+                apps: Vec::new(),
+                ..apps_state()
+            },
+        ] {
+            for mode in [ThemeMode::Dark, ThemeMode::Light] {
+                let shapes = applications_shapes(&state, mode);
+                assert!(!shapes.is_empty());
+                for (shape, bounds) in &shapes {
+                    assert!(
+                        list.expand(0.5).contains_rect(*bounds),
+                        "{mode:?}: {bounds:?} leaves the list {list:?}: {shape:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_two_rows_overlap_and_every_text_stays_in_its_own_row() {
+        let state = crowded_state();
+        let rows = app_rows_rect(app_list_rect(shown_pane()));
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let shapes = applications_shapes(&state, mode);
+            let combos: Vec<Rect> = shapes
+                .iter()
+                .filter_map(|(shape, bounds)| match shape {
+                    egui::Shape::Rect(rect)
+                        if (rect.rect.size()
+                            - vec2(applications::PRESET_WIDTH, applications::COMBO_HEIGHT))
+                        .length()
+                            < 1e-3
+                            && rect.fill != Color32::TRANSPARENT =>
+                    {
+                        Some(*bounds)
+                    }
+                    _ => None,
+                })
+                .collect();
+            let texts: Vec<Rect> = shapes
+                .iter()
+                .filter_map(|(shape, bounds)| {
+                    matches!(shape, egui::Shape::Text(_)).then_some(*bounds)
+                })
+                .collect();
+            // Every row the list shows before it scrolls has its combos drawn.
+            let visible_lines = (rows.height() / applications::LINE_HEIGHT).floor() as usize;
+            assert!(combos.len() >= visible_lines, "{} combos", combos.len());
+            for (i, a) in combos.iter().enumerate() {
+                for b in &combos[i + 1..] {
+                    assert!(!a.intersects(*b), "combo {a:?} overlaps combo {b:?}");
+                }
+            }
+            for (i, a) in texts.iter().enumerate() {
+                for b in &texts[i + 1..] {
+                    assert!(
+                        a.intersect(*b).area() < 1.0,
+                        "text {a:?} overlaps text {b:?}"
+                    );
+                }
+                // A text is either a combo's own, inside it, or clear of every combo.
+                let inside = combos.iter().any(|combo| combo.contains_rect(*a));
+                let clear = combos.iter().all(|combo| !combo.intersects(*a));
+                assert!(inside || clear, "text {a:?} straddles a combo");
+            }
+            // And each unscrolled row's name lies in that row's first line.
+            for index in 0..6 {
+                let line = app_line_rect(app_row(&state, index), 0);
+                let name = &state.apps[index].name;
+                let drawn = shapes.iter().find_map(|(shape, bounds)| match shape {
+                    egui::Shape::Text(text) if text.galley.text() == name => Some(*bounds),
+                    _ => None,
+                });
+                let drawn = drawn.unwrap_or_else(|| panic!("{name} not drawn"));
+                assert!(
+                    line.contains_rect(drawn),
+                    "{name} {drawn:?} is not in {line:?}"
+                );
+            }
+        }
+    }
+
+    /// Where each of `names` is painted in `shapes`, clipped or not.
+    fn painted_names(
+        shapes: &[egui::epaint::ClippedShape],
+        names: &[&str],
+    ) -> Vec<(String, Rect, Rect)> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) if names.contains(&text.galley.text()) => Some((
+                    text.galley.text().to_owned(),
+                    clipped.shape.visual_bounding_rect(),
+                    clipped.clip_rect,
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_long_list_scrolls_inside_the_pane_and_draws_only_the_rows_in_sight() {
+        let state = crowded_state();
+        let list = app_list_rect(shown_pane());
+        let rows = app_rows_rect(list);
+        let first = state.apps[0].name.as_str();
+        // The last row whose name is short enough to be painted whole, one row from the end.
+        let last = state.apps[state.apps.len() - 2].name.as_str();
+        assert_eq!(last, "App 38");
+        let mut window = Window::new(ThemeMode::Dark);
+        window.frame(&state, Vec::new());
+        let (_, shapes) = window.frame(&state, Vec::new());
+        let painted = painted_names(&shapes, &[first, last]);
+        assert_eq!(
+            painted
+                .iter()
+                .map(|(name, ..)| name.as_str())
+                .collect::<Vec<_>>(),
+            [first],
+            "the last row is out of sight, so not painted at all"
+        );
+
+        // A long turn of the wheel over the list brings the last row in and takes the first out.
+        let over = rows.center();
+        let wheel = egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -10_000.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+            modifiers: egui::Modifiers::default(),
+        };
+        window.frame(&state, vec![egui::Event::PointerMoved(over)]);
+        window.frame(&state, vec![egui::Event::PointerMoved(over), wheel]);
+        let mut shapes = Vec::new();
+        for _ in 0..30 {
+            shapes = window.frame(&state, Vec::new()).1;
+        }
+        let painted = painted_names(&shapes, &[first, last]);
+        assert_eq!(
+            painted
+                .iter()
+                .map(|(name, ..)| name.as_str())
+                .collect::<Vec<_>>(),
+            [last],
+            "{painted:?}"
+        );
+        let (_, drawn, clip) = &painted[0];
+        assert!(
+            rows.contains_rect(drawn.intersect(*clip)),
+            "{drawn:?} clipped to {clip:?} leaves {rows:?}"
+        );
+        // The list clips what scrolls to its rows, top and bottom.
+        assert!(
+            clip.top() >= rows.top() - 0.5 && clip.bottom() <= rows.bottom() + 0.5,
+            "{clip:?} lets rows past {rows:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_list_says_why_it_is_empty_inside_its_box() {
+        let state = SettingsState {
+            apps: Vec::new(),
+            ..apps_state()
+        };
+        let rows = app_rows_rect(app_list_rect(shown_pane()));
+        let shapes = applications_shapes(&state, ThemeMode::Dark);
+        let texts: Vec<(String, Rect)> = shapes
+            .iter()
+            .filter_map(|(shape, bounds)| match shape {
+                egui::Shape::Text(text) => Some((text.galley.text().to_owned(), *bounds)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts.len(), 1, "{texts:?}");
+        assert_eq!(texts[0].0, NO_APPLICATIONS);
+        assert!(rows.contains_rect(texts[0].1));
+        // Centred, give or take the snap to whole pixels.
+        assert!(
+            (texts[0].1.center() - rows.center()).length() < 1.5,
+            "{:?} in {rows:?}",
+            texts[0].1
+        );
+    }
+
+    #[test]
+    fn the_applications_pane_draws_every_state_without_asking_for_anything() {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let mut icons = NavIcons::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let no_presets = SettingsState {
+            presets: Vec::new(),
+            input_presets: Vec::new(),
+            ..apps_state()
+        };
+        for state in [
+            apps_state(),
+            crowded_state(),
+            no_presets,
+            SettingsState {
+                apps: Vec::new(),
+                ..apps_state()
+            },
+        ] {
+            for mode in [ThemeMode::Dark, ThemeMode::Light] {
+                frame(&ctx, |ui| {
+                    let response = SettingsDialog::new(&state).show(
+                        ui,
+                        outer,
+                        Palette::new(mode),
+                        &mut assets,
+                        &mut icons,
+                    );
+                    assert!(response.is_empty(), "{:?}", response.actions);
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn the_english_follow_entry_the_captions_and_the_examples_names_fit_whole() {
+        // Measured with the real faces. A translation may be elided, but only one listed in
+        // `FOLLOW_PRESET_ELIDED`; the source language must not.
+        let ctx = test_context();
+        let line = app_line_rect(app_row(&apps_state(), 0), 0);
+        frame(&ctx, |ui| {
+            let width = |text: &str, font| {
+                ui.painter()
+                    .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER)
+                    .size()
+                    .x
+            };
+            let combo = app_combo_rect(line);
+            let font = crate::theme::semibold(crate::widgets::combo::font_size(combo.height()));
+            let room = crate::widgets::combo::text_box(combo).width();
+            for entry in [FOLLOW_PRESET, "Volume Boost", "Headset"] {
+                let used = width(entry, font.clone());
+                assert!(used <= room, "{entry:?} is {used} in {room}");
+            }
+            let caption =
+                app_caption_width(width("Output", small_font()).max(width("Input", small_font())));
+            assert!(caption < applications::CAPTION_MAX_WIDTH);
+            let room = app_name_rect(line, caption).width();
+            for name in ["Battlefield 6", "Discord", "Brave", "Google Chrome"] {
+                let used = width(name, normal_font());
+                assert!(used <= room, "{name:?} is {used} in {room}");
+            }
+        });
+    }
+
+    /// The languages whose entry for CrossFX's preset ([`FOLLOW_PRESET`]) is cut with `…` in the
+    /// Applications page's combos, as the original's combos cut any label too long for them
+    /// (`FxTheme.cpp:130`), in the tables' order. Held exactly: a language that comes to fit
+    /// leaves the list, and every other one must be shown whole.
+    const FOLLOW_PRESET_ELIDED: &[&str] =
+        &["nl", "no", "sl", "fi", "sv", "vi", "tr", "bg", "th", "ja"];
+
+    #[test]
+    fn every_languages_follow_entry_is_shown_whole_in_the_applications_combo_but_the_listed_ones() {
+        // E6b: German, cut short as "Preset von …", says "Wie CrossFX" instead; before the tag,
+        // Italian ("Come CrossFX") and Arabic, cut before the name ("قالب CrossFX", the word the
+        // Arabic table uses for a preset), went the same way. Russian ran half a point past its
+        // room and was still drawn whole, egui letting a line do so — so this asks the combo's
+        // own layout.
+        let ctx = test_context();
+        let combo = app_combo_rect(app_line_rect(app_row(&apps_state(), 0), 0));
+        let font = crate::theme::semibold(crate::widgets::combo::font_size(combo.height()));
+        let room = crate::widgets::combo::text_box(combo).width();
+        let mut elided = Vec::new();
+        frame(&ctx, |ui| {
+            for (code, text) in every_translation(FOLLOW_PRESET) {
+                if !crate::widgets::combo::shows_whole(ui.painter(), &text, font.clone(), room) {
+                    elided.push(format!("{code}: {text:?}"));
+                }
+            }
+        });
+        for code in ["en", "de", "ru", "it", "ar", "zh-CN"] {
+            let prefix = format!("{code}: ");
+            assert!(
+                !elided.iter().any(|entry| entry.starts_with(&prefix)),
+                "{code} is cut: {elided:?}"
+            );
+        }
+        let codes: Vec<&str> = elided
+            .iter()
+            .map(|entry| entry.split(':').next().unwrap_or_default())
+            .collect();
+        assert_eq!(codes, FOLLOW_PRESET_ELIDED, "{}", elided.join("\n"));
+    }
+
+    /// Every translation of `key`, in `font`, that is wider than `room`.
+    fn wider_than(ui: &Ui, key: &str, font: &egui::FontId, room: f32) -> Vec<String> {
+        every_translation(key)
+            .into_iter()
+            .filter_map(|(code, text)| {
+                let used = ui
+                    .painter()
+                    .layout_no_wrap(text.clone(), font.clone(), Color32::PLACEHOLDER)
+                    .size()
+                    .x;
+                (used > room).then(|| format!("{code}: {text:?} is {used:.1} in {room:.1}"))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_tabs_caption_box_ends_short_of_the_lists_painted_over_the_nav_rows() {
+        // The Applications list runs down past the last tab row and the Audio pane's covers all
+        // but the first, both from x 173 and both painted after the nav, so a caption that
+        // reached one would lose its last glyphs under it with no ellipsis — German
+        // `Anwendungen`, about 114 points, did in the original's 115-point box. The box now ends
+        // at the rule, well short of either, and every caption fits it
+        // (`every_languages_tab_captions_fit_whole_short_of_the_rule`).
+        const CLEARANCE: f32 = 4.0;
+        let content = content();
+        let pane = pane_rect(content);
+        let edge = app_list_rect(pane)
+            .left()
+            .min(output_list_rect(pane).left());
+        for tab in SettingsTab::ALL {
+            let label = nav_label_rect(nav_button_rect(content, tab.index()));
+            assert!(label.right() + CLEARANCE <= edge, "{tab:?}: {label:?}");
+        }
+    }
+
+    #[test]
+    fn the_lists_the_captions_stop_short_of_lie_across_the_tab_rows() {
+        let content = content();
+        let pane = pane_rect(content);
+        for tab in SettingsTab::ALL {
+            let row = nav_button_rect(content, tab.index()).center().y;
+            assert!(app_list_rect(pane).y_range().contains(row), "{tab:?}");
+            // The Audio pane's list starts below the first row and ends above the sixth.
+            assert_eq!(
+                output_list_rect(pane).y_range().contains(row),
+                !matches!(tab, SettingsTab::Audio | SettingsTab::Experimental),
+                "{tab:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_languages_direction_captions_fit_the_room_the_rows_keep_for_them() {
+        let ctx = test_context();
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for direction in DeviceDirection::ALL {
+                problems.extend(wider_than(
+                    ui,
+                    direction.label(),
+                    &small_font(),
+                    applications::CAPTION_MAX_WIDTH,
+                ));
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn every_languages_empty_list_text_fits_the_box_it_is_wrapped_into() {
+        let ctx = test_context();
+        let rows = app_rows_rect(app_list_rect(pane_rect(content())));
+        let width = rows.width() - applications::EMPTY_TEXT_INSET * 2.0;
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for (code, text) in every_translation(NO_APPLICATIONS) {
+                let size = ui
+                    .painter()
+                    .layout(text.clone(), small_font(), Color32::PLACEHOLDER, width)
+                    .size();
+                if size.x > width || size.y > rows.height() {
+                    problems.push(format!("{code}: {text:?} is {size:?}"));
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    // ---- the Experimental pane ---------------------------------------------------------------
+
+    fn experimental_state(level: WindowsParity) -> SettingsState {
+        let mut state = SettingsState {
+            tab: SettingsTab::Experimental,
+            ..linux()
+        };
+        state.settings.windows_parity = level;
+        state
+    }
+
+    /// Where the slider's position for `level` is, in a window at the origin.
+    fn detent(level: WindowsParity) -> egui::Pos2 {
+        let track = slider::track_rect(parity_slider_rect(shown_pane()));
+        let last = (WindowsParity::SLIDER_LEVELS.len() - 1) as f32;
+        pos2(
+            track.left() + track.width() * level.index() as f32 / last,
+            track.center().y,
+        )
+    }
+
+    fn pointer(at: egui::Pos2, button: egui::PointerButton, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    #[test]
+    fn the_experimental_tab_button_selects_the_experimental_pane() {
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), WINDOW_SIZE);
+        let content = super::super::content_rect(outer);
+        let actions = click_settings(&populated(), nav_button_rect(content, 5).center());
+        assert_eq!(
+            actions,
+            [SettingsAction::SelectTab(SettingsTab::Experimental)]
+        );
+    }
+
+    #[test]
+    fn every_tab_declares_the_level_that_hides_it() {
+        // Exhaustive in the code; the decisions of the contract pinned here
+        // (`docs/0.5.0-windows-parity.md` §3).
+        for tab in SettingsTab::ALL {
+            let expected = match tab {
+                SettingsTab::Audio
+                | SettingsTab::General
+                | SettingsTab::Help
+                | SettingsTab::Experimental => ParityClass::Never,
+                SettingsTab::Microphone | SettingsTab::Applications => ParityClass::Full,
+            };
+            assert_eq!(tab.parity_class(), expected, "{tab:?}");
+        }
+        // The way back is never hidden, whatever the level.
+        for level in WindowsParity::ALL {
+            assert!(!level.changes(SettingsTab::Experimental.parity_class()));
+        }
+    }
+
+    #[test]
+    fn each_position_of_the_slider_sits_over_its_own_label() {
+        let pane = shown_pane();
+        for level in WindowsParity::SLIDER_LEVELS {
+            let label = parity_label_rect(pane, level.index());
+            assert!(
+                (detent(level).x - label.center().x).abs() < 1e-3,
+                "{level:?}: {:?} over {label:?}",
+                detent(level)
+            );
+        }
+        // Heading, slider, labels and hint, top to bottom, inside the pane's margins.
+        let slider = parity_slider_rect(pane);
+        assert!(parity_heading_rect(pane).bottom() <= slider.top());
+        assert!(slider.bottom() <= parity_label_rect(pane, 0).top());
+        assert!(parity_label_rect(pane, 0).bottom() <= parity_hint_rect(pane).top());
+        let row = parity_row(pane);
+        assert!(slider.left() >= row.left() && slider.right() <= row.right());
+        assert!(parity_label_rect(pane, 2).right() <= row.right() + 1e-3);
+    }
+
+    #[test]
+    fn the_slider_offers_off_interface_and_interface_and_sound_and_not_everything_yet() {
+        let state = experimental_state(WindowsParity::Off);
+        let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+        let texts: Vec<String> = crate::views::testing::texts(&shapes)
+            .into_iter()
+            .map(|(text, _, _)| text)
+            .collect();
+        for level in WindowsParity::SLIDER_LEVELS {
+            assert!(texts.iter().any(|text| text == level.label()), "{texts:?}");
+        }
+        assert!(
+            !texts.iter().any(|text| text == WindowsParity::Full.label()),
+            "{texts:?}"
+        );
+    }
+
+    #[test]
+    fn a_click_on_a_position_or_on_its_label_applies_it_and_the_one_chosen_asks_for_nothing() {
+        let state = experimental_state(WindowsParity::Off);
+        let mut window = Window::new(ThemeMode::Dark);
+        assert_eq!(
+            window.click(&state, detent(WindowsParity::Interface)),
+            [SettingsAction::SetWindowsParity(WindowsParity::Interface)]
+        );
+        let mut window = Window::new(ThemeMode::Dark);
+        let label = parity_label_rect(shown_pane(), WindowsParity::Sound.index());
+        assert_eq!(
+            window.click(&state, label.center()),
+            [SettingsAction::SetWindowsParity(WindowsParity::Sound)]
+        );
+        let mut window = Window::new(ThemeMode::Dark);
+        assert_eq!(window.click(&state, detent(WindowsParity::Off)), []);
+    }
+
+    #[test]
+    fn a_drag_applies_the_position_it_is_let_go_at_and_none_it_passes() {
+        // From Off to Interface and sound: Interface is passed and never applied.
+        let state = experimental_state(WindowsParity::Off);
+        let mut window = Window::new(ThemeMode::Dark);
+        let primary = egui::PointerButton::Primary;
+        let from = detent(WindowsParity::Off);
+        let to = detent(WindowsParity::Sound);
+        let mut actions = Vec::new();
+        actions.extend(
+            window
+                .frame(&state, vec![egui::Event::PointerMoved(from)])
+                .0,
+        );
+        actions.extend(
+            window
+                .frame(
+                    &state,
+                    vec![
+                        egui::Event::PointerMoved(from),
+                        pointer(from, primary, true),
+                    ],
+                )
+                .0,
+        );
+        for step in 1..=12 {
+            let at = from + (to - from) * (step as f32 / 12.0);
+            actions.extend(window.frame(&state, vec![egui::Event::PointerMoved(at)]).0);
+        }
+        assert_eq!(actions, [], "nothing is applied while the drag is on");
+        actions.extend(window.frame(&state, vec![pointer(to, primary, false)]).0);
+        actions.extend(window.frame(&state, Vec::new()).0);
+        assert_eq!(
+            actions,
+            [SettingsAction::SetWindowsParity(WindowsParity::Sound)]
+        );
+    }
+
+    /// Press the thumb at Off and drag it to Interface and sound without letting go.
+    fn drag_to_sound_and_hold(window: &mut Window, state: &SettingsState) -> Vec<SettingsAction> {
+        let primary = egui::PointerButton::Primary;
+        let from = detent(WindowsParity::Off);
+        let to = detent(WindowsParity::Sound);
+        let mut actions = window.frame(state, vec![egui::Event::PointerMoved(from)]).0;
+        actions.extend(
+            window
+                .frame(
+                    state,
+                    vec![
+                        egui::Event::PointerMoved(from),
+                        pointer(from, primary, true),
+                    ],
+                )
+                .0,
+        );
+        for step in 1..=12 {
+            let at = from + (to - from) * (step as f32 / 12.0);
+            actions.extend(window.frame(state, vec![egui::Event::PointerMoved(at)]).0);
+        }
+        actions
+    }
+
+    #[test]
+    fn a_drag_cut_short_by_escape_applies_nothing_when_the_pane_opens_again() {
+        let state = experimental_state(WindowsParity::Off);
+        let mut window = Window::new(ThemeMode::Dark);
+        let mut actions = drag_to_sound_and_hold(&mut window, &state);
+        // Escape with the button still held: the pane closes, and the level stays Off.
+        actions.extend(
+            window
+                .frame(
+                    &state,
+                    vec![
+                        key_event(egui::Key::Escape, true),
+                        key_event(egui::Key::Escape, false),
+                    ],
+                )
+                .0,
+        );
+        assert_eq!(actions, [SettingsAction::Close]);
+        // The button is let go with the pane closed, and time passes.
+        let to = detent(WindowsParity::Sound);
+        window.closed_frame(vec![pointer(to, egui::PointerButton::Primary, false)]);
+        for _ in 0..5 {
+            window.closed_frame(Vec::new());
+        }
+        // Opened again on Experimental: nothing is asked for, and the thumb is back at Off.
+        let mut actions = Vec::new();
+        for _ in 0..3 {
+            actions.extend(window.frame(&state, Vec::new()).0);
+        }
+        assert_eq!(actions, []);
+    }
+
+    #[test]
+    fn a_drag_the_pane_stopped_seeing_before_it_let_go_applies_nothing() {
+        // Not closed through the pane (hidden, or another tab drawn): the preview is still in
+        // memory, but no frame of the pane saw the let-go.
+        let state = experimental_state(WindowsParity::Off);
+        let mut window = Window::new(ThemeMode::Dark);
+        let mut actions = drag_to_sound_and_hold(&mut window, &state);
+        let to = detent(WindowsParity::Sound);
+        window.closed_frame(vec![pointer(to, egui::PointerButton::Primary, false)]);
+        window.closed_frame(Vec::new());
+        for _ in 0..3 {
+            actions.extend(window.frame(&state, Vec::new()).0);
+        }
+        assert_eq!(actions, []);
+    }
+
+    fn key_event(key: egui::Key, pressed: bool) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    #[test]
+    fn an_arrow_key_on_the_focused_slider_moves_it_one_position_and_applies_it_at_once() {
+        let state = experimental_state(WindowsParity::Off);
+        let mut window = Window::new(ThemeMode::Dark);
+        // Focused as Tab focuses it, by the slider's own id.
+        let mut actions = window.frame(&state, Vec::new()).0;
+        window.ctx.memory_mut(|m| {
+            m.request_focus(
+                Id::unique("fx_slider").with(Id::unique("fx_settings_dialog").with("parity")),
+            );
+        });
+        actions.extend(window.frame(&state, Vec::new()).0);
+        assert_eq!(actions, []);
+        for events in [
+            vec![key_event(egui::Key::ArrowRight, true)],
+            vec![key_event(egui::Key::ArrowRight, false)],
+            Vec::new(),
+        ] {
+            actions.extend(window.frame(&state, events).0);
+        }
+        assert_eq!(
+            actions,
+            [SettingsAction::SetWindowsParity(WindowsParity::Interface)]
+        );
+    }
+
+    #[test]
+    fn a_wheel_notch_over_the_slider_moves_it_one_position_and_applies_it_at_once() {
+        let state = experimental_state(WindowsParity::Off);
+        let mut window = Window::new(ThemeMode::Dark);
+        let over = detent(WindowsParity::Interface);
+        let mut actions = Vec::new();
+        for events in [
+            vec![egui::Event::PointerMoved(over)],
+            vec![
+                egui::Event::PointerMoved(over),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: vec2(0.0, 1.0),
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Wheel,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            Vec::new(),
+            Vec::new(),
+        ] {
+            actions.extend(window.frame(&state, events).0);
+        }
+        assert_eq!(
+            actions,
+            [SettingsAction::SetWindowsParity(WindowsParity::Interface)]
+        );
+    }
+
+    #[test]
+    fn a_right_click_on_the_slider_goes_back_to_off() {
+        let state = experimental_state(WindowsParity::Sound);
+        let mut window = Window::new(ThemeMode::Dark);
+        let at = detent(WindowsParity::Interface);
+        let secondary = egui::PointerButton::Secondary;
+        let mut actions = Vec::new();
+        for events in [
+            vec![egui::Event::PointerMoved(at)],
+            vec![egui::Event::PointerMoved(at), pointer(at, secondary, true)],
+            vec![pointer(at, secondary, false)],
+            Vec::new(),
+        ] {
+            actions.extend(window.frame(&state, events).0);
+        }
+        assert_eq!(
+            actions,
+            [SettingsAction::SetWindowsParity(WindowsParity::Off)]
+        );
+    }
+
+    #[test]
+    fn every_languages_positions_fit_two_lines_under_their_own_detent() {
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for level in WindowsParity::SLIDER_LEVELS {
+                let rect = parity_label_rect(pane, level.index());
+                for (code, text) in every_translation(level.label()) {
+                    let galley = centred_wrapped(
+                        ui.ctx(),
+                        &text,
+                        small_font(),
+                        Color32::PLACEHOLDER,
+                        rect.width(),
+                    );
+                    let rows = galley.rows.len();
+                    let size = galley.size();
+                    if rows > 2 || size.x > rect.width() + 0.01 || size.y > rect.height() {
+                        problems.push(format!(
+                            "{code}: {text:?} is {size:?} in {} rows, room {:?}",
+                            rows,
+                            rect.size()
+                        ));
+                    }
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn every_languages_hints_fit_one_line_of_the_pane_at_the_small_font() {
+        // The pane's one line, at the small font itself: no language's hint is set smaller.
+        let ctx = test_context();
+        let room = parity_hint_rect(pane_rect(content())).width();
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for level in WindowsParity::ALL {
+                problems.extend(wider_than(ui, level.hint(), &small_font(), room));
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn every_languages_heading_and_pane_title_fit_their_rows() {
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            problems.extend(wider_than(
+                ui,
+                LIKE_ORIGINAL_TITLE,
+                &normal_font(),
+                parity_heading_rect(pane).width(),
+            ));
+            // A pane title is never broken: the break mark is taken out of it.
+            for tab in SettingsTab::ALL {
+                for (code, text) in every_translation(tab.pane_title()) {
+                    let text = text.replace(crossfx_core::i18n::BREAK, "");
+                    let used = ui
+                        .painter()
+                        .layout_no_wrap(text.clone(), title_font(), Color32::PLACEHOLDER)
+                        .size()
+                        .x;
+                    if used > pane_title_rect(pane).width() {
+                        problems.push(format!("{tab:?} {code}: {text:?} is {used:.1}"));
+                    }
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    // ---- Smooth moves in WirePlumber ------------------------------------------------------
+
+    fn with_hook(available: bool, on: bool, restart: WirePlumberRestart) -> SettingsState {
+        let mut state = experimental_state(WindowsParity::Off);
+        state.wireplumber_hook = WirePlumberHook {
+            available,
+            on,
+            restart,
+        };
+        state
+    }
+
+    /// What the pane draws for `state`, as text.
+    fn experimental_texts(state: &SettingsState) -> Vec<String> {
+        let mut window = Window::new(ThemeMode::Dark);
+        let (_, shapes) = window.frame(state, Vec::new());
+        crate::views::testing::texts(&shapes)
+            .into_iter()
+            .map(|(text, _, _)| text)
+            .collect()
+    }
+
+    #[test]
+    fn the_hooks_box_the_lines_under_it_and_its_button_sit_under_the_slider_inside_the_pane() {
+        let pane = shown_pane();
+        let hook = wireplumber_hook_rect(pane);
+        let line = wireplumber_line_rect(pane);
+        let button = restart_wireplumber_rect(pane, vec2(audio::RESET_MAX_WIDTH, 24.0));
+        assert!(parity_hint_rect(pane).bottom() < hook.top());
+        assert!(hook.bottom() <= line.top() && line.bottom() <= button.top());
+        let row = parity_row(pane);
+        for rect in [hook, line, button] {
+            assert!(
+                rect.left() >= row.left() && rect.right() <= row.right() + 1e-3,
+                "{rect:?} in {row:?}"
+            );
+        }
+        assert!(button.bottom() <= pane.bottom());
+    }
+
+    #[test]
+    fn ticking_smooth_moves_in_wireplumber_asks_for_the_hook_and_unticking_takes_it_away() {
+        let at = wireplumber_hook_rect(shown_pane()).left_center() + vec2(5.0, 0.0);
+        let off = with_hook(true, false, WirePlumberRestart::NotNeeded);
+        assert_eq!(
+            click_settings(&off, at),
+            [SettingsAction::SetWirePlumberHook(true)]
+        );
+        let on = with_hook(true, true, WirePlumberRestart::NotNeeded);
+        assert_eq!(
+            click_settings(&on, at),
+            [SettingsAction::SetWirePlumberHook(false)]
+        );
+    }
+
+    #[test]
+    fn without_wireplumber_0_5_the_box_cannot_be_ticked_but_a_hook_left_there_can_be_unticked() {
+        let at = wireplumber_hook_rect(shown_pane()).left_center() + vec2(5.0, 0.0);
+        let unavailable = with_hook(false, false, WirePlumberRestart::NotNeeded);
+        assert_eq!(click_settings(&unavailable, at), []);
+        assert!(experimental_texts(&unavailable).contains(&WIREPLUMBER_TOO_OLD.to_owned()));
+        let left_there = with_hook(false, true, WirePlumberRestart::NotNeeded);
+        assert_eq!(
+            click_settings(&left_there, at),
+            [SettingsAction::SetWirePlumberHook(false)]
+        );
+    }
+
+    #[test]
+    fn restart_wireplumber_is_offered_only_while_a_restart_is_due() {
+        let button = |state: &SettingsState| {
+            experimental_texts(state).contains(&RESTART_WIREPLUMBER.to_owned())
+        };
+        for (restart, line, offered) in [
+            (WirePlumberRestart::NotNeeded, WIREPLUMBER_HOOK_HINT, false),
+            (WirePlumberRestart::Due, WIREPLUMBER_RESTART_DUE, true),
+            (
+                WirePlumberRestart::Failed,
+                WIREPLUMBER_RESTART_FAILED,
+                false,
+            ),
+        ] {
+            let state = with_hook(true, true, restart);
+            assert_eq!(button(&state), offered, "{restart:?}");
+            let texts = experimental_texts(&state);
+            // Wrapped: each of the line's words is drawn.
+            let drawn = texts.join(" ");
+            assert!(
+                line.split_whitespace().all(|word| drawn.contains(word)),
+                "{restart:?}: {texts:?}"
+            );
+        }
+        let due = with_hook(true, false, WirePlumberRestart::Due);
+        let ctx = test_context();
+        let label = RESTART_WIREPLUMBER;
+        let mut width = 0.0;
+        frame(&ctx, |ui| {
+            width = ui
+                .painter()
+                .layout_no_wrap(label.to_owned(), normal_font(), Color32::PLACEHOLDER)
+                .size()
+                .x;
+        });
+        let at = restart_wireplumber_rect(shown_pane(), reset_button_size(label, width)).center();
+        assert_eq!(
+            click_settings(&due, at),
+            [SettingsAction::RestartWirePlumber]
+        );
+    }
+
+    #[test]
+    fn every_language_fits_the_hooks_box_its_lines_and_its_button() {
+        let ctx = test_context();
+        let pane = pane_rect(content());
+        let box_room = wireplumber_hook_rect(pane).width() - TICK_BOX_SIDE - TICK_BOX_GAP;
+        let line = wireplumber_line_rect(pane);
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            problems.extend(wider_than(ui, WIREPLUMBER_HOOK, &normal_font(), box_room));
+            for key in [
+                WIREPLUMBER_HOOK_HINT,
+                WIREPLUMBER_TOO_OLD,
+                WIREPLUMBER_RESTART_DUE,
+                WIREPLUMBER_RESTART_FAILED,
+            ] {
+                for (code, text) in every_translation(key) {
+                    let size = ui
+                        .painter()
+                        .layout(
+                            text.clone(),
+                            small_font(),
+                            Color32::PLACEHOLDER,
+                            line.width(),
+                        )
+                        .size();
+                    if size.y > line.height() || size.x > line.width() {
+                        problems.push(format!("{code}: {text:?} is {size:?} in {:?}", line.size()));
+                    }
+                }
+            }
+            for (code, text) in every_translation(RESTART_WIREPLUMBER) {
+                let used = ui
+                    .painter()
+                    .layout_no_wrap(text.clone(), normal_font(), Color32::PLACEHOLDER)
+                    .size()
+                    .x;
+                if reset_button_size(&text, used).y > audio::RESET_LINE_HEIGHT {
+                    problems.push(format!("{code}: {text:?} wraps"));
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn the_pane_shows_the_chosen_positions_hint_and_draws_in_both_palettes() {
+        for level in WindowsParity::SLIDER_LEVELS {
+            let state = experimental_state(level);
+            for mode in [ThemeMode::Dark, ThemeMode::Light] {
+                let mut window = Window::new(mode);
+                let (actions, shapes) = window.frame(&state, Vec::new());
+                assert_eq!(actions, [], "{level:?}");
+                let texts: Vec<String> = crate::views::testing::texts(&shapes)
+                    .into_iter()
+                    .map(|(text, _, _)| text)
+                    .collect();
+                assert!(
+                    texts.iter().any(|text| text == level.hint()),
+                    "{level:?}: {texts:?}"
+                );
+                assert!(
+                    texts.iter().any(|text| text == LIKE_ORIGINAL_TITLE),
+                    "{texts:?}"
+                );
+            }
+        }
+    }
+
+    // ---- the platform and the interface font ---------------------------------------------------
+
+    /// Every line of text a frame painted.
+    fn painted(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        crate::views::testing::texts(shapes)
+            .into_iter()
+            .map(|(text, _, _)| text)
+            .collect()
+    }
+
+    #[test]
+    fn windows_has_no_applications_tab_and_its_nav_leaves_no_gap() {
+        for tab in SettingsTab::ALL {
+            assert!(tab.offered_on(Platform::LINUX), "{tab:?}");
+            assert_eq!(tab.row(Platform::LINUX), tab.index(), "{tab:?}");
+        }
+        assert!(!SettingsTab::Applications.offered_on(Platform::WINDOWS));
+        let rows: Vec<usize> = SettingsTab::ALL
+            .into_iter()
+            .filter(|tab| tab.offered_on(Platform::WINDOWS))
+            .map(|tab| tab.row(Platform::WINDOWS))
+            .collect();
+        assert_eq!(rows, (0..SettingsTab::ALL.len() - 1).collect::<Vec<_>>());
+
+        // Asked for anyway — a remembered tab, a link — the pane Windows lacks shows the first
+        // one instead, and its tab is drawn nowhere.
+        for (platform, applications) in [(Platform::LINUX, true), (Platform::WINDOWS, false)] {
+            let state = SettingsState {
+                tab: SettingsTab::Applications,
+                platform,
+                ..linux()
+            };
+            let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            assert_eq!(
+                texts.iter().any(|text| text == "Applications"),
+                applications,
+                "{texts:?}"
+            );
+            assert_eq!(
+                texts.iter().any(|text| text == OUTPUT_PREFERENCE_TITLE),
+                !applications,
+                "{texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn both_platforms_name_the_mode_after_the_original_fxsound_llc_and_linux_keeps_d_bus() {
+        // One name and one set of lines on Linux and on Windows: CrossFX has a Windows build of
+        // its own, so a name or a line that said "Windows" would not say which program it means.
+        assert_eq!(parity_title(), LIKE_ORIGINAL_TITLE);
+        for level in WindowsParity::ALL {
+            let hint = parity_hint(level);
+            assert_eq!(hint, level.hint());
+            assert!(
+                !hint.contains("Windows") && !hint.contains("Linux"),
+                "{hint}"
+            );
+        }
+        // What no level takes away names D-Bus only where there is a D-Bus to keep.
+        assert!(LIKE_ORIGINAL_TIP_DBUS.contains("D-Bus") && !LIKE_ORIGINAL_TIP.contains("D-Bus"));
+
+        // Drawn: the same heading and hint on both, the platform's own tip over the slider, and
+        // WirePlumber's hook only where there is one.
+        let over = parity_slider_rect(shown_pane()).center();
+        for (platform, tip, hook) in [
+            (Platform::LINUX, LIKE_ORIGINAL_TIP_DBUS, true),
+            (Platform::WINDOWS, LIKE_ORIGINAL_TIP, false),
+        ] {
+            let state = SettingsState {
+                platform,
+                ..experimental_state(WindowsParity::Off)
+            };
+            let mut window = Window::new(ThemeMode::Dark);
+            window.ctx.all_styles_mut(|style| {
+                style.interaction.tooltip_delay = 0.0;
+                style.interaction.show_tooltips_only_when_still = false;
+            });
+            // A frame to hover, one to lay the tip out, one that paints it.
+            window.frame(&state, vec![egui::Event::PointerMoved(over)]);
+            window.frame(&state, Vec::new());
+            let (_, shapes) = window.frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            assert!(
+                texts.iter().any(|text| text == LIKE_ORIGINAL_TITLE),
+                "{texts:?}"
+            );
+            assert!(
+                texts.contains(&parity_hint(WindowsParity::Off)),
+                "{texts:?}"
+            );
+            assert!(
+                texts.iter().any(|text| text.contains(tip)),
+                "{platform:?}: {texts:?}"
+            );
+            assert_eq!(
+                texts.iter().any(|text| text.contains("D-Bus")),
+                platform.dbus,
+                "{texts:?}"
+            );
+            assert_eq!(
+                texts.iter().any(|text| text == WIREPLUMBER_HOOK),
+                hook,
+                "{texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_has_no_echo_cancellation_and_the_calibration_button_takes_its_place() {
+        let pane = pane_rect(content());
+        let size = vec2(200.0, 30.0);
+        let on_linux = calibrate_button_rect_on(pane, size, Platform::LINUX);
+        assert_eq!(on_linux, calibrate_button_rect(pane, size));
+        let on_windows = calibrate_button_rect_on(pane, size, Platform::WINDOWS);
+        assert!(on_windows.top() < on_linux.top(), "{on_windows:?}");
+        let last = microphone_row_rect(pane, microphone::STEPPER_ROWS - 1);
+        assert!(on_windows.top() >= last.bottom(), "{on_windows:?} {last:?}");
+
+        for (platform, echo) in [(Platform::LINUX, true), (Platform::WINDOWS, false)] {
+            let state = SettingsState {
+                tab: SettingsTab::Microphone,
+                platform,
+                has_microphone: true,
+                ..linux()
+            };
+            let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+            let texts = painted(&shapes);
+            assert_eq!(
+                texts.iter().any(|text| text == ECHO_CANCELLATION),
+                echo,
+                "{texts:?}"
+            );
+            assert!(
+                texts.iter().any(|text| text == CALIBRATE_MICROPHONE),
+                "{texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_lines_under_the_interface_font_say_what_there_is_to_say() {
+        use InterfaceFont::{Gilroy, Manrope};
+        let state = |font, gilroy, lacks_letters, level| {
+            let mut state = SettingsState {
+                tab: SettingsTab::General,
+                ..linux()
+            };
+            state.settings.interface_font = font;
+            state.settings.windows_parity = level;
+            state.font = FontPane {
+                gilroy,
+                lacks_letters,
+                message: None,
+            };
+            state
+        };
+        let text = |text: &str| FontLine::Text {
+            text: text.to_owned(),
+            note: false,
+        };
+        let note = FontLine::Text {
+            text: GILROY_LICENCE.to_owned(),
+            note: true,
+        };
+        let off = WindowsParity::Off;
+        // Manrope as it is: nothing to say, whatever was found.
+        assert!(font_lines(&state(Manrope, GilroyFound::None, false, off)).is_empty());
+        assert!(font_lines(&state(Manrope, GilroyFound::Whole, false, off)).is_empty());
+        // Gilroy chosen and not all there: what it is, the two buttons, whose files they are.
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::None, false, off)),
+            [text(GILROY_EXPLAINED), FontLine::Buttons, note.clone()]
+        );
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::Incomplete, false, off)),
+            [text(GILROY_INCOMPLETE), FontLine::Buttons, note.clone()]
+        );
+        // Found: the note; found without the language's letters, why the window is in Manrope.
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::Whole, false, off)),
+            std::slice::from_ref(&note)
+        );
+        assert_eq!(
+            font_lines(&state(Gilroy, GilroyFound::Whole, true, off)),
+            [text(GILROY_LACKS_LETTERS), note]
+        );
+        // The original look sets the window in a Gilroy that is there, and the pane says so.
+        assert_eq!(
+            font_lines(&state(
+                Manrope,
+                GilroyFound::Whole,
+                false,
+                WindowsParity::Interface
+            )),
+            [text(&i18n::tr_args(
+                ORIGINAL_LOOK_USES_GILROY,
+                &[LIKE_ORIGINAL_TITLE]
+            ))]
+        );
+        // And what the last action came to, last.
+        let mut left_out = state(Gilroy, GilroyFound::None, false, off);
+        left_out.font.message = Some(FontMessage::LeftOut(vec![
+            "Gilroy-Light.ttf".to_owned(),
+            "notes.txt".to_owned(),
+        ]));
+        assert_eq!(
+            font_lines(&left_out).last(),
+            Some(&text(&i18n::tr_args(
+                GILROY_LEFT_OUT,
+                &["Gilroy-Light.ttf, notes.txt"]
+            )))
+        );
+    }
+
+    #[test]
+    fn the_font_option_steps_to_the_other_face_and_gilroys_buttons_ask_for_theirs() {
+        let mut state = SettingsState {
+            tab: SettingsTab::General,
+            ..linux()
+        };
+        let stepper = font_stepper_rect(pane_rect(content()));
+        // The › arrow, as `stepper` places it.
+        let next = pos2(stepper.right() - 17.0, stepper.top() + 15.0);
+        assert_eq!(
+            Window::new(ThemeMode::Dark).click(&state, next),
+            [SettingsAction::Font(FontAction::Choose(
+                InterfaceFont::Gilroy
+            ))]
+        );
+        state.settings.interface_font = InterfaceFont::Gilroy;
+        assert_eq!(
+            Window::new(ThemeMode::Dark).click(&state, next),
+            [SettingsAction::Font(FontAction::Choose(
+                InterfaceFont::Manrope
+            ))]
+        );
+
+        // Chosen and not found: the two buttons, on both platforms, each asking for its own.
+        for platform in [Platform::LINUX, Platform::WINDOWS] {
+            state.platform = platform;
+            let mut window = Window::new(ThemeMode::Dark);
+            let (_, shapes) = window.frame(&state, Vec::new());
+            let at = |label: &str| {
+                crate::views::testing::texts(&shapes)
+                    .into_iter()
+                    .find(|(text, _, _)| text == label)
+                    .map(|(_, rect, _)| rect.center())
+                    .unwrap_or_else(|| panic!("{label} is not drawn"))
+            };
+            let (buy, add) = (at(BUY_GILROY), at(ADD_GILROY_FILES));
+            assert_eq!(
+                window.click(&state, buy),
+                [SettingsAction::Font(FontAction::Buy)]
+            );
+            assert_eq!(
+                window.click(&state, add),
+                [SettingsAction::Font(FontAction::AddFiles)]
+            );
+        }
+        // Found, there is nothing to buy or add.
+        state.font.gilroy = GilroyFound::Whole;
+        let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
+        let texts = painted(&shapes);
+        assert!(
+            !texts
+                .iter()
+                .any(|text| text == BUY_GILROY || text == ADD_GILROY_FILES),
+            "{texts:?}"
+        );
+        assert!(texts.iter().any(|text| text == GILROY_LICENCE), "{texts:?}");
+    }
+
+    #[test]
+    fn the_designers_store_is_the_page_buy_gilroy_opens() {
+        assert_eq!(
+            GILROY_STORE,
+            "https://www.myfonts.com/collections/gilroy-font-radomir-tinkov"
+        );
+    }
+}

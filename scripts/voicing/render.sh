@@ -105,14 +105,14 @@ done
 
 # -------------------------------------------------------------------- the binary
 # Let cargo decide whether the renderer is current, rather than only checking that
-# a file is there. fxsound-dsp moves underneath this harness, and a stale
+# a file is there. crossfx-dsp moves underneath this harness, and a stale
 # process_wav renders the presets through an engine that no longer exists —
 # silently, because the output is still a perfectly good WAV. cargo is a fast
 # no-op when nothing has changed. An explicit FXSV_PROCESS_WAV is somebody else's
 # binary and is taken as given.
 if [ -z "${FXSV_PROCESS_WAV:-}" ] && command -v cargo >/dev/null 2>&1; then
     step "checking the offline renderer is current"
-    ( cd "$REPO_ROOT" && cargo build --release -p fxsound-dsp --example process_wav ) \
+    ( cd "$REPO_ROOT" && cargo build --release -p crossfx-dsp --example process_wav ) \
         || die "could not build the process_wav example"
 fi
 [ -x "$PROCESS_WAV" ] \

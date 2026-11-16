@@ -82,20 +82,20 @@ jobs:
 
       # The application's documentation, rustdoc's warnings denied. Neither clippy nor the tests
       # read the links, and one to a private item, or to an item only Windows has, is broken in the
-      # pages `cargo doc` makes (crates/fxsound-app/src/lib.rs). The other crates join once their
+      # pages `cargo doc` makes (crates/crossfx-app/src/lib.rs). The other crates join once their
       # links are clean.
       - name: Documentation
-        run: cargo doc -p fxsound-app --no-deps
+        run: cargo doc -p crossfx-app --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
       # The runner has an XDG_RUNTIME_DIR but no session bus and no session PipeWire in it, and
       # nothing in the suite may reach for any of them: a test that needs the user's session is a
       # test that would take a developer's default device away mid-run. The graph-churn tests in
-      # fxsound-audio still talk to a real server — each starts its own private pipewire, with its
+      # crossfx-audio still talk to a real server — each starts its own private pipewire, with its
       # own runtime directory and socket, from the packages installed above, and kills it when it
       # is done. So never start a daemon in this step; if a test fails for want of one, it should
-      # start its own the way those do, through `fxsound_core::test_support`, whose children die
+      # start its own the way those do, through `crossfx_core::test_support`, whose children die
       # with the test process even when a timeout kills it (util-linux's `setpriv --pdeathsig`, or
       # a watchdog where there is none) and whose scratch directories go with the test.
       #
@@ -121,7 +121,7 @@ jobs:
 
   # The same tests on the newest PipeWire and on WirePlumber 0.5, which the job above cannot have:
   # Ubuntu 24.04 ships WirePlumber 0.4.17, and the tests of what only WirePlumber's own policy shows
-  # (crates/fxsound-audio/src/graph_churn/policy.rs) need 0.5's profiles, so there they say SKIPPED
+  # (crates/crossfx-audio/src/graph_churn/policy.rs) need 0.5's profiles, so there they say SKIPPED
   # and pass. Here they have to run: FXSOUND_REQUIRE_WIREPLUMBER=1 turns that skip into a failure,
   # as FXSOUND_REQUIRE_PIPEWIRE_TOOLS=1 does every other. Formatting and lints stay with the job
   # above; this one is about the runtime the tests talk to, so it only tests.
@@ -187,7 +187,7 @@ jobs:
           FXSOUND_REQUIRE_WIREPLUMBER: "1"
 
       # A steady tone through CrossFX, and the worst click each switch leaves in it
-      # (crates/fxsound-audio/src/graph_churn/clicks.rs). One at a time, so that the other tests'
+      # (crates/crossfx-audio/src/graph_churn/clicks.rs). One at a time, so that the other tests'
       # daemons do not cause the xruns that would discard its runs. Here it only reports: a shared
       # runner has xruns of its own, and the hard gate of -40 dBFS is the local check of an audio
       # phase. The tables go to the job's summary, and a switch over the soft threshold becomes a
@@ -196,7 +196,7 @@ jobs:
         run: |
           set -euo pipefail
           runuser -u tester -- env FXSOUND_CLICK_REPORT="$GITHUB_WORKSPACE/target/click-report.txt" \
-            cargo test -p fxsound-audio --lib graph_churn::clicks::under_a_steady_tone \
+            cargo test -p crossfx-audio --lib graph_churn::clicks::under_a_steady_tone \
             -- --test-threads=1 --nocapture
         env:
           XDG_RUNTIME_DIR: /run/tester
@@ -229,7 +229,7 @@ jobs:
   # the Windows halves of the app are code no Linux job builds — and then the tests of every crate,
   # as the `check` job runs them: in the dev profile, and again in the release profile, which the
   # Windows packages are built in. None of them changes the machine's default device or plays a
-  # sound: the checks against its own audio (fxsound-audio's wasapi::live) only read, or render a
+  # sound: the checks against its own audio (crossfx-audio's wasapi::live) only read, or render a
   # moment of digital silence, and on a runner, which has no audio endpoints and may have no audio
   # service, they say what they could not look at and pass. The one that changes the default and
   # plays through CrossFX, end_to_end_on_this_machine, is #[ignore]d and run by hand; a test that
@@ -263,7 +263,7 @@ jobs:
       # As in the check job, for the pages of CrossFX on Windows, which has items of its own and
       # lacks Linux's: a link to one of those is broken here.
       - name: Documentation
-        run: cargo doc -p fxsound-app --no-deps
+        run: cargo doc -p crossfx-app --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 

@@ -302,7 +302,7 @@ fi
 #
 # The layout below is packaging/PKGBUILD's and debian/rules', and the one part
 # of it that is not a matter of taste is /usr/share/crossfx/presets: that is one
-# of the two places install_data_dirs in crates/fxsound-preset/src/lib.rs
+# of the two places install_data_dirs in crates/crossfx-preset/src/lib.rs
 # searches. Put the presets anywhere else and the application starts with an
 # empty preset list.
 # ---------------------------------------------------------------------------
@@ -359,7 +359,7 @@ install -D -m 0644 "$REPO/packaging/crossfx.service" \
 install -D -m 0644 "$REPO/packaging/io.github.blackixxce12.CrossFX.service" \
     "$DATA/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
 # The application icon under the application id, the one name the desktop entry,
-# the notifications (crates/fxsound-app/src/notify.rs) and the sound settings
+# the notifications (crates/crossfx-app/src/notify.rs) and the sound settings
 # look it up by.
 install -D -m 0644 "$REPO/assets/images/fxsound_large.png" \
     "$DATA/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"

@@ -9,7 +9,7 @@ starts it.
 The Rust dependencies are vendored — `eframe`/`egui` 0.36, `pipewire`, `ksni`, `rfd` and
 `resvg` are not packaged as crates in Fedora, so a system-registry build cannot resolve. The
 spec header explains the choice in full; a reviewer will ask. (RNNoise is not among them: it is
-in the tree, as `crates/fxsound-rnnoise`.)
+in the tree, as `crates/crossfx-rnnoise`.)
 
 ## Build
 

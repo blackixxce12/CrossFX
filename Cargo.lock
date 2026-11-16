@@ -605,6 +605,121 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
+name = "crossfx-app"
+version = "0.5.0"
+dependencies = [
+ "clap",
+ "crossbeam-channel",
+ "crossfx-audio",
+ "crossfx-core",
+ "crossfx-dsp",
+ "crossfx-preset",
+ "crossfx-ui",
+ "dirs",
+ "eframe",
+ "env_logger",
+ "ksni",
+ "log",
+ "notify-rust",
+ "resvg",
+ "rfd",
+ "serde",
+ "serde_json",
+ "signal-hook",
+ "tempfile",
+ "tiny-skia",
+ "tokio",
+ "toml",
+ "tray-icon",
+ "usvg",
+ "windows",
+ "winresource",
+ "zbus 6.3.0",
+]
+
+[[package]]
+name = "crossfx-audio"
+version = "0.5.0"
+dependencies = [
+ "crossbeam-channel",
+ "crossfx-core",
+ "crossfx-dsp",
+ "crossfx-preset",
+ "libspa",
+ "log",
+ "pipewire",
+ "pipewire-sys",
+ "realfft",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml",
+ "triple_buffer",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "crossfx-core"
+version = "0.5.0"
+dependencies = [
+ "arc-swap",
+ "dirs",
+ "log",
+ "serde",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
+name = "crossfx-dsp"
+version = "0.5.0"
+dependencies = [
+ "crossfx-core",
+ "crossfx-preset",
+ "crossfx-rnnoise",
+ "realfft",
+]
+
+[[package]]
+name = "crossfx-preset"
+version = "0.5.0"
+dependencies = [
+ "crossfx-core",
+ "jiff",
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml",
+ "trash",
+]
+
+[[package]]
+name = "crossfx-rnnoise"
+version = "0.5.0"
+dependencies = [
+ "easyfft",
+ "once_cell",
+ "realfft",
+]
+
+[[package]]
+name = "crossfx-ui"
+version = "0.5.0"
+dependencies = [
+ "crossfx-core",
+ "crossfx-dsp",
+ "eframe",
+ "egui",
+ "log",
+ "resvg",
+ "skrifa 0.44.0",
+ "tiny-skia",
+ "usvg",
+]
+
+[[package]]
 name = "crunchy"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1158,121 +1273,6 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
-]
-
-[[package]]
-name = "fxsound-app"
-version = "0.5.0"
-dependencies = [
- "clap",
- "crossbeam-channel",
- "dirs",
- "eframe",
- "env_logger",
- "fxsound-audio",
- "fxsound-core",
- "fxsound-dsp",
- "fxsound-preset",
- "fxsound-ui",
- "ksni",
- "log",
- "notify-rust",
- "resvg",
- "rfd",
- "serde",
- "serde_json",
- "signal-hook",
- "tempfile",
- "tiny-skia",
- "tokio",
- "toml",
- "tray-icon",
- "usvg",
- "windows",
- "winresource",
- "zbus 6.3.0",
-]
-
-[[package]]
-name = "fxsound-audio"
-version = "0.5.0"
-dependencies = [
- "crossbeam-channel",
- "fxsound-core",
- "fxsound-dsp",
- "fxsound-preset",
- "libspa",
- "log",
- "pipewire",
- "pipewire-sys",
- "realfft",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "toml",
- "triple_buffer",
- "windows",
- "windows-core",
-]
-
-[[package]]
-name = "fxsound-core"
-version = "0.5.0"
-dependencies = [
- "arc-swap",
- "dirs",
- "log",
- "serde",
- "tempfile",
- "toml",
-]
-
-[[package]]
-name = "fxsound-dsp"
-version = "0.5.0"
-dependencies = [
- "fxsound-core",
- "fxsound-preset",
- "fxsound-rnnoise",
- "realfft",
-]
-
-[[package]]
-name = "fxsound-preset"
-version = "0.5.0"
-dependencies = [
- "fxsound-core",
- "jiff",
- "log",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "toml",
- "trash",
-]
-
-[[package]]
-name = "fxsound-rnnoise"
-version = "0.5.0"
-dependencies = [
- "easyfft",
- "once_cell",
- "realfft",
-]
-
-[[package]]
-name = "fxsound-ui"
-version = "0.5.0"
-dependencies = [
- "eframe",
- "egui",
- "fxsound-core",
- "fxsound-dsp",
- "log",
- "resvg",
- "skrifa 0.44.0",
- "tiny-skia",
- "usvg",
 ]
 
 [[package]]

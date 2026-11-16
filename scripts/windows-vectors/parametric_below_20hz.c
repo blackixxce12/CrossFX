@@ -1,6 +1,6 @@
 /*
  * The golden vectors of `below_20hz_the_windows_dsp_designs_the_windows_builds_sections`
- * (crates/fxsound-dsp/src/biquad.rs): the Windows build's filtCalcParametric below 20 Hz, where
+ * (crates/crossfx-dsp/src/biquad.rs): the Windows build's filtCalcParametric below 20 Hz, where
  * its Q cap goes negative (0.4.0 audit #12), made as docs/spec/09-dsp-eq.md §13's vectors are —
  * FiltCalcBiqd.cpp itself, compiled as C with realtype = float and glibc's libm on x86-64.
  * build.sh compiles it against a checkout of FxSound LLC's repository.

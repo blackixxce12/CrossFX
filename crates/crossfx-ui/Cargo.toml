@@ -1,0 +1,23 @@
+[package]
+name = "crossfx-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "egui front end for CrossFX"
+
+[dependencies]
+crossfx-core = { workspace = true }
+# The equalizer's filter designs, so the window draws the curve the audio thread runs (0.4.0 audit
+# R8). A pure library: no PipeWire, no files, nothing that runs on its own.
+crossfx-dsp = { workspace = true }
+egui = { workspace = true }
+resvg = { workspace = true }
+usvg = { workspace = true }
+tiny-skia = { workspace = true }
+# Reads a Gilroy the user supplied: its family, its faces and its letters (`typeface`).
+skrifa = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+eframe = { workspace = true }

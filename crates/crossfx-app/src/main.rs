@@ -1,0 +1,5052 @@
+//! The CrossFX binary: parse the command line, be the single instance, run the window.
+//!
+//! Everything interesting lives in the library next door. This file is the shell that wires the
+//! controller to eframe, the tray, the control socket and the D-Bus service, and it is
+//! deliberately the only place that knows all five exist.
+//!
+//! ## Startup, in order
+//!
+//! 1. Parse the command line. `--self-test` is answered right here, before anything below can
+//!    take a lock, open a socket, show a window or write a setting (0.4.0 design §13).
+//! 2. Try to become the single instance. If another one is already running, forward the command
+//!    line to it over the control socket, print whatever it says and exit — which is what makes
+//!    `crossfx --next-preset` usable as a compositor keybind. `--watch` subscribes instead and
+//!    prints the running instance's events until it quits. `--quit`, `--status` and `--watch`
+//!    with nobody to forward to report that CrossFX is not running and stop right here, before
+//!    step 3 could claim the session default sink, and so do `--next-output` and `--next-input`;
+//!    `--list-apps` is answered from the store on disk and stops here too.
+//! 3. Start the audio engine. A missing or broken PipeWire is **not** fatal: the window still
+//!    opens and says so. The original quits hard when its driver is missing; on Linux the
+//!    same conditions are routine and recoverable (`docs/spec/00-architecture.md` §10, open
+//!    question 6).
+//! 4. Apply the cold-start options — every option that sets something, where the original
+//!    drops the band lists, the effects and the preset management at a start — register the
+//!    tray, then alternate between the two states below until something asks to quit. A line
+//!    that only sets something — `crossfx --preset=Gaming` from a keybinding — starts in the
+//!    tray, as a running CrossFX leaves its window alone for it (0.4.0 audit R11); with no tray
+//!    icon after a few seconds the window comes up minimised instead ([`TRAY_WAIT`]), and so it
+//!    does for a start the remembered tray state put in the tray ([`waits_for_a_tray`]).
+//!    `--next-output` and `--next-input` have no device to step from at a start: step 2 refuses
+//!    a line with one, as it refuses `--status`.
+//! 5. Just before that loop, start the D-Bus service (`crossfx_app::dbus`) on its own thread. It
+//!    carries its calls to the same control channel the socket uses, so they are answered by the
+//!    pump like a forwarded command line; no session bus, or its name taken, is a log line and
+//!    not a failure. Then the suspend watcher (`crossfx_app::sleep`), on a thread of its own too,
+//!    listening for logind on the system bus; no system bus is a log line as well.
+//!
+//! ## What wakes the pump
+//!
+//! Nothing is polled on a timer any more (0.4.0 design §12). Whatever hands the GUI thread work
+//! wakes it through the one [`Waker`]: the control socket's connection threads and the D-Bus
+//! service (through the channel they share), the tray's callbacks, the suspend watcher, the
+//! termination signals, and the audio thread's notifications, which a small thread carries to the
+//! controller ([`crossfx_app::wake`]). With a window, a wake-up is a repaint of it; without one,
+//! the pump blocks on those channels ([`Runtime::wait`]). Either way it also looks once a second
+//! ([`KEEPALIVE`]), sooner when a notice is due to go or a `--watch --meters` stream is open, and
+//! the window paints at sixty a second only while the Pro view's visualizer has sound moving
+//! through it ([`frame_interval`]).
+//!
+//! ## Two states: a window, or the tray alone
+//!
+//! The original hides to the tray on ✕ and on the compositor's close request, and quits only from
+//! the tray's Exit (`docs/spec/01-window-layout.md` §7); its minimise button minimises
+//! (`ShowWindow(SW_MINIMIZE)`, `FxMainWindow.cpp:579-585`). Here the minimise button hides to the
+//! tray too while a tray icon is there to come back from — a Wayland compositor such as Hyprland
+//! or sway has no minimised state to put a window in — and minimises the window as the original
+//! does when there is none (0.4.0 audit #43), so that it cannot vanish on a GNOME session without
+//! the AppIndicator extension. ✕ hides either way: CrossFX processes the whole session's sound,
+//! and a close that quit would stop it; with no tray the one-time notice says how to get the
+//! window back (`crossfx --show`, or launching CrossFX again). Either brings a minimised window
+//! back too: out of the minimised state on X11, and on Wayland, where a client cannot do that,
+//! as a fresh window in its place ([`show_action`]). On Wayland
+//! a client cannot unmap and later remap its toplevel through winit —
+//! `Window::set_visible` is a no-op there
+//! (`winit-0.30.13/src/platform_impl/linux/wayland/window/mod.rs:253`) — so "hidden" cannot be a
+//! window that exists but is not shown. Instead there is no window at all: eframe's default
+//! `run_and_return` keeps the winit event loop in a thread-local and drives it with
+//! `run_app_on_demand` (`eframe-0.36.0/src/native/run.rs:57-75`, `:374-383`), which means
+//! [`eframe::run_native`] may be called again and again in one process. To hide, the shell
+//! sends `ViewportCommand::Close`; the window is destroyed and `run_native` returns. To show, a
+//! fresh window is run. In between, [`Runtime::run_headless`] pumps the engine, the control
+//! socket and the tray as they wake it — audio never stops, `crossfx --show` and the tray still
+//! work. What the window showed that is not the controller's — an open pane, the face the effect
+//! column was turned to — is kept for the next window ([`Panes`]), so hiding and showing it again
+//! looks the way hiding a window does.
+//!
+//! On Linux the window renders without vsync. eframe's glow backend otherwise lets Mesa's
+//! `eglSwapBuffers` wait for a frame callback, which a Wayland compositor never sends for a
+//! surface it is not showing — so a window parked on another Hyprland workspace stopped
+//! answering `xdg_wm_base` pings and the compositor called the app unresponsive. Without vsync
+//! the loop is paced by [`FRAME_INTERVAL`] instead, and only while something moves. Windows keeps
+//! eframe's vsync: a swap there waits for the desktop compositor's next frame and never for a
+//! window it is not showing, and without it every pointer event over the window was a frame of
+//! its own, and the frame after it too — some nine hundred a second for five hundred pointer
+//! moves a second, near a core and a half between the GUI thread and the driver's, where the
+//! display shows 144.
+//!
+//! ## On Windows
+//!
+//! The same shell, over `crossfx_app::win`'s stand-ins: the control pipe for the socket, the
+//! notification area for the StatusNotifierItem, no D-Bus service, and the power notification for
+//! logind. A release build is a GUI program, so that no console window opens with it; it takes
+//! the console of the terminal it was started from, if any, so that `crossfx --status` still
+//! prints there, and what was redirected, `crossfx --status > status.txt`, stays where it was
+//! sent. The running CrossFX gives the console back before its engine starts
+//! (`crossfx_app::platform::release_terminal`), borrowing it again only when the options it was
+//! started with have something to report on a stream that was the terminal's, and only for the
+//! moment it takes to print that (`crossfx_app::platform::on_the_terminal`). The tray-only state
+//! pumps the GUI thread's window messages while it waits ([`wait_for_any`]): eframe's event loop
+//! keeps a hidden window on this thread between two windows, and a thread that does not answer
+//! its windows' messages holds up the end of the session. Ctrl+C and the console closing (a
+//! console of CrossFX's own, the debug build's), log-off, shutdown and a `taskkill` without `/F`
+//! are the tray's Exit, as the signals are on Linux (`crossfx_app::win::session`). The window
+//! carries CrossFX's icon, which Windows takes from the window rather than from the app id
+//! ([`native_options`]).
+
+#![forbid(unsafe_code)]
+// No console window of its own in a release build; `main` attaches to its parent's instead.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
+use clap::Parser as _;
+use eframe::egui;
+#[cfg(target_os = "linux")]
+use crossfx_app::dbus::{self, DbusHandle};
+use crossfx_app::{
+    App, WindowVisibility,
+    app::{
+        FORBIDDEN_PRESET_NAME_CHARS, MAX_PRESET_NAME_CHARS, PresetMenu, preset_name_available,
+        rename_name_available,
+    },
+    cli::{Cli, Command},
+    commands::{self, WindowRequest},
+    events::{self, AppEvent, EventSink, TraySink},
+    ipc::{self, Instance},
+    selftest,
+    sleep::SleepWatch,
+    tray::{self, TrayCommand, TrayHandle},
+    wake::{Waker, WakingSender},
+};
+use crossfx_core::{ThemeMode, ViewMode, i18n::tr, identity};
+use crossfx_ui::{
+    FxColor, Palette, UiAction,
+    dialogs::{
+        self, CalibrationDialog, CalibrationView, ConfirmChoice, ExportDialog, ExportState,
+        ImportDialog, ImportState, MessageBox, PresetsAction,
+        changelog::{ChangelogAction, ChangelogPane},
+        settings::{NavIcons, SettingsAction, SettingsDialog, SettingsState},
+    },
+    layout,
+    state::PresetEntry,
+    theme,
+    views::ViewScratch,
+    widgets::combo,
+};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+/// What ends CrossFX from outside, as the tray's Exit: the signal thread's handle on Linux, the
+/// console and session watcher on Windows. Closed last on the way out ([`Runtime::shutdown`]).
+#[cfg(target_os = "linux")]
+type Signals = signal_hook::iterator::Handle;
+#[cfg(windows)]
+type Signals = crossfx_app::win::session::Termination;
+
+/// What the single instance's channel is called where a failure to have it is said: the socket in
+/// `$XDG_RUNTIME_DIR`, or Windows' named pipe.
+const CONTROL_CHANNEL: &str = if cfg!(windows) {
+    "control pipe"
+} else {
+    "control socket"
+};
+
+/// How long the pump goes without looking when nothing wakes it (0.4.0 design §12).
+///
+/// Everything that hands the GUI thread work wakes it (see the module docs), so this is only for
+/// what nothing announces: sound starting or stopping on a device that was running already, which
+/// the tray's icon and the window's logo show. Once a second costs nothing measurable; the 10 Hz
+/// poll it replaces kept an idle CrossFX on the CPU for as long as it ran.
+const KEEPALIVE: Duration = Duration::from_secs(1);
+
+/// The changelog Settings ▸ Help shows; bundled, since CrossFX never sends the user to the
+/// original's website.
+const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
+
+/// How far the fitted zoom may drift from the one in effect before it is re-applied — a set on
+/// every frame would re-lay the fonts out on every frame.
+const ZOOM_TOLERANCE: f32 = 0.01;
+
+/// The repaint cadence while the visualizer is live. Without vsync, on Linux (see the module
+/// docs), this is what keeps the loop at roughly 60 Hz instead of spinning.
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
+fn main() -> eframe::Result<()> {
+    // Before anything reads it: Windows says the desktop's language where Linux's session does.
+    crossfx_app::platform::adopt_desktop_language();
+    // Before anything prints: a GUI build started from a terminal prints there.
+    crossfx_app::platform::attach_parent_console();
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or(crossfx_app::DEFAULT_LOG_FILTER),
+    )
+    .init();
+
+    let cli = Cli::parse();
+
+    // Step 1½: the self-test belongs to this process, not to an instance. It runs beside a
+    // running CrossFX and in a container with no session, and it leaves no trace in either.
+    if cli.self_test {
+        let report = selftest::run(&selftest::Environment::detect());
+        println!("{}", report.render(cli.json));
+        std::process::exit(report.exit_code());
+    }
+
+    // Step 2: single instance. A second invocation is a remote control, not a second app.
+    let listener = match Instance::acquire() {
+        Ok(Instance::Primary(listener)) => listener,
+        Ok(Instance::Secondary(client)) => {
+            // Started by the bus or the user unit for an instance that turned out to be running
+            // already: it is the one the bus was waiting for, and nothing is forwarded — least of
+            // all the `--hide` a plain `crossfx --hide` would send to a window just opened.
+            if cli.activated {
+                log::info!("CrossFX is running already; nothing to activate");
+                std::process::exit(0);
+            }
+            // A stream, not one answer: print events until the running instance quits. Decided by
+            // the same `commands()` the primary runs, so `--status --watch` stays a `--status`.
+            if let [Command::Watch { meters, .. }] = cli.commands().as_slice() {
+                std::process::exit(client.watch(*meters));
+            }
+            // The primary re-parses our argv itself, so nothing is lost in translation.
+            match client.forward() {
+                Ok(response) => {
+                    if !response.stdout.is_empty() {
+                        println!("{}", response.stdout);
+                    }
+                    if !response.stderr.is_empty() {
+                        eprintln!("{}", response.stderr);
+                    }
+                    std::process::exit(response.exit_code());
+                }
+                Err(err) => {
+                    eprintln!("could not reach the running instance: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!("could not claim the {CONTROL_CHANNEL}: {err}");
+            std::process::exit(1);
+        }
+    };
+    // The one waker every producer below holds a clone of (see the module docs).
+    let waker = Waker::new();
+    let server = match listener.serve_waking(waker.clone()) {
+        Ok(server) => server,
+        Err(err) => {
+            eprintln!("could not serve the {CONTROL_CHANNEL}: {err}");
+            std::process::exit(1);
+        }
+    };
+
+    // Holding the lock means no CrossFX is running. `--status`, `--watch` and `--quit` address
+    // one (`docs/spec/00-architecture.md` §4.7): say so and leave before step 3 claims the
+    // session default sink — starting CrossFX to answer would be the opposite of what was asked.
+    // `--list-apps` is answered from the store on disk instead, which is the way to look up a
+    // name for `--app-preset` before CrossFX runs, and a `--forget-device` on its own is done to
+    // the settings file, so the script that ran it gets its exit status rather than becoming
+    // CrossFX. `--next-output` and `--next-input` have no device to step from until CrossFX has
+    // started and attached its lanes, so a line with one is refused and starts nothing. Which of
+    // them a line is, the same `commands()` decides that a running instance runs, so `--watch
+    // --list-apps` lists here as it does there (`commands::answer_without_an_instance`). Dropping
+    // `server` unlinks the socket again.
+    if let Some(answer) = commands::answer_without_an_instance(
+        &cli.commands(),
+        &crossfx_core::AppRules::config_path(),
+        &crossfx_core::Settings::config_path(),
+    ) {
+        drop(server);
+        if !answer.stdout.is_empty() {
+            println!("{}", answer.stdout);
+        }
+        if !answer.stderr.is_empty() {
+            eprintln!("{}", answer.stderr);
+        }
+        std::process::exit(i32::from(answer.failed));
+    }
+
+    // A `--forget-device` beside options that start CrossFX: done to the settings file before
+    // they are read, as it is on a line of its own above. At a cold start there is no device list
+    // to wait for yet, and nothing is attached to the device it names (0.4.0 audit #34), so
+    // `Command::honoured_at_cold_start` leaves it out of step 4. Reported, and the start goes on.
+    let forgotten = commands::forget_in_the_settings_file(
+        &cli.commands(),
+        &crossfx_core::Settings::config_path(),
+    );
+    if !forgotten.stderr.is_empty() {
+        eprintln!("{}", forgotten.stderr);
+    }
+    // This process is the running CrossFX, and what remains to be said waits for the engine: a
+    // release build on Windows gives back the terminal it borrowed before the engine starts, and
+    // runs on as a program of its own. Held, a Ctrl+C typed there or the terminal closing would
+    // end it halfway through taking over the default device.
+    crossfx_app::platform::release_terminal();
+
+    // The UI language, decided before anything is drawn or named: the desktop's unless the
+    // settings say otherwise (`crossfx_core::i18n`). The engine gets it too, for the node
+    // descriptions the sound settings show.
+    let settings = crossfx_core::Settings::load();
+    let language = settings.effective_language();
+    crossfx_core::i18n::set_language(language);
+
+    // Step 3: audio, started with what its first pair of nodes depends on — the language, the
+    // per-device volumes and both lanes' device rankings. Report the failure and carry on.
+    let options = crossfx_app::app::engine_start_options(&settings, language);
+    let engine = match crossfx_audio::AudioEngine::start_with_options(options) {
+        Ok(handle) => Some(handle),
+        Err(err) => {
+            log::error!("audio engine did not start: {err}");
+            None
+        }
+    };
+
+    let mut app = App::new(engine, &waker);
+
+    // Step 4: the options a cold start honours — every one that sets something, the band lists,
+    // the effects and the preset management included (`Command::honoured_at_cold_start`) — before
+    // anything is drawn, on the presets `App::new` has read. No application stream
+    // has been reported yet, so a preset named for an application the store does not know is held
+    // until the engine has said which applications play and record: the game that was started
+    // before CrossFX is then reached by its own streams, as a running CrossFX would reach it.
+    app.hold_app_presets();
+    let cold = commands::run(&mut app, &cli.cold_start_commands());
+    // Said where the line was typed, and the start carries on whatever it says: the device list
+    // has not arrived yet, so `--output` has been held rather than refused, and there is nothing
+    // here worth refusing to start over. On Windows the terminal given back above is borrowed again
+    // for as long as the printing takes, and not at all for a start with nothing to say on it
+    // (`crossfx_app::platform::on_the_terminal`).
+    crossfx_app::platform::on_the_terminal(&cold.stdout, &cold.stderr);
+    // `--hide` and the saved "start minimised" preference start in the tray-only state; there is
+    // no such thing as a hidden window here (see the module docs). An explicit `--show` overrides
+    // the preference, as `--hide` overrides it the other way (`Cli::cold_start_commands`), and so
+    // does `--toggle-window`, since the window it toggles is not up yet. A line that only sets
+    // something starts in the tray too (`cold_start_visibility`), except at «Как в оригинальном
+    // FxSound LLC» = Interface and above one with an option the original has, whose start shows its
+    // window (0.4.0 audit R11, `Cli::only_sets_things_at`) — at the level the line itself may have
+    // set.
+    let quiet = cli.only_sets_things_at(app.windows_parity());
+    let mut visibility = cold_start_visibility(
+        cold.window.hide,
+        cold.window.show || cold.window.toggle,
+        app.settings_run_minimized(),
+        quiet,
+    );
+
+    // What start-up and the cold-start options changed is where every consumer starts from, not
+    // news: the tray is built from the state as it is now, the D-Bus properties below read it,
+    // and a `--watch` subscriber's first line is the status document.
+    let _ = app.drain_events();
+    let _ = app.take_tray_refresh();
+
+    let (tray_tx, tray_rx) = crossbeam_channel::unbounded();
+    let tray = match tray::spawn(app.tray_state(), WakingSender::new(tray_tx, waker.clone())) {
+        Ok(handle) => Some(handle),
+        Err(err) => {
+            log::warn!("no system tray: {err}");
+            None
+        }
+    };
+
+    // A Wayland client never sees `kill`, `systemctl --user stop` or a logout hook as a close
+    // request, and a process that just dies leaves `default.configured.audio.*` naming a node
+    // that vanished with its socket. SIGTERM, SIGINT and SIGHUP therefore become the tray's Exit:
+    // the flag is read by the pump (`Runtime::tick`), which a thread of its own wakes for it, and
+    // the quit it triggers runs the same hand-back-then-stop sequence, which blocks until the
+    // server has confirmed the write. A second Ctrl+C while that is in flight still gets the user
+    // out, with the conventional 130.
+    let terminate = Arc::new(AtomicBool::new(false));
+    #[cfg(target_os = "linux")]
+    if let Err(err) = signal_hook::flag::register_conditional_shutdown(
+        signal_hook::consts::SIGINT,
+        130,
+        Arc::clone(&terminate),
+    ) {
+        log::warn!("could not install the second-Ctrl+C handler: {err}");
+    }
+    #[cfg(target_os = "linux")]
+    for signal in [
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGHUP,
+    ] {
+        if let Err(err) = signal_hook::flag::register(signal, Arc::clone(&terminate)) {
+            log::warn!("could not install the handler for signal {signal}: {err}");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    let signals = wake_on_signals(&waker);
+    // Windows: Ctrl+C and Ctrl+Break, the console closing, log-off and shutdown, each the same
+    // hand-back-then-stop, and a second Ctrl+C the same way out (`crossfx_app::win::session`).
+    #[cfg(windows)]
+    let signals = Some(crossfx_app::win::session::watch(
+        Arc::clone(&terminate),
+        &waker,
+    ));
+
+    // Step 5: the D-Bus service (0.4.0 design §9), on a thread of its own so that a slow bus
+    // never holds the window up. With no session bus, or with the name owned already, it says so
+    // in the log and the control socket carries on alone. Windows has none: the control pipe is
+    // its scripting surface.
+    #[cfg(target_os = "linux")]
+    let dbus = DbusHandle::start(server.control(), dbus::Properties::of(&app));
+
+    // Step 6: suspend and resume (U13). logind's `PrepareForSleep` reaches the pump over a
+    // channel, and the controller tells the engine, which silences both lanes on the way down and
+    // starts them clean on the way up. Nothing holds the suspend up (the original's PR #533).
+    let (sleep_tx, sleep_rx) = crossbeam_channel::unbounded();
+    let sleep = SleepWatch::start(WakingSender::new(sleep_tx, waker.clone()));
+
+    let mut runtime = Runtime {
+        app,
+        #[cfg(target_os = "linux")]
+        dbus: Some(dbus),
+        sleep: Some(sleep),
+        sleep_rx,
+        server,
+        tray,
+        tray_rx,
+        exit: WindowExit::Hidden,
+        settings_requested: false,
+        terminate,
+        terminating: false,
+        waker,
+        signals,
+        panes: Panes::default(),
+        waiting_for_devices: Vec::new(),
+        // A start in the tray that nobody asked for with `--hide` is in the tray only if a tray
+        // icon comes up to be in; with none after `TRAY_WAIT`, the window comes up minimised.
+        tray_wait: waits_for_a_tray(visibility, cold.window.hide)
+            .then(|| Instant::now() + TRAY_WAIT),
+        start_minimised: false,
+        reopening: false,
+        only_raised_like_windows: false,
+    };
+
+    loop {
+        match visibility {
+            WindowVisibility::Shown => match runtime.run_window() {
+                Ok(WindowExit::Hidden) => visibility = WindowVisibility::Hidden,
+                // A minimised window `--show` could not bring back on Wayland: a fresh one.
+                Ok(WindowExit::Reopen) => {}
+                Ok(WindowExit::Quit) => break,
+                Err(err) => {
+                    let tray_visible = runtime.tray_visible();
+                    if runtime.window_failed(&err, tray_visible) {
+                        visibility = WindowVisibility::Hidden;
+                    } else {
+                        // With no tray to fall back to, better to leave than to run with nothing
+                        // on screen; the shutdown still restores the system default device.
+                        runtime.shutdown();
+                        return Err(err);
+                    }
+                }
+            },
+            WindowVisibility::Hidden => match runtime.run_headless() {
+                HeadlessExit::Show => visibility = WindowVisibility::Shown,
+                HeadlessExit::ShowMinimised => {
+                    runtime.start_minimised = true;
+                    visibility = WindowVisibility::Shown;
+                }
+                HeadlessExit::Quit => break,
+            },
+        }
+    }
+
+    runtime.shutdown();
+    Ok(())
+}
+
+/// Why a window run ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum WindowExit {
+    /// Hide to the tray: ✕, the minimise button, `--hide`/`--toggle-window`, the tray's left
+    /// click, or the compositor's close request. The engine keeps running.
+    #[default]
+    Hidden,
+    /// Leave: the tray's Exit item or `crossfx --quit`.
+    Quit,
+    /// Close and map a fresh window at once: `--show` for a window the minimise button minimised,
+    /// which a Wayland client cannot bring back itself ([`show_action`]). Not a hide: no tray tip,
+    /// no `run_minimized`, no `window visible=false`.
+    Reopen,
+}
+
+/// Why the tray-only state ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadlessExit {
+    Show,
+    /// A start in the tray found no tray icon to be in ([`TRAY_WAIT`]): the window, minimised.
+    ShowMinimised,
+    Quit,
+}
+
+/// How long a start in the tray waits for a tray icon to come up before it brings the window up
+/// minimised instead ([`waits_for_a_tray`]) — on GNOME without the AppIndicator extension there
+/// is none, and CrossFX would run with nothing on screen to reach it by. A panel
+/// that is there registers the icon well within it; one that starts later still finds CrossFX in
+/// the tray.
+const TRAY_WAIT: Duration = Duration::from_secs(3);
+
+/// Whether a start in the tray waits [`TRAY_WAIT`] for a tray icon and, with none by then, brings
+/// the window up minimised: every start in the tray but one `--hide` or `--activated` asked for.
+///
+/// That is a line that only sets something (0.4.0 audit R11, review FA), and a start the
+/// remembered tray state put there: CrossFX quit in the tray on a desktop that had one and
+/// launched again on one that has none (GNOME without an AppIndicator extension), where it would
+/// otherwise run with nothing on screen to reach it by. The autostart entry's `--hide` and the
+/// bus's and the user unit's `--activated` asked for no window, and get none.
+const fn waits_for_a_tray(visibility: WindowVisibility, hide: bool) -> bool {
+    matches!(visibility, WindowVisibility::Hidden) && !hide
+}
+
+/// Where a cold start begins (0.4.0 audit R11, review FA): in the tray for `--hide`, for the
+/// remembered `run_minimized` unless `--show` overrides it, and for a line that only sets
+/// something — `crossfx --preset=Gaming` from a keybinding in a fullscreen game, which a running
+/// CrossFX answers without raising its window; with the window otherwise.
+const fn cold_start_visibility(
+    hide: bool,
+    show: bool,
+    run_minimized: bool,
+    only_sets_things: bool,
+) -> WindowVisibility {
+    if hide || ((run_minimized || only_sets_things) && !show) {
+        WindowVisibility::Hidden
+    } else {
+        WindowVisibility::Shown
+    }
+}
+
+/// Everything that outlives a window: the controller, the control socket, the D-Bus service and
+/// the tray.
+///
+/// A [`Shell`] borrows this for the life of one window run; between runs
+/// [`Runtime::run_headless`] drives the same parts directly.
+struct Runtime {
+    app: App,
+    /// The D-Bus service. Declared before `server`, and taken first in [`Runtime::shutdown`]: the
+    /// bus connection goes before the control channel its calls travel on.
+    #[cfg(target_os = "linux")]
+    dbus: Option<DbusHandle>,
+    server: ipc::Server,
+    /// The suspend watcher; dropped in [`Runtime::shutdown`], which stops it.
+    sleep: Option<SleepWatch>,
+    /// What it heard: `true` as the system goes to sleep, `false` once it is back.
+    sleep_rx: crossbeam_channel::Receiver<bool>,
+    tray: Option<TrayHandle>,
+    tray_rx: crossbeam_channel::Receiver<TrayCommand>,
+    /// Why the window went, read once `run_native` has returned: [`WindowExit::Hidden`] from the
+    /// start of each run ([`Runtime::run_window`]), [`WindowExit::Quit`] once the shell has been
+    /// asked to quit. The compositor's close request never reaches the shell, and leaves it at
+    /// `Hidden`.
+    exit: WindowExit,
+    /// The tray's Settings item was chosen and no window has acted on it yet. Set from
+    /// [`Runtime::tick`], cleared by the shell that opens the pane — possibly a shell that does
+    /// not exist yet, when the item is chosen while hidden.
+    settings_requested: bool,
+    /// Raised by the signal handlers; `true` means "quit at the next tick".
+    terminate: Arc<AtomicBool>,
+    /// The signal has been seen and turned into a quit request, so it is only logged once.
+    terminating: bool,
+    /// What every producer wakes the GUI thread with; the window's context is attached to it
+    /// while there is a window.
+    waker: Waker,
+    /// The thread that wakes the pump for a termination signal (`wake_on_signals`), or on Windows
+    /// the console and session watcher; closed in [`Runtime::shutdown`].
+    signals: Option<Signals>,
+    /// What the last window showed that the next one shows again.
+    panes: Panes,
+    /// Forwarded lines held for PipeWire's first device list, each with the moment it stops
+    /// waiting ([`commands::waits_for_the_device_list`]), in the order they arrived — and every
+    /// line that arrived after one of them, which waits its turn behind it.
+    waiting_for_devices: Vec<(ipc::Forwarded, Instant)>,
+    /// A start in the tray that has not seen a tray icon yet, and when it stops waiting for one
+    /// ([`TRAY_WAIT`]).
+    tray_wait: Option<Instant>,
+    /// The next window comes up minimised: a start in the tray that found no tray.
+    start_minimised: bool,
+    /// The window closing now is being opened again ([`WindowExit::Reopen`]): not news.
+    reopening: bool,
+    /// The window being opened is only the one «Like the original FxSound LLC» raises for a
+    /// forwarded line that sets something ([`commands::WindowRequest::raised_like_windows`]): if it
+    /// cannot be opened, CrossFX runs on without it ([`Runtime::window_failed`]).
+    only_raised_like_windows: bool,
+}
+
+impl Runtime {
+    /// One tick of everything that has to keep happening whether or not a window exists: pull
+    /// what the audio thread published, answer forwarded command lines, act on tray clicks, push
+    /// the model into the tray. Returns what the window layer was asked to do.
+    fn tick(&mut self) -> WindowRequest {
+        // Before the engine is polled: a resume is heard before whatever the devices coming back
+        // have to say.
+        while let Ok(sleeping) = self.sleep_rx.try_recv() {
+            self.app.system_sleeping(sleeping);
+        }
+        self.app.poll_audio();
+
+        let mut request = WindowRequest::default();
+        if self.terminate.load(Ordering::Relaxed) {
+            if !self.terminating {
+                log::info!("termination signal received; handing the session default back");
+                self.terminating = true;
+            }
+            request.quit = true;
+        }
+        // Commands forwarded by a second invocation — the compositor keybind path — after those
+        // still waiting for the device list, which the poll above may just have brought.
+        let now = Instant::now();
+        let arrived = self
+            .server
+            .drain()
+            .into_iter()
+            .map(|forwarded| (forwarded, now + commands::DEVICE_LIST_WAIT));
+        let lines: Vec<_> = std::mem::take(&mut self.waiting_for_devices)
+            .into_iter()
+            .chain(arrived)
+            .collect();
+        for (forwarded, until) in lines {
+            // Its caller was told CrossFX did not answer in time and has gone: carried out now,
+            // a burst of them held up by a busy GUI thread would all land at once.
+            if forwarded.is_abandoned() {
+                log::info!("not running a command whose caller stopped waiting for it");
+                continue;
+            }
+            // A `--forget-device`, `--next-output` or `--next-input` for an instance PipeWire has
+            // not listed the devices to yet: the whole line waits for the list, or until `until`,
+            // and runs then. A line
+            // that came after a waiting one waits behind it (0.4.0 review FA): run first, a
+            // keybind's `--preset=Day` would be undone by the held `--preset=Night` before it
+            // when the list came. Its own wait is never the longer one — the line ahead of it
+            // arrived first — so its caller still hears back in time.
+            let behind = !self.waiting_for_devices.is_empty();
+            if behind
+                || (now < until
+                    && commands::waits_for_the_device_list(&self.app, forwarded.commands()))
+            {
+                self.waiting_for_devices.push((forwarded, until));
+                continue;
+            }
+            let outcome = commands::run_forwarded(
+                &mut self.app,
+                forwarded.commands(),
+                forwarded.raises_like_windows(),
+            );
+            request.merge(outcome.window);
+            forwarded.respond_with(outcome.stdout, outcome.stderr, outcome.failed);
+        }
+        while let Ok(command) = self.tray_rx.try_recv() {
+            match command {
+                TrayCommand::ToggleWindow => request.toggle = true,
+                TrayCommand::Open => request.ask_to_show(),
+                TrayCommand::Exit => request.quit = true,
+                TrayCommand::OpenSettings => {
+                    // Only a window can open the pane; make sure there is one.
+                    self.settings_requested = true;
+                    request.ask_to_show();
+                }
+                other => self.app.handle_tray(other),
+            }
+        }
+        // Flush settings a tray or IPC path may have dirtied without going through `handle`.
+        self.app.handle(&[]);
+        self.publish_events();
+        request
+    }
+
+    /// Hand what the controller did since the last tick to the `--watch` subscribers, the D-Bus
+    /// service and the tray: its own queue, drained once, the same events to each
+    /// ([`events::fan_out`]). A tick in which nothing changed publishes nothing and leaves the
+    /// tray alone.
+    fn publish_events(&mut self) {
+        // On the stack: this runs on every tick, and an idle tick should cost nothing.
+        let server: &dyn EventSink = &self.server;
+        #[cfg(target_os = "linux")]
+        let both: [&dyn EventSink; 2];
+        #[cfg(target_os = "linux")]
+        let sinks = match &self.dbus {
+            Some(dbus) => {
+                both = [server, dbus];
+                &both[..]
+            }
+            None => std::slice::from_ref(&server),
+        };
+        // No bus on Windows: the `--watch` streams are the one consumer.
+        #[cfg(windows)]
+        let sinks = std::slice::from_ref(&server);
+        let tray = self.tray.as_ref().map(|tray| tray as &dyn TraySink);
+        events::fan_out(&mut self.app, sinks, tray);
+    }
+
+    /// Say something the window layer did, rather than the controller, to the same consumers:
+    /// the window coming and going, and the quit.
+    fn announce(&self, event: &AppEvent) {
+        self.server.publish(event);
+        #[cfg(target_os = "linux")]
+        if let Some(dbus) = &self.dbus {
+            dbus.publish(event);
+        }
+    }
+
+    /// Run one window until it is closed. Returns why.
+    fn run_window(&mut self) -> eframe::Result<WindowExit> {
+        self.exit = WindowExit::Hidden;
+        // The cached textures belong to the previous egui context and would draw nothing on
+        // the new one.
+        self.app.assets.clear();
+        let mut options = native_options(self.app.state.view);
+        if self.start_minimised {
+            // Not taken from the game that started CrossFX, where the compositor lets a client
+            // say so.
+            options.viewport = options.viewport.with_active(false);
+        }
+
+        // A window opened again in place of a minimised one was never gone.
+        if !std::mem::take(&mut self.reopening) {
+            self.announce(&AppEvent::Window { visible: true });
+        }
+        self.app.set_window_shown(true);
+        // `showMainWindow` writes `run_minimized = false` (`FxController.cpp:933`).
+        self.app.remember_window_hidden(false);
+        let runtime = &mut *self;
+        let run = eframe::run_native(
+            identity::PRODUCT,
+            options,
+            Box::new(move |cc| {
+                let palette = runtime.app.palette();
+                theme::apply(&cc.egui_ctx, palette);
+                // The zoom factor is ours (see `fit_zoom`); Ctrl+/- must not fight it.
+                cc.egui_ctx
+                    .options_mut(|options| options.zoom_with_keyboard = false);
+                // From here on a producer's wake-up is a frame of this window.
+                runtime.waker.attach(&cc.egui_ctx);
+                Ok(Box::new(Shell::new(runtime, palette)))
+            }),
+        );
+        // Whatever arrives now is the headless pump's to wait for.
+        self.waker.detach();
+        // The meters went with the window, and let go of the microphone they held.
+        self.app.set_window_shown(false);
+        run?;
+        // It opened: what asked for it no longer matters.
+        self.only_raised_like_windows = false;
+        let tray_visible = self.tray_visible();
+        Ok(self.window_closed(tray_visible))
+    }
+
+    /// What happens once a window has gone, whatever closed it. Returns why it went.
+    ///
+    /// Every close but a quit is a hide to the tray — ✕, the minimise button, `--hide`,
+    /// `--toggle-window`, the tray's left click, and the compositor's close request (Hyprland's
+    /// `killactive`, Alt+F4 elsewhere), which closes the window without asking the shell — so
+    /// what a hide leaves behind is done here, once, for all of them: the one-time tray tip
+    /// ([`App::notify_hidden_to_tray`]), `run_minimized` for the next start as `hideMainWindow`
+    /// writes it (`FxController.cpp:917`, 0.4.0 audit #35) — `true` only for a hide into a tray
+    /// icon that is there, since a start in the tray is what the setting promises
+    /// ([`App::remember_window_hidden`]) — and the `window visible=false` event. A quit is
+    /// announced by [`Runtime::shutdown`], as `quit`, and leaves the setting as the window found
+    /// it: a window still showing when CrossFX was told to quit.
+    fn window_closed(&mut self, tray_visible: bool) -> WindowExit {
+        // The wizard is a pane of the window that just went: a run it was in the middle of stops,
+        // and the microphone is let go rather than held for a window that is not there.
+        self.app.cancel_calibration();
+        if self.exit == WindowExit::Hidden {
+            self.app.notify_hidden_to_tray(tray_visible);
+            self.app.remember_window_hidden(tray_visible);
+            self.announce(&AppEvent::Window { visible: false });
+        }
+        self.reopening = self.exit == WindowExit::Reopen;
+        self.exit
+    }
+
+    /// What happens when a window could not be created or run. Returns whether CrossFX stays in
+    /// the tray; `false` leaves it to the caller to quit.
+    ///
+    /// With a tray icon on screen, it stays: the audio, the tray, the control socket and the bus
+    /// all work without a window, and quitting would hand the defaults back, drop the sound, and —
+    /// under the systemd user unit's `Restart=on-failure` — start it all again hidden a few seconds
+    /// later, the same way every time the window is asked for. That is an instance the session bus
+    /// started for a status bar's call, where the systemd user manager never had the compositor's
+    /// `WAYLAND_DISPLAY` or `DISPLAY` to hand it (sway, or Hyprland without uwsm). So the reason is
+    /// logged, a notification says the window could not be opened, and the window's coming is
+    /// announced undone: `window visible=false`. `run_minimized` stays the `false`
+    /// [`Runtime::run_window`] wrote, since the window was asked for: the notification tells the
+    /// user to quit from the tray and start CrossFX again, and that start, a bare `crossfx` from a
+    /// launcher, opens the window. The bus's `--activated` start stays in the tray whatever the
+    /// setting says (`Cli::window_command`), so this brings back no failing start. With no tray
+    /// icon there is nothing to fall back to, and it quits as before.
+    ///
+    /// A window nobody asked for — the one «Like the original FxSound LLC» raises for a forwarded
+    /// line that sets something, `crossfx --power=off` from a keybind — is no reason to quit, tray
+    /// or not: the line did what it said, and quitting over it would stop the sound of an instance
+    /// that has no display to open a window on at every such line. It is logged, and CrossFX runs
+    /// on as it was, with no notification: the next such line would bring another.
+    fn window_failed(&mut self, err: &dyn std::fmt::Display, tray_visible: bool) -> bool {
+        if std::mem::take(&mut self.only_raised_like_windows) {
+            log::warn!(
+                "the window «Like the original FxSound LLC» raises for a command line could not be \
+                 opened: {err}; CrossFX keeps running without it"
+            );
+            self.announce(&AppEvent::Window { visible: false });
+            self.app.remember_window_hidden(tray_visible);
+            self.start_minimised = false;
+            self.reopening = false;
+            return true;
+        }
+        if !tray_visible {
+            log::error!("the window could not be run: {err}");
+            return false;
+        }
+        #[cfg(target_os = "linux")]
+        log::error!(
+            "the window could not be run: {err}; CrossFX keeps running in the system tray (is \
+             WAYLAND_DISPLAY or DISPLAY set in its environment?)"
+        );
+        #[cfg(windows)]
+        log::error!(
+            "the window could not be run: {err}; CrossFX keeps running in the notification area"
+        );
+        self.app.cancel_calibration();
+        self.announce(&AppEvent::Window { visible: false });
+        self.app.window_unavailable();
+        // Nothing asks for the window again on its own: a Settings item chosen in the tray would
+        // otherwise have the tray-only state ask for it at once, and fail, for ever.
+        self.settings_requested = false;
+        self.start_minimised = false;
+        self.reopening = false;
+        true
+    }
+
+    /// Whether a tray icon is on screen to bring the window back from ([`TrayHandle::is_visible`]).
+    fn tray_visible(&self) -> bool {
+        self.tray.as_ref().is_some_and(TrayHandle::is_visible)
+    }
+
+    /// The tray-only state: pump until something asks for the window or for the exit, blocking
+    /// in between until something arrives ([`Runtime::wait`]).
+    fn run_headless(&mut self) -> HeadlessExit {
+        log::info!("window hidden; CrossFX keeps running in the system tray");
+        loop {
+            // Before the tick, so that a wake-up that comes during it is still pending after it.
+            self.waker.clear();
+            let request = self.tick();
+            if request.quit {
+                return HeadlessExit::Quit;
+            }
+            // With no window, toggle means show.
+            if request.show || request.toggle || self.settings_requested {
+                self.tray_wait = None;
+                self.only_raised_like_windows =
+                    request.raised_like_windows && !request.toggle && !self.settings_requested;
+                return HeadlessExit::Show;
+            }
+            if let Some(until) = self.tray_wait {
+                if self.tray_visible() {
+                    self.tray_wait = None;
+                } else if Instant::now() >= until {
+                    self.tray_wait = None;
+                    log::info!("no tray icon to start in; the window comes up minimised");
+                    return HeadlessExit::ShowMinimised;
+                }
+            }
+            self.wait(self.pump_interval(Instant::now()));
+        }
+    }
+
+    /// How long the pump may go before it looks again when nothing wakes it: [`KEEPALIVE`], or
+    /// less when the controller has something due sooner ([`App::next_deadline`]) or a `--watch
+    /// --meters` stream is open, whose meters go out four times a second
+    /// ([`ipc::METER_INTERVAL`]).
+    fn pump_interval(&self, now: Instant) -> Duration {
+        let mut interval = KEEPALIVE;
+        if self.server.wants_meters() {
+            interval = interval.min(ipc::METER_INTERVAL);
+        }
+        if let Some(due) = self.app.next_deadline() {
+            interval = interval.min(due.saturating_duration_since(now));
+        }
+        if let Some(until) = self.tray_wait {
+            interval = interval.min(until.saturating_duration_since(now));
+        }
+        // A line held for the device list is refused when its wait is over, not at the keepalive
+        // after; the list itself wakes the pump through the audio channel.
+        if let Some(until) = self
+            .waiting_for_devices
+            .iter()
+            .map(|(_, until)| *until)
+            .min()
+        {
+            interval = interval.min(until.saturating_duration_since(now));
+        }
+        interval
+    }
+
+    /// Block until something has arrived for the pump, or `timeout` has passed — the headless
+    /// state's sleep (0.4.0 design §12): a forwarded command line or a D-Bus call, a tray click,
+    /// the suspend watcher, the audio thread, or a wake-up that has no channel of its own.
+    fn wait(&self, timeout: Duration) {
+        let watched: Vec<&dyn Watched> = [
+            Some(self.server.arrivals() as &dyn Watched),
+            Some(&self.tray_rx),
+            Some(&self.sleep_rx),
+            self.app
+                .audio_notifications()
+                .map(|audio| audio as &dyn Watched),
+            Some(self.waker.pending()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        #[cfg(target_os = "linux")]
+        wait_for_any(&watched, Instant::now() + timeout);
+        #[cfg(windows)]
+        wait_for_any(&watched, &self.waker, Instant::now() + timeout);
+    }
+
+    /// The only way out: stash unsaved edits, restore the system default device and stop the
+    /// engine, remove the tray item. Dropping the server unlinks the control socket and ends
+    /// every `--watch` stream, right after the `quit` event said why.
+    ///
+    /// The bus goes first. Whatever was forwarded after the quit was decided is refused rather
+    /// than left to wait out its timeout, and then the D-Bus service gives its names back — a
+    /// call answered already, `Quit`'s own, still gets its reply — and closes its connection,
+    /// before the control channel its calls travel on goes away.
+    fn shutdown(mut self) {
+        // Whatever the last tick left unsaid goes out before the stream ends.
+        self.publish_events();
+        self.announce(&AppEvent::Quit);
+        self.server.refuse_pending();
+        // Answered "shutting down" as they go, like the lines `refuse_pending` just refused.
+        self.waiting_for_devices.clear();
+        #[cfg(target_os = "linux")]
+        if let Some(dbus) = self.dbus.take() {
+            dbus.shutdown();
+        }
+        drop(self.sleep.take());
+        self.app.shutdown();
+        if let Some(tray) = &self.tray {
+            tray.shutdown();
+        }
+        if let Some(signals) = self.signals.take() {
+            signals.close();
+        }
+    }
+}
+
+/// Wake the pump for SIGTERM, SIGINT and SIGHUP, on a thread of its own: the handlers only raise
+/// the terminate flag, which is all a signal handler may do, and the pump would otherwise read it
+/// at its next keepalive. Registered after the flag's handlers, so the flag is up before the
+/// wake-up arrives. `None`, with a log line, when the thread cannot be had; the flag is still read
+/// then, only later.
+#[cfg(target_os = "linux")]
+fn wake_on_signals(waker: &Waker) -> Option<signal_hook::iterator::Handle> {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    let mut signals = match signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]) {
+        Ok(signals) => signals,
+        Err(err) => {
+            log::warn!("a termination signal will wait for the next keepalive: {err}");
+            return None;
+        }
+    };
+    let handle = signals.handle();
+    let waker = waker.clone();
+    let spawned = std::thread::Builder::new()
+        .name("crossfx-signals".to_owned())
+        .spawn(move || {
+            for _ in signals.forever() {
+                waker.wake();
+            }
+        });
+    match spawned {
+        Ok(_) => Some(handle),
+        Err(err) => {
+            log::warn!("a termination signal will wait for the next keepalive: {err}");
+            None
+        }
+    }
+}
+
+/// A channel the headless pump waits on, whatever it carries.
+trait Watched {
+    /// Wait on it in `select`; the operation's index. Windows waits on the waker's event instead.
+    #[cfg(target_os = "linux")]
+    fn watch<'a>(&'a self, select: &mut crossbeam_channel::Select<'a>) -> usize;
+    /// Whether a message is waiting in it.
+    fn holds_message(&self) -> bool;
+}
+
+impl<T> Watched for crossbeam_channel::Receiver<T> {
+    #[cfg(target_os = "linux")]
+    fn watch<'a>(&'a self, select: &mut crossbeam_channel::Select<'a>) -> usize {
+        select.recv(self)
+    }
+
+    fn holds_message(&self) -> bool {
+        !self.is_empty()
+    }
+}
+
+/// Block until one of `channels` holds a message, or until `deadline`. Returns whether one does.
+///
+/// Waits without taking anything: the pump's tick drains each channel in its own way. A channel
+/// that reports ready with nothing in it is one whose senders are all gone — a tray that could not
+/// register, a suspend watcher with no system bus — and is dropped from this wait rather than
+/// spun on; a spurious readiness drops one for this wait only, which a producer's
+/// wake-up still covers ([`Waker::pending`] is among the channels and never closes).
+#[cfg(target_os = "linux")]
+fn wait_for_any(channels: &[&dyn Watched], deadline: Instant) -> bool {
+    let mut select = crossbeam_channel::Select::new();
+    for channel in channels {
+        channel.watch(&mut select);
+    }
+    loop {
+        let Ok(index) = select.ready_deadline(deadline) else {
+            return false;
+        };
+        // Registered in order, so an operation's index is its channel's.
+        if channels
+            .get(index)
+            .is_some_and(|channel| channel.holds_message())
+        {
+            return true;
+        }
+        select.remove(index);
+    }
+}
+
+/// Windows' [`wait_for_any`]: until one of `channels` holds a message, or until `deadline`,
+/// dispatching this thread's window messages meanwhile (see the module docs). Returns whether one
+/// does.
+///
+/// Every producer wakes `waker` after it sends, so the wait is on the waker's event and the
+/// message queue at once ([`Waker::wait_pumping_messages`]); the channels are looked at before
+/// each wait and after each wake-up. A channel whose senders are all gone holds no message and
+/// sets no event, so it is waited past rather than spun on, as above.
+#[cfg(windows)]
+fn wait_for_any(channels: &[&dyn Watched], waker: &Waker, deadline: Instant) -> bool {
+    loop {
+        if channels.iter().any(|channel| channel.holds_message()) {
+            return true;
+        }
+        if !waker.wait_pumping_messages(deadline) {
+            return channels.iter().any(|channel| channel.holds_message());
+        }
+    }
+}
+
+/// The window eframe is asked for, sized for the current view.
+fn native_options(view: ViewMode) -> eframe::NativeOptions {
+    let viewport = egui::ViewportBuilder::default()
+        // The title is CrossFX's at every level of «Как в оригинальном FxSound LLC», never the
+        // title of the original FxSound's window, which whatever looks for that one would find.
+        .with_title(identity::PRODUCT)
+        // Must match the desktop file's name, io.github.blackixxce12.CrossFX.desktop, or the
+        // compositor cannot associate the window with its icon and rules.
+        .with_app_id(identity::APP_ID)
+        .with_inner_size(crossfx_ui::window_size(view))
+        .with_min_inner_size(layout::lite::WINDOW_SIZE)
+        .with_resizable(false)
+        // CrossFX draws its own title bar, so no server-side decorations.
+        .with_decorations(false)
+        // Needed for the 21 px rounded corners not to be filled in black.
+        .with_transparent(true);
+    #[cfg(windows)]
+    let viewport = with_windows_icon(viewport);
+    eframe::NativeOptions {
+        viewport,
+        // See the module docs: on Linux vsync blocks the main thread on a workspace the
+        // compositor is not showing, and the loop is paced by `request_repaint_after` instead;
+        // on Windows it is what keeps the frames the pointer asks for to the display's.
+        glow_options: eframe::egui_glow::GlowConfiguration {
+            vsync: !cfg!(target_os = "linux"),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// CrossFX's icon on the window, for its taskbar button and Alt+Tab. A desktop on Linux finds the
+/// icon through the app id above; Windows takes it from the window itself, and eframe puts egui's
+/// own logo there when it is given none. The same picture the Linux packages install as the
+/// application icon, at 256 px, which eframe scales to the sizes Windows asks for.
+#[cfg(windows)]
+fn with_windows_icon(viewport: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    const ICON_PNG: &[u8] = include_bytes!("../../../assets/images/fxsound_large.png");
+    match eframe::icon_data::from_png_bytes(ICON_PNG) {
+        Ok(icon) => viewport.with_icon(Arc::new(icon)),
+        Err(err) => {
+            log::warn!("the window keeps eframe's icon: CrossFX's could not be read ({err})");
+            viewport
+        }
+    }
+}
+
+// =============================================================================================
+// The window
+// =============================================================================================
+
+/// What a window shows that is neither the controller's nor the window's own, and outlives the
+/// window: the panes that were open, the folder picker still running for one of them, and the
+/// face the effect column was turned to.
+///
+/// Hiding to the tray destroys the window (see the module docs); the next window takes these
+/// back, so hiding and showing again looks the way it does in the original, whose window is only
+/// hidden. The hamburger menu is not kept — a popup closes with its window — and neither is the
+/// calibration wizard, whose run [`Runtime::run_window`] cancels rather than holding the
+/// microphone for a window that is not there.
+#[derive(Default)]
+struct Panes {
+    scratch: ViewScratch,
+    settings: Option<SettingsState>,
+    import: Option<ImportState>,
+    export: Option<ExportState>,
+    folder_picker: Option<crossbeam_channel::Receiver<Option<PathBuf>>>,
+    changelog: bool,
+}
+
+/// The eframe application: one window, one frame at a time, over a borrowed [`Runtime`].
+///
+/// Built each time a window is shown, from the [`Panes`] the last window left, and giving them
+/// back when it is dropped; the applied size and theme, the menu and the textures are the
+/// window's own and start afresh. Nothing in it may stop the engine or the tray —
+/// `eframe::App::on_exit` is deliberately left at its no-op default, because the window going
+/// away is how *hiding* works (see the module docs), and only [`Runtime::shutdown`] ends the
+/// audio.
+struct Shell<'a> {
+    rt: &'a mut Runtime,
+    scratch: ViewScratch,
+    /// The size the viewport was last told to be, so a resize is sent only on a real change.
+    applied_size: Option<egui::Vec2>,
+    /// The palette the fonts and visuals were installed for: its theme and whether it is the
+    /// original's ([`Palette::windows`]), whose edges the visuals' strokes carry too.
+    applied_palette: Palette,
+    /// The hamburger menu.
+    menu: Menu,
+    /// `Some` while the Settings pane is open.
+    ///
+    /// The C++ runs a modal loop here (`FxSettingsDialog.cpp`); see [`Shell::show_settings`] for
+    /// why it is a pane inside the main window and not a window of its own.
+    settings: Option<SettingsState>,
+    settings_icons: NavIcons,
+    /// `Some` while the Import Presets pane is open.
+    import: Option<ImportState>,
+    /// `Some` while the Export Presets pane is open.
+    export: Option<ExportState>,
+    /// A native folder picker is running on its own thread; its answer arrives here.
+    folder_picker: Option<crossbeam_channel::Receiver<Option<PathBuf>>>,
+    /// The changelog pane is open on top of Settings.
+    changelog: bool,
+    /// What the calibration wizard draws this frame, while it is open on top of Settings ▸
+    /// Microphone.
+    ///
+    /// A copy: the wizard's state machine is the controller's ([`App::calibration_view`]), which
+    /// times the phases from the input lane's meters (0.4.0 design §8). Taken again at the top
+    /// of every frame, after the tick has driven it, so the window is sized for the phase it is
+    /// about to draw.
+    calibration: Option<CalibrationView>,
+    /// Where the design-size content starts this frame: the viewport's origin, or the centred
+    /// offset when the surface is larger than the design (see [`fit_zoom`]).
+    content_origin: egui::Pos2,
+    /// When the window last asked the compositor for a size of its own.
+    resized_at: Option<Instant>,
+    /// The compositor keeps the window at a size of its own — fullscreen, maximised, tiled — and
+    /// not at the one asked for ([`fit_zoom`]).
+    compositor_sized: bool,
+    /// A question the window is asking before it does something that cannot be taken back from
+    /// inside CrossFX: deleting a preset, discarding every unsaved change.
+    confirm: Option<Confirm>,
+    /// The window asked the compositor to minimise it — the minimise button with no tray icon
+    /// there (0.4.0 audit #43), or a start in the tray that found none — and has not had the
+    /// focus or the pointer since. `--show` has to bring it back ([`show_action`]).
+    minimised: bool,
+    /// Whether the window had the focus at the last frame, to see it come back.
+    was_focused: Option<bool>,
+}
+
+/// What `--show`, a bare relaunch or D-Bus `Show()` does to the window there is ([`show_action`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShowAction {
+    /// Raise it: `ViewportCommand::Focus`.
+    Focus,
+    /// Take it out of the minimised state, then raise it (X11).
+    Restore,
+    /// Close it and map a fresh one ([`WindowExit::Reopen`]): a Wayland client cannot take its
+    /// toplevel out of the minimised state, and winit's `focus_window` is a no-op there.
+    Reopen,
+}
+
+/// How to show a window that is `minimised` (review FA; `--show` is "show and raise the window"
+/// and the original's `showMainWindow` restores it). winit 0.30's `focus_window` returns early for
+/// an iconic X11 window (`x11/window.rs:1773`) and does nothing at all on Wayland
+/// (`wayland/window/mod.rs:629`), so a Focus alone left a minimised window where it was and
+/// `crossfx --show` exited 0. On X11 the window is asked out of the minimised state first; on
+/// Wayland, where nothing can do that from the client side, it is replaced by a fresh toplevel —
+/// the path hiding to the tray and showing again takes already.
+const fn show_action(minimised: bool, wayland: bool) -> ShowAction {
+    match (minimised, wayland) {
+        (false, _) => ShowAction::Focus,
+        (true, false) => ShowAction::Restore,
+        (true, true) => ShowAction::Reopen,
+    }
+}
+
+/// Whether winit runs on Wayland here: its own rule (`platform_impl/linux/mod.rs:736-766`), a
+/// non-empty `WAYLAND_DISPLAY` or `WAYLAND_SOCKET`, since CrossFX forces no backend.
+#[cfg(target_os = "linux")]
+fn wayland_session(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    ["WAYLAND_DISPLAY", "WAYLAND_SOCKET"]
+        .into_iter()
+        .any(|name| var(name).is_some_and(|value| !value.is_empty()))
+}
+
+/// What [`Shell::confirm`] asks about. The answer is acted on only while it still means what was
+/// asked: a Delete for the preset and lane on screen when it was asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Confirm {
+    /// Delete Preset (0.4.0 audit #16): the original deletes at once and for good.
+    Delete {
+        lane: crossfx_core::DeviceDirection,
+        name: String,
+    },
+    /// Settings ▸ Reset Presets (0.4.0 audit #21): every unsaved change, on both lanes.
+    ResetPresets,
+    /// Settings ▸ Experimental ▸ Restart WirePlumber (roadmap 0.5.0 §7, D5): the sound of every
+    /// application stops for a moment.
+    RestartWirePlumber,
+}
+
+impl Confirm {
+    /// The question, in the user's language, as the message box shows it: wrapped over its two
+    /// lines, and a preset name too wide for them cut in the middle rather than the question at
+    /// its end ([`dialogs::message::message_with_name`]).
+    fn question(&self, ctx: &egui::Context) -> String {
+        let template = match self {
+            Self::Delete { .. } => tr(DELETE_QUESTION),
+            Self::ResetPresets => tr(RESET_QUESTION),
+            Self::RestartWirePlumber => tr(RESTART_WIREPLUMBER_QUESTION),
+        };
+        self.question_from(ctx, &template)
+    }
+
+    /// [`Confirm::question`] from its question in any language: [`DELETE_QUESTION`]'s `%s` is the
+    /// preset's name.
+    fn question_from(&self, ctx: &egui::Context, template: &str) -> String {
+        match self {
+            Self::Delete { name, .. } => dialogs::message::message_with_name(ctx, template, name),
+            Self::ResetPresets | Self::RestartWirePlumber => template.to_owned(),
+        }
+    }
+}
+
+/// The question Delete Preset asks. The preset goes to the desktop's trash
+/// (`crossfx_preset::trash`), where a file manager can restore it.
+const DELETE_QUESTION: &str = "Move the preset %s to the trash?";
+/// The question Reset Presets asks: what it does, which is less than its label says — saved
+/// presets stay.
+const RESET_QUESTION: &str = "Discard the unsaved changes of every preset? Saved presets are kept.";
+/// The question Restart WirePlumber asks: what the restart does to every application's sound.
+const RESTART_WIREPLUMBER_QUESTION: &str =
+    "Restart WirePlumber now? The sound of every application stops for a moment.";
+
+impl<'a> Shell<'a> {
+    fn new(rt: &'a mut Runtime, applied_palette: Palette) -> Self {
+        let Panes {
+            scratch,
+            mut settings,
+            import,
+            export,
+            folder_picker,
+            changelog,
+        } = std::mem::take(&mut rt.panes);
+        // The tray's Settings item may have been chosen while there was no window.
+        if std::mem::take(&mut rt.settings_requested) && settings.is_none() {
+            settings = Some(rt.app.settings_state());
+        }
+        // A gesture in progress and the visualizer's history went with the last window, as the
+        // original's visualizer is reset when it pauses; the column's face is the user's, and the
+        // logo shows what is playing now rather than fading towards it.
+        let lit = rt.app.state.audio_active && rt.app.state.power;
+        let scratch = ViewScratch {
+            column_face: scratch.column_face,
+            logo_fade: if lit { 1.0 } else { 0.0 },
+            ..ViewScratch::default()
+        };
+        Self {
+            rt,
+            scratch,
+            applied_size: None,
+            applied_palette,
+            menu: Menu::default(),
+            settings,
+            settings_icons: NavIcons::new(),
+            import,
+            export,
+            folder_picker,
+            changelog,
+            calibration: None,
+            content_origin: egui::Pos2::ZERO,
+            resized_at: None,
+            compositor_sized: false,
+            confirm: None,
+            minimised: false,
+            was_focused: None,
+        }
+    }
+
+    /// Carry out what a command line, the tray or a title-bar button asked of the window.
+    ///
+    /// Hiding and quitting both close the window — the difference is what [`Runtime::exit`]
+    /// says when `run_native` returns. `show` wins over `hide`, and `toggle` on a window that is
+    /// showing means hide.
+    fn apply_window_request(&mut self, ctx: &egui::Context, request: WindowRequest) {
+        if request.quit {
+            self.rt.exit = WindowExit::Quit;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        if request.show {
+            #[cfg(target_os = "linux")]
+            let wayland = wayland_session(|name| std::env::var_os(name));
+            // A Win32 window is taken out of the minimised state at its own program's word.
+            #[cfg(windows)]
+            let wayland = false;
+            match show_action(self.minimised, wayland) {
+                ShowAction::Focus => ctx.send_viewport_cmd(egui::ViewportCommand::Focus),
+                ShowAction::Restore => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    self.set_minimised(false);
+                }
+                ShowAction::Reopen => {
+                    self.rt.exit = WindowExit::Reopen;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        } else if request.hide || request.toggle {
+            Self::hide(ctx);
+        }
+    }
+
+    /// Hide to the tray: destroy the window and let `run_native` return with
+    /// [`WindowExit::Hidden`], which is what [`Runtime::exit`] already says. The tray tip and the
+    /// `run_minimized` a hide leaves behind are [`Runtime::window_closed`]'s, which the
+    /// compositor's close request reaches too.
+    fn hide(ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// The title bar's minimise button: [`minimise_action`] for the tray there is now.
+    fn minimise(&mut self, ctx: &egui::Context) {
+        match minimise_action(self.rt.tray_visible()) {
+            MinimiseAction::HideToTray => Self::hide(ctx),
+            MinimiseAction::Minimise => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                self.set_minimised(true);
+            }
+        }
+    }
+
+    /// The window went into the minimised state or out of it: the shell's own record for
+    /// `--show`, and the app's, which weighs the notices of changes made out of sight.
+    fn set_minimised(&mut self, minimised: bool) {
+        self.minimised = minimised;
+        self.rt.app.set_window_minimised(minimised);
+    }
+
+    /// Notice the window coming back from minimised by the user's own hand — the dock, the
+    /// taskbar, Alt+Tab: it has the focus again, or the pointer pressed in it.
+    fn follow_minimised(&mut self, ctx: &egui::Context) {
+        let (focused, pressed) = ctx.input(|i| (i.viewport().focused, i.pointer.any_pressed()));
+        if self.minimised && (pressed || (focused == Some(true) && self.was_focused == Some(false)))
+        {
+            self.set_minimised(false);
+        }
+        self.was_focused = focused;
+    }
+
+    /// Resize the viewport when the user flips between Pro and Lite, or opens a pane.
+    ///
+    /// The size also goes out as the window's smallest and largest: the window is not
+    /// resizable, and winit gives the compositor the size it was *created* at as both. Hyprland
+    /// holds a floating window to those, so flipping to Pro left it at 550 × 189 with the Pro
+    /// view cut, and opening Settings from Lite did the same (E6b).
+    fn sync_view_size(&mut self, ctx: &egui::Context) {
+        let wanted = self.window_size();
+        if self.applied_size == Some(wanted) {
+            return;
+        }
+        let request = inner_size_request(wanted, ctx.zoom_factor());
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(request));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(request));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(request));
+        self.applied_size = Some(wanted);
+        self.resized_at = Some(Instant::now());
+    }
+
+    /// Whether a size the window asked for may still be on its way to the surface.
+    fn resize_in_flight(&self) -> bool {
+        self.resized_at
+            .is_some_and(|asked| asked.elapsed() < RESIZE_SETTLE)
+    }
+
+    /// Re-install fonts and visuals after a change of theme or of «Like the original FxSound LLC»:
+    /// the level decides the edges of every popup and tooltip too ([`Palette::windows`]).
+    fn sync_theme(&mut self, ctx: &egui::Context) {
+        let palette = self.rt.app.palette();
+        if palette == self.applied_palette {
+            return;
+        }
+        theme::apply(ctx, palette);
+        self.applied_palette = palette;
+    }
+
+    /// Where an open menu or drop-down may hang this frame, in `screen`'s points: under the title
+    /// bar, and down to the window's bottom edge.
+    ///
+    /// Both are drawn inside the window, where the original's were windows of their own, and
+    /// the window does not grow for them: it did in E6b, and a compositor that draws round or
+    /// behind a window drew round the transparent part too — niri filled it with its focus
+    /// ring's colour, Hyprland put its border round it and moved the window up by half the
+    /// growth — while Hyprland would not let the floating window grow at all. So the menu
+    /// scrolls under the hamburger and a list between the title bar and this bottom edge
+    /// ([`combo::place_list`]).
+    fn popup_bounds(&self, screen: egui::Rect) -> egui::Rect {
+        let top =
+            self.content_origin.y + layout::TITLE_BAR_HEIGHT + layout::TITLE_BAR_DIVIDER_HEIGHT;
+        egui::Rect::from_min_max(
+            egui::pos2(screen.left(), top),
+            egui::pos2(screen.right(), screen.bottom() - POPUP_MARGIN),
+        )
+    }
+
+    /// The window size the viewport should have right now: the view's own, grown to fit
+    /// whichever pane is open.
+    fn window_size(&self) -> egui::Vec2 {
+        let mut size = crossfx_ui::window_size(self.rt.app.state.view);
+        if self.settings.is_some() {
+            size = grown(size, dialogs::settings::WINDOW_SIZE);
+        }
+        if let Some(import) = &self.import {
+            size = grown(size, ImportDialog::new(import).window_size());
+        }
+        if self.export.is_some() {
+            size = grown(size, dialogs::presets::export::WINDOW_SIZE);
+        }
+        if let Some(calibration) = &self.calibration {
+            size = grown(size, calibration.window_size());
+        }
+        if self.confirm.is_some() {
+            size = grown(size, dialogs::message::WINDOW_SIZE);
+        }
+        size
+    }
+
+    /// The whole window, for the panes' backdrop.
+    fn window_rect(&self) -> egui::Rect {
+        egui::Rect::from_min_size(self.content_origin, self.window_size())
+    }
+
+    /// `true` while a pane owns the window; the menu stays shut meanwhile, as the original's
+    /// modal dialogs keep it shut.
+    fn pane_open(&self) -> bool {
+        self.settings.is_some()
+            || self.import.is_some()
+            || self.export.is_some()
+            || self.changelog
+            || self.calibration.is_some()
+            || self.confirm.is_some()
+    }
+
+    fn open_settings(&mut self) {
+        self.menu.close();
+        if self.settings.is_none() {
+            self.settings = Some(self.rt.app.settings_state());
+        }
+    }
+
+    /// Settings ▸ Microphone ▸ "Calibrate microphone…". The pane only offers it with a microphone
+    /// selected, and the microphone is asked for again here because the device list can change
+    /// between the frame that drew the button and this one.
+    fn open_calibration(&mut self) {
+        if self.rt.app.open_calibration() {
+            self.calibration = self.rt.app.calibration_view();
+        }
+    }
+
+    fn open_import(&mut self) {
+        self.menu.close();
+        if self.import.is_none() {
+            // Into the lane the window is on now, whatever the tray, a keybind or D-Bus does to
+            // the edit direction before Import is pressed.
+            self.import = Some(ImportState {
+                lane: self.rt.app.state.direction,
+                ..ImportState::default()
+            });
+        }
+    }
+
+    fn open_export(&mut self) {
+        self.menu.close();
+        if self.export.is_none() {
+            // Every preset, factory and user alike (`FxPresetExportDialog.cpp:138-141`).
+            let presets = self
+                .rt
+                .app
+                .state
+                .presets
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+            // The names are this lane's, so the files written are too, whatever happens to the
+            // edit direction before Export is pressed.
+            let lane = self.rt.app.state.direction;
+            self.export = Some(self.rt.app.export_window(lane, presets));
+        }
+    }
+
+    // ---- the hamburger menu ------------------------------------------------------------------
+
+    /// The hamburger menu (`FxMainWindow.cpp:507-553`, `docs/spec/01-window-layout.md` §4.4,
+    /// `docs/spec/03-controls.md` §8.5).
+    ///
+    /// Absent on purpose: Donate (removed from CrossFX), Download Bonus Presets and Check for
+    /// updates (no network; the bonus presets ship in the package), Always On Top (winit's
+    /// Wayland backend ignores window levels, and a control that does nothing is worse than
+    /// none). Save New Preset and Rename Preset open the original's inline name editor
+    /// (`FxPresetMenuItem`, `FxMainWindow.cpp:27-176`) under their row instead of in a submenu.
+    ///
+    /// Returns what the open menu covers, window-local.
+    fn show_menu(&mut self, ctx: &egui::Context, palette: Palette) -> Option<egui::Rect> {
+        if !self.menu.open {
+            return None;
+        }
+
+        let app = &self.rt.app;
+        let chrome = match app.state.view {
+            ViewMode::Pro => layout::Chrome::PRO,
+            ViewMode::Lite => layout::Chrome::LITE,
+        };
+        let anchor = chrome.menu.rect().translate(self.content_origin.to_vec2());
+
+        // The enablement predicates of `FxMainWindow.cpp:536-543`: the preset items are the
+        // controller's one rule, which the command line and D-Bus are refused by too, with the
+        // power on or off (0.4.0 audit R7); Export and Import are offered whether or not the
+        // preset has unsaved changes (audit #18), except at «Как в оригинальном FxSound LLC» =
+        // Interface and above, where changes grey them out as in the original
+        // ([`App::preset_menu`]).
+        let preset = app.state.preset();
+        let PresetMenu {
+            save_new: can_save_new,
+            overwrite: can_overwrite,
+            undo: can_undo,
+            rename: can_rename,
+            delete: can_delete,
+            export: can_export,
+            import: can_import,
+        } = app.preset_menu();
+        let overwrite_label = if can_overwrite {
+            format!(
+                "{} - {}",
+                tr("Overwrite Existing Preset"),
+                preset.map(|p| p.name.as_str()).unwrap_or_default()
+            )
+        } else {
+            tr("Overwrite Existing Preset")
+        };
+        let dark = palette.is_dark();
+        let presets = &app.state.presets;
+        let width = menu_width(
+            ctx,
+            &[
+                (tr("Settings"), false),
+                (tr("Save New Preset"), true),
+                (overwrite_label.clone(), false),
+                (tr("Undo Preset Changes"), false),
+                (tr("Rename Preset"), true),
+                (tr("Delete Preset"), false),
+                (tr("Export Presets"), false),
+                (tr("Import Presets"), false),
+                (tr("Theme"), false),
+                (tr("Dark"), false),
+                (tr("Light"), false),
+            ],
+            &[tr(SAVE_NEW_HINT), tr(RENAME_HINT)],
+        );
+
+        if self.menu.editor.as_ref().is_some_and(|editor| {
+            !editor.still_applies(
+                app.state.direction,
+                preset.map(|p| p.name.as_str()),
+                can_save_new,
+                can_rename,
+            )
+        }) {
+            self.menu.editor = None;
+        }
+        // Anchored under the hamburger, and scrolling in what there is under it: in the Lite
+        // window four of its eleven rows, where Delete, Export, Import and Theme had been cut
+        // off at the window's edge and the menu pushed up over the title bar (E6b).
+        let top = anchor.bottom() + 4.0;
+        let room = (self.popup_bounds(ctx.content_rect()).bottom() - top - MENU_CHROME)
+            .max(MENU_ROW_HEIGHT);
+        let just_opened = self.menu.just_opened;
+        let editor = &mut self.menu.editor;
+
+        let mut chosen: Option<MenuChoice> = None;
+        let mut committed: Option<(EditorPurpose, String)> = None;
+        let mut close = false;
+
+        let area = egui::Area::new(egui::Id::unique("crossfx.menu"))
+            .fixed_pos(egui::pos2(anchor.left(), top))
+            // It fits where it is by construction ([`MENU_MAX_WIDTH`], `room`); egui would move it
+            // up to the window's top on the frame it opens, before it knows the menu's size.
+            .constrain(false)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::NONE
+                    .fill(palette.color(FxColor::DefaultFill))
+                    .stroke(egui::Stroke::new(1.0, palette.divider()))
+                    .corner_radius(egui::CornerRadius::same(8))
+                    .inner_margin(egui::Margin::symmetric(8, 8))
+                    .show(ui, |ui| {
+                        // `min_scrolled_height` too: without it the rows get no more than the
+                        // height the area had last frame, so an editor opened in the menu pushed
+                        // Light out of the Pro window's menu for good.
+                        let mut rows = egui::ScrollArea::vertical()
+                            .max_height(room)
+                            .min_scrolled_height(room)
+                            .auto_shrink([true, true]);
+                        // Opened at its top, wherever it was last scrolled to.
+                        if just_opened {
+                            rows = rows.vertical_scroll_offset(0.0);
+                        }
+                        rows.show(ui, |ui| {
+                            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+
+                            if menu_row(ui, &tr("Settings"), true, Mark::None, palette, width) {
+                                chosen = Some(MenuChoice::Settings);
+                            }
+                            menu_separator(ui, palette, width);
+
+                            let saving = editor
+                                .as_ref()
+                                .is_some_and(|e| e.purpose == EditorPurpose::SaveNew);
+                            let mark = Mark::Submenu { expanded: saving };
+                            if menu_row(
+                                ui,
+                                &tr("Save New Preset"),
+                                can_save_new,
+                                mark,
+                                palette,
+                                width,
+                            ) {
+                                chosen = Some(MenuChoice::Editor(EditorPurpose::SaveNew));
+                            }
+                            if saving
+                                && let Some(editor) = editor.as_mut()
+                                && let Some(name) =
+                                    name_editor(ui, editor, presets, None, palette, width)
+                            {
+                                committed = Some((EditorPurpose::SaveNew, name));
+                            }
+
+                            if menu_row(
+                                ui,
+                                &overwrite_label,
+                                can_overwrite,
+                                Mark::None,
+                                palette,
+                                width,
+                            ) {
+                                chosen = Some(MenuChoice::Overwrite);
+                            }
+                            if menu_row(
+                                ui,
+                                &tr("Undo Preset Changes"),
+                                can_undo,
+                                Mark::None,
+                                palette,
+                                width,
+                            ) {
+                                chosen = Some(MenuChoice::Undo);
+                            }
+
+                            let renaming = editor
+                                .as_ref()
+                                .is_some_and(|e| e.purpose == EditorPurpose::Rename);
+                            let mark = Mark::Submenu { expanded: renaming };
+                            if menu_row(ui, &tr("Rename Preset"), can_rename, mark, palette, width)
+                            {
+                                chosen = Some(MenuChoice::Editor(EditorPurpose::Rename));
+                            }
+                            if renaming
+                                && let Some(editor) = editor.as_mut()
+                                && let Some(name) = name_editor(
+                                    ui,
+                                    editor,
+                                    presets,
+                                    preset.map(|p| p.name.as_str()),
+                                    palette,
+                                    width,
+                                )
+                            {
+                                committed = Some((EditorPurpose::Rename, name));
+                            }
+
+                            if menu_row(
+                                ui,
+                                &tr("Delete Preset"),
+                                can_delete,
+                                Mark::None,
+                                palette,
+                                width,
+                            ) {
+                                chosen = Some(MenuChoice::Delete);
+                            }
+                            menu_separator(ui, palette, width);
+
+                            if menu_row(
+                                ui,
+                                &tr("Export Presets"),
+                                can_export,
+                                Mark::None,
+                                palette,
+                                width,
+                            ) {
+                                chosen = Some(MenuChoice::Export);
+                            }
+                            if menu_row(
+                                ui,
+                                &tr("Import Presets"),
+                                can_import,
+                                Mark::None,
+                                palette,
+                                width,
+                            ) {
+                                chosen = Some(MenuChoice::Import);
+                            }
+                            menu_separator(ui, palette, width);
+
+                            // `Theme ▸ Dark / Light`, ticked by the current mode, flattened into the
+                            // menu under a heading.
+                            menu_row(ui, &tr("Theme"), false, Mark::None, palette, width);
+                            let tick = |on: bool| if on { Mark::Tick } else { Mark::None };
+                            if menu_row(ui, &tr("Dark"), true, tick(dark), palette, width) {
+                                chosen = Some(MenuChoice::Theme(ThemeMode::Dark));
+                            }
+                            if menu_row(ui, &tr("Light"), true, tick(!dark), palette, width) {
+                                chosen = Some(MenuChoice::Theme(ThemeMode::Light));
+                            }
+                        });
+                    });
+
+                // A click anywhere else closes the menu — except the click that opened it, which
+                // lands on the hamburger and is by definition outside the menu.
+                if !just_opened
+                    && ui.ctx().input(|i| i.pointer.any_click())
+                    && !ui.rect_contains_pointer(ui.min_rect())
+                {
+                    close = true;
+                }
+            });
+        let covers = area.response.rect.translate(-self.content_origin.to_vec2());
+
+        // Escape closes the menu, and cancels the editor with it (`FxMainWindow.cpp:63-66`).
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            close = true;
+        }
+        self.menu.just_opened = false;
+
+        if let Some((purpose, name)) = committed {
+            let opened_for = self
+                .menu
+                .editor
+                .as_ref()
+                .map(|editor| (editor.lane, editor.preset.clone()));
+            self.menu.close();
+            match purpose {
+                EditorPurpose::SaveNew => self.rt.app.handle(&[UiAction::SavePresetAs(name)]),
+                // For the preset the editor was opened on, if it is still the one selected and
+                // still one the menu would offer to rename: the answer comes a frame or many
+                // after the offer, as the Delete question's does.
+                EditorPurpose::Rename => {
+                    if let Some((lane, Some(old))) = opened_for {
+                        self.rt.app.rename_preset_opened_for(lane, &old, &name);
+                    }
+                }
+            }
+            return Some(covers);
+        }
+        match chosen {
+            Some(MenuChoice::Editor(purpose)) => {
+                // Clicking the row again folds the editor back up.
+                let app = &self.rt.app;
+                self.menu.editor = match self.menu.editor.take() {
+                    Some(editor) if editor.purpose == purpose => None,
+                    _ => Some(NameEditor::new(
+                        purpose,
+                        app.state.direction,
+                        app.state.preset().map(|p| p.name.as_str()),
+                    )),
+                };
+            }
+            Some(choice) => {
+                self.menu.close();
+                self.act_on_menu(choice);
+            }
+            None if close => self.menu.close(),
+            None => {}
+        }
+        Some(covers)
+    }
+
+    fn act_on_menu(&mut self, choice: MenuChoice) {
+        match choice {
+            MenuChoice::Settings => self.open_settings(),
+            MenuChoice::Overwrite => self.rt.app.handle(&[UiAction::SavePreset]),
+            MenuChoice::Undo => self.rt.app.handle(&[UiAction::UndoPresetChanges]),
+            // Asked first (0.4.0 audit #16); `show_confirmation` deletes on Yes.
+            MenuChoice::Delete => {
+                if let Some(preset) = self.rt.app.state.preset() {
+                    self.confirm = Some(Confirm::Delete {
+                        lane: self.rt.app.state.direction,
+                        name: preset.name.clone(),
+                    });
+                }
+            }
+            MenuChoice::Export => self.open_export(),
+            MenuChoice::Import => self.open_import(),
+            MenuChoice::Theme(mode) => {
+                if mode != self.rt.app.state.theme {
+                    self.rt.app.handle(&[UiAction::ToggleTheme]);
+                }
+            }
+            // Dealt with in `show_menu`: it keeps the menu open.
+            MenuChoice::Editor(_) => {}
+        }
+    }
+
+    // ---- panes -------------------------------------------------------------------------------
+
+    /// Draw the Settings pane, if it is open.
+    ///
+    /// The original gives Settings its own window, and so did CrossFX at first — but
+    /// eframe 0.36's glow multi-viewport path creates the child toplevel and its GL surface on
+    /// Wayland and then never composites anything into it (verified here on Hyprland 0.56 with
+    /// NVIDIA: the window appears in `hyprctl clients` at the right size, and even a solid fill
+    /// over its whole `max_rect` stays invisible). Rather than ship a Settings button that opens
+    /// an empty window, the pane is drawn inside the main window over a dimmed backdrop, which is
+    /// the alternative `docs/spec/00-architecture.md` §7.3 already lists.
+    ///
+    /// The main window grows to fit it while it is open, so nothing is clipped; closing it
+    /// restores the view's own size through [`Shell::sync_view_size`].
+    fn show_settings(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, palette: Palette) {
+        let window = self.window_rect();
+        let Some(mut state) = self.settings.take() else {
+            return;
+        };
+        dim_backdrop(ui, window, "settings");
+        let outer = egui::Rect::from_center_size(window.center(), dialogs::settings::WINDOW_SIZE);
+
+        // What the audio thread has said since the pane opened: the echo canceller's state and
+        // whether there is still a microphone to calibrate.
+        self.rt.app.refresh_settings_state(&mut state);
+        let response = SettingsDialog::new(&state).show(
+            ui,
+            outer,
+            palette,
+            &mut self.rt.app.assets,
+            &mut self.settings_icons,
+        );
+
+        // A wizard open on top owns the input: Settings is drawn under it and nothing it reports
+        // counts — its Escape and its clicks belong to the wizard.
+        if self.calibration.is_some() {
+            self.settings = Some(state);
+            return;
+        }
+
+        // Escape closes it, as it does in the original (`FxSettingsDialog.cpp:78-88`) — unless
+        // the changelog is open on top, in which case Escape is its.
+        let escaped = !self.changelog && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        let closed = self.act_on_settings(&response.actions, &mut state);
+        if !(escaped || closed) {
+            self.settings = Some(state);
+        }
+    }
+
+    /// Act on what the Settings pane reported this frame, on the pane's `state`; true if it asked
+    /// to be closed. The pane's own buttons open the changelog and the wizard here, the reset is
+    /// asked about first, and the rest goes to the controller.
+    fn act_on_settings(&mut self, actions: &[SettingsAction], state: &mut SettingsState) -> bool {
+        let mut closed = false;
+        for action in actions {
+            match action {
+                SettingsAction::Close => closed = true,
+                SettingsAction::ShowChangelog => self.changelog = true,
+                SettingsAction::OpenCalibration => self.open_calibration(),
+                // Asked first (0.4.0 audit #21); `show_confirmation` resets on Yes.
+                SettingsAction::ResetPresets => {
+                    self.confirm = Some(Confirm::ResetPresets);
+                    continue;
+                }
+                // Asked first too: the sound stops for a moment, everyone's.
+                SettingsAction::RestartWirePlumber => {
+                    self.confirm = Some(Confirm::RestartWirePlumber);
+                    continue;
+                }
+                _ => {}
+            }
+            self.rt.app.handle_settings(action, state);
+        }
+        closed
+    }
+
+    /// Ask the question in [`Shell::confirm`], if there is one, and act on the answer.
+    fn show_confirmation(&mut self, ctx: &egui::Context, palette: Palette) {
+        let Some(confirm) = self.confirm.clone() else {
+            return;
+        };
+        let question = confirm.question(ctx);
+        if let Some(choice) = MessageBox::new(&question).show_modal(
+            ctx,
+            palette,
+            &mut self.rt.app.assets,
+            "crossfx.confirm",
+        ) {
+            self.answer(choice);
+        }
+    }
+
+    /// Put the question away and act on a Yes.
+    ///
+    /// Delete goes ahead only if the preset asked about is still the one selected on the lane
+    /// asked about: a keybind, the tray or D-Bus can move the selection while the question is up,
+    /// and a Yes to one name must not delete another.
+    fn answer(&mut self, choice: ConfirmChoice) {
+        let Some(confirm) = self.confirm.take() else {
+            return;
+        };
+        if choice != ConfirmChoice::Yes {
+            return;
+        }
+        match confirm {
+            Confirm::Delete { lane, name } => {
+                let app = &mut self.rt.app;
+                if app.state.direction == lane && app.state.preset().is_some_and(|p| p.name == name)
+                {
+                    app.handle(&[UiAction::DeletePreset]);
+                } else {
+                    log::info!("{name} is no longer the selected preset; not deleting it");
+                }
+            }
+            Confirm::ResetPresets | Confirm::RestartWirePlumber => {
+                let action = if confirm == Confirm::ResetPresets {
+                    SettingsAction::ResetPresets
+                } else {
+                    SettingsAction::RestartWirePlumber
+                };
+                let open = self.settings.is_some();
+                let mut state = self
+                    .settings
+                    .take()
+                    .unwrap_or_else(|| self.rt.app.settings_state());
+                self.rt.app.handle_settings(&action, &mut state);
+                self.rt.app.refresh_settings_state(&mut state);
+                if open {
+                    self.settings = Some(state);
+                }
+            }
+        }
+    }
+
+    /// Draw the changelog pane over Settings, if it is open.
+    fn show_changelog(&mut self, ui: &mut egui::Ui, palette: Palette) {
+        if !self.changelog {
+            return;
+        }
+        let window = self.window_rect();
+        dim_backdrop(ui, window, "changelog");
+        let outer = egui::Rect::from_center_size(window.center(), dialogs::changelog::WINDOW_SIZE);
+        let response =
+            ChangelogPane::new(CHANGELOG).show(ui, outer, palette, &mut self.rt.app.assets);
+        if response.contains(&ChangelogAction::Close) {
+            self.changelog = false;
+        }
+    }
+
+    /// Draw the calibration wizard over Settings, if it is open (0.4.0 design §8). What the user
+    /// presses goes to the controller, which runs the wizard; the next frame draws what it made
+    /// of it.
+    fn show_calibration(&mut self, ui: &mut egui::Ui, palette: Palette) {
+        let window = self.window_rect();
+        let Some(view) = self.calibration.take() else {
+            return;
+        };
+        dim_backdrop(ui, window, "calibration");
+        let outer = egui::Rect::from_center_size(window.center(), view.window_size());
+        let response =
+            CalibrationDialog::new(&view).show(ui, outer, palette, &mut self.rt.app.assets, "main");
+        for action in &response.actions {
+            self.rt.app.handle_calibration(*action);
+        }
+        self.calibration = self.rt.app.calibration_view();
+    }
+
+    /// Draw the Import Presets pane, if it is open — the chooser, then the summary
+    /// (`docs/spec/06-dialogs.md` §2).
+    fn show_import(&mut self, ui: &mut egui::Ui, palette: Palette) {
+        self.poll_folder_picker();
+        let window = self.window_rect();
+        let Some(mut state) = self.import.take() else {
+            return;
+        };
+        dim_backdrop(ui, window, "import");
+        let dialog = ImportDialog::new(&state);
+        let outer = egui::Rect::from_center_size(window.center(), dialog.window_size());
+        let response = dialog.show(ui, outer, palette, &mut self.rt.app.assets, "main");
+
+        let mut closed = false;
+        for action in &response.actions {
+            match action {
+                // A native picker, not something this crate draws (§9.3).
+                PresetsAction::ChooseImportFolder => self.start_folder_picker(),
+                other => closed |= self.rt.app.handle_import(other, &mut state),
+            }
+        }
+        if closed {
+            // An answer that arrives now has nowhere to go.
+            self.folder_picker = None;
+        } else {
+            self.import = Some(state);
+        }
+    }
+
+    /// Draw the Export Presets pane, if it is open (`docs/spec/06-dialogs.md` §3).
+    fn show_export(&mut self, ui: &mut egui::Ui, palette: Palette) {
+        let window = self.window_rect();
+        let Some(mut state) = self.export.take() else {
+            return;
+        };
+        // «Like the original FxSound LLC» and the end-band choice may have moved since the window
+        // opened (a keybind, D-Bus): shown as they are now, and exported as shown.
+        self.rt.app.refresh_export_state(&mut state);
+        dim_backdrop(ui, window, "export");
+        let outer =
+            egui::Rect::from_center_size(window.center(), dialogs::presets::export::WINDOW_SIZE);
+        let response =
+            ExportDialog::new(&state).show(ui, outer, palette, &mut self.rt.app.assets, "main");
+
+        let mut closed = false;
+        for action in &response.actions {
+            closed |= self.rt.app.handle_export(action, &mut state);
+        }
+        if !closed {
+            self.export = Some(state);
+        }
+    }
+
+    /// Run the folder picker on its own thread. The blocking `rfd::FileDialog` would freeze the
+    /// window if called from here, and on Linux the portal backend does not need the main
+    /// thread (`docs/api/linux-desktop-crates.md` §4.4).
+    fn start_folder_picker(&mut self) {
+        if self.folder_picker.is_some() {
+            return;
+        }
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        // JUCE's browser starts in the documents folder (`FxPresetImportDialog.cpp`).
+        let start = dirs::document_dir().or_else(dirs::home_dir);
+        let title = folder_picker_title(tr);
+        // The answer wakes the window, or the headless pump if the window was hidden meanwhile.
+        let waker = self.rt.waker.clone();
+        let spawned = std::thread::Builder::new()
+            .name("crossfx-folder-picker".into())
+            .spawn(move || {
+                let mut dialog = rfd::FileDialog::new().set_title(title);
+                if let Some(start) = start {
+                    dialog = dialog.set_directory(start);
+                }
+                // The receiver may be gone if the pane was closed meanwhile; nothing to do then.
+                if tx.send(dialog.pick_folder()).is_ok() {
+                    waker.wake();
+                }
+            });
+        match spawned {
+            Ok(_) => self.folder_picker = Some(rx),
+            Err(err) => {
+                log::warn!("could not start the folder picker: {err}");
+                self.rt
+                    .app
+                    .raise_notice(tr("Could not open the folder picker"));
+            }
+        }
+    }
+
+    /// Take the picker's answer, if it has one.
+    fn poll_folder_picker(&mut self) {
+        let Some(rx) = &self.folder_picker else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Some(folder)) => {
+                if let Some(state) = &mut self.import {
+                    state.folder = Some(folder);
+                }
+                self.folder_picker = None;
+            }
+            // Cancelled, or the thread is gone — a failed dialog looks the same as a cancel.
+            Ok(None) | Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                self.folder_picker = None;
+            }
+            // Still up. Its answer wakes the window when it comes (`start_folder_picker`).
+            Err(crossbeam_channel::TryRecvError::Empty) => {}
+        }
+    }
+}
+
+impl eframe::App for Shell<'_> {
+    /// Transparent, so the window's own rounded corners are what the compositor composites.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // A start in the tray that found no tray icon: minimised where the compositor has such a
+        // thing, or into the tray after all should an icon have come up since.
+        if std::mem::take(&mut self.rt.start_minimised) {
+            self.minimise(ctx);
+        }
+        self.follow_minimised(ctx);
+        let request = self.rt.tick();
+        if std::mem::take(&mut self.rt.settings_requested) {
+            self.open_settings();
+        }
+        self.apply_window_request(ctx, request);
+
+        // The keepalive: what the producers bring wakes the window on its own (see the module
+        // docs), and this is for what nothing announces — a notice due to go, sound starting on a
+        // device that was running already. Once a second, sooner when something is due.
+        ctx.request_repaint_after(self.rt.pump_interval(Instant::now()));
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        // The wizard as the tick left it, before anything sizes the window for it.
+        self.calibration = self.rt.app.calibration_view();
+        self.sync_theme(&ctx);
+
+        let palette = self.rt.app.palette();
+
+        // Fullscreen or maximised: the compositor hands over a surface larger than the design
+        // size (1040×588 Pro, 550×189 Lite). Scale the design up to fit and centre it, rather
+        // than drawing into a corner of the surface with the desktop showing through the rest.
+        let native_ppp = ctx
+            .input(|i| i.viewport().native_pixels_per_point)
+            .unwrap_or(1.0);
+        let surface_px = ui.max_rect().size() * ctx.pixels_per_point();
+        // In points at the native scale, whatever zoom is in effect: a zoom that fits the design
+        // must not make the surface look like the size the window asked for.
+        let surface = surface_px / native_ppp.max(f32::EPSILON);
+        self.compositor_sized =
+            compositor_sized(surface, self.applied_size, self.resize_in_flight());
+        let design = self.window_size();
+        let zoom = fit_zoom(surface_px, design, native_ppp, self.compositor_sized);
+        if (zoom - ctx.zoom_factor()).abs() > ZOOM_TOLERANCE {
+            // Applies at the start of the next pass; ask for it now rather than at the tick.
+            ctx.set_zoom_factor(zoom);
+            ctx.request_repaint();
+        }
+        // After the zoom is settled: the size goes out scaled by the zoom in effect at the end of
+        // the pass ([`inner_size_request`]).
+        self.sync_view_size(&ctx);
+        let screen = ui.max_rect();
+        // A surface still the size of a pane that has just closed, or of the Pro view flipped to
+        // Lite, whose smaller size is on its way: drawn where the view is about to be, not centred
+        // in the old size for a frame.
+        let shrinking = zoom <= 1.0 && self.resize_in_flight();
+        let larger_than_design =
+            !shrinking && (screen.width() > design.x + 1.0 || screen.height() > design.y + 1.0);
+        let content = if larger_than_design {
+            // Opaque behind the centred content: the transparent rounded corners only make sense
+            // when the surface *is* the window.
+            ui.painter().rect_filled(
+                screen,
+                egui::CornerRadius::ZERO,
+                palette.color(FxColor::WindowBackground),
+            );
+            egui::Rect::from_center_size(screen.center(), design)
+        } else {
+            screen
+        };
+        self.content_origin = content.min;
+        combo::set_popup_bounds(&ctx, self.popup_bounds(screen));
+        let mut content_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(content)
+                .id_salt("fx_window_content"),
+        );
+        let ui = &mut content_ui;
+
+        let response = match self.rt.app.state.view {
+            ViewMode::Pro => crossfx_ui::views::pro::show(
+                ui,
+                &self.rt.app.state,
+                &mut self.scratch,
+                palette,
+                &mut self.rt.app.assets,
+            ),
+            ViewMode::Lite => crossfx_ui::views::lite::show(
+                ui,
+                &self.rt.app.state,
+                &mut self.scratch,
+                palette,
+                &mut self.rt.app.assets,
+            ),
+        };
+
+        for action in &response.actions {
+            match action {
+                // The original's close button hides to the tray rather than quitting
+                // (`FxMainWindow.cpp:608-616`); Exit in the tray menu is the only way out. Its
+                // minimise button minimises (`:579-585`); here it hides to the tray while there is
+                // one and minimises while there is not (0.4.0 audit #43, see `minimise_action`).
+                UiAction::Close => Self::hide(&ctx),
+                UiAction::Minimise => self.minimise(&ctx),
+                UiAction::DragWindow => ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag),
+                UiAction::OpenSettings => self.open_settings(),
+                // A pane owns the window while it is open, as the original's modal dialogs do.
+                UiAction::OpenMenu if !self.pane_open() => self.menu.toggle(),
+                _ => {}
+            }
+        }
+        self.rt.app.handle(&response.actions);
+
+        self.show_settings(&ctx, ui, palette);
+        self.show_changelog(ui, palette);
+        self.show_calibration(ui, palette);
+        self.show_import(ui, palette);
+        self.show_export(ui, palette);
+        self.show_menu(&ctx, palette);
+        self.show_confirmation(&ctx, palette);
+
+        // Sixty frames a second only while they show something moving (see `frame_interval`).
+        let (minimised, focused) = ctx.input(|i| (i.viewport().minimized, i.viewport().focused));
+        let pacing = Pacing {
+            pro: self.rt.app.state.view == ViewMode::Pro,
+            visualizer_settled: self.scratch.visualizer.is_settled(),
+            meters_moved: self.rt.app.meters_moved(),
+            calibrating: self.rt.app.calibration_is_live(),
+            out_of_sight: minimised == Some(true) && focused != Some(true),
+        };
+        if let Some(interval) = frame_interval(&pacing) {
+            ctx.request_repaint_after(interval);
+        }
+    }
+}
+
+/// The window gives what it showed back to the runtime for the next window ([`Panes`]).
+impl Drop for Shell<'_> {
+    fn drop(&mut self) {
+        // A gesture ends with its window, and a solo is one: the window hidden with the button
+        // still down on a band leaves nobody to let go of it.
+        self.rt.app.end_solo();
+        self.rt.panes = Panes {
+            scratch: std::mem::take(&mut self.scratch),
+            settings: self.settings.take(),
+            import: self.import.take(),
+            export: self.export.take(),
+            folder_picker: self.folder_picker.take(),
+            changelog: self.changelog,
+        };
+    }
+}
+
+/// What the title bar's minimise button does ([`minimise_action`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MinimiseAction {
+    /// Destroy the window and go on in the tray, as ✕ does.
+    HideToTray,
+    /// Ask the compositor to minimise the window (`xdg_toplevel.set_minimized`), as the original's
+    /// `ShowWindow(SW_MINIMIZE)` does (`FxMainWindow.cpp:579-585`).
+    Minimise,
+}
+
+/// The minimise button's action (0.4.0 audit #43): into the tray while a tray icon is on screen,
+/// since Hyprland, sway and the other tiling compositors ignore a minimise request and would leave
+/// the window where it is; a real minimise while none is, where hiding would leave nothing on
+/// screen to come back through — CrossFX hid the window on GNOME without AppIndicator, and the
+/// user saw CrossFX vanish with only `crossfx --show` to bring it back.
+const fn minimise_action(tray_visible: bool) -> MinimiseAction {
+    if tray_visible {
+        MinimiseAction::HideToTray
+    } else {
+        MinimiseAction::Minimise
+    }
+}
+
+/// What decides the window's frame rate beyond the keepalive, as one frame left it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Pacing {
+    /// The Pro view is showing: the only one with a visualizer.
+    pro: bool,
+    /// The visualizer has come to rest ([`crossfx_ui::VisualizerAnimation::is_settled`]).
+    visualizer_settled: bool,
+    /// The shown lane's meters changed since the poll before ([`App::meters_moved`]).
+    meters_moved: bool,
+    /// The calibration wizard is counting down, measuring or analysing.
+    calibrating: bool,
+    /// Minimised and not focused, where the compositor can say so (X11; Wayland never tells).
+    out_of_sight: bool,
+}
+
+/// When the window wants its next frame for what it shows moving (0.4.0 design §12), beyond the
+/// keepalive ([`KEEPALIVE`]) and the frames the widgets ask for their own animations — the
+/// visualizer's 30 Hz ripple while it settles, the logo's fade, a pane's progress bar.
+///
+/// [`FRAME_INTERVAL`] while the Pro view's visualizer has sound moving through it — not yet at
+/// rest, and fed meters that changed since the last frame — and while the calibration wizard runs.
+/// Never in the Lite view, which has no visualizer, and never for a window minimised out of
+/// sight: 0.3.0 painted sixty frames a second whenever sound played, wherever the window was.
+fn frame_interval(pacing: &Pacing) -> Option<Duration> {
+    if pacing.calibrating {
+        return Some(FRAME_INTERVAL);
+    }
+    let moving = pacing.pro && !pacing.visualizer_settled && pacing.meters_moved;
+    (moving && !pacing.out_of_sight).then_some(FRAME_INTERVAL)
+}
+
+/// The folder picker's title: the Import pane's heading, in the window's language as `translate`
+/// has it. It was the English heading whatever the language, over a picker the desktop sets in
+/// its own (E6b).
+fn folder_picker_title(translate: impl Fn(&str) -> String) -> String {
+    translate(dialogs::presets::SELECT_FOLDER_LABEL)
+}
+
+/// `size` grown to fit `pane`.
+fn grown(size: egui::Vec2, pane: egui::Vec2) -> egui::Vec2 {
+    egui::vec2(size.x.max(pane.x), size.y.max(pane.y))
+}
+
+/// How far above the window's bottom edge an open menu or drop-down stops.
+const POPUP_MARGIN: f32 = combo::POPUP_WINDOW_MARGIN;
+
+/// How long a size the window asked for is taken to be on its way: after that, a surface of
+/// another size is the compositor's own doing.
+const RESIZE_SETTLE: Duration = Duration::from_millis(250);
+
+/// Whether the compositor has the window at a size of its own rather than the `asked` one: a
+/// `surface` another size once no request of the window's is `in_flight` any more — fullscreen,
+/// maximised or tiled.
+fn compositor_sized(surface: egui::Vec2, asked: Option<egui::Vec2>, in_flight: bool) -> bool {
+    !in_flight
+        && asked.is_some_and(|asked| {
+            (surface.x - asked.x).abs() > 1.0 || (surface.y - asked.y).abs() > 1.0
+        })
+}
+
+/// Dim what is behind a pane, so it reads as modal the way the original's dialogs did — inside
+/// the window's own rounded outline, so the transparent corners stay transparent.
+///
+/// And make it modal: the backdrop takes the pointer over the whole window, so the view under
+/// the pane neither answers a click nor puts up a tooltip through it — an equalizer knob's hint
+/// used to appear over Settings wherever the pointer rested above one. What the pane draws
+/// afterwards sits on top of the backdrop and gets the pointer as before.
+fn dim_backdrop(ui: &egui::Ui, window: egui::Rect, pane: &str) {
+    // One per pane: the changelog and the wizard open over Settings, each over its own backdrop.
+    let id = egui::Id::unique(("crossfx.pane.backdrop", pane));
+    ui.interact(window, id, egui::Sense::click_and_drag());
+    ui.painter().rect_filled(
+        window,
+        egui::CornerRadius::same(layout::WINDOW_CORNER_RADIUS as u8),
+        egui::Color32::from_black_alpha(160),
+    );
+}
+
+// =============================================================================================
+// Menu widgets
+// =============================================================================================
+
+/// Row width inside the menu frame, at the least. Wide enough for the 200 px name editor at its
+/// indent and for the English items; [`menu_width`] widens it for longer ones.
+const MENU_WIDTH: f32 = 244.0;
+/// The widest the menu grows: its frame then ends 10 points inside the Lite window, whose menu
+/// hangs from the same hamburger as the Pro one's.
+const MENU_MAX_WIDTH: f32 = 360.0;
+const MENU_ROW_HEIGHT: f32 = 26.0;
+/// What the menu's frame adds to its rows' height: eight points of margin and a point of outline,
+/// above and below.
+const MENU_CHROME: f32 = 2.0 * (8.0 + 1.0);
+/// Text starts past a gutter that holds the theme ticks.
+const MENU_TEXT_INSET: f32 = 26.0;
+/// What a row keeps clear at its right end: room for the submenu triangle, and a margin for
+/// the rows without one.
+const MENU_MARK_ROOM: f32 = 22.0;
+const MENU_TEXT_END: f32 = 8.0;
+/// The menu's text: `regular` 14.
+const MENU_FONT: f32 = 14.0;
+const MENU_SEPARATOR_HEIGHT: f32 = 9.0;
+/// `FxPresetMenuItem::WIDTH` × `HEIGHT` (`FxMainWindow.cpp:96-97`).
+const NAME_EDITOR_SIZE: egui::Vec2 = egui::vec2(200.0, 30.0);
+/// The name editors' hints (§11.3).
+const SAVE_NEW_HINT: &str = "Enter your preset name";
+const RENAME_HINT: &str = "Enter new preset name";
+
+/// The hamburger menu's per-window state.
+#[derive(Default)]
+struct Menu {
+    open: bool,
+    /// Set on the frame the menu was opened. The click that opens it lands on the hamburger,
+    /// outside the menu, and must not be read as the click-outside that closes it.
+    just_opened: bool,
+    /// The inline name editor, when Save New Preset or Rename Preset is unfolded.
+    editor: Option<NameEditor>,
+}
+
+impl Menu {
+    fn toggle(&mut self) {
+        if self.open {
+            self.close();
+        } else {
+            self.open = true;
+            self.just_opened = true;
+        }
+    }
+
+    fn close(&mut self) {
+        self.open = false;
+        self.just_opened = false;
+        self.editor = None;
+    }
+}
+
+/// What the two inline editors do with the name once Enter is pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditorPurpose {
+    /// `FxController::savePreset(name)`.
+    SaveNew,
+    /// `FxController::renamePreset(name)`.
+    Rename,
+}
+
+/// `FxPresetMenuItem` (`FxMainWindow.cpp:27-176`): a live-validating name field.
+struct NameEditor {
+    purpose: EditorPurpose,
+    /// The lane it was opened for: the editor closes when the window moves to the other one.
+    lane: crossfx_core::DeviceDirection,
+    /// The preset selected when it was opened. A rename is that preset's: the editor closes when
+    /// another is selected, and Enter renames nothing else (0.4.0 review FA).
+    preset: Option<String>,
+    text: String,
+    /// Focus is requested once, on the first frame — not on every paint as the original does
+    /// (`docs/spec/03-controls.md` §11.4).
+    focused: bool,
+}
+
+impl NameEditor {
+    fn new(
+        purpose: EditorPurpose,
+        lane: crossfx_core::DeviceDirection,
+        preset: Option<&str>,
+    ) -> Self {
+        Self {
+            purpose,
+            lane,
+            preset: preset.map(str::to_owned),
+            text: String::new(),
+            focused: false,
+        }
+    }
+
+    /// Whether the editor still has something to do with the window editing `lane` with the
+    /// preset `selected`, and its item's enablement. One whose item has since gone grey has
+    /// nothing left to do; nor has one opened for the other lane, which the tray, a keybind or
+    /// D-Bus has moved the window off since: the name typed was for that lane's controls and
+    /// list, and committed now it would save or rename the lane the menu shows instead. Nor has
+    /// a Rename opened for a preset that is no longer the one selected — a headphone plugged in
+    /// brings back its own, a keybind steps to the next — which the new name was never for.
+    fn still_applies(
+        &self,
+        lane: crossfx_core::DeviceDirection,
+        selected: Option<&str>,
+        can_save_new: bool,
+        can_rename: bool,
+    ) -> bool {
+        self.lane == lane
+            && match self.purpose {
+                EditorPurpose::SaveNew => can_save_new,
+                EditorPurpose::Rename => can_rename && self.preset.as_deref() == selected,
+            }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuChoice {
+    Settings,
+    /// Unfold (or fold) one of the inline editors.
+    Editor(EditorPurpose),
+    Overwrite,
+    Undo,
+    Delete,
+    Export,
+    Import,
+    Theme(ThemeMode),
+}
+
+/// Decoration on a menu row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    None,
+    /// A tick in the left gutter: the current theme.
+    Tick,
+    /// A triangle at the right edge, pointing down while the editor under the row is unfolded.
+    Submenu {
+        expanded: bool,
+    },
+}
+
+/// How much of a row's right end its text leaves clear: the triangle's room on a row that
+/// unfolds an editor.
+fn menu_text_end(submenu: bool) -> f32 {
+    if submenu {
+        MENU_MARK_ROOM
+    } else {
+        MENU_TEXT_END
+    }
+}
+
+/// The menu's row width for these rows (`(label, unfolds an editor)`): [`MENU_WIDTH`], or wider
+/// where a row's text needs it, up to [`MENU_MAX_WIDTH`].
+///
+/// The original's menu is a `PopupMenu`, which is as wide as its widest item; this one was 244
+/// points whatever it held, and German "Voreinstellungs-Änderung verwerfen" and English
+/// "Overwrite Existing Preset - My Preset" ran over its right edge (E6b). A row still too long
+/// at the widest — a long preset name after Overwrite — is set smaller and then cut by
+/// [`menu_row`].
+///
+/// `hints` are the two name editors' hints: the menu is also wide enough for the field to show
+/// each whole at [`dialogs::MIN_FIT_SCALE`] of its size ([`name_editor_width`]).
+fn menu_width(ctx: &egui::Context, rows: &[(String, bool)], hints: &[String]) -> f32 {
+    let measure = |text: &str, font: egui::FontId| {
+        ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(text.to_owned(), font, egui::Color32::PLACEHOLDER)
+                .size()
+                .x
+                .ceil()
+        })
+    };
+    let for_rows = rows.iter().map(|(label, submenu)| {
+        MENU_TEXT_INSET + measure(label, theme::regular(MENU_FONT)) + menu_text_end(*submenu)
+    });
+    let smallest_hint = (NAME_EDITOR_FONT * dialogs::MIN_FIT_SCALE * 2.0).ceil() / 2.0;
+    let for_hints = hints.iter().map(|hint| {
+        let field = measure(hint, theme::semibold(smallest_hint)) + NAME_EDITOR_TEXT_PADDING;
+        MENU_WIDTH + (field - NAME_EDITOR_SIZE.x).max(0.0)
+    });
+    for_rows
+        .chain(for_hints)
+        .fold(MENU_WIDTH, f32::max)
+        .min(MENU_MAX_WIDTH)
+}
+
+/// One menu row, `width` wide. Returns `true` when it was clicked; a disabled row is drawn grey
+/// and inert.
+fn menu_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    enabled: bool,
+    mark: Mark,
+    palette: Palette,
+    width: f32,
+) -> bool {
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, MENU_ROW_HEIGHT), sense);
+    if !ui.is_rect_visible(rect) {
+        return false;
+    }
+    let painter = ui.painter();
+
+    let hovered = enabled && response.hovered();
+    if hovered {
+        painter.rect_filled(
+            rect,
+            egui::CornerRadius::same(4),
+            palette.color(FxColor::MenuHighlightBackground),
+        );
+    }
+    let color = palette.color(match (enabled, hovered) {
+        (false, _) => FxColor::HintText,
+        (true, true) => FxColor::MenuText,
+        (true, false) => FxColor::DefaultText,
+    });
+    let text = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + MENU_TEXT_INSET, rect.top()),
+        egui::pos2(
+            rect.right() - menu_text_end(matches!(mark, Mark::Submenu { .. })),
+            rect.bottom(),
+        ),
+    );
+    dialogs::draw_fitted(
+        painter,
+        label,
+        theme::regular(MENU_FONT),
+        color,
+        text,
+        egui::Align2::LEFT_CENTER,
+    );
+
+    // Painted rather than typed: the app's font has no guarantee of ✓ or ▸ glyphs.
+    let stroke = egui::Stroke::new(1.5, color);
+    match mark {
+        Mark::None => {}
+        Mark::Tick => {
+            let c = egui::pos2(rect.left() + MENU_TEXT_INSET / 2.0, rect.center().y);
+            painter.line_segment(
+                [c + egui::vec2(-4.0, 0.0), c + egui::vec2(-1.0, 3.0)],
+                stroke,
+            );
+            painter.line_segment(
+                [c + egui::vec2(-1.0, 3.0), c + egui::vec2(5.0, -4.0)],
+                stroke,
+            );
+        }
+        Mark::Submenu { expanded } => {
+            let c = egui::pos2(rect.right() - 12.0, rect.center().y);
+            let points = if expanded {
+                vec![
+                    c + egui::vec2(-4.0, -2.0),
+                    c + egui::vec2(4.0, -2.0),
+                    c + egui::vec2(0.0, 3.0),
+                ]
+            } else {
+                vec![
+                    c + egui::vec2(-2.0, -4.0),
+                    c + egui::vec2(3.0, 0.0),
+                    c + egui::vec2(-2.0, 4.0),
+                ]
+            };
+            painter.add(egui::Shape::convex_polygon(
+                points,
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+    }
+
+    enabled && response.clicked()
+}
+
+fn menu_separator(ui: &mut egui::Ui, palette: Palette, width: f32) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(width, MENU_SEPARATOR_HEIGHT),
+        egui::Sense::hover(),
+    );
+    ui.painter().hline(
+        rect.x_range(),
+        rect.center().y,
+        egui::Stroke::new(1.0, palette.divider()),
+    );
+}
+
+/// The name editor's type: semibold 17, its text and its hint alike (§11.4).
+const NAME_EDITOR_FONT: f32 = 17.0;
+/// What the field keeps from its text: its 2-point border and the text edit's 4-point margins,
+/// on both sides.
+const NAME_EDITOR_TEXT_PADDING: f32 = 4.0 + 8.0;
+
+/// The name editor field's width in a menu `menu_width` wide: [`NAME_EDITOR_SIZE`]'s 200 points,
+/// wider by as much as the menu is wider than [`MENU_WIDTH`].
+fn name_editor_width(menu_width: f32) -> f32 {
+    NAME_EDITOR_SIZE.x + (menu_width - MENU_WIDTH).max(0.0)
+}
+
+/// The font the name editor's hint is set in: [`NAME_EDITOR_FONT`], or smaller down to
+/// [`dialogs::MIN_FIT_SCALE`] of it where the hint is longer than the field of a menu
+/// `menu_width` wide.
+fn name_editor_hint_font(ctx: &egui::Context, hint: &str, menu_width: f32) -> egui::FontId {
+    let room = name_editor_width(menu_width) - NAME_EDITOR_TEXT_PADDING;
+    dialogs::fitted_font(ctx, hint, theme::semibold(NAME_EDITOR_FONT), room)
+}
+
+/// The inline preset-name editor (`FxPresetMenuItem`, `docs/spec/03-controls.md` §11).
+///
+/// A 200 × 30 field with a 2 px outline: `ValidTextBorder` while the typed name is unique and
+/// non-empty, `InvalidTextBorder` otherwise — so it starts red and turns blue once a usable name
+/// is in it (§11.3, §11.4). Input is filtered through [`FORBIDDEN_PRESET_NAME_CHARS`] and capped
+/// at [`MAX_PRESET_NAME_CHARS`] and at the bytes the original FxSound for Windows reads a name in
+/// ([`crossfx_preset::MAX_NAME_BYTES`], 0.4.0 audit #15). Renaming, the preset's own name is not
+/// taken, so its letter case can change (audit #19). Returns the name on Enter when it is valid
+/// (§11.5); Escape is the menu's business.
+fn name_editor(
+    ui: &mut egui::Ui,
+    editor: &mut NameEditor,
+    presets: &[PresetEntry],
+    renaming: Option<&str>,
+    palette: Palette,
+    width: f32,
+) -> Option<String> {
+    let (row, _) = ui.allocate_exact_size(
+        egui::vec2(width, NAME_EDITOR_SIZE.y + 4.0),
+        egui::Sense::hover(),
+    );
+    let field = egui::Rect::from_min_size(
+        row.min + egui::vec2(MENU_TEXT_INSET, 2.0),
+        egui::vec2(name_editor_width(width), NAME_EDITOR_SIZE.y),
+    );
+    let hint = match editor.purpose {
+        EditorPurpose::SaveNew => tr(SAVE_NEW_HINT),
+        EditorPurpose::Rename => tr(RENAME_HINT),
+    };
+
+    // Square corners, `DefaultFill` (§11.4). Painted first so the text lands on top of it.
+    ui.painter().rect_filled(
+        field,
+        egui::CornerRadius::ZERO,
+        palette.color(FxColor::DefaultFill),
+    );
+
+    let inner = field.shrink(2.0);
+    // The hint is set smaller where it is longer than the field, as JUCE squeezes
+    // `textToShowWhenEmpty`: German "Neuer Name der Voreinstellung" lost its end (E6b).
+    let hint_font = name_editor_hint_font(ui.ctx(), &hint, width);
+    let response = ui.place(
+        inner,
+        egui::TextEdit::singleline(&mut editor.text)
+            .id(egui::Id::unique("crossfx.menu.name_editor"))
+            .font(theme::semibold(NAME_EDITOR_FONT))
+            .text_color(palette.color(FxColor::DefaultText))
+            .hint_text(
+                egui::RichText::new(hint)
+                    .font(hint_font)
+                    .color(palette.color(FxColor::HintText)),
+            )
+            .char_limit(MAX_PRESET_NAME_CHARS)
+            .frame(egui::Frame::NONE)
+            .margin(egui::Margin::symmetric(4, 2))
+            .align(egui::Align2::LEFT_CENTER)
+            .min_size(inner.size())
+            .desired_width(inner.width() - 8.0),
+    );
+    if !editor.focused {
+        response.request_focus();
+        editor.focused = true;
+    }
+
+    // `PresetNameInputFilter` (`FxPresetNameEditor.cpp:20-33`).
+    if editor
+        .text
+        .contains(|c| FORBIDDEN_PRESET_NAME_CHARS.contains(c))
+    {
+        editor
+            .text
+            .retain(|c| !FORBIDDEN_PRESET_NAME_CHARS.contains(c));
+    }
+    cap_name_bytes(&mut editor.text);
+    let valid = match (editor.purpose, renaming) {
+        (EditorPurpose::Rename, Some(old)) => rename_name_available(presets, old, &editor.text),
+        _ => preset_name_available(presets, &editor.text),
+    };
+
+    let border = palette.color(if valid {
+        FxColor::ValidTextBorder
+    } else {
+        FxColor::InvalidTextBorder
+    });
+    ui.painter().rect_stroke(
+        field,
+        egui::CornerRadius::ZERO,
+        egui::Stroke::new(2.0, border),
+        egui::StrokeKind::Inside,
+    );
+
+    let entered = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    if entered {
+        if valid {
+            return Some(editor.text.trim().to_owned());
+        }
+        // Enter on a name that cannot be used does nothing but must not leave the field dead.
+        response.request_focus();
+    }
+    None
+}
+
+/// Cut a name being typed to [`crossfx_preset::MAX_NAME_BYTES`] on a character boundary, as the
+/// sixty-four characters are cut by the field itself: sixty-four Cyrillic letters are two bytes
+/// more than the original FxSound for Windows reads (0.4.0 audit #15).
+fn cap_name_bytes(text: &mut String) {
+    if text.len() > crossfx_preset::MAX_NAME_BYTES {
+        let mut end = crossfx_preset::MAX_NAME_BYTES;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+}
+
+/// The runtime's glue, over a real control socket in a scratch directory and a headless
+/// controller: never the session's socket, bus or PipeWire.
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+    use crossbeam_channel::{Receiver, Sender};
+    use std::io::Write;
+    use std::path::Path;
+    use std::time::Instant;
+
+    /// A runtime with no engine, no tray and no bus, serving the socket in `dir` and woken by it
+    /// as `main` wires the two: through the one waker.
+    fn runtime(dir: &Path) -> Runtime {
+        let Instance::Primary(listener) = Instance::acquire_in(dir).expect("acquire") else {
+            panic!("expected to be primary");
+        };
+        let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
+        let waker = Waker::new();
+        Runtime {
+            app: App::headless_for_tests(),
+            #[cfg(target_os = "linux")]
+            dbus: None,
+            server: listener.serve_waking(waker.clone()).expect("serve"),
+            sleep: None,
+            sleep_rx: crossbeam_channel::never(),
+            tray: None,
+            tray_rx,
+            exit: WindowExit::Hidden,
+            settings_requested: false,
+            terminate: Arc::new(AtomicBool::new(false)),
+            terminating: false,
+            waker,
+            signals: None,
+            panes: Panes::default(),
+            waiting_for_devices: Vec::new(),
+            tray_wait: None,
+            start_minimised: false,
+            reopening: false,
+            only_raised_like_windows: false,
+        }
+    }
+
+    /// Hands each whole line `ipc::watch_to` writes to a channel.
+    struct Lines {
+        partial: Vec<u8>,
+        tx: Sender<String>,
+    }
+
+    impl Write for Lines {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.partial.extend_from_slice(bytes);
+            while let Some(end) = self.partial.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = self.partial.drain(..=end).collect();
+                let line = String::from_utf8_lossy(&line).trim_end().to_owned();
+                let _ = self.tx.send(line);
+            }
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// `crossfx --watch` with `args`, on a thread: its lines, and its exit code once the stream
+    /// ends.
+    fn watch(socket: &Path, args: &[&str]) -> (Receiver<String>, std::thread::JoinHandle<i32>) {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let socket = socket.to_path_buf();
+        let argv: Vec<String> = std::iter::once("crossfx")
+            .chain(args.iter().copied())
+            .map(str::to_owned)
+            .collect();
+        let meters = args.contains(&"--meters");
+        let thread = std::thread::spawn(move || {
+            let mut out = Lines {
+                partial: Vec::new(),
+                tx,
+            };
+            ipc::watch_to(
+                &socket,
+                &argv,
+                Path::new("/"),
+                meters,
+                &mut out,
+                &mut std::io::sink(),
+            )
+        });
+        (rx, thread)
+    }
+
+    /// Tick until `lines` has one, as the window's loop would.
+    fn next_line(runtime: &mut Runtime, lines: &Receiver<String>) -> String {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            runtime.tick();
+            if let Ok(line) = lines.recv_timeout(Duration::from_millis(10)) {
+                return line;
+            }
+            assert!(Instant::now() < deadline, "nothing arrived on the stream");
+        }
+    }
+
+    /// Tick `ticks` times, and say what arrived meanwhile.
+    fn quiet_ticks(runtime: &mut Runtime, lines: &Receiver<String>, ticks: usize) -> Vec<String> {
+        for _ in 0..ticks {
+            runtime.tick();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        lines.try_iter().collect()
+    }
+
+    #[test]
+    fn a_tick_hands_each_change_to_a_watcher_once_and_a_quiet_tick_hands_it_nothing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (lines, watcher) = watch(runtime.server.path(), &["--watch"]);
+        assert!(next_line(&mut runtime, &lines).starts_with("status "));
+
+        runtime.app.handle(&[UiAction::TogglePower]);
+        assert_eq!(next_line(&mut runtime, &lines), "power on=false");
+        assert_eq!(
+            quiet_ticks(&mut runtime, &lines, 5),
+            Vec::<String>::new(),
+            "nothing changed, so nothing is said"
+        );
+
+        runtime.shutdown();
+        assert_eq!(lines.recv().expect("the last line"), "quit");
+        assert_eq!(watcher.join().expect("watcher"), 0, "the stream ended");
+    }
+
+    #[test]
+    fn a_command_line_forwarded_to_the_instance_shows_up_on_the_stream() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (lines, _watcher) = watch(runtime.server.path(), &["--watch", "--json"]);
+        next_line(&mut runtime, &lines);
+
+        let socket = runtime.server.path().to_path_buf();
+        let forwarded = std::thread::spawn(move || {
+            ipc::forward_to(
+                &socket,
+                &["crossfx".to_owned(), "--power=off".to_owned()],
+                Path::new("/"),
+                Duration::from_secs(5),
+            )
+        });
+        let line = next_line(&mut runtime, &lines);
+        let event: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(event["event"], "power", "{line}");
+        assert_eq!(event["on"], false, "{line}");
+        assert!(forwarded.join().expect("client").expect("answered").ok);
+    }
+
+    #[test]
+    fn meters_reach_only_the_watcher_that_asked_for_them() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (plain, _plain_watcher) = watch(runtime.server.path(), &["--watch"]);
+        next_line(&mut runtime, &plain);
+        assert!(!runtime.server.wants_meters());
+        assert!(
+            quiet_ticks(&mut runtime, &plain, 3).is_empty(),
+            "no meters are gathered for a stream that did not ask"
+        );
+
+        let (metered, _metered_watcher) = watch(runtime.server.path(), &["--watch", "--meters"]);
+        assert!(next_line(&mut runtime, &metered).starts_with("status "));
+        assert!(runtime.server.wants_meters());
+        assert!(next_line(&mut runtime, &metered).starts_with("input_meters "));
+        assert!(
+            quiet_ticks(&mut runtime, &plain, 3).is_empty(),
+            "the plain stream still hears none of them"
+        );
+    }
+
+    #[test]
+    fn the_window_coming_and_going_reaches_the_watchers_through_the_same_consumers() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (lines, _watcher) = watch(runtime.server.path(), &["--watch"]);
+        next_line(&mut runtime, &lines);
+
+        runtime.announce(&AppEvent::Window { visible: false });
+        assert_eq!(next_line(&mut runtime, &lines), "window visible=false");
+    }
+
+    /// A runtime whose window is on screen, as [`Runtime::run_window`] leaves it while
+    /// `run_native` runs: `exit` back at `Hidden`, and `run_minimized` written `false` as
+    /// `showMainWindow` writes it.
+    fn with_a_window_up(runtime: &mut Runtime) {
+        runtime.exit = WindowExit::Hidden;
+        runtime.app.remember_window_hidden(false);
+    }
+
+    #[test]
+    fn a_window_the_compositor_closed_with_a_tray_on_screen_starts_in_the_tray_next_time() {
+        // 0.4.0 audit #35, the path the shell never sees: `killactive` (Super+Q) or Alt+F4 closes
+        // the window without a frame of the shell's, so nothing but the start of the run has set
+        // `exit` when `run_native` returns.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (lines, _watcher) = watch(runtime.server.path(), &["--watch"]);
+        next_line(&mut runtime, &lines);
+        with_a_window_up(&mut runtime);
+
+        assert_eq!(runtime.window_closed(true), WindowExit::Hidden);
+        assert!(
+            runtime.app.settings_run_minimized(),
+            "quit from the tray now, CrossFX starts in the tray"
+        );
+        assert!(
+            runtime.app.tray_tip_shown(),
+            "and the one-time tip was shown"
+        );
+        assert_eq!(next_line(&mut runtime, &lines), "window visible=false");
+    }
+
+    #[test]
+    fn a_window_reopened_for_show_is_no_hide_and_its_successor_is_no_news() {
+        // FA: on Wayland `--show` replaces a minimised window with a fresh one. That is not a
+        // hide: no tip, no `run_minimized`, no `window visible=false` between the two.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        with_a_window_up(&mut runtime);
+        runtime.exit = WindowExit::Reopen;
+
+        assert_eq!(runtime.window_closed(true), WindowExit::Reopen);
+        assert!(!runtime.app.settings_run_minimized());
+        assert!(!runtime.app.tray_tip_shown());
+        assert!(runtime.reopening, "the next window is not announced again");
+    }
+
+    #[test]
+    fn a_start_in_the_tray_waits_for_a_tray_icon_unless_hide_or_activated_asked_for_it() {
+        use WindowVisibility::{Hidden, Shown};
+        // A line that only sets something, and the remembered tray state of a bare `crossfx`
+        // from a launcher: both hidden with no `--hide`, and both would otherwise run with
+        // nothing on screen on a desktop with no tray icon.
+        let quiet = cold_start_visibility(false, false, false, true);
+        let remembered = cold_start_visibility(false, false, true, false);
+        assert_eq!((quiet, remembered), (Hidden, Hidden));
+        assert!(waits_for_a_tray(quiet, false));
+        assert!(waits_for_a_tray(remembered, false));
+        // The autostart entry's `--hide` and the bus's `--activated` asked for no window.
+        let asked = cold_start_visibility(true, false, false, false);
+        assert!(!waits_for_a_tray(asked, true));
+        assert!(!waits_for_a_tray(Shown, false));
+    }
+
+    #[test]
+    fn a_start_in_the_tray_with_no_tray_icon_comes_up_minimised_once_its_wait_is_over() {
+        // FA: with no tray icon a start from a line that only sets something would run with
+        // nothing on screen to reach it by.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        runtime.tray_wait = Some(Instant::now() + Duration::from_millis(100));
+        let started = Instant::now();
+        assert_eq!(runtime.run_headless(), HeadlessExit::ShowMinimised);
+        assert!(started.elapsed() >= Duration::from_millis(90), "it waited");
+        assert!(runtime.tray_wait.is_none());
+    }
+
+    #[test]
+    fn a_window_the_compositor_closed_with_no_tray_icon_is_not_remembered_as_hidden() {
+        // GNOME without an AppIndicator extension: a start "in the tray" would be a start with
+        // nothing on screen at all. The notice that names `crossfx --show` still goes out.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        assert!(
+            !runtime.tray_visible(),
+            "a runtime with no tray has no icon on screen"
+        );
+        with_a_window_up(&mut runtime);
+
+        assert_eq!(runtime.window_closed(false), WindowExit::Hidden);
+        assert!(!runtime.app.settings_run_minimized());
+        assert!(runtime.app.tray_tip_shown(), "the no-tray notice was shown");
+    }
+
+    #[test]
+    fn a_window_that_cannot_be_opened_leaves_crossfx_in_the_tray_rather_than_quitting() {
+        // An instance the session bus started through the systemd user unit, with no
+        // WAYLAND_DISPLAY in its environment: quitting would drop the sound, and the unit's
+        // `Restart=on-failure` would start it hidden again, the same way every time the window
+        // is asked for.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (lines, _watcher) = watch(runtime.server.path(), &["--watch"]);
+        next_line(&mut runtime, &lines);
+        with_a_window_up(&mut runtime);
+        runtime.settings_requested = true;
+        runtime.start_minimised = true;
+
+        let why = "neither WAYLAND_DISPLAY nor WAYLAND_SOCKET nor DISPLAY is set.";
+        assert!(runtime.window_failed(&why, true), "it stays in the tray");
+        assert!(
+            !runtime.app.settings_run_minimized(),
+            "the fresh start the notification asks for opens the window"
+        );
+        assert!(
+            !runtime.settings_requested,
+            "nothing asks for the window again on its own"
+        );
+        assert!(!runtime.start_minimised);
+        assert_eq!(next_line(&mut runtime, &lines), "window visible=false");
+        let notice = next_line(&mut runtime, &lines);
+        assert!(
+            notice.starts_with("notice message="),
+            "and a status bar hears why: {notice}"
+        );
+
+        // The tray-only state it goes back to waits for someone to ask, rather than asking
+        // for the window again at once.
+        runtime.terminate.store(true, Ordering::Relaxed);
+        assert_eq!(runtime.run_headless(), HeadlessExit::Quit);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_window_that_cannot_be_opened_with_no_tray_icon_ends_crossfx_as_before() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        with_a_window_up(&mut runtime);
+        assert!(!runtime.window_failed(&"no display", false));
+        assert!(
+            !runtime.app.settings_run_minimized(),
+            "nothing to start in next time"
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_window_raised_like_windows_that_cannot_be_opened_leaves_crossfx_running_with_no_tray() {
+        // The 0.5.0 live check (W5-live): at Interface and sound a forwarded `crossfx --power=off`
+        // raises the window, as the original does. An instance with no display and no tray
+        // icon took the failed window for a reason to quit, and the sound went with it.
+        use crossfx_core::WindowsParity;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        runtime
+            .app
+            .set_windows_parity(WindowsParity::Sound, false)
+            .expect("Interface and sound is offered");
+        let socket = runtime.server.path().to_path_buf();
+        let line = |args: &[&str]| {
+            let socket = socket.clone();
+            let argv: Vec<String> = std::iter::once("crossfx")
+                .chain(args.iter().copied())
+                .map(str::to_owned)
+                .collect();
+            std::thread::spawn(move || {
+                ipc::forward_to(&socket, &argv, Path::new("/"), Duration::from_secs(5))
+            })
+        };
+
+        let power = line(&["--power=off"]);
+        assert_eq!(
+            runtime.run_headless(),
+            HeadlessExit::Show,
+            "raised as in the original"
+        );
+        assert!(runtime.only_raised_like_windows);
+        let why = "neither WAYLAND_DISPLAY nor WAYLAND_SOCKET nor DISPLAY is set.";
+        assert!(
+            runtime.window_failed(&why, false),
+            "it runs on with no tray icon, rather than quitting"
+        );
+        assert!(!runtime.only_raised_like_windows);
+        assert!(power.join().expect("client").expect("answered").ok);
+        assert!(!runtime.app.state.power, "and the line did what it said");
+
+        // A window asked for itself, on the same line or not, is not a raise: with no tray and
+        // no display that still ends CrossFX, as before.
+        let show = line(&["--show", "--power=on"]);
+        assert_eq!(runtime.run_headless(), HeadlessExit::Show);
+        assert!(!runtime.only_raised_like_windows, "--show asked for it");
+        assert!(show.join().expect("client").expect("answered").ok);
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn a_raise_like_windows_merged_with_a_window_asked_for_is_asked_for() {
+        let raised = WindowRequest {
+            show: true,
+            raised_like_windows: true,
+            ..WindowRequest::default()
+        };
+        let mut request = raised;
+        request.merge(WindowRequest::default());
+        assert!(request.show && request.raised_like_windows, "a raise alone");
+        request.ask_to_show();
+        assert!(
+            request.show && !request.raised_like_windows,
+            "the tray's Open"
+        );
+        let mut request = WindowRequest {
+            show: true,
+            ..WindowRequest::default()
+        };
+        request.merge(raised);
+        assert!(request.show && !request.raised_like_windows, "--show first");
+        let mut request = raised;
+        request.merge(WindowRequest {
+            toggle: true,
+            ..WindowRequest::default()
+        });
+        assert!(request.raised_like_windows && request.toggle);
+    }
+
+    #[test]
+    fn a_window_closed_for_a_quit_leaves_the_start_up_preference_as_the_window_found_it() {
+        // The window was showing when CrossFX was told to quit, so the next start shows it; and a
+        // quit is no hide, so no tray tip and no `window visible=false` either.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (lines, _watcher) = watch(runtime.server.path(), &["--watch"]);
+        next_line(&mut runtime, &lines);
+        with_a_window_up(&mut runtime);
+        runtime.exit = WindowExit::Quit;
+
+        assert_eq!(runtime.window_closed(true), WindowExit::Quit);
+        assert!(!runtime.app.settings_run_minimized());
+        assert!(!runtime.app.tray_tip_shown());
+        assert_eq!(quiet_ticks(&mut runtime, &lines, 5), Vec::<String>::new());
+    }
+
+    #[test]
+    fn every_way_the_shell_hides_leaves_the_bookkeeping_to_the_close_that_follows() {
+        // ✕, minimise into the tray, `--hide`, `--toggle-window` and the tray's left click only
+        // close the window; what a hide leaves behind is `window_closed`'s, done once for them
+        // and for the compositor's close request alike.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        with_a_window_up(&mut runtime);
+        {
+            let mut shell = Shell::new(&mut runtime, Palette::new(ThemeMode::Dark));
+            let ctx = egui::Context::default();
+            shell.apply_window_request(
+                &ctx,
+                WindowRequest {
+                    hide: true,
+                    ..WindowRequest::default()
+                },
+            );
+            assert_eq!(shell.rt.exit, WindowExit::Hidden, "a hide, not a quit");
+        }
+        assert_eq!(runtime.window_closed(true), WindowExit::Hidden);
+        assert!(runtime.app.settings_run_minimized());
+    }
+
+    #[test]
+    fn what_the_last_tick_left_unsaid_goes_out_before_the_quit() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (lines, watcher) = watch(runtime.server.path(), &["--watch"]);
+        next_line(&mut runtime, &lines);
+
+        // Changed after the last tick, the way a tray Exit follows a tray pick in one tick.
+        runtime.app.handle(&[UiAction::TogglePower]);
+        runtime.shutdown();
+        assert_eq!(watcher.join().expect("watcher"), 0);
+        assert_eq!(
+            lines.try_iter().collect::<Vec<_>>(),
+            ["power on=false", "quit"]
+        );
+    }
+
+    #[test]
+    fn the_pump_looks_once_a_second_and_sooner_for_a_meters_stream_or_a_notice_due() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let now = Instant::now();
+        assert_eq!(runtime.pump_interval(now), KEEPALIVE);
+
+        runtime.app.raise_notice("Saved");
+        let notice = runtime.pump_interval(Instant::now());
+        assert_eq!(
+            notice, KEEPALIVE,
+            "four seconds away: the keepalive comes first"
+        );
+        runtime.app.state.notice_clock = runtime
+            .app
+            .state
+            .notice_clock
+            .take()
+            .map(|(text, since)| (text, since - Duration::from_millis(3_700)));
+        let due = runtime.pump_interval(Instant::now());
+        assert!(
+            due <= Duration::from_millis(300),
+            "the notice goes when it is due, not at the next keepalive: {due:?}"
+        );
+        runtime.app.handle(&[UiAction::DismissNotice]);
+
+        let (metered, _watcher) = watch(runtime.server.path(), &["--watch", "--meters"]);
+        next_line(&mut runtime, &metered);
+        assert_eq!(runtime.pump_interval(Instant::now()), ipc::METER_INTERVAL);
+    }
+
+    #[test]
+    fn with_no_window_the_pump_sleeps_until_a_tray_click_wakes_it() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (tray_tx, tray_rx) = crossbeam_channel::unbounded();
+        runtime.tray_rx = tray_rx;
+        // The tray's sender wakes the pump, as `main` builds it.
+        let tray_tx = WakingSender::new(tray_tx, runtime.waker.clone());
+        let clicked = Instant::now();
+        let tray = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            tray_tx
+                .send(TrayCommand::Open)
+                .expect("the pump is listening");
+            tray_tx
+        });
+        runtime.wait(Duration::from_secs(10));
+        assert!(
+            clicked.elapsed() < Duration::from_secs(5),
+            "the click, not the timeout, ended the wait"
+        );
+        let _tray_tx = tray.join().expect("tray");
+        assert!(
+            runtime.tick().show,
+            "and the tick that follows carries it out"
+        );
+    }
+
+    #[test]
+    fn a_forwarded_command_line_wakes_the_sleeping_pump_and_is_answered() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let socket = runtime.server.path().to_path_buf();
+        let asked = Instant::now();
+        let forwarded = std::thread::spawn(move || {
+            ipc::forward_to(
+                &socket,
+                &["crossfx".to_owned(), "--power=off".to_owned()],
+                Path::new("/"),
+                Duration::from_secs(5),
+            )
+        });
+        runtime.wait(Duration::from_secs(10));
+        assert!(asked.elapsed() < Duration::from_secs(5));
+        runtime.tick();
+        assert!(forwarded.join().expect("client").expect("answered").ok);
+        assert!(!runtime.app.state.power);
+    }
+
+    #[test]
+    fn with_nothing_arriving_the_pump_sleeps_out_its_interval_even_beside_a_closed_channel() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let runtime = runtime(dir.path());
+        // `runtime()` dropped the tray's sender, as a tray that could not register does: its
+        // channel is always ready, and must not be taken for an arrival.
+        let started = Instant::now();
+        runtime.wait(Duration::from_millis(300));
+        assert!(started.elapsed() >= Duration::from_millis(290));
+    }
+
+    #[test]
+    fn a_wake_up_with_no_channel_of_its_own_ends_the_wait() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let runtime = runtime(dir.path());
+        let waker = runtime.waker.clone();
+        let woken = Instant::now();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            waker.wake();
+        });
+        runtime.wait(Duration::from_secs(10));
+        assert!(woken.elapsed() < Duration::from_secs(5));
+    }
+
+    /// Set, to a marker file's path, in the child copy of this binary that raises the signal.
+    #[cfg(target_os = "linux")]
+    const SIGNAL_CHILD: &str = "FXSOUND_TEST_SIGNAL_CHILD";
+
+    /// The signal is raised in a child copy of this test binary, never in this one: signal-hook
+    /// keeps SIGTERM, SIGINT and SIGHUP once it has taken them (unregistering does not put the
+    /// default action back), and a test process that shrugs off Ctrl+C is not one to leave behind.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_termination_signal_wakes_the_pump() {
+        if let Some(marker) = std::env::var_os(SIGNAL_CHILD) {
+            let waker = Waker::new();
+            let signals = wake_on_signals(&waker).expect("the signal thread");
+            // SIGHUP, the one of the three a test runner is not stopped by: the handler
+            // registered above takes it.
+            signal_hook::low_level::raise(signal_hook::consts::SIGHUP).expect("raised");
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while waker.pending().is_empty() {
+                assert!(Instant::now() < deadline, "the signal woke nobody");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            signals.close();
+            std::fs::write(marker, "woken").expect("the marker");
+            return;
+        }
+        let dir = tempfile::tempdir().expect("temp dir");
+        let marker = dir.path().join("woken");
+        let (_, module) = module_path!()
+            .split_once("::")
+            .expect("a module of the crate");
+        let name = format!("{module}::a_termination_signal_wakes_the_pump");
+        let output = std::process::Command::new(std::env::current_exe().expect("this test binary"))
+            .args([name.as_str(), "--exact", "--test-threads=1", "--nocapture"])
+            .env(SIGNAL_CHILD, &marker)
+            .output()
+            .expect("the child ran");
+        assert!(
+            output.status.success(),
+            "the child failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        // An `--exact` name that matched nothing passes too; the marker says the body ran.
+        assert!(marker.exists(), "the child ran no test called {name}");
+    }
+
+    #[test]
+    fn a_hidden_window_s_pane_and_column_face_are_there_when_it_is_shown_again() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        {
+            let mut shell = Shell::new(&mut runtime, Palette::new(ThemeMode::Dark));
+            shell.open_settings();
+            shell.open_import();
+            shell.scratch.column_face = shell.scratch.column_face.flipped();
+            shell.scratch.window_drag = true;
+            shell.menu.toggle();
+        }
+        let flipped = crossfx_ui::views::ColumnFace::default().flipped();
+        let shell = Shell::new(&mut runtime, Palette::new(ThemeMode::Dark));
+        assert!(shell.settings.is_some(), "Settings is still open");
+        assert!(shell.import.is_some(), "and so is Import Presets");
+        assert_eq!(shell.scratch.column_face, flipped);
+        assert!(!shell.scratch.window_drag, "a gesture ends with its window");
+        assert!(!shell.menu.open, "and so does the menu");
+    }
+
+    #[test]
+    fn the_tray_s_settings_item_while_hidden_opens_the_pane_in_the_next_window() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        runtime.settings_requested = true;
+        let shell = Shell::new(&mut runtime, Palette::new(ThemeMode::Dark));
+        assert!(shell.settings.is_some());
+        drop(shell);
+        assert!(!runtime.settings_requested);
+    }
+
+    #[test]
+    fn what_the_suspend_watcher_heard_reaches_the_controller_on_the_next_tick() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut runtime = runtime(dir.path());
+        let (tx, rx) = crossbeam_channel::unbounded();
+        runtime.sleep_rx = rx;
+        tx.send(true).expect("the pump is listening");
+        assert!(!runtime.app.is_system_sleeping(), "not before the tick");
+        runtime.tick();
+        assert!(runtime.app.is_system_sleeping());
+        // Down and up again within one tick: the resume is the last word.
+        tx.send(false).expect("the pump is listening");
+        tx.send(true).expect("the pump is listening");
+        tx.send(false).expect("the pump is listening");
+        runtime.tick();
+        assert!(!runtime.app.is_system_sleeping());
+        runtime.shutdown();
+    }
+}
+
+/// The zoom factor that fits `design` (points) into a surface of `surface_px` physical pixels
+/// at the compositor's `native_ppp`. One exactly the design size draws at the native scale.
+///
+/// A surface *smaller* than the design is shrunk into only while `compositor_sized`: a tiling
+/// compositor's column or a screen too small for the window, where 0.4.0 cut the design off on
+/// both sides — niri's default half-screen column is 936 points wide, and the Pro view lost its
+/// logo and its close button (E6b). Not while a size the window asked for is on its way, which
+/// is smaller for a frame or two whenever a pane opens; and never below [`MIN_FIT_ZOOM`], under
+/// which the text could not be read anyway.
+fn fit_zoom(
+    surface_px: egui::Vec2,
+    design: egui::Vec2,
+    native_ppp: f32,
+    compositor_sized: bool,
+) -> f32 {
+    if design.x <= 0.0 || design.y <= 0.0 || native_ppp <= 0.0 {
+        return 1.0;
+    }
+    let zoom = (surface_px.x / (design.x * native_ppp)).min(surface_px.y / (design.y * native_ppp));
+    if !zoom.is_finite() {
+        1.0
+    } else if zoom > 1.0 + ZOOM_TOLERANCE {
+        zoom
+    } else if compositor_sized && zoom < 1.0 - ZOOM_TOLERANCE {
+        zoom.max(MIN_FIT_ZOOM)
+    } else {
+        1.0
+    }
+}
+
+/// The smallest a compositor-sized window is shrunk to ([`fit_zoom`]).
+const MIN_FIT_ZOOM: f32 = 0.5;
+
+/// What to put in `ViewportCommand::InnerSize` for a window `wanted` points big at the
+/// compositor's own scale, under the egui `zoom` in effect.
+///
+/// egui-winit multiplies the size by the zoom as well as by the compositor's scale. A size
+/// asked for while [`fit_zoom`] had the view shrunk into a tile, or scaled up in fullscreen, came
+/// out that much smaller or larger: on niri, flipping to Lite in a column the Pro view had been
+/// shrunk into asked for 495 × 170 instead of 550 × 189, and stayed shrunk (E6b).
+fn inner_size_request(wanted: egui::Vec2, zoom: f32) -> egui::Vec2 {
+    if zoom.is_finite() && zoom > 0.0 {
+        wanted / zoom
+    } else {
+        wanted
+    }
+}
+
+#[cfg(test)]
+mod calibration_tests {
+    use super::*;
+    use crossfx_app::audio_link::FakeEngine;
+    use crossfx_core::messages::AudioToUi;
+    use crossfx_core::{AudioDevice, AudioStatus, DeviceDirection, Settings};
+    use crossfx_preset::{InputPresetStore, PresetStore};
+    use crossfx_ui::dialogs::calibration::wizard;
+    use crossfx_ui::dialogs::{CalibrationAction, CalibrationPhase};
+
+    const MIC: &str = "alsa_input.usb-fifine";
+    const MIC_NAME: &str = "fifine Microphone Analogue Stereo";
+
+    /// A runtime serving the socket in `dir`, around a controller started against a stand-in
+    /// engine whose input lane is attached to the fifine when `with_microphone`.
+    pub(super) fn runtime(dir: &std::path::Path, with_microphone: bool) -> Runtime {
+        let Instance::Primary(listener) = Instance::acquire_in(dir).expect("acquire") else {
+            panic!("expected to be primary");
+        };
+        let engine = FakeEngine::new();
+        let mut settings = Settings::default();
+        settings.set_lane_enabled(DeviceDirection::Input, true);
+        let presets = PresetStore::with_dirs(Vec::new(), dir.join("presets"));
+        let voices = InputPresetStore::with_dirs(Vec::new(), dir.join("presets").join("Input"));
+        let mut app = App::start_for_tests(settings, presets, voices, &engine);
+        engine.feed(AudioToUi::Devices(vec![AudioDevice {
+            id: 7,
+            name: MIC.to_owned(),
+            description: MIC_NAME.to_owned(),
+            is_default: true,
+            direction: DeviceDirection::Input,
+            form_factor: "microphone".to_owned(),
+            is_virtual: false,
+        }]));
+        if with_microphone {
+            engine.feed(AudioToUi::Attached {
+                direction: DeviceDirection::Input,
+                node_name: Some(MIC.to_owned()),
+            });
+            engine.feed(AudioToUi::Status {
+                direction: DeviceDirection::Input,
+                status: AudioStatus {
+                    processing: true,
+                    ..AudioStatus::default()
+                },
+            });
+        }
+        app.poll_audio();
+        let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
+        Runtime {
+            app,
+            #[cfg(target_os = "linux")]
+            dbus: None,
+            server: listener.serve().expect("serve"),
+            sleep: None,
+            sleep_rx: crossbeam_channel::never(),
+            tray: None,
+            tray_rx,
+            exit: WindowExit::Hidden,
+            settings_requested: false,
+            terminate: Arc::new(AtomicBool::new(false)),
+            terminating: false,
+            waker: Waker::new(),
+            signals: None,
+            panes: Panes::default(),
+            waiting_for_devices: Vec::new(),
+            tray_wait: None,
+            start_minimised: false,
+            reopening: false,
+            only_raised_like_windows: false,
+        }
+    }
+
+    #[test]
+    fn calibrate_microphone_opens_the_controllers_wizard_over_the_pane_and_grows_the_window() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = runtime(dir.path(), true);
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        shell.open_settings();
+        shell.open_calibration();
+
+        let view = shell.calibration.clone().expect("the wizard is open");
+        assert_eq!(view.phase, CalibrationPhase::Intro);
+        assert_eq!(view.device, MIC_NAME);
+        assert!(
+            view.can_start(),
+            "the controller can drive the measurements, so Start is live"
+        );
+        assert!(shell.pane_open(), "the menu stays shut under the wizard");
+        let size = shell.window_size();
+        assert!(size.x >= wizard::WINDOW_SIZE.x && size.y >= wizard::WINDOW_SIZE.y);
+        assert!(shell.rt.app.calibration_open());
+    }
+
+    #[test]
+    fn without_a_microphone_on_the_input_lane_the_wizard_does_not_open() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = runtime(dir.path(), false);
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        shell.open_settings();
+        shell.open_calibration();
+        assert!(shell.calibration.is_none());
+        assert!(!shell.rt.app.calibration_open());
+    }
+
+    #[test]
+    fn cancel_in_the_wizard_closes_it_in_the_controller_too() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = runtime(dir.path(), true);
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        shell.open_calibration();
+        shell.rt.app.handle_calibration(CalibrationAction::Start);
+        assert!(shell.rt.app.calibration_is_live(), "Start began a run");
+        shell.rt.app.handle_calibration(CalibrationAction::Cancel);
+        assert!(!shell.rt.app.calibration_open());
+        assert_eq!(shell.rt.app.calibration_view(), None);
+    }
+}
+
+#[cfg(test)]
+mod backdrop_tests {
+    use super::*;
+    use egui::{Event, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
+
+    const VIEW_BUTTON: Rect = Rect::from_min_max(pos2(40.0, 40.0), pos2(140.0, 80.0));
+    const PANE_BUTTON: Rect = Rect::from_min_max(pos2(200.0, 40.0), pos2(300.0, 80.0));
+
+    /// A view with a button, and when `pane` a pane's backdrop over it with a button of its own:
+    /// move to `at`, press and release. Whether the view's button was ever hovered or clicked,
+    /// and whether the pane's was clicked.
+    fn press(at: Pos2, pane: bool) -> (bool, bool, bool) {
+        let ctx = egui::Context::default();
+        let (mut view_hovered, mut view_clicked, mut pane_clicked) = (false, false, false);
+        let button = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        for events in [
+            vec![Event::PointerMoved(at)],
+            vec![Event::PointerMoved(at)],
+            vec![Event::PointerMoved(at), button(true)],
+            vec![button(false)],
+        ] {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 200.0))),
+                events,
+                ..RawInput::default()
+            };
+            ctx.run_ui(input, |ui| {
+                let view = ui.put(VIEW_BUTTON, egui::Button::new("knob"));
+                view_hovered |= view.hovered();
+                view_clicked |= view.clicked();
+                if pane {
+                    dim_backdrop(ui, ui.max_rect(), "test");
+                    pane_clicked |= ui.put(PANE_BUTTON, egui::Button::new("close")).clicked();
+                }
+            })
+            .drop_without_applying_deltas();
+        }
+        (view_hovered, view_clicked, pane_clicked)
+    }
+
+    #[test]
+    fn without_a_pane_the_view_answers_the_pointer() {
+        assert_eq!(press(VIEW_BUTTON.center(), false), (true, true, false));
+    }
+
+    #[test]
+    fn a_pane_s_backdrop_keeps_the_pointer_from_the_view_under_it() {
+        assert_eq!(
+            press(VIEW_BUTTON.center(), true),
+            (false, false, false),
+            "no tooltip and no click through the pane"
+        );
+    }
+
+    #[test]
+    fn the_pane_s_own_controls_still_answer_the_pointer() {
+        assert_eq!(press(PANE_BUTTON.center(), true), (false, false, true));
+    }
+}
+
+#[cfg(test)]
+mod pacing_tests {
+    use super::*;
+
+    const PLAYING: Pacing = Pacing {
+        pro: true,
+        visualizer_settled: false,
+        meters_moved: true,
+        calibrating: false,
+        out_of_sight: false,
+    };
+
+    #[test]
+    fn the_pro_view_paints_sixty_a_second_while_sound_moves_through_its_visualizer() {
+        assert_eq!(frame_interval(&PLAYING), Some(FRAME_INTERVAL));
+        assert_eq!(FRAME_INTERVAL, Duration::from_millis(16));
+    }
+
+    #[test]
+    fn a_settled_visualizer_or_meters_that_stand_still_ask_for_no_frames() {
+        for pacing in [
+            Pacing {
+                visualizer_settled: true,
+                ..PLAYING
+            },
+            Pacing {
+                meters_moved: false,
+                ..PLAYING
+            },
+        ] {
+            assert_eq!(frame_interval(&pacing), None, "{pacing:?}");
+        }
+    }
+
+    #[test]
+    fn the_lite_view_and_a_window_minimised_out_of_sight_never_paint_for_the_meters() {
+        assert_eq!(
+            frame_interval(&Pacing {
+                pro: false,
+                ..PLAYING
+            }),
+            None
+        );
+        assert_eq!(
+            frame_interval(&Pacing {
+                out_of_sight: true,
+                ..PLAYING
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn the_calibration_wizard_is_painted_while_it_runs_whatever_the_view() {
+        let calibrating = Pacing {
+            pro: false,
+            visualizer_settled: true,
+            meters_moved: false,
+            calibrating: true,
+            out_of_sight: false,
+        };
+        assert_eq!(frame_interval(&calibrating), Some(FRAME_INTERVAL));
+    }
+}
+
+#[cfg(test)]
+mod minimise_tests {
+    use super::*;
+
+    #[test]
+    fn minimise_hides_to_the_tray_only_while_a_tray_icon_is_there() {
+        // 0.4.0 audit #43: with no tray the window used to vanish, and only `crossfx --show` could
+        // bring it back; the original minimises (`FxMainWindow.cpp:579-585`).
+        assert_eq!(minimise_action(true), MinimiseAction::HideToTray);
+        assert_eq!(minimise_action(false), MinimiseAction::Minimise);
+    }
+
+    #[test]
+    fn show_brings_a_minimised_window_back_on_x11_and_maps_a_fresh_one_on_wayland() {
+        // FA: `--show` sent a Focus alone, which winit ignores for an iconic X11 window and on
+        // Wayland altogether, so a window minimised with no tray stayed minimised.
+        assert_eq!(show_action(false, false), ShowAction::Focus);
+        assert_eq!(show_action(false, true), ShowAction::Focus);
+        assert_eq!(show_action(true, false), ShowAction::Restore);
+        assert_eq!(show_action(true, true), ShowAction::Reopen);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_session_is_wayland_as_winit_reads_it() {
+        let vars = |set: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                set.iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| std::ffi::OsString::from(value))
+            }
+        };
+        assert!(wayland_session(vars(&[("WAYLAND_DISPLAY", "wayland-1")])));
+        assert!(wayland_session(vars(&[("WAYLAND_SOCKET", "5")])));
+        assert!(!wayland_session(vars(&[
+            ("WAYLAND_DISPLAY", ""),
+            ("DISPLAY", ":0")
+        ])));
+        assert!(!wayland_session(vars(&[("DISPLAY", ":0")])));
+    }
+
+    #[test]
+    fn a_cold_start_from_a_line_that_only_sets_something_begins_in_the_tray() {
+        // FA: R11 kept a running instance's window down for `crossfx --preset=Gaming`; a cold
+        // start from the same keybinding opened and focused the window over the game.
+        use WindowVisibility::{Hidden, Shown};
+        // (hide, show, run_minimized, only_sets_things)
+        assert_eq!(cold_start_visibility(false, false, false, true), Hidden);
+        assert_eq!(cold_start_visibility(false, false, false, false), Shown);
+        assert_eq!(cold_start_visibility(false, false, true, false), Hidden);
+        assert_eq!(cold_start_visibility(false, true, true, false), Shown);
+        assert_eq!(cold_start_visibility(true, false, false, false), Hidden);
+        let line = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
+                .expect("parses")
+                .only_sets_things()
+        };
+        assert_eq!(
+            cold_start_visibility(false, false, false, line(&["--preset=Gaming"])),
+            Hidden
+        );
+        assert_eq!(
+            cold_start_visibility(false, false, false, line(&["--toggle-power"])),
+            Hidden
+        );
+        assert_eq!(cold_start_visibility(false, false, false, line(&[])), Shown);
+        assert_eq!(
+            cold_start_visibility(false, false, false, line(&["--view=2"])),
+            Shown,
+            "--view asks for the window"
+        );
+    }
+
+    #[test]
+    fn at_interface_a_cold_start_from_an_option_windows_has_shows_the_window_as_there() {
+        // 0.4.0 audit R11 at «Как в оригинальном FxSound LLC» = Interface: the original's start
+        // shows its window whatever its line set, unless it was last quit hidden; a keybind's
+        // option, which stands in for one of the original's hotkeys, still starts in the tray.
+        use WindowVisibility::{Hidden, Shown};
+        use crossfx_core::WindowsParity;
+        let quiet = |args: &[&str], level: WindowsParity| {
+            Cli::try_parse_from(std::iter::once("crossfx").chain(args.iter().copied()))
+                .expect("parses")
+                .only_sets_things_at(level)
+        };
+        for level in [WindowsParity::Interface, WindowsParity::Sound] {
+            let gaming = quiet(&["--preset=Gaming"], level);
+            assert_eq!(cold_start_visibility(false, false, false, gaming), Shown);
+            assert_eq!(
+                cold_start_visibility(false, false, true, gaming),
+                Hidden,
+                "the remembered tray state still counts"
+            );
+            assert_eq!(
+                cold_start_visibility(false, false, false, quiet(&["--toggle-power"], level)),
+                Hidden
+            );
+        }
+        assert_eq!(
+            cold_start_visibility(
+                false,
+                false,
+                false,
+                quiet(&["--preset=Gaming"], WindowsParity::Off)
+            ),
+            Hidden
+        );
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+
+    #[test]
+    fn a_size_asked_for_under_a_zoom_is_the_design_size_at_the_compositors_scale() {
+        let lite = layout::lite::WINDOW_SIZE;
+        // egui-winit multiplies by the zoom again, so what reaches the compositor is `lite`.
+        for zoom in [0.9_f32, 1.0, 1.5306] {
+            let sent = inner_size_request(lite, zoom);
+            assert!((sent * zoom - lite).length() < 1e-3, "{zoom}: {sent:?}");
+        }
+        assert_eq!(inner_size_request(lite, 0.0), lite);
+    }
+
+    #[test]
+    fn a_tile_narrower_than_the_pro_window_shrinks_it_to_fit_rather_than_cutting_it() {
+        // E6b: niri's default column, 936 × 1048 points at scale 1, cut the Pro view's logo and
+        // close button off.
+        let zoom = fit_zoom(
+            egui::vec2(936.0, 1048.0),
+            egui::vec2(1040.0, 588.0),
+            1.0,
+            true,
+        );
+        assert!((zoom - 0.9).abs() < 1e-3, "{zoom}");
+        assert!(1040.0 * zoom <= 936.0 + 0.5);
+        // Not below half size: past that it is cut again rather than unreadable.
+        let tiny = fit_zoom(
+            egui::vec2(300.0, 1048.0),
+            egui::vec2(1040.0, 588.0),
+            1.0,
+            true,
+        );
+        assert_eq!(tiny, MIN_FIT_ZOOM);
+    }
+
+    #[test]
+    fn fullscreen_on_the_reference_monitor_scales_the_pro_window_to_the_height() {
+        // 2560×1440 physical at scale 1.6, Pro design 1040×588 points.
+        let zoom = fit_zoom(
+            egui::vec2(2560.0, 1440.0),
+            egui::vec2(1040.0, 588.0),
+            1.6,
+            true,
+        );
+        // 1440 / (588 · 1.6) = 1.5306 is the limiting axis; the width would allow 1.5385.
+        assert!((zoom - 1.5306).abs() < 1e-3, "{zoom}");
+        // The scaled design fits: 588 · 1.6 · zoom ≈ 1440 and 1040 · 1.6 · zoom < 2560.
+        assert!(588.0 * 1.6 * zoom <= 1440.0 + 0.5);
+        assert!(1040.0 * 1.6 * zoom <= 2560.0);
+    }
+
+    #[test]
+    fn the_lite_window_scales_further_and_a_normal_window_does_not_scale_at_all() {
+        let lite = fit_zoom(
+            egui::vec2(2560.0, 1440.0),
+            egui::vec2(550.0, 189.0),
+            1.6,
+            true,
+        );
+        assert!(lite > 2.9 && lite < 2.91, "{lite}");
+        // The window at its own design size, in physical pixels.
+        let exact = fit_zoom(
+            egui::vec2(1040.0 * 1.6, 588.0 * 1.6),
+            egui::vec2(1040.0, 588.0),
+            1.6,
+            false,
+        );
+        assert_eq!(exact, 1.0);
+        // A surface smaller than the design only for as long as a size the window asked for is
+        // on its way is not shrunk.
+        let small = fit_zoom(
+            egui::vec2(800.0, 400.0),
+            egui::vec2(1040.0, 588.0),
+            1.6,
+            false,
+        );
+        assert_eq!(small, 1.0);
+        // Garbage in, native scale out.
+        assert_eq!(
+            fit_zoom(egui::vec2(0.0, 0.0), egui::vec2(1040.0, 588.0), 0.0, true),
+            1.0
+        );
+    }
+}
+
+#[cfg(test)]
+mod confirmation_tests {
+    use super::*;
+    use crossfx_app::audio_link::FakeEngine;
+    use crossfx_core::{DeviceDirection, Effect, Preset, Settings};
+    use crossfx_preset::{InputPresetStore, PresetStore};
+
+    /// The question `confirm` puts in the message box, laid out with the app's fonts.
+    fn asked(confirm: &Confirm) -> String {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(theme::font_definitions());
+        let mut question = String::new();
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            question = confirm.question(ui.ctx());
+        })
+        .drop_without_applying_deltas();
+        question
+    }
+
+    #[test]
+    fn each_confirmation_question_fits_the_message_box_in_every_language() {
+        // The questions before Delete Preset and Reset presets (0.4.0 audit #16, #21) on one
+        // elided line lost "Saved presets are kept." in every language, and a long preset name
+        // took the question mark with it. Measured with the app's own fonts, in the box's own
+        // 410 x 52 message rect, in English and all 29 tables.
+        use crossfx_core::i18n::{Catalogue, LANGUAGES};
+        let ctx = egui::Context::default();
+        ctx.set_fonts(theme::font_definitions());
+        let names = [
+            "Rock".to_owned(),
+            "Rock Ballad Extended Night".to_owned(),
+            "Rock Ballad Extended Night Mix For The Living Room Speakers 2026".to_owned(),
+            // The widest a name can be: sixty-four capital Ws, and the 126 bytes of Cyrillic and
+            // of CJK the original FxSound for Windows reads a name in.
+            "W".repeat(64),
+            "Ш".repeat(63),
+            "音".repeat(42),
+        ];
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            for language in &LANGUAGES {
+                let table = Catalogue::for_language(language);
+                let translate = |key: &str| table.get(key).unwrap_or(key).to_owned();
+                for confirm in [Confirm::ResetPresets, Confirm::RestartWirePlumber]
+                    .into_iter()
+                    .chain(names.iter().map(|name| Confirm::Delete {
+                        lane: DeviceDirection::Output,
+                        name: name.clone(),
+                    }))
+                {
+                    let key = match confirm {
+                        Confirm::Delete { .. } => DELETE_QUESTION,
+                        Confirm::ResetPresets => RESET_QUESTION,
+                        Confirm::RestartWirePlumber => RESTART_WIREPLUMBER_QUESTION,
+                    };
+                    let question = confirm.question_from(ui.ctx(), &translate(key));
+                    let galley =
+                        dialogs::message::message_galley(ui.ctx(), &question, egui::Color32::WHITE);
+                    let case = format!("{}: {question}", language.code);
+                    assert!(!galley.elided, "{case}");
+                    assert!(
+                        galley.size().y <= dialogs::message::MESSAGE_HEIGHT + 0.01,
+                        "{case}: {:?}",
+                        galley.size()
+                    );
+                    let Confirm::Delete { name, .. } = &confirm else {
+                        assert_eq!(question, translate(key), "{case}");
+                        continue;
+                    };
+                    let template = translate(DELETE_QUESTION);
+                    let (before, after) = template.split_once("%s").expect("a placeholder");
+                    assert!(
+                        question.starts_with(before) && question.ends_with(after),
+                        "{case}: the question is whole"
+                    );
+                    if name.contains(' ') || name.len() < 8 {
+                        assert!(
+                            question.contains(name.as_str()),
+                            "{case}: the name is whole"
+                        );
+                    }
+                }
+            }
+        })
+        .drop_without_applying_deltas();
+    }
+
+    /// A runtime over a controller whose speakers list the user presets `Mine` and `Other`, with
+    /// `Mine` selected.
+    pub(super) fn runtime(dir: &std::path::Path) -> Runtime {
+        let Instance::Primary(listener) = Instance::acquire_in(dir).expect("acquire") else {
+            panic!("expected to be primary");
+        };
+        let mut presets = PresetStore::with_dirs(Vec::new(), dir.join("presets"));
+        for name in ["Mine", "Other"] {
+            let preset = Preset {
+                name: name.to_owned(),
+                ..Preset::default()
+            };
+            presets.save_as(&preset, name).expect("save");
+        }
+        let voices = InputPresetStore::with_dirs(Vec::new(), dir.join("presets").join("Input"));
+        let settings = Settings {
+            output_preset: "Mine".to_owned(),
+            ..Settings::default()
+        };
+        let app = App::start_for_tests(settings, presets, voices, &FakeEngine::new());
+        let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
+        Runtime {
+            app,
+            #[cfg(target_os = "linux")]
+            dbus: None,
+            server: listener.serve().expect("serve"),
+            sleep: None,
+            sleep_rx: crossbeam_channel::never(),
+            tray: None,
+            tray_rx,
+            exit: WindowExit::Hidden,
+            settings_requested: false,
+            terminate: Arc::new(AtomicBool::new(false)),
+            terminating: false,
+            waker: Waker::new(),
+            signals: None,
+            panes: Panes::default(),
+            waiting_for_devices: Vec::new(),
+            tray_wait: None,
+            start_minimised: false,
+            reopening: false,
+            only_raised_like_windows: false,
+        }
+    }
+
+    fn listed(shell: &Shell<'_>) -> Vec<String> {
+        shell
+            .rt
+            .app
+            .state
+            .presets
+            .iter()
+            .map(|p| p.name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn delete_preset_asks_first_and_deletes_only_on_yes() {
+        // 0.4.0 audit #16: one click on the menu used to delete the preset for good.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = runtime(dir.path());
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        assert_eq!(listed(&shell), ["Mine", "Other"]);
+
+        shell.act_on_menu(MenuChoice::Delete);
+        assert_eq!(
+            listed(&shell),
+            ["Mine", "Other"],
+            "nothing happens before the answer"
+        );
+        assert_eq!(
+            shell.confirm.as_ref().map(asked).as_deref(),
+            Some("Move the preset Mine to the trash?")
+        );
+        assert!(
+            shell.pane_open(),
+            "the menu stays shut while the question is up"
+        );
+        assert!(shell.window_size().y >= dialogs::message::WINDOW_SIZE.y);
+
+        shell.answer(ConfirmChoice::No);
+        assert_eq!(listed(&shell), ["Mine", "Other"]);
+        assert!(shell.confirm.is_none());
+
+        shell.act_on_menu(MenuChoice::Delete);
+        shell.answer(ConfirmChoice::Dismissed);
+        assert_eq!(listed(&shell), ["Mine", "Other"], "closing the box is a no");
+
+        shell.act_on_menu(MenuChoice::Delete);
+        shell.answer(ConfirmChoice::Yes);
+        assert_eq!(listed(&shell), ["Other"]);
+        assert!(dir.path().join("presets/.Trash/files/Mine.fac").is_file());
+    }
+
+    #[test]
+    fn a_yes_to_a_preset_that_is_no_longer_selected_deletes_nothing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = runtime(dir.path());
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        shell.act_on_menu(MenuChoice::Delete);
+        // A keybind moves the selection while the question is up.
+        shell.rt.app.cycle_preset(true);
+        assert_eq!(
+            shell.rt.app.state.preset().map(|p| p.name.as_str()),
+            Some("Other")
+        );
+        shell.answer(ConfirmChoice::Yes);
+        assert_eq!(listed(&shell), ["Mine", "Other"]);
+    }
+
+    #[test]
+    fn reset_presets_asks_first_and_discards_the_unsaved_changes_on_yes() {
+        // 0.4.0 audit #21: the settings pane's button reset at once.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = runtime(dir.path());
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        shell
+            .rt
+            .app
+            .handle(&[UiAction::SetEffect(Effect::Bass, 7.0)]);
+        shell.open_settings();
+        // The pane's button, through the code `show_settings` runs on what the pane reports.
+        let press_reset = |shell: &mut Shell<'_>| {
+            let mut state = shell.settings.take().expect("the pane is open");
+            assert!(state.can_reset_presets, "the button is live");
+            let closed = shell.act_on_settings(&[SettingsAction::ResetPresets], &mut state);
+            assert!(!closed, "the reset does not close the pane");
+            shell.settings = Some(state);
+        };
+        press_reset(&mut shell);
+        assert_eq!(
+            shell.rt.app.lane_preset(DeviceDirection::Output),
+            Some(("Mine", true)),
+            "nothing is discarded before the answer"
+        );
+        assert!(
+            shell.settings.as_ref().is_some_and(|s| s.can_reset_presets),
+            "the pane still offers the reset"
+        );
+        assert_eq!(
+            shell.confirm.as_ref().map(asked).as_deref(),
+            Some("Discard the unsaved changes of every preset? Saved presets are kept.")
+        );
+        shell.answer(ConfirmChoice::No);
+        assert_eq!(
+            shell.rt.app.lane_preset(DeviceDirection::Output),
+            Some(("Mine", true))
+        );
+        press_reset(&mut shell);
+        shell.answer(ConfirmChoice::Dismissed);
+        assert_eq!(
+            shell.rt.app.lane_preset(DeviceDirection::Output),
+            Some(("Mine", true)),
+            "closing the box is a no"
+        );
+        press_reset(&mut shell);
+        assert_eq!(
+            shell.rt.app.lane_preset(DeviceDirection::Output),
+            Some(("Mine", true))
+        );
+        shell.answer(ConfirmChoice::Yes);
+        assert_eq!(
+            shell.rt.app.lane_preset(DeviceDirection::Output),
+            Some(("Mine", false))
+        );
+        assert!(shell.settings.is_some(), "the pane stays open");
+        assert!(!shell.settings.as_ref().is_some_and(|s| s.can_reset_presets));
+    }
+
+    #[test]
+    fn restart_wireplumber_asks_first_and_keeps_the_pane_open() {
+        // Roadmap 0.5.0 §7, D5: the restart stops every application's sound for a moment. A test
+        // run's app has no WirePlumber of the user's to restart (`App::start_for_tests`).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = runtime(dir.path());
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        shell.open_settings();
+        let mut state = shell.settings.take().expect("the pane is open");
+        let closed = shell.act_on_settings(&[SettingsAction::RestartWirePlumber], &mut state);
+        assert!(!closed);
+        shell.settings = Some(state);
+        assert_eq!(
+            shell.confirm.as_ref().map(asked).as_deref(),
+            Some("Restart WirePlumber now? The sound of every application stops for a moment.")
+        );
+        shell.answer(ConfirmChoice::No);
+        assert!(shell.confirm.is_none());
+        let mut state = shell.settings.take().expect("the pane is open");
+        shell.act_on_settings(&[SettingsAction::RestartWirePlumber], &mut state);
+        shell.settings = Some(state);
+        shell.answer(ConfirmChoice::Yes);
+        assert!(shell.confirm.is_none());
+        assert!(shell.settings.is_some(), "the pane stays open");
+        assert_eq!(
+            shell.settings.as_ref().map(|s| s.wireplumber_hook),
+            Some(crossfx_ui::dialogs::settings::WirePlumberHook::default()),
+            "nothing to restart in a test run"
+        );
+    }
+}
+
+#[cfg(test)]
+mod name_editor_tests {
+    use super::*;
+    use crossfx_core::DeviceDirection::{Input, Output};
+
+    #[test]
+    fn an_editor_opened_for_one_lane_closes_when_the_window_moves_to_the_other() {
+        // Save New Preset typed on the speakers, then `crossfx --edit=input` from a keybind: the
+        // name was for the speakers' controls and list, and must not save the microphone's.
+        let editor = NameEditor::new(EditorPurpose::SaveNew, Output, Some("A"));
+        assert!(editor.still_applies(Output, Some("A"), true, true));
+        assert!(!editor.still_applies(Input, Some("A"), true, true));
+        let rename = NameEditor::new(EditorPurpose::Rename, Input, Some("A"));
+        assert!(rename.still_applies(Input, Some("A"), false, true));
+        assert!(!rename.still_applies(Output, Some("A"), false, true));
+    }
+
+    #[test]
+    fn an_editor_whose_item_went_grey_closes() {
+        let editor = NameEditor::new(EditorPurpose::SaveNew, Output, Some("A"));
+        assert!(!editor.still_applies(Output, Some("A"), false, true));
+        let rename = NameEditor::new(EditorPurpose::Rename, Output, Some("A"));
+        assert!(!rename.still_applies(Output, Some("A"), true, false));
+    }
+
+    #[test]
+    fn a_rename_editor_closes_when_another_preset_is_selected_under_it() {
+        // FA: a headphone plugged in brought back its preset B while A's new name was typed, and
+        // Enter renamed B.
+        let rename = NameEditor::new(EditorPurpose::Rename, Output, Some("A"));
+        assert!(rename.still_applies(Output, Some("A"), true, true));
+        assert!(!rename.still_applies(Output, Some("B"), true, true));
+        assert!(!rename.still_applies(Output, None, true, true));
+        // Save New Preset saves the controls on screen, whichever preset they came from.
+        let save = NameEditor::new(EditorPurpose::SaveNew, Output, Some("A"));
+        assert!(save.still_applies(Output, Some("B"), true, true));
+    }
+}
+
+#[cfg(test)]
+mod forget_device_tests {
+    //! A `--forget-device` (or D-Bus `ForgetDevice`, which travels the same channel) that reaches
+    //! an instance PipeWire has not listed the devices to yet: bus activation starts CrossFX for
+    //! the call, and a script may run it right after `crossfx &` (0.4.0 audit #34, finisher F8).
+    use super::*;
+    use crossfx_app::audio_link::FakeEngine;
+    use crossfx_core::messages::AudioToUi;
+    use crossfx_core::{AudioDevice, DeviceDirection, Settings};
+    use crossfx_preset::{InputPresetStore, PresetStore};
+    use std::path::Path;
+    use std::thread::JoinHandle;
+
+    /// A pump whose engine has not listed a device yet, and whose settings remember the laptop's
+    /// speakers and a dock that is not plugged in.
+    fn young_runtime(dir: &Path) -> (Runtime, FakeEngine) {
+        let Instance::Primary(listener) = Instance::acquire_in(dir).expect("acquire") else {
+            panic!("expected to be primary");
+        };
+        let engine = FakeEngine::new();
+        let mut settings = Settings::default();
+        settings.remember_device_preset(
+            "alsa_output.speakers",
+            "Speakers",
+            "",
+            "",
+            DeviceDirection::Output,
+        );
+        settings.remember_device_preset(
+            "alsa_output.dock",
+            "USB Dock",
+            "",
+            "",
+            DeviceDirection::Output,
+        );
+        // Two presets for a line to pick, as a script and a keybind might.
+        for name in ["Day", "Night"] {
+            let preset = crossfx_core::Preset {
+                name: name.to_owned(),
+                ..crossfx_core::Preset::default()
+            };
+            crossfx_preset::save(&preset, &dir.join("presets").join(format!("{name}.fac")))
+                .expect("a preset");
+        }
+        let mut presets = PresetStore::with_dirs(Vec::new(), dir.join("presets"));
+        presets.rescan();
+        let voices = InputPresetStore::with_dirs(Vec::new(), dir.join("presets").join("Input"));
+        let app = App::start_for_tests(settings, presets, voices, &engine);
+        let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
+        let runtime = Runtime {
+            app,
+            #[cfg(target_os = "linux")]
+            dbus: None,
+            server: listener.serve().expect("serve"),
+            sleep: None,
+            sleep_rx: crossbeam_channel::never(),
+            tray: None,
+            tray_rx,
+            exit: WindowExit::Hidden,
+            settings_requested: false,
+            terminate: Arc::new(AtomicBool::new(false)),
+            terminating: false,
+            waker: Waker::new(),
+            signals: None,
+            panes: Panes::default(),
+            waiting_for_devices: Vec::new(),
+            tray_wait: None,
+            start_minimised: false,
+            reopening: false,
+            only_raised_like_windows: false,
+        };
+        (runtime, engine)
+    }
+
+    fn speakers() -> AudioDevice {
+        AudioDevice {
+            id: 3,
+            name: "alsa_output.speakers".to_owned(),
+            description: "Speakers".to_owned(),
+            is_default: true,
+            direction: DeviceDirection::Output,
+            form_factor: "speaker".to_owned(),
+            is_virtual: false,
+        }
+    }
+
+    /// `crossfx <args>` forwarded to `runtime`, on a thread: its answer.
+    fn forward(runtime: &Runtime, args: &[&str]) -> JoinHandle<std::io::Result<ipc::Response>> {
+        let socket = runtime.server.path().to_path_buf();
+        let argv: Vec<String> = std::iter::once("crossfx")
+            .chain(args.iter().copied())
+            .map(str::to_owned)
+            .collect();
+        std::thread::spawn(move || {
+            ipc::forward_to(&socket, &argv, Path::new("/"), Duration::from_secs(5))
+        })
+    }
+
+    /// Tick until the forwarded line is waiting for the device list.
+    fn until_it_waits(runtime: &mut Runtime) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while runtime.waiting_for_devices.is_empty() {
+            assert!(Instant::now() < deadline, "the line never arrived");
+            runtime.wait(Duration::from_millis(50));
+            runtime.tick();
+        }
+    }
+
+    #[test]
+    fn a_line_forwarded_after_one_that_waits_for_the_device_list_runs_after_it() {
+        // FA: the keybind's `--preset=Day`, sent after a script's held line, ran at once, and the
+        // held `--preset=Night` undid it when the device list came.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut runtime, engine) = young_runtime(dir.path());
+        let script = forward(&runtime, &["--forget-device=USB Dock", "--preset=Night"]);
+        until_it_waits(&mut runtime);
+        let keybind = forward(&runtime, &["--preset=Day"]);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while runtime.waiting_for_devices.len() < 2 {
+            assert!(Instant::now() < deadline, "the second line never arrived");
+            runtime.wait(Duration::from_millis(50));
+            runtime.tick();
+        }
+        runtime.tick();
+        assert!(!keybind.is_finished(), "it waits its turn");
+
+        engine.feed(AudioToUi::Devices(vec![speakers()]));
+        runtime.tick();
+        assert!(runtime.waiting_for_devices.is_empty());
+        for client in [script, keybind] {
+            let answer = client.join().expect("client").expect("answered");
+            assert!(answer.ok, "{}", answer.stderr);
+        }
+        assert_eq!(
+            runtime.app.state.preset().map(|p| p.name.as_str()),
+            Some("Day"),
+            "the last word was the keybind's"
+        );
+    }
+
+    #[test]
+    fn a_line_behind_a_waiting_one_is_answered_once_that_ones_wait_is_over() {
+        // No device list at all: the held line is refused when its wait is over, and the one
+        // behind it runs right after, well within its own caller's patience.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut runtime, _engine) = young_runtime(dir.path());
+        let script = forward(&runtime, &["--forget-device=USB Dock"]);
+        until_it_waits(&mut runtime);
+        let keybind = forward(&runtime, &["--preset=Day"]);
+        let deadline = Instant::now() + commands::DEVICE_LIST_WAIT + Duration::from_secs(2);
+        while !(script.is_finished() && keybind.is_finished()) {
+            assert!(Instant::now() < deadline, "never answered");
+            runtime.wait(runtime.pump_interval(Instant::now()));
+            runtime.tick();
+        }
+        assert!(!script.join().expect("client").expect("answered").ok);
+        let answer = keybind.join().expect("client").expect("answered");
+        assert!(answer.ok, "{}", answer.stderr);
+        assert_eq!(
+            runtime.app.state.preset().map(|p| p.name.as_str()),
+            Some("Day")
+        );
+    }
+
+    #[test]
+    fn forget_device_before_the_first_device_list_waits_for_it_and_then_forgets() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut runtime, engine) = young_runtime(dir.path());
+        let client = forward(&runtime, &["--forget-device=USB Dock"]);
+        until_it_waits(&mut runtime);
+        runtime.tick();
+        assert!(!client.is_finished(), "held, not refused");
+
+        engine.feed(AudioToUi::Devices(vec![speakers()]));
+        runtime.tick();
+        assert!(runtime.waiting_for_devices.is_empty());
+        let answer = client.join().expect("client").expect("answered");
+        assert!(answer.ok, "{}", answer.stderr);
+        assert!(answer.stderr.is_empty(), "{}", answer.stderr);
+
+        // Forgotten: asked again, the name is one neither list has.
+        let again = forward(&runtime, &["--forget-device=USB Dock"]);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !again.is_finished() {
+            assert!(Instant::now() < deadline, "never answered");
+            runtime.wait(Duration::from_millis(50));
+            runtime.tick();
+        }
+        let answer = again.join().expect("client").expect("answered");
+        assert!(!answer.ok);
+        assert!(
+            answer
+                .stderr
+                .contains("neither device priority list has a device called"),
+            "{}",
+            answer.stderr
+        );
+    }
+
+    #[test]
+    fn a_connected_device_is_still_refused_once_the_list_is_in() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut runtime, engine) = young_runtime(dir.path());
+        let client = forward(&runtime, &["--forget-device=Speakers"]);
+        until_it_waits(&mut runtime);
+        engine.feed(AudioToUi::Devices(vec![speakers()]));
+        runtime.tick();
+        let answer = client.join().expect("client").expect("answered");
+        assert!(!answer.ok);
+        assert!(
+            answer.stderr.contains("unplug it first"),
+            "{}",
+            answer.stderr
+        );
+    }
+
+    #[test]
+    fn with_no_device_list_in_time_the_line_is_refused_before_the_caller_gives_up() {
+        const { assert!(commands::DEVICE_LIST_WAIT.as_millis() < ipc::HANDLER_TIMEOUT.as_millis()) };
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut runtime, _engine) = young_runtime(dir.path());
+        let client = forward(&runtime, &["--forget-device=USB Dock"]);
+        until_it_waits(&mut runtime);
+
+        // The pump wakes for the end of the wait rather than at the keepalive after it.
+        let soon = Instant::now() + Duration::from_millis(100);
+        runtime.waiting_for_devices[0].1 = soon;
+        assert!(runtime.pump_interval(Instant::now()) <= Duration::from_millis(100));
+
+        runtime.waiting_for_devices[0].1 = Instant::now();
+        runtime.tick();
+        assert!(runtime.waiting_for_devices.is_empty());
+        let answer = client.join().expect("client").expect("answered");
+        assert!(!answer.ok);
+        assert!(
+            answer
+                .stderr
+                .contains("has not listed the audio devices yet"),
+            "{}",
+            answer.stderr
+        );
+    }
+
+    #[test]
+    fn a_line_without_forget_device_does_not_wait_for_the_device_list() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut runtime, _engine) = young_runtime(dir.path());
+        let client = forward(&runtime, &["--power=off"]);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !client.is_finished() {
+            assert!(Instant::now() < deadline, "never answered");
+            runtime.wait(Duration::from_millis(50));
+            runtime.tick();
+            assert!(runtime.waiting_for_devices.is_empty());
+        }
+        assert!(client.join().expect("client").expect("answered").ok);
+        assert!(!runtime.app.state.power);
+    }
+
+    #[test]
+    fn a_line_waiting_for_the_device_list_hears_that_crossfx_is_shutting_down() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut runtime, _engine) = young_runtime(dir.path());
+        let client = forward(&runtime, &["--forget-device=USB Dock"]);
+        until_it_waits(&mut runtime);
+        runtime.shutdown();
+        let answer = client.join().expect("client").expect("answered");
+        assert!(!answer.ok);
+        assert!(answer.stderr.contains("shutting down"), "{}", answer.stderr);
+    }
+}
+
+#[cfg(test)]
+mod popup_tests {
+    use super::*;
+    use egui::{Pos2, RawInput, Rect, vec2};
+    use crossfx_core::i18n::{Catalogue, LANGUAGES};
+
+    fn context() -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(theme::font_definitions());
+        ctx
+    }
+
+    /// `key` in English and in every language's table.
+    fn every_translation(key: &str) -> Vec<(&'static str, String)> {
+        let mut all = vec![("en", key.to_owned())];
+        for language in &LANGUAGES[1..] {
+            let table = Catalogue::for_language(language);
+            all.push((language.code, table.get(key).unwrap_or(key).to_owned()));
+        }
+        all
+    }
+
+    /// One frame on a surface of `size` points, as the window's own frame goes about it: take
+    /// in the surface, ask for a size, draw the menu. What the menu covered, if it was open, and
+    /// what the frame asked the viewport to do.
+    fn sized_frame(
+        shell: &mut Shell<'_>,
+        ctx: &egui::Context,
+        size: egui::Vec2,
+    ) -> (Option<Rect>, Vec<egui::ViewportCommand>) {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+            ..RawInput::default()
+        };
+        let palette = shell.rt.app.palette();
+        let mut menu = None;
+        let mut output = ctx.run_ui(input, |ui| {
+            shell.compositor_sized =
+                compositor_sized(size, shell.applied_size, shell.resize_in_flight());
+            shell.sync_view_size(ui.ctx());
+            menu = shell.show_menu(ui.ctx(), palette);
+        });
+        let commands = output
+            .viewport_output
+            .remove(&egui::ViewportId::ROOT)
+            .map(|viewport| viewport.commands)
+            .unwrap_or_default();
+        output.drop_without_applying_deltas();
+        (menu, commands)
+    }
+
+    fn inner_sizes(commands: &[egui::ViewportCommand]) -> Vec<egui::Vec2> {
+        commands
+            .iter()
+            .filter_map(|command| match command {
+                egui::ViewportCommand::InnerSize(size) => Some(*size),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Let a size the window asked for have had all the time it gets to land.
+    fn settle(shell: &mut Shell<'_>) {
+        shell.resized_at = Instant::now().checked_sub(RESIZE_SETTLE + Duration::from_millis(10));
+    }
+
+    #[test]
+    fn the_menu_open_in_the_lite_window_scrolls_inside_it_under_the_hamburger_and_asks_for_no_size()
+    {
+        // E6b: in the 189-point Lite window the menu lost Export, Import and Theme below the
+        // window's edge and was pushed up over the title bar. Growing the window for it then
+        // kept Hyprland asking and refusing, niri filled the grown part with its focus ring's
+        // colour, and the menu was cut at Rename Preset whenever the window was not grown.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = calibration_tests::runtime(dir.path(), false);
+        rt.app.state.view = ViewMode::Lite;
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        let lite = layout::lite::WINDOW_SIZE;
+        let ctx = context();
+
+        let (shut, commands) = sized_frame(&mut shell, &ctx, lite);
+        assert_eq!(shut, None);
+        assert_eq!(inner_sizes(&commands), vec![lite]);
+        settle(&mut shell);
+
+        shell.menu.toggle();
+        let hamburger = layout::Chrome::LITE.menu.rect();
+        for frame in 0..8 {
+            if frame % 2 == 1 {
+                settle(&mut shell);
+            }
+            let (menu, commands) = sized_frame(&mut shell, &ctx, lite);
+            assert!(
+                inner_sizes(&commands).is_empty(),
+                "frame {frame}: {commands:?}"
+            );
+            assert!(!shell.compositor_sized, "frame {frame}");
+            let menu = menu.expect("the menu is open");
+            // Anchored under the hamburger, not pushed up over the title bar…
+            assert!(
+                (menu.top() - (hamburger.bottom() + 4.0)).abs() < 1e-3,
+                "{menu:?}"
+            );
+            // …and short of the window's bottom edge, its eleven rows scrolling.
+            assert!(menu.bottom() <= lite.y - POPUP_MARGIN + 1e-3, "{menu:?}");
+            assert!(menu.height() < 11.0 * MENU_ROW_HEIGHT, "{menu:?}");
+            assert!(menu.height() > 3.0 * MENU_ROW_HEIGHT, "{menu:?}");
+        }
+        assert_eq!(shell.window_size(), lite);
+    }
+
+    #[test]
+    fn the_menu_in_the_pro_window_grows_to_hold_an_editor_opened_in_it_and_keeps_every_row() {
+        // The pre-tag look in Italian: with Save New Preset's editor open the menu kept the
+        // height it had without it, and Light was scrolled out of sight under Dark.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = confirmation_tests::runtime(dir.path());
+        rt.app.state.view = ViewMode::Pro;
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        let pro = layout::pro::WINDOW_SIZE;
+        let ctx = context();
+        sized_frame(&mut shell, &ctx, pro);
+        settle(&mut shell);
+
+        shell.menu.toggle();
+        let mut shut = None;
+        for _ in 0..3 {
+            shut = sized_frame(&mut shell, &ctx, pro).0;
+        }
+        let shut = shut.expect("the menu is open");
+
+        let app = &shell.rt.app;
+        shell.menu.editor = Some(NameEditor::new(
+            EditorPurpose::SaveNew,
+            app.state.direction,
+            app.state.preset().map(|p| p.name.as_str()),
+        ));
+        for frame in 0..4 {
+            let open = sized_frame(&mut shell, &ctx, pro)
+                .0
+                .expect("the menu is open");
+            assert!(shell.menu.editor.is_some(), "frame {frame}");
+            assert_eq!(open.top(), shut.top(), "frame {frame}");
+            assert!(
+                (open.height() - (shut.height() + NAME_EDITOR_SIZE.y + 4.0)).abs() < 1e-3,
+                "frame {frame}: {open:?} with the editor, {shut:?} without it"
+            );
+            assert!(
+                open.bottom() <= pro.y - POPUP_MARGIN,
+                "frame {frame}: {open:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn flipping_the_view_gives_the_compositor_the_new_size_as_the_windows_smallest_and_largest() {
+        // E6b, on Hyprland: winit gives the size the window was created at as its smallest and
+        // largest, the compositor held the floating window to it, and Pro stayed 550 × 189.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = calibration_tests::runtime(dir.path(), false);
+        rt.app.state.view = ViewMode::Lite;
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        let ctx = context();
+        let lite = layout::lite::WINDOW_SIZE;
+        let (_, commands) = sized_frame(&mut shell, &ctx, lite);
+        assert!(commands.contains(&egui::ViewportCommand::MinInnerSize(lite)));
+        assert!(commands.contains(&egui::ViewportCommand::MaxInnerSize(lite)));
+        settle(&mut shell);
+
+        shell.rt.app.state.view = ViewMode::Pro;
+        let pro = layout::pro::WINDOW_SIZE;
+        let (_, commands) = sized_frame(&mut shell, &ctx, lite);
+        assert!(
+            commands.contains(&egui::ViewportCommand::MinInnerSize(pro)),
+            "{commands:?}"
+        );
+        assert!(
+            commands.contains(&egui::ViewportCommand::MaxInnerSize(pro)),
+            "{commands:?}"
+        );
+        assert_eq!(inner_sizes(&commands), vec![pro]);
+        settle(&mut shell);
+        let (_, commands) = sized_frame(&mut shell, &ctx, pro);
+        assert!(commands.is_empty(), "{commands:?}");
+        assert!(!shell.compositor_sized);
+    }
+
+    #[test]
+    fn the_lite_lists_hang_under_the_title_bar_and_short_of_the_windows_bottom_edge() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = calibration_tests::runtime(dir.path(), false);
+        rt.app.state.view = ViewMode::Lite;
+        let shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        let lite = layout::lite::WINDOW_SIZE;
+        let bounds = shell.popup_bounds(Rect::from_min_size(Pos2::ZERO, lite));
+        assert_eq!(
+            bounds.top(),
+            layout::TITLE_BAR_HEIGHT + layout::TITLE_BAR_DIVIDER_HEIGHT
+        );
+        assert_eq!(bounds.bottom(), lite.y - POPUP_MARGIN);
+        for combo in [layout::lite::preset_combo(), layout::lite::output_combo()] {
+            let row = combo::popup_row_height(combo.height());
+            for rows in [1, 2, 5, 40] {
+                let list = combo::popup_list_height(rows, 0, false, row);
+                let (top, height) = combo::place_list(combo, list, bounds, row);
+                assert!(
+                    top >= bounds.top() && top + height <= bounds.bottom() + 1e-3,
+                    "{rows} rows: {top} {height}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_surface_is_the_compositors_size_only_once_the_asked_size_has_had_time_to_land() {
+        let asked = Some(layout::lite::WINDOW_SIZE);
+        let fullscreen = vec2(1920.0, 1080.0);
+        assert!(compositor_sized(fullscreen, asked, false));
+        // Still on its way: not the compositor's doing yet.
+        assert!(!compositor_sized(fullscreen, asked, true));
+        // The size asked for, give or take a point of rounding.
+        assert!(!compositor_sized(
+            layout::lite::WINDOW_SIZE + vec2(0.5, -0.5),
+            asked,
+            false
+        ));
+        // Nothing asked for yet.
+        assert!(!compositor_sized(fullscreen, None, false));
+    }
+
+    #[test]
+    fn the_menu_is_as_wide_as_its_longest_item_in_every_language() {
+        // E6b: German "Voreinstellungs-Änderung verwerfen" ran over the 244-point menu's edge.
+        let ctx = context();
+        let keys = [
+            ("Settings", false),
+            ("Save New Preset", true),
+            ("Overwrite Existing Preset", false),
+            ("Undo Preset Changes", false),
+            ("Rename Preset", true),
+            ("Delete Preset", false),
+            ("Export Presets", false),
+            ("Import Presets", false),
+            ("Theme", false),
+            ("Dark", false),
+            ("Light", false),
+        ];
+        let mut problems = Vec::new();
+        ctx.run_ui(RawInput::default(), |ui| {
+            for (index, (code, _)) in every_translation("Settings").into_iter().enumerate() {
+                let rows: Vec<(String, bool)> = keys
+                    .iter()
+                    .map(|(key, submenu)| (every_translation(key)[index].1.clone(), *submenu))
+                    .collect();
+                let hints = [
+                    every_translation(SAVE_NEW_HINT)[index].1.clone(),
+                    every_translation(RENAME_HINT)[index].1.clone(),
+                ];
+                let width = menu_width(ui.ctx(), &rows, &hints);
+                assert!(
+                    (MENU_WIDTH..=MENU_MAX_WIDTH).contains(&width),
+                    "{code}: {width}"
+                );
+                for (label, submenu) in &rows {
+                    let text = ui
+                        .painter()
+                        .layout_no_wrap(
+                            label.clone(),
+                            theme::regular(MENU_FONT),
+                            egui::Color32::PLACEHOLDER,
+                        )
+                        .size()
+                        .x;
+                    let room = width - MENU_TEXT_INSET - menu_text_end(*submenu);
+                    if text > room {
+                        problems.push(format!("{code}: {label:?} is {text:.0} in {room:.0}"));
+                    }
+                }
+            }
+        })
+        .drop_without_applying_deltas();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+        // The English menu keeps the original's width.
+        let english: Vec<(String, bool)> = keys
+            .iter()
+            .map(|(key, submenu)| ((*key).to_owned(), *submenu))
+            .collect();
+        let hints = [SAVE_NEW_HINT.to_owned(), RENAME_HINT.to_owned()];
+        ctx.run_ui(RawInput::default(), |ui| {
+            assert_eq!(menu_width(ui.ctx(), &english, &hints), MENU_WIDTH);
+            assert_eq!(name_editor_width(MENU_WIDTH), NAME_EDITOR_SIZE.x);
+        })
+        .drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn overwrite_with_a_long_preset_name_widens_the_menu_only_to_its_limit() {
+        let ctx = context();
+        ctx.run_ui(RawInput::default(), |ui| {
+            let typical = [("Overwrite Existing Preset - My Preset".to_owned(), false)];
+            let width = menu_width(ui.ctx(), &typical, &[]);
+            assert!(width > MENU_WIDTH, "{width}");
+            let long = [(
+                "Overwrite Existing Preset - Calibrated — HECATE G2000 Pro Mono Microphone"
+                    .to_owned(),
+                false,
+            )];
+            assert_eq!(menu_width(ui.ctx(), &long, &[]), MENU_MAX_WIDTH);
+        })
+        .drop_without_applying_deltas();
+        // At its widest the menu still ends inside the Lite window.
+        let frame = layout::Chrome::LITE.menu.rect().left() + MENU_MAX_WIDTH + 2.0 * 8.0 + 2.0;
+        assert!(
+            frame + POPUP_MARGIN <= layout::lite::WINDOW_SIZE.x,
+            "{frame}"
+        );
+    }
+
+    #[test]
+    fn the_folder_picker_is_titled_in_the_windows_language() {
+        // E6b: the portal's picker read "Select the folder which contains the presets..." over
+        // a German window.
+        let german = crossfx_core::i18n::language("de").expect("a German table");
+        let table = Catalogue::for_language(german);
+        let title = folder_picker_title(|key| table.get(key).unwrap_or(key).to_owned());
+        assert_eq!(
+            title,
+            "Wählen Sie den Ordner aus, der die Voreinstellungen enthält…"
+        );
+        assert_eq!(
+            folder_picker_title(str::to_owned),
+            dialogs::presets::SELECT_FOLDER_LABEL
+        );
+    }
+
+    #[test]
+    fn the_name_editors_hint_fits_its_field_in_every_language() {
+        // E6b: German "Neuer Name der Voreinstellung" lost its end in the 200-point field.
+        let ctx = context();
+        let mut problems = Vec::new();
+        ctx.run_ui(RawInput::default(), |ui| {
+            for key in [SAVE_NEW_HINT, RENAME_HINT] {
+                for (code, hint) in every_translation(key) {
+                    // The menu of that language, which widens for the longer hint of the two.
+                    let hints: Vec<String> = [SAVE_NEW_HINT, RENAME_HINT]
+                        .iter()
+                        .map(|key| {
+                            every_translation(key)
+                                .into_iter()
+                                .find(|(other, _)| *other == code)
+                                .map(|(_, text)| text)
+                                .unwrap_or_default()
+                        })
+                        .collect();
+                    let width = menu_width(ui.ctx(), &[], &hints);
+                    let font = name_editor_hint_font(ui.ctx(), &hint, width);
+                    let used = ui
+                        .painter()
+                        .layout_no_wrap(hint.clone(), font.clone(), egui::Color32::PLACEHOLDER)
+                        .size()
+                        .x;
+                    if used > name_editor_width(width) - NAME_EDITOR_TEXT_PADDING {
+                        problems.push(format!("{code}: {hint:?} is {used:.0} at {}", font.size));
+                    }
+                }
+            }
+        })
+        .drop_without_applying_deltas();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crossfx_core::WindowsParity;
+
+    /// The edge the context draws every popup and tooltip with after one frame of `shell`'s.
+    fn frame_edge(shell: &mut Shell<'_>, ctx: &egui::Context) -> egui::Stroke {
+        ctx.run_ui(egui::RawInput::default(), |ui| shell.sync_theme(ui.ctx()))
+            .drop_without_applying_deltas();
+        ctx.global_style().visuals.window_stroke
+    }
+
+    #[test]
+    fn a_level_change_in_the_light_theme_redraws_the_popups_edges_on_the_next_frame() {
+        // W2: the level decides the palette's edges as well as the theme does, and a frame that
+        // re-applied the visuals only on a new theme kept the last level's edge on every popup.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = calibration_tests::runtime(dir.path(), false);
+        rt.app.state.theme = ThemeMode::Light;
+        let mut shell = Shell::new(&mut rt, Palette::new(ThemeMode::Dark));
+        let ctx = egui::Context::default();
+        let light = Palette::new(ThemeMode::Light);
+
+        let ours = frame_edge(&mut shell, &ctx);
+        assert_eq!(ours.color, light.divider());
+
+        shell
+            .rt
+            .app
+            .set_windows_parity(WindowsParity::Interface, false)
+            .expect("offered");
+        let windows = frame_edge(&mut shell, &ctx);
+        assert_eq!(windows.color, light.windows(true).divider());
+        assert_ne!(
+            windows.color, ours.color,
+            "the original's edge is another colour"
+        );
+
+        shell
+            .rt
+            .app
+            .set_windows_parity(WindowsParity::Off, false)
+            .expect("offered");
+        assert_eq!(frame_edge(&mut shell, &ctx), ours, "and back again at Off");
+    }
+
+    #[test]
+    fn a_window_opened_at_interface_keeps_the_windows_edge_until_the_level_goes_off() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut rt = calibration_tests::runtime(dir.path(), false);
+        rt.app.state.theme = ThemeMode::Light;
+        rt.app
+            .set_windows_parity(WindowsParity::Interface, false)
+            .expect("offered");
+        let palette = rt.app.palette();
+        let ctx = egui::Context::default();
+        theme::apply(&ctx, palette);
+        let mut shell = Shell::new(&mut rt, palette);
+        let light = Palette::new(ThemeMode::Light);
+
+        assert_eq!(
+            frame_edge(&mut shell, &ctx).color,
+            light.windows(true).divider()
+        );
+        shell
+            .rt
+            .app
+            .set_windows_parity(WindowsParity::Off, false)
+            .expect("offered");
+        assert_eq!(frame_edge(&mut shell, &ctx).color, light.divider());
+    }
+}
+
+#[cfg(test)]
+mod vsync_tests {
+    use super::*;
+
+    #[test]
+    fn only_linux_renders_without_vsync() {
+        // Linux: the frame callback a hidden Wayland surface never gets. Windows: the pointer's
+        // events, which without vsync were each presented at once, hundreds a second.
+        let options = native_options(ViewMode::Lite);
+        assert_eq!(
+            options.glow_options.vsync,
+            !cfg!(target_os = "linux"),
+            "vsync stays off where it hangs and on where it paces"
+        );
+    }
+
+    /// The window is CrossFX's in every list that names one — the taskbar, Alt+Tab, a
+    /// compositor's rules — and on Linux the desktop file's name ties it to its icon.
+    #[test]
+    fn the_window_is_titled_crossfx_and_carries_the_application_id() {
+        let options = native_options(ViewMode::Lite);
+        assert_eq!(options.viewport.title.as_deref(), Some("CrossFX"));
+        assert_eq!(
+            options.viewport.app_id.as_deref(),
+            Some("io.github.blackixxce12.CrossFX")
+        );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_icon_tests {
+    use super::*;
+
+    #[test]
+    fn the_window_carries_crossfx_own_icon_rather_than_eframes() {
+        let options = native_options(ViewMode::Pro);
+        let icon = options.viewport.icon.expect("an icon of CrossFX's own");
+        assert_eq!((icon.width, icon.height), (256, 256));
+        assert_eq!(icon.rgba.len(), 256 * 256 * 4);
+        assert!(
+            icon.rgba.chunks(4).any(|pixel| pixel[3] == 255),
+            "something opaque is drawn"
+        );
+    }
+}

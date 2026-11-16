@@ -65,7 +65,7 @@ Summary:        System-wide audio enhancement: EQ, ambience, surround, bass and 
 #
 # One expression left since 0.3.0: "BlueOak-1.0.0 OR MIT OR Apache-2.0", held by anymap3 alone,
 # which came in through nnnoiseless -> easyfft -> generic_singleton. The RNNoise code is now
-# vendored as the workspace member fxsound-rnnoise (BSD-3-Clause, which cargo tree lists like any
+# vendored as the workspace member crossfx-rnnoise (BSD-3-Clause, which cargo tree lists like any
 # other crate), which calls realfft directly and keeps easyfft for its tests only. None came in.
 #
 # # 0BSD OR MIT OR Apache-2.0
@@ -247,7 +247,7 @@ ships a systemd user unit for starting with the session.
 # to target/rpm, and either path is the same file.
 install -Dpm0755 target/rpm/crossfx %{buildroot}%{_bindir}/crossfx
 
-# Factory and bonus presets. install_data_dirs (crates/fxsound-preset/src/lib.rs) looks under
+# Factory and bonus presets. install_data_dirs (crates/crossfx-preset/src/lib.rs) looks under
 # %%{_datadir}/crossfx/presets when the binary is installed rather than run out of a build tree.
 # Only the .fac files: the original's BonusPresets folder also carries a zip of the same presets
 # and a stray text file called MeaningfulPresets, and neither belongs in a package.
@@ -277,7 +277,7 @@ install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.service \
     %{buildroot}%{_datadir}/dbus-1/services/io.github.blackixxce12.CrossFX.service
 
 # The application icon under the application id, the one name the desktop entry, the
-# notifications (crates/fxsound-app/src/notify.rs) and the sound settings look it up by. 256x256
+# notifications (crates/crossfx-app/src/notify.rs) and the sound settings look it up by. 256x256
 # and 32x32 respectively; both verified against the files, not assumed from the names.
 install -Dpm0644 assets/images/fxsound_large.png \
     %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
@@ -298,13 +298,13 @@ install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.metainfo.xml \
     %{buildroot}%{_metainfodir}/io.github.blackixxce12.CrossFX.metainfo.xml
 
 # Three parts of the binary are not AGPL, and each licence makes shipping its text a condition of
-# shipping the binary: the RNNoise code and model compiled in from crates/fxsound-rnnoise
+# shipping the binary: the RNNoise code and model compiled in from crates/crossfx-rnnoise
 # (BSD-3-Clause), and the Noto fallback faces and the Manrope interface faces embedded in the
 # window (both SIL OFL 1.1, each with its own notice). LICENSE.dependencies only names licences,
 # so the texts are shipped as %%license files, under the names every other package gives them:
 # %%license on the source paths would install them as a bare COPYING and OFL.txt beside our own
 # LICENSE.
-cp -p crates/fxsound-rnnoise/COPYING COPYING.rnnoise
+cp -p crates/crossfx-rnnoise/COPYING COPYING.rnnoise
 cp -p assets/fonts/OFL.txt OFL.noto
 cp -p assets/fonts/OFL-Manrope.txt OFL.manrope
 

@@ -1,6 +1,6 @@
 # Reference spectra
 
-Six CSV files, read by `crates/fxsound-dsp/tests/genre_voicing.rs`, which asks whether a preset
+Six CSV files, read by `crates/crossfx-dsp/tests/genre_voicing.rs`, which asks whether a preset
 named after a genre actually voices material toward that genre. Each file carries its own
 provenance in `#` comments; this README holds what is common to all of them, the source tables in
 full, and the things that are true of the set rather than of one file.

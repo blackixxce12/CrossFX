@@ -2,14 +2,14 @@
 
 Tracker item `s5-10`. The objective half of the question — "are these twelve
 presets distinct from one another, and is each one internally coherent" — is
-already answered by `crates/fxsound-dsp/tests/shipped_presets.rs`. This directory
+already answered by `crates/crossfx-dsp/tests/shipped_presets.rs`. This directory
 answers the other half, the one no measurement reaches: **is the revoicing any
 good, and is it better than doing nothing at all.**
 
 Nothing here touches Rust. It is four shell scripts around
-`crates/fxsound-dsp/examples/process_wav.rs`, which already renders a WAV through
+`crates/crossfx-dsp/examples/process_wav.rs`, which already renders a WAV through
 the real `Engine` with a `.fac` preset and needs no new flags for this. It plays
-the preset as the application does (`fxsound_dsp::preset::preset_params`): the
+the preset as the application does (`crossfx_dsp::preset::preset_params`): the
 effects through the sliders, the curve on ten bands unless `--bands` says
 otherwise, the settings' default levels. So what is judged here is what the
 application plays, not the raw values of the file.
@@ -159,7 +159,7 @@ Jazz,new,h,sure,2,old|new|dry,2026-09-21T02:50:16+04:00
   into the 0..70 range where it still does something, not to nudge the slider.
 - **`flags` contains `b` / `h` / `t`** (boomy / harsh / thin) — a direction for
   the EQ, not a diagnosis. Check it against
-  `crates/fxsound-dsp/tests/shipped_presets.rs` first: if that test already flags
+  `crates/crossfx-dsp/tests/shipped_presets.rs` first: if that test already flags
   the preset for an objective reason, fix the objective cause before revoicing by
   ear.
 - **`confidence = unsure`** — the renders are still on disk, so that preset can go
@@ -207,12 +207,14 @@ that commit's own application's reading of a preset, so both sides play a preset
 as their application did — point `FXSV_OLD_PROCESS_WAV` at it, and
 give both sides the same `.fac`: a file already in `presets-old/` wins over git,
 so copying the current presets there makes "old" and "new" differ only in the
-engine. `FXSV_WORK` keeps the run apart from a revoicing session's votes.
+engine. `FXSV_WORK` keeps the run apart from a revoicing session's votes. The script ends by
+naming the checkout's DSP crate, `<dsp>` below: `crossfx-dsp`, or the name it had
+in a commit from before the crates were renamed.
 
 ```sh
 # from the repository root; keep the checkout off /tmp, a release build does not fit a tmpfs
 scripts/reference-checkout.sh --with-process-wav <commit> ../crossfx-before
-(cd ../crossfx-before && cargo build --release -p fxsound-dsp --example process_wav)
+(cd ../crossfx-before && cargo build --release -p <dsp> --example process_wav)
 
 export FXSV_WORK="$PWD/target/voicing-engine"
 export FXSV_OLD_PROCESS_WAV="$(cd ../crossfx-before && pwd)/target/release/examples/process_wav"
@@ -231,7 +233,7 @@ scripts/voicing/vote.sh --genre Movies
 ```
 
 In the tally, `old` is the older engine and `new` the current one; `dry` still
-means the untouched excerpt beat both. `crates/fxsound-dsp/tests/preset_drift.rs`
+means the untouched excerpt beat both. `crates/crossfx-dsp/tests/preset_drift.rs`
 is the measuring half of the same question.
 
 The same set-up compares «Like the original FxSound LLC» = Interface and sound
@@ -253,7 +255,7 @@ export FXSV_OLD_PROCESS_WAV="$FXSV_WORK/windows-dsp"
 The measuring half takes the same choice: `PRESET_DRIFT_COMPAT=windows` renders
 every shipped preset through the original's DSP, and set beside a run at Off
 (`PRESET_DRIFT_BEFORE`) prints what the level changes, preset by preset
-(`crates/fxsound-dsp/tests/preset_drift.rs`).
+(`crates/crossfx-dsp/tests/preset_drift.rs`).
 
 ## Files
 

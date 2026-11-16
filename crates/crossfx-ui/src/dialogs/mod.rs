@@ -1,0 +1,1208 @@
+//! The secondary windows: Settings, the preset import/export flow, message boxes and the toast.
+//!
+//! Everything in this module is a port of a `FxWindow` (`fxsound/Source/GUI/FxWindow.h:27`) — a
+//! borderless `juce::Component` pushed straight onto the desktop, drawing its own title bar, close
+//! button, rounded corners and drop shadow, and blocking its caller in `runModalLoop()`. The
+//! chrome is shared, so it is written once here and the three dialog files draw only their own
+//! contents.
+//!
+//! ## How the modality is modelled
+//!
+//! `runModalLoop()` is a nested event loop: `FxConfirmationMessage::showMessage()` returns a
+//! `bool` from inside it, and `FxController::exportPresets()` calls it once per colliding file
+//! (`docs/spec/06-dialogs.md` §9.1 and Open question 3). egui is immediate-mode and has no nested
+//! loop, so every dialog here is a *state machine the caller owns*: the caller keeps the state,
+//! this crate renders it and returns a [`DialogResponse`] of actions, and the caller decides what
+//! happens next. Nothing in this module blocks, opens a file picker, touches the file system or
+//! talks to the audio engine — exactly the discipline [`crate::state`] sets for the main window.
+//!
+//! ## Which egui construct each dialog maps to
+//!
+//! `docs/spec/06-dialogs.md` §9.1 recommends real windows for the three big dialogs and
+//! [`egui::Modal`] — which does exist in 0.36 (`docs/api/egui-0.36-widgets-input.md` §8.3) — for
+//! the small message boxes. This module does not *choose* for the caller: every dialog exposes a
+//! `show` that draws the whole window into a [`Rect`], so the same code works inside a deferred
+//! viewport of [`outer_size`] and inside a modal in the main viewport. [`message::MessageBox`]
+//! additionally offers [`message::MessageBox::show_modal`], because a confirmation really does
+//! want the backdrop and the focus trap.
+//!
+//! What Wayland takes away is listed in §9.1's table: a client cannot position its own toplevel
+//! (so `centreWithSize` is gone — let the compositor place the window), cannot force itself on top
+//! (so `setAlwaysOnTop` is gone — use a modal child window), and cannot move itself by tracking
+//! the pointer (so a title-bar drag has to be handed to the compositor with
+//! [`egui::ViewportCommand::StartDrag`], which is what [`ChromeResponse::drag_started`] is for).
+
+pub mod calibration;
+pub mod changelog;
+pub mod message;
+pub mod presets;
+pub mod settings;
+
+pub use calibration::{
+    CalibrationAction, CalibrationDialog, CalibrationPhase, CalibrationResultView, CalibrationView,
+};
+pub use message::{ConfirmChoice, ConfirmStyle, MessageBox};
+pub use presets::{
+    ExportDialog, ExportState, ImportDialog, ImportState, ImportSummary, OverwriteChoice,
+    PresetsAction,
+};
+pub use settings::{
+    AppLane, AppRow, DevicePriority, HotkeyCommand, NavIcon, NavIcons, SettingsAction,
+    SettingsDialog, SettingsState, SettingsTab,
+};
+
+use crate::assets::AssetCache;
+use crate::theme::{self, FxColor, Palette};
+use crate::widgets::icon_button::hit_rect;
+use crate::widgets::wordmark;
+use egui::text::{LayoutJob, TextWrapping};
+use egui::{
+    Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Painter, Rect, Sense, Shadow, Stroke,
+    Ui, Vec2, pos2, vec2,
+};
+
+// ---------------------------------------------------------------------------------------------
+// Fonts (`docs/spec/06-dialogs.md` §0.4, `FxTheme.cpp:466-479`)
+// ---------------------------------------------------------------------------------------------
+
+/// `FxTheme::getNormalFont()` — Gilroy Semibold, 17 px, in the original; here the semibold weight
+/// of the interface's face ([`crate::typeface`]). The dialogs' default.
+pub const NORMAL_FONT: f32 = 17.0;
+/// `FxTheme::getSmallFont()` — Gilroy Regular, 14 px, in the original. Hotkey rows and the version
+/// string.
+pub const SMALL_FONT: f32 = 14.0;
+/// `FxTheme::getTitleFont()` — Gilroy Bold, 17 px, in the original. Every pane title.
+pub const TITLE_FONT: f32 = 17.0;
+
+/// `getNormalFont()`.
+#[must_use]
+pub fn normal_font() -> FontId {
+    theme::semibold(NORMAL_FONT)
+}
+
+/// `getSmallFont()`.
+#[must_use]
+pub fn small_font() -> FontId {
+    theme::regular(SMALL_FONT)
+}
+
+/// `getTitleFont()`.
+#[must_use]
+pub fn title_font() -> FontId {
+    theme::bold(TITLE_FONT)
+}
+
+// ---------------------------------------------------------------------------------------------
+// `FxWindow` geometry (`docs/spec/06-dialogs.md` §0.1, §0.2)
+// ---------------------------------------------------------------------------------------------
+
+/// `FxWindow::SHADOW_WIDTH` (`FxWindow.h:44`) — the transparent gutter the shadow is painted in.
+pub const SHADOW_WIDTH: f32 = 5.0;
+/// `FxWindow::CLOSE_BUTTON_WIDTH` (`FxWindow.h:45`); the button is square.
+pub const CLOSE_BUTTON_WIDTH: f32 = 15.0;
+/// `FxTheme::WINDOW_CORNER_RADIUS` (`FxTheme.h:42`).
+pub const WINDOW_CORNER_RADIUS: f32 = 21.0;
+/// `FxTheme::TITLE_BAR_HEIGHT` (`FxTheme.h:43`) — the band the outer-size formula reserves.
+pub const TITLE_BAR_BAND: f32 = 57.0;
+/// The title-bar component itself is one point shorter (`FxWindow.cpp:29`).
+pub const TITLE_BAR_HEIGHT: f32 = TITLE_BAR_BAND - 1.0;
+/// `TitleBar::ICON_WIDTH` (`FxWindow.h:71`) — the box of the wordmark a window with no name shows.
+pub const ICON_WIDTH: f32 = 106.0;
+/// `TitleBar::ICON_HEIGHT` (`FxWindow.h:72`).
+pub const ICON_HEIGHT: f32 = 15.0;
+/// Thickness of the close button's "X", as a fraction of the square it is fitted into
+/// (`FxWindow.cpp:163-164`, `Path::addLineSegment(…, 0.08f)`).
+pub const CLOSE_GLYPH_THICKNESS: f32 = 0.08;
+
+/// The drop shadow's colour.
+///
+/// `DropShadow`'s default — black at `0x90` — with only `radius` overridden (`FxWindow.cpp:125`).
+/// JUCE is not vendored in this tree, so this is the one number here read out of the framework
+/// rather than out of the original's own sources **[JUCE semantics]**.
+pub const SHADOW_COLOUR: Color32 = Color32::from_black_alpha(0x90);
+
+/// The outer window size for a given content size (`docs/spec/06-dialogs.md` §0.2).
+///
+/// ```text
+/// outer_width  = content_width  + SHADOW_WIDTH * 2                                 = w + 10
+/// outer_height = content_height + title bar + WINDOW_CORNER_RADIUS + SHADOW * 2    = h + 87
+/// ```
+///
+/// This is `FxWindow::setContent()` (`FxWindow.cpp:74-82`) and it is load-bearing: it is the only
+/// reason the Settings window is 610 × 597 rather than 600 × 510.
+#[must_use]
+pub fn outer_size(content: Vec2) -> Vec2 {
+    vec2(
+        content.x + SHADOW_WIDTH * 2.0,
+        content.y + TITLE_BAR_HEIGHT + WINDOW_CORNER_RADIUS + SHADOW_WIDTH * 2.0,
+    )
+}
+
+/// The content size [`outer_size`] was given, recovered from the window.
+#[must_use]
+pub fn content_size(outer: Vec2) -> Vec2 {
+    vec2(
+        outer.x - SHADOW_WIDTH * 2.0,
+        outer.y - TITLE_BAR_HEIGHT - WINDOW_CORNER_RADIUS - SHADOW_WIDTH * 2.0,
+    )
+}
+
+/// Where the content sits inside the window: `(SHADOW_WIDTH, title_bar.bottom + 1)` = `(5, 62)`
+/// (`FxWindow.cpp:74`, `:150`).
+///
+/// Note that this does **not** reach the bottom of the frame: the window reserves
+/// `WINDOW_CORNER_RADIUS` below the content, and the one-point rule under the title bar eats a
+/// point of it, so a 597-point window's 510 points of content stop 25 points short of the bottom.
+#[must_use]
+pub fn content_rect(outer: Rect) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            outer.left() + SHADOW_WIDTH,
+            title_bar_rect(outer).bottom() + 1.0,
+        ),
+        content_size(outer.size()),
+    )
+}
+
+/// The title bar: inset by `WINDOW_CORNER_RADIUS + SHADOW_WIDTH` = 26 on both sides, `SHADOW_WIDTH`
+/// from the top, 56 tall (`FxWindow.cpp:147`).
+#[must_use]
+pub fn title_bar_rect(outer: Rect) -> Rect {
+    let inset = WINDOW_CORNER_RADIUS + SHADOW_WIDTH;
+    Rect::from_min_size(
+        pos2(outer.left() + inset, outer.top() + SHADOW_WIDTH),
+        vec2(outer.width() - inset * 2.0, TITLE_BAR_HEIGHT),
+    )
+}
+
+/// The rounded rectangle the window actually paints, i.e. everything but the shadow gutter.
+#[must_use]
+pub fn frame_rect(outer: Rect) -> Rect {
+    outer.shrink(SHADOW_WIDTH)
+}
+
+/// The close button: 15 × 15, right-aligned, vertically centred in the title bar
+/// (`FxWindow.cpp:188`, `:263-264`).
+#[must_use]
+pub fn close_button_rect(title_bar: Rect) -> Rect {
+    let size = Vec2::splat(CLOSE_BUTTON_WIDTH);
+    Align2::RIGHT_CENTER.align_size_within_rect(size, title_bar)
+}
+
+/// The box of the wordmark a window constructed with an **empty** name shows
+/// (`FxWindow.cpp:272-278`): CrossFX's name ([`crate::widgets::wordmark`]) where the original
+/// shows its logotype.
+///
+/// The original anchors it `xLeft | yTop`, which puts a 15-point logo at the very top of a
+/// 56-point bar. `docs/spec/06-dialogs.md` §0.3 describes it as vertically centred and that is
+/// what it should be, so CrossFX centres it — one of the four quirks §7 of the spec's Open
+/// questions asks to be decided deliberately rather than by accident.
+#[must_use]
+pub fn logo_rect(title_bar: Rect) -> Rect {
+    Align2::LEFT_CENTER.align_size_within_rect(vec2(ICON_WIDTH, ICON_HEIGHT), title_bar)
+}
+
+/// Where a named window's title text goes: from the left of the bar, filling it up to the close
+/// button.
+///
+/// The original puts its bars logo in front of the title, 14 points tall, and starts the text two
+/// points after it (`FxWindow.cpp:280-283`). The bars are FxSound LLC's, not CrossFX's, so the
+/// title starts where they did.
+#[must_use]
+pub fn title_text_rect(title_bar: Rect) -> Rect {
+    Rect::from_min_max(
+        title_bar.min,
+        pos2(close_button_rect(title_bar).left(), title_bar.bottom()),
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// Responses
+// ---------------------------------------------------------------------------------------------
+
+/// What a dialog returns after one frame.
+///
+/// The same shape as [`crate::state::UiResponse`], parameterised by the action type, because each
+/// dialog has its own vocabulary and none of them should be able to emit another's actions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DialogResponse<A> {
+    pub actions: Vec<A>,
+}
+
+impl<A> Default for DialogResponse<A> {
+    fn default() -> Self {
+        Self {
+            actions: Vec::new(),
+        }
+    }
+}
+
+impl<A> DialogResponse<A> {
+    pub fn push(&mut self, action: A) {
+        self.actions.push(action);
+    }
+
+    /// Push `action` when `condition` holds — the shape almost every button site wants.
+    pub fn push_if(&mut self, condition: bool, action: A) {
+        if condition {
+            self.actions.push(action);
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.actions.is_empty()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.actions.len()
+    }
+}
+
+impl<A: PartialEq> DialogResponse<A> {
+    #[must_use]
+    pub fn contains(&self, action: &A) -> bool {
+        self.actions.contains(action)
+    }
+}
+
+/// What the shared chrome reports back.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChromeResponse {
+    /// The content area, already inset by the shadow gutter and the title bar.
+    pub content: Rect,
+    /// The ✕ was clicked. `FxSettingsDialog::closeButtonPressed` and friends all do the same
+    /// thing: leave the modal state and take the window off the desktop.
+    pub close_clicked: bool,
+    /// A drag began on the title bar. Answer it with
+    /// [`egui::ViewportCommand::StartDrag`] — Wayland has no client-side window moving
+    /// (`docs/spec/06-dialogs.md` §9.1).
+    pub drag_started: bool,
+}
+
+// ---------------------------------------------------------------------------------------------
+// The chrome itself
+// ---------------------------------------------------------------------------------------------
+
+/// The borderless window frame every dialog in this module sits in.
+///
+/// Constructed with a title for the three big dialogs (`"Settings"`, `"Import Presets"`,
+/// `"Export Presets"`) and without one for the message boxes, which is what selects between the
+/// title text and the wordmark (`FxWindow.cpp:270-284`).
+pub struct DialogChrome<'a> {
+    title: Option<&'a str>,
+    draggable: bool,
+    shadow: bool,
+}
+
+impl Default for DialogChrome<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> DialogChrome<'a> {
+    /// A window with no name: the wordmark — CrossFX's name — fills the left of the title bar and
+    /// there is no title text (`FxMessage`, `FxConfirmationMessage`, `FxImportCompleteMessage`).
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            title: None,
+            draggable: true,
+            shadow: true,
+        }
+    }
+
+    /// A named window: the title in `getNormalFont()`, from the left of the title bar.
+    #[must_use]
+    pub fn titled(title: &'a str) -> Self {
+        Self {
+            title: Some(title),
+            ..Self::new()
+        }
+    }
+
+    /// Whether a press on the title bar reports [`ChromeResponse::drag_started`]. Switch it off
+    /// when the chrome is drawn inside a modal, where there is no toplevel to move.
+    #[must_use]
+    pub fn draggable(mut self, draggable: bool) -> Self {
+        self.draggable = draggable;
+        self
+    }
+
+    /// Whether to paint the drop shadow (`FxWindow::setShadowEnabled`, `FxWindow.cpp:105-111`).
+    #[must_use]
+    pub fn shadow(mut self, shadow: bool) -> Self {
+        self.shadow = shadow;
+        self
+    }
+
+    /// Paint the frame into `outer` and report the content area.
+    ///
+    /// `outer` is the whole window including the 5-point shadow gutter, i.e. [`outer_size`] of the
+    /// dialog's content size. The chrome draws no artwork of its own — the wordmark and the ✕ are
+    /// text and strokes — so `_assets` goes unused; it is taken all the same, as every window of
+    /// this module takes the cache it draws from.
+    pub fn show(
+        self,
+        ui: &mut Ui,
+        outer: Rect,
+        palette: Palette,
+        _assets: &mut AssetCache,
+        id_salt: impl std::hash::Hash + std::fmt::Debug,
+    ) -> ChromeResponse {
+        let Self {
+            title,
+            draggable,
+            shadow,
+        } = self;
+
+        let id = Id::unique("fx_dialog_chrome").with(id_salt);
+        let frame = frame_rect(outer);
+        let title_bar = title_bar_rect(outer);
+        let corner = CornerRadius::same(WINDOW_CORNER_RADIUS as u8);
+        let background = palette.window_background();
+
+        if shadow {
+            let shape = Shadow {
+                offset: [0, 0],
+                blur: SHADOW_WIDTH as u8,
+                spread: 0,
+                color: SHADOW_COLOUR,
+            }
+            .as_shape(frame, corner);
+            ui.painter().add(shape);
+        }
+        ui.painter().rect_filled(frame, corner, background);
+
+        // `FxWindow::paint` runs this rule from x = shadow_width to `getWidth() - shadow_width*2`,
+        // passing a width where an x is wanted, so the original stops five points short of the
+        // right edge (`FxWindow.cpp:141-142`). Drawn flat across the frame here.
+        ui.painter().hline(
+            frame.left()..=frame.right(),
+            title_bar.bottom(),
+            Stroke::new(1.0, palette.color(FxColor::ControlBackground)),
+        );
+
+        match title {
+            // CrossFX's name as the main window's title bar shows it at rest: the logotype's plain
+            // colour, which the original's message boxes show their logotype in.
+            None => wordmark::paint(
+                ui.painter(),
+                logo_rect(title_bar),
+                palette.color(FxColor::HighlightedText),
+            ),
+            Some(text) => {
+                draw_truncated(
+                    ui.painter(),
+                    text,
+                    normal_font(),
+                    palette.color(FxColor::HighlightedText),
+                    title_text_rect(title_bar),
+                    Align2::LEFT_CENTER,
+                );
+            }
+        }
+
+        let close = close_button_rect(title_bar);
+        let close_response = ui.interact(
+            hit_rect(close, crate::widgets::icon_button::MIN_HIT_SIZE),
+            id.with("close"),
+            Sense::click(),
+        );
+        if close_response.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
+        paint_close_glyph(ui.painter(), close, palette);
+
+        let drag_started = if draggable {
+            // Everything but the close button drags the window (`FxWindow.cpp:339-358`).
+            let mut bar = title_bar;
+            bar.set_right(close.left());
+            ui.interact(bar, id.with("drag"), Sense::drag())
+                .drag_started()
+        } else {
+            false
+        };
+
+        ChromeResponse {
+            content: content_rect(outer),
+            close_clicked: close_response.clicked(),
+            drag_started,
+        }
+    }
+}
+
+/// The ✕: two diagonals of the largest square that fits, stroked at 8 % of its side
+/// (`FxWindow.cpp:154-169`).
+pub fn paint_close_glyph(painter: &Painter, rect: Rect, palette: Palette) {
+    let side = rect.width().min(rect.height());
+    let square = Rect::from_center_size(rect.center(), Vec2::splat(side));
+    let stroke = Stroke::new(
+        side * CLOSE_GLYPH_THICKNESS,
+        palette.color(FxColor::ImageButton),
+    );
+    painter.line_segment([square.left_top(), square.right_bottom()], stroke);
+    painter.line_segment([square.right_top(), square.left_bottom()], stroke);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The shared text button (`juce::TextButton`)
+// ---------------------------------------------------------------------------------------------
+
+/// `LookAndFeel_V4::drawButtonBackground`'s corner **[JUCE semantics]**.
+///
+/// `FxTheme` overrides neither `drawButtonBackground` nor `drawButtonText`, and the JUCE modules
+/// are not vendored in this tree (`docs/spec/06-dialogs.md` Open question 1), so the four numbers
+/// below are the framework's, not the original's.
+pub const BUTTON_CORNER_RADIUS: f32 = 6.0;
+/// How far a pressed button's fill is moved towards its contrasting colour **[JUCE semantics]**.
+pub const BUTTON_DOWN_CONTRAST: f32 = 0.2;
+/// The same for a hovered button **[JUCE semantics]**.
+pub const BUTTON_HOVER_CONTRAST: f32 = 0.05;
+/// `withMultipliedAlpha` on a disabled button **[JUCE semantics]**.
+pub const BUTTON_DISABLED_ALPHA: f32 = 0.5;
+
+/// `juce::Colour::getPerceivedBrightness()` — the weighted RMS JUCE uses to pick between black and
+/// white, not a luminance.
+#[must_use]
+pub fn perceived_brightness(colour: Color32) -> f32 {
+    let r = f32::from(colour.r()) / 255.0;
+    let g = f32::from(colour.g()) / 255.0;
+    let b = f32::from(colour.b()) / 255.0;
+    (r * r * 0.241 + g * g * 0.691 + b * b * 0.068).sqrt()
+}
+
+/// `juce::Colour::contrasting(amount)`: overlay black or white at `amount`, whichever contrasts.
+///
+/// This is what makes a hovered or pressed `TextButton` change colour at all, so it is worth
+/// having exactly. The `withMultipliedSaturation(0.9f)` that `drawButtonBackground` applies first
+/// is deliberately **not** reproduced: it desaturates the original's brand red by a tenth, and
+/// every other surface in CrossFX draws `TextButtonBackground` unmodified (`FxTheme.cpp:83`).
+#[must_use]
+pub fn contrasting(colour: Color32, amount: f32) -> Color32 {
+    let t = amount.clamp(0.0, 1.0);
+    let target = if perceived_brightness(colour) >= 0.5 {
+        0.0_f32
+    } else {
+        255.0
+    };
+    let mix = |c: u8| (f32::from(c) + (target - f32::from(c)) * t).round() as u8;
+    Color32::from_rgba_unmultiplied(
+        mix(colour.r()),
+        mix(colour.g()),
+        mix(colour.b()),
+        colour.a(),
+    )
+}
+
+/// `FxTheme::getTextButtonFont`: the semibold weight at `min(17, button height)`
+/// (`FxTheme.cpp:461-464`).
+#[must_use]
+pub fn text_button_font(button_height: f32) -> FontId {
+    theme::semibold(NORMAL_FONT.min(button_height))
+}
+
+/// Where a button's label is laid out: the button reduced by two points on each side and one at
+/// the top and bottom, as `drawButtonText` does **[JUCE semantics]**.
+#[must_use]
+pub fn text_button_inner(rect: Rect) -> Rect {
+    rect.shrink2(vec2(2.0, 1.0))
+}
+
+/// The smallest share of its own size a button's label is set in.
+///
+/// Lower than a label's [`MIN_FIT_SCALE`]: a label can lose its end and still be read, a button
+/// that loses its end no longer says what it does. Bulgarian "Експортиране" needs 11 of the
+/// Export button's 17 points.
+pub const MIN_BUTTON_FIT_SCALE: f32 = 0.6;
+
+/// The font a button's label is set in: [`text_button_font`] where the label fits the button, and
+/// otherwise the largest size down to [`MIN_BUTTON_FIT_SCALE`] of it at which no word is wider
+/// than the button and the lines the label wraps into fit its height.
+///
+/// Wrapping stays, because the reset-presets button is allowed up to three lines
+/// (`FxSettingsDialog.cpp:289-315`); what goes is a word broken across two lines and out of the
+/// button, which is what a translation one word long did to a fixed-size button — German
+/// "Exportier|en" and Russian "Сохрани|ть" under the Export dialog's 80 points (E6b). JUCE's
+/// `drawFittedText` squeezes such a line instead of breaking it.
+#[must_use]
+pub fn text_button_label_font(ctx: &egui::Context, label: &str, rect: Rect) -> FontId {
+    let inner = text_button_inner(rect);
+    let base = text_button_font(rect.height());
+    // As many lines as the button is tall for in its own font: one for every button but the
+    // reset-presets one, which is made a line taller per line its label needs.
+    let line = ctx.fonts_mut(|fonts| {
+        fonts
+            .layout_no_wrap("Xg".to_owned(), base.clone(), Color32::PLACEHOLDER)
+            .size()
+            .y
+    });
+    let lines = ((inner.height() + 1.0) / line.max(1.0)).floor().max(1.0) as usize;
+    let fits = |size: f32| {
+        let font = FontId::new(size, base.family.clone());
+        ctx.fonts_mut(|fonts| {
+            let widest_word = label
+                .split_whitespace()
+                .map(|word| {
+                    fonts
+                        .layout_no_wrap(word.to_owned(), font.clone(), Color32::PLACEHOLDER)
+                        .size()
+                        .x
+                })
+                .fold(0.0_f32, f32::max);
+            let rows = fonts
+                .layout(
+                    label.to_owned(),
+                    font.clone(),
+                    Color32::PLACEHOLDER,
+                    inner.width(),
+                )
+                .rows
+                .len();
+            widest_word <= inner.width() && rows <= lines
+        })
+    };
+    let smallest = (base.size * MIN_BUTTON_FIT_SCALE * 2.0).ceil() / 2.0;
+    let mut size = base.size;
+    while size > smallest && !fits(size) {
+        size = (size - 0.5).max(smallest);
+    }
+    FontId::new(size, base.family)
+}
+
+/// A `juce::TextButton`: rounded fill in `TextButtonBackground`, label in `HighlightedText`
+/// (`FxTheme.cpp:83-86`).
+pub struct TextButton<'a> {
+    label: &'a str,
+    enabled: bool,
+}
+
+impl<'a> TextButton<'a> {
+    #[must_use]
+    pub fn new(label: &'a str) -> Self {
+        Self {
+            label,
+            enabled: true,
+        }
+    }
+
+    /// A disabled button keeps its colour at half alpha and does not react to the pointer.
+    #[must_use]
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Draw into an exact rectangle; `response.clicked()` is the press.
+    pub fn show(
+        self,
+        ui: &mut Ui,
+        rect: Rect,
+        palette: Palette,
+        id_salt: impl std::hash::Hash + std::fmt::Debug,
+    ) -> egui::Response {
+        let Self { label, enabled } = self;
+        let id = Id::unique("fx_text_button").with(id_salt);
+        let sense = if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        };
+        let response = ui.interact(rect, id, sense);
+
+        let base = palette.color(FxColor::TextButtonBackground);
+        let fill = if !enabled {
+            Color32::from_rgba_unmultiplied(
+                base.r(),
+                base.g(),
+                base.b(),
+                (BUTTON_DISABLED_ALPHA * 255.0).round() as u8,
+            )
+        } else if response.is_pointer_button_down_on() {
+            contrasting(base, BUTTON_DOWN_CONTRAST)
+        } else if response.hovered() {
+            contrasting(base, BUTTON_HOVER_CONTRAST)
+        } else {
+            base
+        };
+
+        // `bounds.reduced(0.5f)` before the fill, so the rounded edge lands on the button's own
+        // outermost point **[JUCE semantics]**.
+        ui.painter().rect_filled(
+            rect.shrink(0.5),
+            CornerRadius::same(BUTTON_CORNER_RADIUS as u8),
+            fill,
+        );
+
+        let mut colour = palette.color(FxColor::HighlightedText);
+        if !enabled {
+            colour = colour.gamma_multiply(BUTTON_DISABLED_ALPHA);
+        }
+        let inner = text_button_inner(rect);
+        let font = text_button_label_font(ui.ctx(), label, rect);
+        let galley = ui
+            .painter()
+            .layout(label.to_owned(), font, colour, inner.width());
+        let placed = Align2::CENTER_CENTER.align_size_within_rect(galley.size(), inner);
+        ui.painter().galley(placed.min, galley, colour);
+
+        if enabled && response.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
+        response
+    }
+}
+
+/// A `FxHyperlink`: the normal font, underlined, in `defaultText` — alpha × 0.4 when disabled
+/// (`FxHyperlink.cpp:27-42`).
+pub fn link(
+    ui: &mut Ui,
+    rect: Rect,
+    text: &str,
+    palette: Palette,
+    align: Align2,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    link_in(ui, rect, text, normal_font(), palette, align, id_salt)
+}
+
+/// [`link`] in `font`: CrossFX's own links that share a row with a heading are set in the small
+/// font, which leaves the heading its room.
+pub fn link_in(
+    ui: &mut Ui,
+    rect: Rect,
+    text: &str,
+    font: FontId,
+    palette: Palette,
+    align: Align2,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    let id = Id::unique("fx_dialog_link").with(id_salt);
+    let colour = palette.color(FxColor::DefaultText);
+    let mut job = LayoutJob::single_section(
+        text.to_owned(),
+        egui::TextFormat {
+            font_id: font,
+            color: colour,
+            underline: Stroke::new(1.0, colour),
+            ..Default::default()
+        },
+    );
+    job.wrap = TextWrapping::truncate_at_width(rect.width().max(0.0));
+    let galley = ui.painter().layout_job(job);
+    let placed = align.align_size_within_rect(galley.size(), rect);
+    ui.painter().galley(placed.min, galley, colour);
+
+    let response = ui.interact(placed, id, Sense::click());
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    response
+}
+
+// ---------------------------------------------------------------------------------------------
+// Shared text helpers
+// ---------------------------------------------------------------------------------------------
+
+/// Draw one line, elided with `…` rather than condensed, aligned inside `rect`.
+///
+/// Every label in these dialogs sets `setMinimumHorizontalScale(1.0f)` or is drawn with
+/// `drawFittedText`, both of which forbid JUCE's squeeze-to-fit and drop the overflow instead.
+pub(crate) fn draw_truncated(
+    painter: &Painter,
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    rect: Rect,
+    align: Align2,
+) -> Rect {
+    let mut job =
+        LayoutJob::single_section(text.to_owned(), egui::TextFormat::simple(font, colour));
+    job.wrap = TextWrapping::truncate_at_width(rect.width().max(0.0));
+    let galley = painter.layout_job(job);
+    let placed = align.align_size_within_rect(galley.size(), rect);
+    painter.galley(placed.min, galley, colour);
+    placed
+}
+
+/// The smallest share of its own size a label is set in before it is cut.
+///
+/// A JUCE `Label`, and `drawFittedText` with no scale of its own, squeeze a line that does not fit
+/// down to 70 % of its width before they elide it (`Font::getDefaultMinimumHorizontalScaleFactor`).
+/// egui cannot squeeze glyphs sideways, so the whole line is set smaller instead — what the
+/// Settings tabs do with their captions ([`settings::nav_caption_font`]). The original's labels
+/// that forbid the squeeze (`setMinimumHorizontalScale(1.0)`: a combo's text, a device's name, a
+/// notice) keep `draw_truncated`.
+pub const MIN_FIT_SCALE: f32 = 0.7;
+
+/// `font`, or the largest size in half points down to [`MIN_FIT_SCALE`] of it at which `text`
+/// fits `room` on one line. A line too long even then gets the smallest size, and whoever draws
+/// it elides what is left over.
+#[must_use]
+pub fn fitted_font(ctx: &egui::Context, text: &str, font: FontId, room: f32) -> FontId {
+    let width = |size: f32| {
+        ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(
+                    text.to_owned(),
+                    FontId::new(size, font.family.clone()),
+                    Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        })
+    };
+    let full = width(font.size);
+    if full <= room || full <= 0.0 || room <= 0.0 {
+        return font;
+    }
+    let smallest = (font.size * MIN_FIT_SCALE * 2.0).ceil() / 2.0;
+    // Width follows the size closely; start from the proportion and step down to be sure.
+    let mut size = ((font.size * room / full) * 2.0).floor() / 2.0;
+    size = size.clamp(smallest, font.size);
+    while size > smallest && width(size) > room {
+        size = (size - 0.5).max(smallest);
+    }
+    FontId::new(size, font.family)
+}
+
+/// `draw_truncated` in the [`fitted_font`]: a line too long for `rect` is set smaller before
+/// anything of it is cut.
+pub fn draw_fitted(
+    painter: &Painter,
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    rect: Rect,
+    align: Align2,
+) -> Rect {
+    let font = fitted_font(painter.ctx(), text, font, rect.width());
+    draw_truncated(painter, text, font, colour, rect, align)
+}
+
+/// Draw wrapped text into `rect`, top-aligned and clipped to it, and report how tall it came out.
+///
+/// The height is the text's own, clipped or not, so a caller can assert that its box is big
+/// enough — which the hotkey note's test does. The clip is what stops a translation longer than
+/// the English text from painting over whatever sits below it.
+pub(crate) fn draw_wrapped(
+    painter: &Painter,
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    rect: Rect,
+) -> f32 {
+    let galley = painter.layout(text.to_owned(), font, colour, rect.width().max(0.0));
+    let height = galley.size().y;
+    painter
+        .with_clip_rect(rect.intersect(painter.clip_rect()))
+        .galley(rect.min, galley, colour);
+    height
+}
+
+/// `−48 dB`: whole decibels, a real minus sign, and never `−0`.
+///
+/// The microphone pane and the calibration wizard both print levels this way; the readout strip
+/// has its own, which also does tenths.
+pub(crate) fn whole_db(db: f32) -> String {
+    if !db.is_finite() {
+        return "— dB".to_owned();
+    }
+    let rounded = db.round();
+    if rounded < 0.0 {
+        format!("−{:.0} dB", -rounded)
+    } else {
+        format!("{:.0} dB", rounded.abs())
+    }
+}
+
+/// A Unix time as an ISO date, `2026-09-23`, in UTC.
+///
+/// A date that reads the same in every language, without a time-zone database or a calendar
+/// crate for one line of text. Howard Hinnant's `civil_from_days`, which is exact over the whole
+/// proleptic Gregorian calendar.
+pub(crate) fn iso_date(unix_time: u64) -> String {
+    let days = (unix_time / 86_400) as i64;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossfx_core::ThemeMode;
+
+    /// Drive one frame so the painting path really runs.
+    pub(super) fn frame(ctx: &egui::Context, add_contents: impl FnMut(&mut Ui)) {
+        ctx.run_ui(Default::default(), add_contents)
+            .drop_without_applying_deltas();
+    }
+
+    pub(super) fn test_context() -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(theme::font_definitions());
+        ctx
+    }
+
+    /// `key` in English and in every language's table, read without touching the global table
+    /// the other tests are drawing with.
+    pub(super) fn every_translation(key: &str) -> Vec<(&'static str, String)> {
+        use crossfx_core::i18n::{Catalogue, LANGUAGES};
+        let mut all = vec![("en", key.to_owned())];
+        for language in &LANGUAGES[1..] {
+            let table = Catalogue::for_language(language);
+            all.push((language.code, table.get(key).unwrap_or(key).to_owned()));
+        }
+        all
+    }
+
+    #[test]
+    fn the_outer_size_formula_reproduces_every_row_of_the_specs_table() {
+        // docs/spec/06-dialogs.md §0.2.
+        for (content, outer) in [
+            (vec2(600.0, 510.0), vec2(610.0, 597.0)), // FxSettingsDialog
+            (vec2(400.0, 400.0), vec2(410.0, 487.0)), // FxPresetImportDialog
+            (vec2(400.0, 405.0), vec2(410.0, 492.0)), // FxPresetExportDialog
+            (vec2(350.0, 340.0), vec2(360.0, 427.0)), // FxImportCompleteMessage
+            (vec2(450.0, 142.0), vec2(460.0, 229.0)), // FxConfirmationMessage
+            (vec2(400.0, 80.0), vec2(410.0, 167.0)),  // FxMessage
+        ] {
+            let got = outer_size(content);
+            assert!(
+                (got - outer).length() < 1e-4,
+                "a {content:?} content gave a {got:?} window, not {outer:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_content_sits_five_points_in_and_sixty_two_points_down() {
+        // FxWindow.cpp:74, :150 — content at (SHADOW_WIDTH, title_bar.bottom + 1).
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(600.0, 510.0)));
+        let content = content_rect(outer);
+        assert!((content.left() - 5.0).abs() < 1e-4);
+        assert!((content.top() - 62.0).abs() < 1e-4, "{content:?}");
+        assert!((content.size() - vec2(600.0, 510.0)).length() < 1e-4);
+        // The 21 points of corner allowance, less the point the title-bar rule took.
+        assert!(
+            (outer.bottom() - content.bottom() - 25.0).abs() < 1e-4,
+            "{content:?}"
+        );
+        // …and the round trip is exact for every dialog in the table.
+        for size in [vec2(600.0, 510.0), vec2(450.0, 142.0), vec2(350.0, 340.0)] {
+            assert!((content_size(outer_size(size)) - size).length() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn the_title_bar_is_inset_by_twenty_six_and_bottoms_out_at_sixty_one() {
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(600.0, 510.0)));
+        let bar = title_bar_rect(outer);
+        assert!((bar.left() - 26.0).abs() < 1e-4, "{bar:?}");
+        assert!((bar.top() - 5.0).abs() < 1e-4);
+        assert!((bar.height() - 56.0).abs() < 1e-4);
+        assert!((bar.bottom() - 61.0).abs() < 1e-4);
+        // getWidth() - 21*2 - 5*2 for the 610 point window.
+        assert!((bar.width() - (610.0 - 42.0 - 10.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_close_button_is_a_fifteen_point_square_at_the_right_of_the_bar() {
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(450.0, 142.0)));
+        let bar = title_bar_rect(outer);
+        let close = close_button_rect(bar);
+        assert!((close.width() - CLOSE_BUTTON_WIDTH).abs() < 1e-4);
+        assert!((close.height() - CLOSE_BUTTON_WIDTH).abs() < 1e-4);
+        assert!((close.right() - bar.right()).abs() < 1e-4);
+        assert!((close.center().y - bar.center().y).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_close_glyph_is_stroked_at_eight_percent_of_its_side() {
+        // FxWindow.cpp:163-164: a 15 point button gives a 1.2 point stroke.
+        assert!((CLOSE_BUTTON_WIDTH * CLOSE_GLYPH_THICKNESS - 1.2).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_nameless_window_shows_the_wordmark_and_a_named_one_its_title_from_the_left() {
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(600.0, 510.0)));
+        let bar = title_bar_rect(outer);
+
+        // The wordmark's 106 × 15 box, at the left of the bar and centred on it.
+        let logo = logo_rect(bar);
+        assert!((logo.height() - ICON_HEIGHT).abs() < 1e-4, "{logo:?}");
+        assert!((logo.width() - ICON_WIDTH).abs() < 1e-4, "{logo:?}");
+        assert!((logo.left() - bar.left()).abs() < 1e-4);
+        assert!((logo.center().y - bar.center().y).abs() < 1e-4);
+
+        // A named window's title starts where the original's bars logo stood…
+        assert!((title_text_rect(bar).left() - bar.left()).abs() < 1e-4);
+        // …and never runs under the close button.
+        assert!(title_text_rect(bar).right() <= close_button_rect(bar).left() + 1e-4);
+    }
+
+    #[test]
+    fn a_message_box_names_crossfx_and_a_named_window_only_its_title() {
+        // The original's logotype and bars are FxSound LLC's: CrossFX's windows show neither.
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(450.0, 142.0)));
+        let bar = title_bar_rect(outer);
+        for title in [None, Some("Settings")] {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let chrome = match title {
+                    None => DialogChrome::new(),
+                    Some(title) => DialogChrome::titled(title),
+                };
+                let _ = chrome.show(ui, outer, Palette::default(), &mut assets, "names");
+            });
+            let shapes = std::mem::take(&mut output.shapes);
+            output.drop_without_applying_deltas();
+            let texts = crate::views::testing::texts(&shapes);
+            let words: Vec<&str> = texts.iter().map(|(text, ..)| text.as_str()).collect();
+            let expected = title.unwrap_or(crossfx_core::identity::PRODUCT);
+            assert_eq!(words, [expected], "{title:?}");
+            // The name stands in the wordmark's box; a title from the bar's left.
+            let (_, rect, _) = &texts[0];
+            assert!(
+                (rect.left() - bar.left()).abs() <= 1.0,
+                "{title:?}: {rect:?} in {bar:?}"
+            );
+            if title.is_none() {
+                assert!(logo_rect(bar).expand(1.0).contains_rect(*rect), "{rect:?}");
+            }
+            // No artwork at all: the frame, its rule and the ✕ are shapes, the rest text.
+            assert!(
+                shapes
+                    .iter()
+                    .all(|clipped| !matches!(&clipped.shape, egui::Shape::Mesh(mesh)
+                        if mesh.texture_id != egui::TextureId::default())),
+                "{title:?} painted an image"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dialog_response_collects_actions_in_order() {
+        let mut response = DialogResponse::default();
+        assert!(response.is_empty());
+        response.push(1_u8);
+        response.push_if(false, 2);
+        response.push_if(true, 3);
+        assert_eq!(response.actions, vec![1, 3]);
+        assert_eq!(response.len(), 2);
+        assert!(response.contains(&3));
+        assert!(!response.contains(&2));
+    }
+
+    #[test]
+    fn the_chrome_draws_and_reports_an_untouched_content_area() {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(600.0, 510.0)));
+        frame(&ctx, |ui| {
+            let response = DialogChrome::titled("Settings").show(
+                ui,
+                outer,
+                Palette::new(ThemeMode::Dark),
+                &mut assets,
+                "settings",
+            );
+            assert!(!response.close_clicked);
+            assert!(!response.drag_started);
+            assert!((response.content.size() - vec2(600.0, 510.0)).length() < 1e-4);
+        });
+    }
+
+    #[test]
+    fn a_nameless_chrome_draws_in_both_palettes_without_a_title() {
+        let ctx = test_context();
+        let mut assets = AssetCache::new();
+        let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(450.0, 142.0)));
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            frame(&ctx, |ui| {
+                let response = DialogChrome::new().draggable(false).shadow(false).show(
+                    ui,
+                    outer,
+                    Palette::new(mode),
+                    &mut assets,
+                    ("confirm", mode as u8),
+                );
+                assert!(
+                    !response.drag_started,
+                    "a non-draggable bar reported a drag"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn the_three_dialog_fonts_are_the_three_weights_of_the_face() {
+        assert_eq!(normal_font().family, theme::semibold(1.0).family);
+        assert_eq!(small_font().family, theme::regular(1.0).family);
+        assert_eq!(title_font().family, theme::bold(1.0).family);
+        assert!((normal_font().size - 17.0).abs() < 1e-6);
+        assert!((small_font().size - 14.0).abs() < 1e-6);
+        assert!((title_font().size - 17.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_level_prints_in_whole_decibels_with_a_real_minus_and_no_negative_zero() {
+        assert_eq!(whole_db(-48.2), "−48 dB");
+        assert_eq!(whole_db(-18.6), "−19 dB");
+        assert_eq!(whole_db(-0.3), "0 dB");
+        assert_eq!(whole_db(0.0), "0 dB");
+        assert_eq!(whole_db(3.4), "3 dB");
+        assert_eq!(whole_db(f32::NAN), "— dB");
+        assert_eq!(whole_db(f32::NEG_INFINITY), "— dB");
+    }
+
+    #[test]
+    fn a_unix_time_prints_as_the_iso_date_it_falls_on_in_utc() {
+        assert_eq!(iso_date(0), "1970-01-01");
+        assert_eq!(iso_date(86_399), "1970-01-01");
+        assert_eq!(iso_date(86_400), "1970-01-02");
+        // A leap day, the day after it, and the turn of a century that is a leap year.
+        assert_eq!(iso_date(951_782_400), "2000-02-29");
+        assert_eq!(iso_date(951_868_800), "2000-03-01");
+        assert_eq!(iso_date(1_709_164_800), "2024-02-29");
+        // The last second of a year and the first of the next.
+        assert_eq!(iso_date(1_798_761_599), "2026-12-31");
+        assert_eq!(iso_date(1_798_761_600), "2027-01-01");
+    }
+
+    #[test]
+    fn a_line_that_fits_keeps_its_font_and_a_long_one_is_set_smaller_but_not_under_seven_tenths() {
+        let ctx = test_context();
+        let text = "Select the presets to export...";
+        frame(&ctx, |ui| {
+            let width = |font: &FontId| {
+                ui.painter()
+                    .layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER)
+                    .size()
+                    .x
+            };
+            let font = normal_font();
+            let full = width(&font);
+            assert_eq!(fitted_font(ui.ctx(), text, font.clone(), full + 1.0), font);
+
+            let room = full * 0.8;
+            let fitted = fitted_font(ui.ctx(), text, font.clone(), room);
+            assert!(fitted.size < font.size, "{fitted:?}");
+            assert!(fitted.size >= font.size * MIN_FIT_SCALE, "{fitted:?}");
+            assert!(width(&fitted) <= room, "{} in {room}", width(&fitted));
+            assert_eq!(fitted.family, font.family);
+
+            // No smaller than seven tenths, however little room there is: the rest is elided.
+            let floor = fitted_font(ui.ctx(), text, font.clone(), full * 0.3);
+            assert!((floor.size - 12.0).abs() < 1e-6, "{floor:?}");
+        });
+    }
+
+    /// A label's layout in its button as [`TextButton::show`] lays it out: the font it is set in,
+    /// how many lines it takes, the widest line and the widest single word.
+    fn button_layout(ui: &Ui, label: &str, rect: Rect) -> (FontId, usize, f32, f32) {
+        let font = text_button_label_font(ui.ctx(), label, rect);
+        let inner = text_button_inner(rect);
+        let galley = ui.painter().layout(
+            label.to_owned(),
+            font.clone(),
+            Color32::PLACEHOLDER,
+            inner.width(),
+        );
+        let widest_word = label
+            .split_whitespace()
+            .map(|word| {
+                ui.painter()
+                    .layout_no_wrap(word.to_owned(), font.clone(), Color32::PLACEHOLDER)
+                    .size()
+                    .x
+            })
+            .fold(0.0_f32, f32::max);
+        (font, galley.rows.len(), galley.size().x, widest_word)
+    }
+
+    #[test]
+    fn a_one_word_label_too_long_for_its_button_is_set_smaller_rather_than_broken_in_two() {
+        // E6b: German "Exportieren" under the Export dialog's 80-point button came out as
+        // "Exportier" over "en", and Russian "Сохранить" as "Сохрани" over "ть".
+        let ctx = test_context();
+        let button = Rect::from_min_size(pos2(0.0, 0.0), presets::export::BUTTON_SIZE);
+        let inner = text_button_inner(button);
+        frame(&ctx, |ui| {
+            for label in ["Exportieren", "Сохранить"] {
+                let (font, lines, width, _) = button_layout(ui, label, button);
+                assert!(font.size < NORMAL_FONT, "{label}: {font:?}");
+                assert_eq!(lines, 1, "{label} broke over {lines} lines");
+                assert!(
+                    width <= inner.width(),
+                    "{label}: {width} in {}",
+                    inner.width()
+                );
+            }
+            // The English label is left as it was.
+            let (font, lines, _, _) = button_layout(ui, "Export", button);
+            assert_eq!(font, text_button_font(button.height()));
+            assert_eq!(lines, 1);
+        });
+    }
+
+    #[test]
+    fn a_label_a_taller_button_wraps_on_its_words_keeps_the_buttons_font() {
+        // The reset-presets button is a line taller for every line its label needs.
+        let ctx = test_context();
+        let button = Rect::from_min_size(pos2(0.0, 0.0), vec2(220.0, 48.0));
+        frame(&ctx, |ui| {
+            let label = "Сброс шаблонов к значениям по умолчанию";
+            let (font, lines, width, _) = button_layout(ui, label, button);
+            assert_eq!(font, text_button_font(button.height()));
+            assert_eq!(lines, 2);
+            assert!(width <= text_button_inner(button).width());
+        });
+    }
+
+    #[test]
+    fn every_languages_dialog_buttons_hold_their_labels_whole_and_on_one_line() {
+        // The fixed-size buttons: they do not grow with their label, so a translation has to fit.
+        let import = Rect::from_min_size(pos2(5.0, 62.0), presets::import::CONTENT_SIZE);
+        let summary = Rect::from_min_size(pos2(5.0, 62.0), presets::summary::CONTENT_SIZE);
+        let export = Rect::from_min_size(pos2(5.0, 62.0), presets::export::CONTENT_SIZE);
+        let question = Rect::from_min_size(pos2(5.0, 62.0), message::CONTENT_SIZE);
+        let buttons = [
+            ("Choose folder…", presets::choose_rect(import)),
+            ("Import", presets::import_rect(import)),
+            ("OK", presets::summary_ok_rect(summary)),
+            ("Export", presets::export_button_rect(export)),
+            ("Yes", message::yes_rect(question)),
+            ("No", message::no_rect(question)),
+            ("OK", message::ok_rect(question)),
+        ];
+        let ctx = test_context();
+        let mut problems = Vec::new();
+        frame(&ctx, |ui| {
+            for (key, button) in buttons {
+                let room = text_button_inner(button).width();
+                for (code, label) in every_translation(key) {
+                    let (font, lines, width, word) = button_layout(ui, &label, button);
+                    if lines != 1 || width > room || word > room {
+                        problems.push(format!(
+                            "{code}: {label:?} in {room:.0} at {:.1}: {lines} lines, {width:.0} wide",
+                            font.size
+                        ));
+                    }
+                }
+            }
+        });
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+}

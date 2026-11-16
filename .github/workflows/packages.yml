@@ -403,7 +403,7 @@ jobs:
               exit 1
             fi
           }
-          rnnoise="$GITHUB_WORKSPACE/crates/fxsound-rnnoise/COPYING"
+          rnnoise="$GITHUB_WORKSPACE/crates/crossfx-rnnoise/COPYING"
           ofl="$GITHUB_WORKSPACE/assets/fonts/OFL.txt"
           unpacked=$(mktemp -d)
           case '${{ matrix.family }}' in
@@ -418,7 +418,7 @@ jobs:
               dpkg-deb --fsys-tarfile "$deb" \
                 | tar -xf - -C "$unpacked" ./usr/share/doc/crossfx/copyright
               copyright="$unpacked/usr/share/doc/crossfx/copyright"
-              for line in 'Files: crates/fxsound-rnnoise/*' 'License: BSD-3-Clause' \
+              for line in 'Files: crates/crossfx-rnnoise/*' 'License: BSD-3-Clause' \
                 'Files: assets/fonts/Noto* assets/fonts/OFL.txt' 'License: OFL-1.1' \
                 ' - Neither the name of the Xiph.Org Foundation nor the names of its' \
                 ' SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007'; do

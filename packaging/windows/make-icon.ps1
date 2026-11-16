@@ -4,7 +4,7 @@
     artwork.
 
 .DESCRIPTION
-    The icon crossfx.exe carries (crates\fxsound-app\build.rs) and that both installers show.
+    The icon crossfx.exe carries (crates\crossfx-app\build.rs) and that both installers show.
     The .ico is committed, so a build needs neither this script nor System.Drawing; run it again
     only when the artwork changes, and commit what it writes.
 

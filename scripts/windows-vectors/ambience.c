@@ -1,6 +1,6 @@
 /*
  * The golden vectors of `at_interface_and_sound_every_stored_value_gets_the_windows_builds_parameters`
- * (crates/fxsound-dsp/src/effects/ambience.rs): Ambience's parameters in the Windows build for
+ * (crates/crossfx-dsp/src/effects/ambience.rs): Ambience's parameters in the Windows build for
  * every stored value 0 to 127, as (runs, decay, lat6 coefficient, wet, dry) —
  * dfxp_CommunicateAmbience and dfxp_CommAmbienceBypass (dfxpComm.cpp:571-679, 1662-1691) with the
  * two quantisers they read (qntIToRInit's QNT_RESPONSE_EXP and QNT_RESPONSE_LINEAR, Qntitor.cpp;

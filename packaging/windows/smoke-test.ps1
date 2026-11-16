@@ -76,7 +76,7 @@ $product = 'CrossFX'
 $publisher = 'CrossFX contributors'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 # Where CrossFX registers the AppUserModelID its notifications are shown under, and the folder of
-# their icon (crates/fxsound-app/src/win/toast.rs).
+# their icon (crates/crossfx-app/src/win/toast.rs).
 $appIdKey = 'HKCU:\Software\Classes\AppUserModelId'
 $appUserModelId = 'io.github.blackixxce12.CrossFX'
 $notificationDir = Join-Path $env:LOCALAPPDATA $product
@@ -117,7 +117,7 @@ $setup = Join-Path $dist "$base-setup.exe"
 # has to equal, or $null where only its presence is checked (the executable, README.txt).
 $expected = [ordered]@{ 'crossfx.exe' = $null; 'README.txt' = $null }
 $expected['LICENSE'] = Join-Path $root 'LICENSE'
-$expected['COPYING.rnnoise'] = Join-Path $root 'crates\fxsound-rnnoise\COPYING'
+$expected['COPYING.rnnoise'] = Join-Path $root 'crates\crossfx-rnnoise\COPYING'
 $expected['OFL.noto'] = Join-Path $root 'assets\fonts\OFL.txt'
 $manrope = Join-Path $root 'assets\fonts\OFL-Manrope.txt'
 if (Test-Path -LiteralPath $manrope -PathType Leaf) {

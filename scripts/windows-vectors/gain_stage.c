@@ -1,6 +1,6 @@
 /*
  * The golden vectors of `at_interface_and_sound_the_balance_plays_on_stereo_only_as_the_windows_c_code_has_it`
- * (crates/fxsound-dsp/src/engine.rs): a frame of the Windows build's gain stage on 2, 6 and 8
+ * (crates/crossfx-dsp/src/engine.rs): a frame of the Windows build's gain stage on 2, 6 and 8
  * channels at -6 dB of master gain and +10 dB of balance (0.4.0 audit #44) — GraphicEqSetMasterGain
  * and GraphicEqSetBalance (GraphicEqSet.cpp:38-60, :92-104), which hand sosSetMasterGain and
  * sosSetBalance their powf, and the last statement of sosProcessBuffer's stereo case

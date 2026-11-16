@@ -74,7 +74,7 @@ install -Dm644 packaging/io.github.blackixxce12.CrossFX.service \
   "${pkg}/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
 # The two icon sizes the tree actually carries, at the paths packaging/PKGBUILD uses, under the
 # application id: the one name the desktop entry, the notifications
-# (crates/fxsound-app/src/notify.rs) and the sound settings look the icon up by.
+# (crates/crossfx-app/src/notify.rs) and the sound settings look the icon up by.
 install -Dm644 assets/images/fxsound_large.png \
   "${pkg}/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
 install -Dm644 assets/images/fxsound.png \
@@ -104,7 +104,7 @@ install -Dm644 README.md CHANGELOG.md LICENSE \
 # (BSD-3-Clause), the embedded Noto fallback faces and the Manrope interface faces (both SIL OFL
 # 1.1, each with its own notice). crossfx-bin installs all four from here into
 # /usr/share/licenses.
-install -Dm644 crates/fxsound-rnnoise/COPYING "${pkg}/share/doc/crossfx/COPYING.rnnoise"
+install -Dm644 crates/crossfx-rnnoise/COPYING "${pkg}/share/doc/crossfx/COPYING.rnnoise"
 install -Dm644 assets/fonts/OFL.txt "${pkg}/share/doc/crossfx/OFL.noto"
 install -Dm644 assets/fonts/OFL-Manrope.txt "${pkg}/share/doc/crossfx/OFL.manrope"
 
@@ -400,7 +400,7 @@ HOMES
     fi
     # Not a refusal, because there are reasons to put a binary elsewhere — but the presets will
     # not be found there: the binary searches exactly /usr/share/crossfx and
-    # /usr/local/share/crossfx (install_data_dirs in crates/fxsound-preset/src/lib.rs), not
+    # /usr/local/share/crossfx (install_data_dirs in crates/crossfx-preset/src/lib.rs), not
     # $XDG_DATA_DIRS, and systemd --user does not look for units under an arbitrary prefix either.
     echo "warning: CrossFX only looks for its presets under /usr and /usr/local; installed" >&2
     echo "         under ${prefix} it will start with an empty preset list, and systemd will" >&2

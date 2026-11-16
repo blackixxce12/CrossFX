@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Refuses a manual page that has drifted from the code it documents.
 #
-# packaging/crossfx.1 is written by hand: its OPTIONS follow crates/fxsound-app/src/cli.rs and
-# its D-BUS section follows crates/fxsound-app/src/dbus.rs, and the page's own header says so.
+# packaging/crossfx.1 is written by hand: its OPTIONS follow crates/crossfx-app/src/cli.rs and
+# its D-BUS section follows crates/crossfx-app/src/dbus.rs, and the page's own header says so.
 # Nothing enforced it, and a page written to the design before the code landed is exactly the
 # page that drifts. So, mechanically:
 #
@@ -21,8 +21,8 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 man="${root}/packaging/crossfx.1"
-cli="${root}/crates/fxsound-app/src/cli.rs"
-dbus="${root}/crates/fxsound-app/src/dbus.rs"
+cli="${root}/crates/crossfx-app/src/cli.rs"
+dbus="${root}/crates/crossfx-app/src/dbus.rs"
 fail=0
 
 ok()    { printf '  ok     %s\n' "$*"; }
@@ -62,7 +62,7 @@ done
 
 # ---------------------------------------------------------------- D-Bus
 if [ ! -f "${dbus}" ]; then
-  wrong "crossfx.1 documents a D-Bus interface; crates/fxsound-app/src/dbus.rs does not exist"
+  wrong "crossfx.1 documents a D-Bus interface; crates/crossfx-app/src/dbus.rs does not exist"
 else
   section=$(sed -n '/^\.SH D\\-BUS/,/^\.SH /p' "${man}")
   for literal in io.github.blackixxce12.CrossFX /io/github/blackixxce12/CrossFX; do

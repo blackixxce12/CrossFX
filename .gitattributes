@@ -7,7 +7,7 @@
 # it packs against the commit. Nothing else changes: this is no renormalisation, and every file
 # keeps the line ends it is stored with.
 /LICENSE -text
-/crates/fxsound-rnnoise/COPYING -text
+/crates/crossfx-rnnoise/COPYING -text
 /assets/fonts/OFL*.txt -text
 /assets/presets/** -text
 /assets/translations/** -text

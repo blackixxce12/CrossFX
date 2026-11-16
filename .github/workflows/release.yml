@@ -93,10 +93,10 @@ jobs:
           # The install commands name the artefacts by version, five times over.
           check_all "README.md install commands" \
             "$(grep -o 'crossfx[-_][0-9]*\.[0-9]*\.[0-9]*' README.md | sed 's/^crossfx[-_]//' | sort -u | tr '\n' ' ')"
-          # A comment quoting cargo's own refusal, "package `fxsound-app v0.4.0` cannot be built";
+          # A comment quoting cargo's own refusal, "package `crossfx-app v<version>` cannot be built";
           # the comment wraps between the name and the version, so the file is joined first.
           check_all "packaging/debian/control quoted cargo error" \
-            "$(tr '\n' ' ' < packaging/debian/control | grep -o 'fxsound-app[^v]*v[0-9]*\.[0-9]*\.[0-9]*' | grep -o '[0-9]*\.[0-9]*\.[0-9]*$' | sort -u | tr '\n' ' ')"
+            "$(tr '\n' ' ' < packaging/debian/control | grep -o 'crossfx-app[^v]*v[0-9]*\.[0-9]*\.[0-9]*' | grep -o '[0-9]*\.[0-9]*\.[0-9]*$' | sort -u | tr '\n' ' ')"
           # The metainfo's release date is a stamp too. It is meant to be the CHANGELOG heading's
           # date, which is where a bump that leaves a placeholder in one of them shows.
           chg_date=$(sed -n "s/^## \[$ver\][^0-9]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p" CHANGELOG.md | head -1)
@@ -155,7 +155,7 @@ jobs:
       # and vendor tarball, the binary tarball, and from the windows job the setup program, the
       # .msi and the portable .zip, which the SHA256SUMS below covers like the rest. Those three
       # take their version from Cargo.toml as they are built (packaging/windows/build-windows.ps1,
-      # crates/fxsound-app/build.rs), so `verify` has no Windows file to compare with the tag,
+      # crates/crossfx-app/build.rs), so `verify` has no Windows file to compare with the tag,
       # and the windows job refuses a binary that does not report the tree's version. Since v8 a
       # download whose digest differs from the one recorded at upload fails the job rather than
       # warning, which is what a release wants; the legs upload zips (upload-artifact's default),

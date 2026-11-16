@@ -84,7 +84,7 @@
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="System64Folder" />
-    <!-- Where CrossFX keeps its notifications' icon (crates/fxsound-app/src/win/toast.rs); named
+    <!-- Where CrossFX keeps its notifications' icon (crates/crossfx-app/src/win/toast.rs); named
          here only to be emptied on uninstall. -->
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="NotificationIconFolder" Name="CrossFX" />

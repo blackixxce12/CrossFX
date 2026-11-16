@@ -3,7 +3,7 @@
 # application plays it, on 10, 20 and 31 bands, over preset_drift's material, in blocks of 480,
 # 512, 1024 and 2048 frames — from a cold start, and again with another preset, the band count
 # and an effect switched while it plays, each compared once its glide is over
-# (crates/fxsound-dsp/tests/windows_parity_bitexact.rs has the cases).
+# (crates/crossfx-dsp/tests/windows_parity_bitexact.rs has the cases).
 #
 #   scripts/windows-parity-bitexact.sh v0.4.0             # A3: Off plays as 0.4.0
 #   scripts/windows-parity-bitexact.sh --compat=windows --report 3596e99
@@ -15,8 +15,8 @@
 # «Like the original FxSound LLC» = Interface and sound does (FXSOUND_BITEXACT_COMPAT); the default
 # is linux, Off's.
 #
-# 3596e99 is the reference for "Interface and sound": its crates/fxsound-dsp and its preset
-# parser are 0f05ba5's, the last engine before the audit's fixes, byte for byte, and its
+# 3596e99 is the reference for "Interface and sound": its DSP crate and its preset parser
+# are 0f05ba5's, the last engine before the audit's fixes, byte for byte, and its
 # application is the one that played a preset on the user's band count as the original does, by
 # position — which 0f05ba5's own application did not do yet.
 #
@@ -75,13 +75,16 @@ toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$repo_root/rust-toolchain.tom
 [ -n "$toolchain" ] || die "no channel in rust-toolchain.toml"
 export RUSTUP_TOOLCHAIN="$toolchain"
 
-# The test binary cargo builds in <tree> into <target directory>.
+# The test binary cargo builds in <tree> into <target directory>, from the tree's DSP crate,
+# crates/<package>: crossfx-dsp, or the name it had in a commit from before the crates were
+# renamed (v0.4.0's and 3596e99's).
 build() {
-    local tree="$1" target="$2" executable
+    local tree="$1" target="$2" package executable
+    package="$(cd "$tree/crates" && ls -d -- *-dsp)" || die "no DSP crate in $tree"
     executable="$(
         cd "$tree"
         if [ -n "${SCCACHE_BASEDIRS:-}" ]; then export SCCACHE_BASEDIRS="$tree"; fi
-        CARGO_TARGET_DIR="$target" cargo test --release --locked -p fxsound-dsp \
+        CARGO_TARGET_DIR="$target" cargo test --release --locked -p "$package" \
             --test windows_parity_bitexact --no-run --message-format=json-render-diagnostics \
             | grep -o '"executable":"[^"]*windows_parity_bitexact[^"]*"' \
             | tail -n 1 | sed 's/^"executable":"\(.*\)"$/\1/'

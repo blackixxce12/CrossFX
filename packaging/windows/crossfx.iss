@@ -39,7 +39,7 @@
 
 #define AppName "CrossFX"
 ; CrossFX's folder under Program Files and under %LOCALAPPDATA%: the program's DIR_NAME
-; (crates/fxsound-core/src/identity.rs).
+; (crates/crossfx-core/src/identity.rs).
 #define AppDirName "CrossFX"
 #define AppPublisher "CrossFX contributors"
 #define AppURL "https://github.com/blackixxce12/CrossFX"
@@ -49,7 +49,7 @@
 #define AutostartValue "CrossFX"
 ; The AppUserModelID CrossFX's notifications are shown under, which it registers under
 ; HKCU\Software\Classes\AppUserModelId before the first one, and their icon, which it writes into
-; a folder of its own in %LOCALAPPDATA% (crates/fxsound-app/src/win/toast.rs).
+; a folder of its own in %LOCALAPPDATA% (crates/crossfx-app/src/win/toast.rs).
 #define AppUserModelId "io.github.blackixxce12.CrossFX"
 #define NotificationIcon "notification.png"
 

@@ -78,7 +78,7 @@ override_dh_auto_clean:
 #
 # The layout follows packaging/PKGBUILD, which is the authority on it. One part
 # is not a matter of taste: /usr/share/crossfx/presets is one of the two places
-# install_data_dirs in crates/fxsound-preset/src/lib.rs searches. Move the
+# install_data_dirs in crates/crossfx-preset/src/lib.rs searches. Move the
 # presets anywhere else and the application starts with an empty preset list.
 override_dh_auto_install:
 	install -D -m 0755 target/release/crossfx \
@@ -115,7 +115,7 @@ override_dh_auto_install:
 		debian/tmp/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service
 
 	# The application icon under the application id, the one name the desktop
-	# entry, the notifications (crates/fxsound-app/src/notify.rs) and the
+	# entry, the notifications (crates/crossfx-app/src/notify.rs) and the
 	# sound settings look it up by.
 	install -D -m 0644 assets/images/fxsound_large.png \
 		debian/tmp/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png

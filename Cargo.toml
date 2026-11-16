@@ -1,13 +1,13 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/fxsound-core",
-    "crates/fxsound-dsp",
-    "crates/fxsound-rnnoise",
-    "crates/fxsound-preset",
-    "crates/fxsound-audio",
-    "crates/fxsound-ui",
-    "crates/fxsound-app",
+    "crates/crossfx-core",
+    "crates/crossfx-dsp",
+    "crates/crossfx-rnnoise",
+    "crates/crossfx-preset",
+    "crates/crossfx-audio",
+    "crates/crossfx-ui",
+    "crates/crossfx-app",
 ]
 
 [workspace.package]
@@ -18,8 +18,8 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/blackixxce12/CrossFX"
 
 [workspace.dependencies]
-fxsound-core = { path = "crates/fxsound-core" }
-fxsound-dsp = { path = "crates/fxsound-dsp" }
+crossfx-core = { path = "crates/crossfx-core" }
+crossfx-dsp = { path = "crates/crossfx-dsp" }
 # RNNoise, as a pure-Rust port: `nnnoiseless` 0.5.2, vendored into the tree rather than taken from
 # the registry. Three things the denoiser needs are not in the published crate's API — the
 # twenty-two band gains (a linked-stereo mask is built from them), an in-place `reset()` (the
@@ -27,10 +27,10 @@ fxsound-dsp = { path = "crates/fxsound-dsp" }
 # synthesis path without the network (the per-channel half of linked stereo). BSD-3-Clause, which
 # an AGPL-3.0 work may incorporate; its `COPYING` travels with it, and the model weights are
 # embedded in the crate rather than loaded from a file.
-fxsound-rnnoise = { path = "crates/fxsound-rnnoise" }
-fxsound-preset = { path = "crates/fxsound-preset" }
-fxsound-audio = { path = "crates/fxsound-audio" }
-fxsound-ui = { path = "crates/fxsound-ui" }
+crossfx-rnnoise = { path = "crates/crossfx-rnnoise" }
+crossfx-preset = { path = "crates/crossfx-preset" }
+crossfx-audio = { path = "crates/crossfx-audio" }
+crossfx-ui = { path = "crates/crossfx-ui" }
 
 egui = "=0.37.0"
 # `wayland` and `x11` are winit's Linux backends and do nothing on Windows, where winit always
@@ -39,7 +39,7 @@ eframe = { version = "=0.37.0", default-features = false, features = ["default_f
 
 pipewire = "0.10.1"
 libspa = "0.10.1"
-# The raw bindings `pipewire` is built on, at the version it pins. Only `fxsound-audio`'s `aec`
+# The raw bindings `pipewire` is built on, at the version it pins. Only `crossfx-audio`'s `aec`
 # module uses them, for the one call the safe crate does not wrap (`pw_context_load_module`).
 pipewire-sys = "0.10.1"
 
@@ -48,7 +48,7 @@ usvg = "0.50.0"
 tiny-skia = "0.12.0"
 # The name table and the character map of a font the user hands CrossFX: whether a file is a
 # Gilroy, which of its faces, and whether it has the letters of the language in force
-# (`fxsound-ui/src/typeface.rs`). Not the newest skrifa but the one egui parses fonts with
+# (`crossfx-ui/src/typeface.rs`). Not the newest skrifa but the one egui parses fonts with
 # (epaint's own dependency, its features a subset of epaint's): a file read here is then a file
 # egui loads, where a file egui could not parse would be a panic at every start. A test in
 # `typeface` fails when egui moves to another.
@@ -65,9 +65,9 @@ rfd = "0.18.0"
 # own transitive `features = ["rt", "macros"]` happens to resolve to.
 tokio = { version = "1.54.1", default-features = false, features = ["rt"] }
 # The zbus the D-Bus service, the desktop notifications and the suspend watcher speak through: the
-# major version notify-rust 4.19 is built on, which `crates/fxsound-app/src/notify.rs` relies on to
+# major version notify-rust 4.19 is built on, which `crates/crossfx-app/src/notify.rs` relies on to
 # send notify-rust's own encoding of its hints. ksni 0.3.7 keeps zbus 5 to itself, and no type
-# crosses between the two. The features are the app's to choose (`crates/fxsound-app/Cargo.toml`).
+# crosses between the two. The features are the app's to choose (`crates/crossfx-app/Cargo.toml`).
 zbus = { version = "6.3.0", default-features = false }
 
 crossbeam-channel = "0.5.17"
@@ -92,17 +92,17 @@ env_logger = "0.11.11"
 clap = { version = "4.6.7", features = ["derive"] }
 tempfile = "3.27.0"
 
-# Windows only. The Recycle Bin a deleted preset goes to (`fxsound-preset`'s `trash`).
+# Windows only. The Recycle Bin a deleted preset goes to (`crossfx-preset`'s `trash`).
 trash = { version = "5.3.0", default-features = false, features = ["coinit_apartmentthreaded"] }
 # Windows only. Microsoft's bindings: WASAPI, the MMDevice API and the endpoint policy in
-# `fxsound-audio`, the control pipe, the registry and the shell in `fxsound-app`. No features here:
+# `crossfx-audio`, the control pipe, the registry and the shell in `crossfx-app`. No features here:
 # each crate names the API families it uses, so that its build compiles only those.
 windows = "0.62.2"
 windows-core = "0.62.2"
 # Windows only. The notification-area icon and its menu, in place of the StatusNotifierItem tray.
 tray-icon = { version = "0.26.1", default-features = false }
-# Windows only, a build-dependency of fxsound-app: compiles crossfx.exe's icon, version
-# information and manifest with the SDK's rc.exe (crates/fxsound-app/build.rs). Without its
+# Windows only, a build-dependency of crossfx-app: compiles crossfx.exe's icon, version
+# information and manifest with the SDK's rc.exe (crates/crossfx-app/build.rs). Without its
 # default `toml` feature, which reads the strings from [package.metadata]: build.rs sets them.
 winresource = { version = "0.1.34", default-features = false }
 

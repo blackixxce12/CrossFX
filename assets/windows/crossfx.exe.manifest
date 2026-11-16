@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!--
-  The application manifest crates/fxsound-app/build.rs embeds in crossfx.exe (RT_MANIFEST 1).
+  The application manifest crates/crossfx-app/build.rs embeds in crossfx.exe (RT_MANIFEST 1).
 
   Without one, Windows runs the program in its compatibility defaults: DPI-unaware, so the
   window is bitmap-stretched and blurry on any display above 100 %; with comctl32 version 5, so
