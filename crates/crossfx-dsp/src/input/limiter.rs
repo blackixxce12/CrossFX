@@ -1451,9 +1451,8 @@ mod tests {
     #[test]
     fn with_no_link_no_hold_and_the_overshoot_the_limiter_is_the_originals_to_the_bit() {
         // What Dynamic Boost asks for at «Like the original FxSound LLC» = Interface and sound:
-        // audit
-        // #8, R1 and R2 taken back. Every sample and every envelope must be `Maxi32.c`'s as the
-        // port ran it before the audit, on mono, stereo, 5.1 and 7.1, in blocks of any length,
+        // audit #8, R1 and R2 taken back. Every sample and every envelope must be `Maxi32.c`'s as
+        // CrossFX ran it before the audit, on mono, stereo, 5.1 and 7.1, in blocks of any length,
         // with a peak on one channel alone and a low sine driving the attack past its peak.
         for channels in [1_usize, 2, 6, 8] {
             let mut limiter = original_timing(0.0);

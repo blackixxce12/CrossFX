@@ -110,8 +110,8 @@ fn bw_to_angle(a: Real, bandwidth: Real) -> Real {
 ///
 /// A bilinear transform of `s²/(s² + √2ωs + ω²)` with **no frequency prewarping**, so the realised
 /// corner sits slightly below the nominal one and the error grows with `f0/fs`. That is the
-/// original's behaviour; `Fidelity` has depended on this exact design at 1745.4987 Hz since the
-/// port began, and its golden coefficients are what the tests here check against.
+/// original's behaviour; `Fidelity` has depended on this exact design at 1745.4987 Hz since
+/// CrossFX began, and its golden coefficients are what the tests here check against.
 ///
 /// The result is a general biquad — `b1` is not `a1` — so it must be run through
 /// [`Section::tick_general`], not [`Section::tick`].

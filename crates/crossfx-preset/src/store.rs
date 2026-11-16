@@ -4,10 +4,12 @@
 //! (`fxsound/Source/GUI/FxController.cpp:841-876, 1048-1097`) with two deliberate differences,
 //! both noted in `docs/spec/11-preset-format.md`:
 //!
-//! * the original lists presets in filesystem-glob order, which is effectively arbitrary; this
-//!   port sorts deterministically — factory presets in their numeric order, the rest of the
+//! * the original lists presets in filesystem-glob order, which is effectively arbitrary;
+//!   CrossFX sorts deterministically — factory presets in their numeric order, the rest of the
 //!   factory presets by name, then the user's by name;
-//! * paths follow the XDG base directory specification instead of `%APPDATA%`.
+//! * the user's presets and their autosaves are kept in CrossFX's own folder — under the XDG data
+//!   directory on Linux, `%APPDATA%\CrossFX` on Windows — never in the original's
+//!   `%APPDATA%\FxSound`.
 //!
 //! The store is generic over the file it holds. 0.4.0 has two kinds of preset — the `.fac` set
 //! for the speakers and the TOML voice set for the microphone — and one discipline for listing
