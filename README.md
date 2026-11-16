@@ -155,14 +155,17 @@ the bundled RNNoise code and Noto faces, the Hyprland rules and the autostart en
 is anything other than `/usr` or `/usr/local`, because those are the only two the binary searches
 for presets. It refuses a prefix inside a home folder, such as `~/.local`, where CrossFX keeps that
 user's own presets: the home of whoever runs it, of the user `sudo`, `doas` or `pkexec` was run by,
-and of every account of a person's the password database lists; run as root, also anything under
-`/home` or root's home, and anything in a folder that belongs to a person's account, which keeps
-clear the homes a directory service does not list. It also refuses a prefix whose `share/crossfx`
-leads into such a folder, or already holds anything that neither the archive ships nor an earlier
-`install.sh` put there, such as a user's own presets or unsaved edits. Over an earlier install,
-`install.sh` upgrades: it removes the presets the earlier archive installed and this one no longer
-ships, by the list `share/crossfx/.installed-files` it leaves at every install. On an older
-distribution than Debian 12, build from source instead.
+and of every account of a person's the password database lists — any uid from `UID_MIN` of
+`/etc/login.defs` (1000 when it names none) up, the high uids a directory service such as SSSD or
+FreeIPA gives people included, but not 65534 or 4294967294, the ids of `nobody` and of an owner
+the system cannot map; run as root, also anything under `/home` or root's home, and anything in a
+folder that belongs to a person's account, which keeps clear the homes a directory service does
+not list. It also refuses a prefix whose
+`share/crossfx` leads into such a folder, or already holds anything that neither the archive ships
+nor an earlier `install.sh` put there, such as a user's own presets or unsaved edits. Over an
+earlier install, `install.sh` upgrades: it removes the presets the earlier archive installed and
+this one no longer ships, by the list `share/crossfx/.installed-files` it leaves at every install.
+On an older distribution than Debian 12, build from source instead.
 
 ### What lands where
 

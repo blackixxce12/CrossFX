@@ -880,8 +880,8 @@ fn account(name: &str, uid: u32, home: &Path) -> String {
 /// `pkexec` was run by, and what the stand-ins for `getent`, `id` and `ls` put first on `PATH`
 /// answer. Of these, nothing of the test's own environment reaches it, and nothing of the
 /// machine's own password database or owners either. The machine's `/etc/login.defs` is read as
-/// it is: the people's accounts here have uids from 1000 to 1600, inside every distribution's
-/// range for people, and the system account's, 33, is below all of them.
+/// it is: the people's accounts here have uids from 1000 up, none below any distribution's
+/// `UID_MIN`, and the system account's, 33, is below all of them.
 struct Shell<'a> {
     home: &'a Path,
     data_home: Option<&'a Path>,
@@ -1511,4 +1511,83 @@ fn install_sh_run_as_root_refuses_a_folder_that_belongs_to_a_persons_account() {
 
     assert!(run.status.success(), "{}", transcript(&run));
     assert!(opt.join("crossfx/bin/crossfx").is_file(), "no bin/crossfx");
+}
+
+/// (l) A directory service gives people uids far above `UID_MAX`, 60000 by default — SSSD's
+/// mapping of Active Directory from 200000 on, FreeIPA's ranges above a billion — and
+/// systemd-homed from 60001. Run as root with nobody to go by, such an account's home is kept
+/// clear all the same, whether the password database lists it or only answers for its uid and
+/// the folder belongs to it, and the voice preset the user tuned under its factory name stays
+/// theirs. The two overflow ids up there, 65534 and 4294967294 — `nobody`, `nfsnobody`, an owner
+/// the kernel or NFS cannot map — are nobody's: a home or a folder of theirs is no reason to
+/// refuse.
+#[test]
+fn install_sh_run_as_root_keeps_clear_the_homes_of_uids_above_uid_max_but_not_nobodys() {
+    let installer = Installer::new("install-high-uid");
+    let root_home = installer.dir("root");
+    let carol = installer.dir("ipa/carol");
+    let prefix = carol.join(".local");
+    let tuned = tuned_clean_voice(&prefix);
+    let before = snapshot(&carol);
+
+    for uid in [60_001, 200_500, 1_668_600_005] {
+        let shell = Shell {
+            listed: vec![account("carol", uid, &carol)],
+            root: true,
+            ..Shell::of(&root_home)
+        };
+        let run = installer.run(&prefix, &shell);
+
+        assert_refused(&run, &prefix, &format!("carol's home, {}", carol.display()));
+        assert_eq!(text(&tuned), "the user's own tuning\n", "uid {uid}");
+        assert_eq!(
+            snapshot(&carol),
+            before,
+            "uid {uid}: carol's folder was changed"
+        );
+    }
+
+    if ["/home", "/root"].iter().any(|top| carol.starts_with(top)) {
+        // Root's install refuses all of /home and /root before it asks who owns a folder.
+        eprintln!(
+            "the owners' part skipped: the temporary directory, {}, is under /home or /root",
+            carol.display()
+        );
+        return;
+    }
+    let shell = Shell {
+        unlisted: vec![account("carol", 1_668_600_005, &carol)],
+        root: true,
+        owners: vec![(carol.as_path(), 1_668_600_005)],
+        ..Shell::of(&root_home)
+    };
+    let run = installer.run(&prefix, &shell);
+
+    assert_refused(
+        &run,
+        &prefix,
+        &format!(
+            "it is in {}, which belongs to carol, one of the accounts the system gives people",
+            carol.display()
+        ),
+    );
+    assert_eq!(text(&tuned), "the user's own tuning\n");
+    assert_eq!(snapshot(&carol), before, "carol's folder was changed");
+
+    for (name, uid) in [("nobody", 65_534), ("nfsnobody", 4_294_967_294)] {
+        let shared = installer.dir(&format!("shared-{name}"));
+        let shell = Shell {
+            listed: vec![account(name, uid, &shared)],
+            root: true,
+            owners: vec![(shared.as_path(), uid)],
+            ..Shell::of(&root_home)
+        };
+        let run = installer.run(&shared.join("crossfx"), &shell);
+
+        assert!(run.status.success(), "{name}: {}", transcript(&run));
+        assert!(
+            shared.join("crossfx/bin/crossfx").is_file(),
+            "{name}: no bin/crossfx"
+        );
+    }
 }

@@ -225,6 +225,19 @@ login_defs() {
   printf '%s\n' "${l_value:-$2}"
 }
 
+# The uids of people's accounts start at UID_MIN of /etc/login.defs (1000 when it names none) and
+# have no end: UID_MAX (60000 by default) only bounds what useradd hands out, and the accounts a
+# directory service gives people — SSSD's mapping of Active Directory from 200000 on, FreeIPA's
+# ranges above a billion — and systemd-homed's, from 60001, lie above it. Two ids up there are
+# nobody's: 65534 and 4294967294, the overflow ids an owner the kernel or NFS cannot map shows as,
+# and the uids of nobody and nfsnobody.
+uid_min="$(login_defs UID_MIN 1000)"
+
+# Whether the uid $1, a number, is of an account the system gives a person.
+person() {
+  [ "$1" -ge "${uid_min}" ] && [ "$1" -ne 65534 ] && [ "$1" -ne 4294967294 ]
+}
+
 # The first entry under the folder DIR, as find lists LISTED, that is none of: what the tarball's
 # folder SHIPPED has of the same name and kind; a file the list INSTALLED of an earlier install
 # names, or a folder it names a file in; that list itself. A link is none of them. Nothing when
@@ -252,9 +265,9 @@ UNSHIPPED
 }
 
 # Refuse the resolved path PATH, as root, when the deepest folder of it that exists, or one above
-# that, belongs to one of the accounts the system gives people (uids from uid_min to uid_max): a
-# home the password database does not list — a directory service's, its enumeration off — still
-# belongs to its user. The words after PATH lead up to the folder.
+# that, belongs to one of the accounts the system gives people (person): a home the password
+# database does not list — a directory service's, its enumeration off — still belongs to its
+# user. The words after PATH lead up to the folder.
 not_owned() {
   o_dir=$1
   shift
@@ -266,7 +279,7 @@ not_owned() {
     case "${o_uid}" in
       '' | *[!0-9]*) ;;
       *)
-        if [ "${o_uid}" -ge "${uid_min}" ] && [ "${o_uid}" -le "${uid_max}" ]; then
+        if person "${o_uid}"; then
           o_name="$(passwd_lines "${o_uid}" | head -n 1 | cut -d: -f1)"
           refuse "$* ${o_dir}, which belongs to ${o_name:-uid ${o_uid}}, one of the accounts the" \
             "system gives people: it may be that user's home, where CrossFX keeps their own" \
@@ -333,18 +346,13 @@ case "${prefix}" in
     # Nor any other account's. Run as root — under su, doas or pkexec, from a root login, or by
     # an administrator's sudo for someone else — the copy reaches every home on the system, and
     # none of those says whose prefix it was given. So the homes of the accounts the system gives
-    # people, the uids from UID_MIN to UID_MAX of /etc/login.defs (1000 to 60000 when it names
-    # none), which leaves out the system accounts whose "homes" are /, /var/www or /usr/sbin; and
-    # as root also /home, root's own home, and any folder that belongs to one of those accounts,
-    # for the homes a directory service does not list.
-    uid_min="$(login_defs UID_MIN 1000)"
-    uid_max="$(login_defs UID_MAX 60000)"
-    homes="$(passwd_lines | awk -F: -v min="${uid_min}" -v max="${uid_max}" \
-      '$3 ~ /^[0-9]+$/ && $3 + 0 >= min + 0 && $3 + 0 <= max + 0 && $6 ~ /^\/./ {
-        print $1 ":" $6
-      }')"
-    while IFS=: read -r name home; do
-      [ -n "${home}" ] || continue
+    # people (person, above: the uids from UID_MIN up, a directory service's among them), which
+    # leaves out the system accounts whose "homes" are /, /var/www or /usr/sbin; and as root also
+    # /home, root's own home, and any folder that belongs to one of those accounts, for the homes
+    # a directory service does not list.
+    homes="$(passwd_lines | awk -F: '$3 ~ /^[0-9]+$/ && $6 ~ /^\/./ { print $3 ":" $1 ":" $6 }')"
+    while IFS=: read -r uid name home; do
+      [ -n "${home}" ] && person "${uid}" || continue
       not_inside "${home}" "${name}'s home, ${home}, where CrossFX keeps that user's own presets" \
         "(${home}/.local/share/crossfx)"
     done <<HOMES
