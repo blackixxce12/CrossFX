@@ -38,9 +38,9 @@ that comes with the name, are below.
   a preset with gain such as "Noisy Room" could howl. Until **Settings > Experimental >
   Microphone processing** is turned on, CrossFX does not capture the microphone or take a cable
   for it, the window, the tray and Settings show no microphone, `--status --json` reports the
-  input lane as `"hidden": true` and not enabled, and a command line that names the microphone is
-  refused whole; turned off again,
-  the lane stops and gives the recording default back, with no restart. Linux is unchanged.
+  input lane as `"hidden": true` and not enabled, and a command line with `--input`,
+  `--next-input`, `--edit=input` or `--noise-suppression` is refused whole; turned off again, the
+  lane stops and gives the recording default back, with no restart. Linux is unchanged.
 - **CrossFX stands aside while the original FxSound runs.** Both programs would take the same
   default device from each other, so while `FxSound.exe` runs the output lane neither takes the
   default nor processes, and says why. CrossFX never reads or changes the original's files,

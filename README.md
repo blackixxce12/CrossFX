@@ -273,9 +273,10 @@ processing**, CrossFX does not capture the microphone, takes no cable for it and
 recording default for it (it only moves one off a cable CrossFX itself is using, and gives back
 one an earlier run of CrossFX left there). The window, the tray and Settings show no microphone,
 `--status --json` reports the input lane as `"hidden": true` and not enabled, and a command line
-with `--input`, `--next-input`, `--edit=input` or `--noise-suppression` is refused whole. Turned on, it works as on Linux and suits recording and
-streaming; turned off again, a running microphone lane stops and gives the recording default
-back, with no restart. On Linux the switch does not exist.
+with `--input`, `--next-input`, `--edit=input` or `--noise-suppression` is refused whole. Turned
+on, the voice chain works as on Linux but with no echo cancellation in front of it, which suits
+recording and streaming; turned off again, a running microphone lane stops and gives the
+recording default back, with no restart. On Linux the switch does not exist.
 
 The microphone lane needs a virtual cable of its own besides (its playback side is where CrossFX
 writes the processed voice; its recording side is what applications record from), so the
