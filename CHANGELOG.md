@@ -40,14 +40,14 @@ package. Its name, and the clean break that comes with the name, are below.
 ### Changed
 - **The Gilroy font is no longer shipped.** Gilroy is Radomir Tinkov's commercial typeface, and
   CrossFX neither ships nor downloads it. The interface is set in Manrope (SIL Open Font
-  License), which is built in. Settings ▸ General ▸ "Interface font" offers
+  License), which is built in. the "Interface font" choice in Settings, General tab, offers
   Gilroy to anyone who bought it: add the font files, or have them installed in the system.
 - **Every bundled component's licence notice ships.** The licences of RNNoise, of the Noto and
   Manrope faces and of egui's built-in fonts (Ubuntu Light, Hack, egui's icons) are installed by
   every package, beside CrossFX's own.
 - **The Windows interface language follows the user's list of preferred languages:** the first
   language in it that CrossFX has a table for, which is Windows' own rule for applications, and
-  not merely the display language. `--language=` and Settings ▸ General still override it.
+  not merely the display language. `--language=` and the language switch in Settings still override it.
 - **The program is called CrossFX, on Linux and on Windows.** Up to 0.5.0 it was the FxSound
   Linux port, packaged as `fxsound-linux`. "FxSound" now means only the original FxSound by
   FxSound LLC: its driver, FxSound Speakers, the presets taken from it, and the "Like the original
