@@ -159,4 +159,5 @@ countries: sl
 "Get VB-CABLE…" = "Pridobi VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE je donationware podjetja VB-Audio, ki ga namestite sami (potrebne so skrbniške pravice; Windows lahko zahteva ponovni zagon). Ni del CrossFX-a."
 "The Windows audio service is not available" = "Zvočna storitev sistema Windows ni na voljo"
-"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Datoteko z nastavitvami je uporabljal drug program: CrossFX se je zagnal s privzetimi nastavitvami in bo vanjo shranil vaše spremembe"
+"%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Datoteko %s je uporabljal drug program: CrossFX se je zagnal s privzetimi nastavitvami in bo vanjo shranil vaše spremembe"
+"Your changes are not saved: CrossFX cannot read %s" = "Vaše spremembe se ne shranjujejo: CrossFX ne more prebrati datoteke %s"

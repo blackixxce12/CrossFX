@@ -937,9 +937,10 @@ impl App {
     /// are not, and the write that succeeds again says so.
     fn save_app_rules(&mut self) {
         self.apps.save_due = None;
-        let Some(path) = &self.apps.path else {
+        let Some(path) = self.apps.path.clone() else {
             return;
         };
+        let path = path.as_path();
         match self.apps.rules.save_to(path) {
             Ok(()) => {
                 if std::mem::take(&mut self.apps.save_failing) {
@@ -956,6 +957,7 @@ impl App {
                         SAVE_RETRY_DELAY.as_secs()
                     );
                 }
+                self.save_failed(path, &err);
                 self.apps.save_due = Some(Instant::now() + SAVE_RETRY_DELAY);
             }
         }

@@ -605,6 +605,9 @@ pub struct App {
     settings_dirty: bool,
     /// `false` in tests, so a test run can never write over the user's real settings file.
     persist: bool,
+    /// The files a save of which was refused this run because, held through the load, they are
+    /// not files CrossFX can write its changes into ([`App::save_failed`]): each is told once.
+    refused_saves: Vec<PathBuf>,
     /// Where Export Presets writes. A field rather than a constant so the tests can point it at
     /// a scratch directory instead of the user's documents.
     export_dir: PathBuf,
@@ -709,17 +712,18 @@ impl App {
             true,
         );
         // A file another program held through the load ([`crossfx_core::held`]): this run is on
-        // the defaults where the user's file says otherwise, and the user is told why.
-        if [
+        // the defaults where the user's file says otherwise, and the user is told which file and
+        // why.
+        for path in [
             Settings::config_path(),
             crossfx_core::AppRules::config_path(),
-        ]
-        .iter()
-        .any(|path| crossfx_core::held::is_left_unread(path))
-        {
-            app.raise_notice(tr(
-                "The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it",
-            ));
+        ] {
+            if crossfx_core::held::is_left_unread(&path) {
+                app.raise_notice(tr_args(
+                    "%s was in use by another program: CrossFX started on the defaults and will save your changes into it",
+                    &[&shown_name(&path)],
+                ));
+            }
         }
         app
     }
@@ -776,6 +780,7 @@ impl App {
             assets: AssetCache::new(),
             settings_dirty: false,
             persist,
+            refused_saves: Vec::new(),
             export_dir: if persist {
                 default_export_dir()
             } else {
@@ -1443,6 +1448,7 @@ impl App {
                 && let Err(err) = self.settings.save()
             {
                 log::warn!("could not save settings: {err}");
+                self.save_failed(&Settings::config_path(), &err);
             }
             self.settings_dirty = false;
         }
@@ -3093,6 +3099,7 @@ impl App {
             assets: AssetCache::new(),
             settings_dirty: false,
             persist: false,
+            refused_saves: Vec::new(),
             export_dir: std::env::temp_dir().join("crossfx-test-export"),
             announced_device: [None, None],
             notifier: Notifier::new(true),
@@ -3219,6 +3226,24 @@ impl App {
         if let Err(err) = crate::platform::open_url(url) {
             log::warn!("could not open {url}: {err}");
             self.raise_notice(tr("Could not open the link"));
+        }
+    }
+
+    /// A save of the file at `path` failed with `err`. One refused because the file, held through
+    /// the load, is not one CrossFX can write its changes into
+    /// ([`crossfx_core::held::merge_if_unread`]) is told to the user, once a run: no save of it
+    /// goes through before a load reads it again, so the session's changes are not kept. A
+    /// save refused while the file is still held is not: the start-up notice said so already.
+    pub(crate) fn save_failed(&mut self, path: &Path, err: &std::io::Error) {
+        if err.kind() == std::io::ErrorKind::InvalidData
+            && crossfx_core::held::is_left_unread(path)
+            && !self.refused_saves.iter().any(|known| known == path)
+        {
+            self.refused_saves.push(path.to_path_buf());
+            self.raise_notice(tr_args(
+                "Your changes are not saved: CrossFX cannot read %s",
+                &[&shown_name(path)],
+            ));
         }
     }
 
@@ -3402,6 +3427,14 @@ impl std::fmt::Display for ForgetRefusal {
 }
 
 impl std::error::Error for ForgetRefusal {}
+
+/// The name a notice gives the file at `path`: its own, such as `settings.toml`.
+fn shown_name(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
 
 /// The forgetting half of [`App::forget_device`], on `settings` alone: the entries of either lane
 /// whose `node.name` is `name`, or, when none has it, whose description is, less those `connected`
@@ -5398,6 +5431,7 @@ impl App {
             && let Err(err) = self.settings.save()
         {
             log::warn!("could not save settings: {err}");
+            self.save_failed(&Settings::config_path(), &err);
         }
     }
 
@@ -10550,6 +10584,40 @@ mod tests {
                 2
             ],
             "`--watch` and D-Bus hear both"
+        );
+    }
+
+    #[test]
+    fn a_save_refused_into_a_held_file_is_told_once_and_names_the_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("apps.toml");
+        std::fs::write(&path, "not = = toml").expect("write");
+        crossfx_core::held::left_unread(&path, "");
+        let mut app = App::headless_for_tests();
+        let _ = app.drain_events();
+        let refused = crossfx_core::AppRules::default()
+            .save_to(&path)
+            .expect_err("a file that is not TOML is not merged into");
+        let busy = std::io::Error::from(std::io::ErrorKind::ResourceBusy);
+        for err in [&busy, &refused, &refused] {
+            app.save_failed(&path, err);
+        }
+        // A file that was never held is not this case.
+        app.save_failed(&dir.path().join("settings.toml"), &refused);
+        crossfx_core::held::read_after_all(&path);
+        let notices: Vec<AppEvent> = app
+            .drain_events()
+            .into_iter()
+            .filter(|event| matches!(event, AppEvent::Notice { .. }))
+            .collect();
+        assert_eq!(
+            notices,
+            [AppEvent::Notice {
+                message: tr_args(
+                    "Your changes are not saved: CrossFX cannot read %s",
+                    &["apps.toml"]
+                )
+            }]
         );
     }
 

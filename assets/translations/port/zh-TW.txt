@@ -158,4 +158,5 @@ countries: Taiwan
 "Get VB-CABLE…" = "取得 VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE 是 VB-Audio 的捐贈軟體，需由您自行安裝（需要系統管理員權限；Windows 可能要求重新啟動）。它不是 CrossFX 的一部分。"
 "The Windows audio service is not available" = "Windows 音訊服務無法使用"
-"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "設定檔正被其他程式使用：CrossFX 已以預設設定啟動，並會將您的變更儲存到該檔案"
+"%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "檔案 %s 正被其他程式使用：CrossFX 已以預設設定啟動，並會將您的變更儲存到該檔案"
+"Your changes are not saved: CrossFX cannot read %s" = "您的變更未儲存：CrossFX 無法讀取檔案 %s"

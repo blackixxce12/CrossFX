@@ -31,7 +31,8 @@ yourself (administrator rights; Windows may ask for a restart). It is not part o
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeLink {
     /// VB-Audio's page for VB-CABLE ([`VB_CABLE_PAGE`]), with a notice that CrossFX has no
-    /// virtual device to work through, on a Windows with no VB-Audio cable installed.
+    /// virtual device to work through, on a Windows whose active endpoints hold no virtual cable
+    /// of any maker's (the app's `platform::cable_missing`).
     VbCable,
 }
 
