@@ -1,3 +1,5 @@
+<img src="assets/icons/apps/crossfx.svg" alt="CrossFX's icon" width="96" align="right">
+
 # CrossFX
 
 CrossFX is a native port of [FxSound](https://www.fxsound.com), FxSound LLC's system-wide audio

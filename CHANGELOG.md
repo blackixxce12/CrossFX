@@ -13,6 +13,12 @@ whose entries keep the names of their time. The format follows
   FxSound LLC: its driver, FxSound Speakers, the presets taken from it, and the "Like the original
   FxSound LLC" mode — the Experimental mode's name on Linux too, where it was "Like FxSound for
   Windows".
+- **CrossFX has an icon of its own,** a white diagonal crossed by a cyan wave on a dark tile,
+  where it showed FxSound LLC's five bars: on `crossfx.exe`, both Windows installers and the
+  window, in the tray (grey while off, white while on, cyan while sound plays; near-black on a
+  light Windows taskbar) and on the notifications, and as the application icon the Linux packages
+  install, now at every size from 16 to 512 pixels and as an SVG. The title bar and the message
+  boxes show its glyph before the name CrossFX, where the original shows its logotype.
 - **Settings and data of earlier versions are not carried over.** CrossFX starts with folders of
   its own and reads nothing fxsound-linux 0.x left. The folders of 0.x, `~/.config/fxsound`,
   `~/.local/share/fxsound` and `~/.local/state/fxsound`, can be deleted by hand, and so can, where
