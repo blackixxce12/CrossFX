@@ -154,7 +154,11 @@ the bundled RNNoise code and Noto faces, the Hyprland rules and the autostart en
 `ExecStop`, and the activation file's `Exec`, to `<prefix>/bin/crossfx`; it warns if the prefix
 is anything other than `/usr` or `/usr/local`, because those are the only two the binary searches
 for presets. It refuses a prefix inside a home folder, such as `~/.local`, where CrossFX keeps that
-user's own presets. On an older distribution than Debian 12, build from source instead.
+user's own presets: the home of whoever runs it, of the user `sudo`, `doas` or `pkexec` was run by,
+and of every account the system gives a person, and when run as root anything under `/home` or
+root's home. It also refuses a prefix whose `share/crossfx` leads into such a home or already holds
+anything the archive does not ship, such as a user's own presets or unsaved edits. On an older
+distribution than Debian 12, build from source instead.
 
 ### What lands where
 

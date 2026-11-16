@@ -11,8 +11,10 @@
 //! installed only `LICENSE`, and Debian's `copyright` called every file in the tree AGPL, fonts
 //! included. The second is that the tarball script packs the binary of the tree it sits in: it
 //! used to build only when there was no binary at all, so a 0.3.0 left in `target/release` went
-//! out under the 0.4.0 name. And the tarball's `install.sh` refuses a prefix inside a home folder,
-//! where its copy would lay the factory presets over the user's own.
+//! out under the 0.4.0 name. And the tarball's `install.sh` refuses a prefix inside anyone's home
+//! folder — whoever runs it, and through `sudo`, `doas`, `pkexec` or `su` — and one whose
+//! `share/crossfx` already holds what the tarball does not ship, where its copy would lay the
+//! factory presets over a user's own.
 //!
 //! The recipes and files are read under CrossFX's names: `crossfx`, `crossfx-bin`,
 //! `crossfx.spec`, `debian/crossfx.install`.
@@ -868,50 +870,113 @@ impl Installer {
     }
 }
 
-/// What the shell `install.sh` runs in says: the home, the data home, the user `sudo` was run by,
-/// and a folder of stand-ins put first on `PATH`. Of these, nothing of the test's own environment
-/// reaches it.
+/// A line of the password database: `name`, with the uid `uid` and the home `home`.
+fn account(name: &str, uid: u32, home: &Path) -> String {
+    format!("{name}:x:{uid}:{uid}::{}:/bin/sh", home.display())
+}
+
+/// What the shell `install.sh` runs in says: the home, the data home, the user `sudo`, `doas` or
+/// `pkexec` was run by, and what the stand-ins for `getent` and `id` put first on `PATH` answer.
+/// Of these, nothing of the test's own environment reaches it, and nothing of the machine's own
+/// password database either. The machine's `/etc/login.defs` is read as it is: the people's
+/// accounts here have uids from 1000 to 1600, inside every distribution's range for people, and
+/// the system account's, 33, is below all of them.
 struct Shell<'a> {
     home: &'a Path,
     data_home: Option<&'a Path>,
-    sudo_user: Option<&'a str>,
-    stand_ins: Option<&'a Path>,
+    /// `SUDO_USER`, `DOAS_USER` or `PKEXEC_UID`, and its value.
+    invoker: Option<(&'a str, &'a str)>,
+    /// The accounts `getent passwd` lists.
+    listed: Vec<String>,
+    /// Accounts `getent passwd <name or uid>` finds that the list leaves out, as a directory
+    /// service with its enumeration off does.
+    unlisted: Vec<String>,
+    /// Whether `id -u` says 0 and `$USER` is root; otherwise they say 1000 and someone.
+    root: bool,
 }
 
-/// `sh install.sh <prefix>`, as a user runs it from the unpacked tarball.
-fn run_install(script: &Path, prefix: &Path, shell: &Shell<'_>) -> Output {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let mut paths: Vec<PathBuf> = shell
-        .stand_ins
-        .iter()
-        .map(|dir| dir.to_path_buf())
-        .collect();
-    paths.extend(std::env::split_paths(&path));
-    let mut run = command("sh");
-    run.arg(script)
-        .arg(prefix)
-        .env("PATH", std::env::join_paths(paths).expect("PATH is joined"))
-        .env("HOME", shell.home)
-        .env_remove("XDG_DATA_HOME")
-        .env_remove("SUDO_USER");
-    if let Some(data_home) = shell.data_home {
-        run.env("XDG_DATA_HOME", data_home);
+impl<'a> Shell<'a> {
+    /// A user's own shell, with `home` as `$HOME` and no account in the password database.
+    fn of(home: &'a Path) -> Self {
+        Self {
+            home,
+            data_home: None,
+            invoker: None,
+            listed: Vec::new(),
+            unlisted: Vec::new(),
+            root: false,
+        }
     }
-    if let Some(user) = shell.sudo_user {
-        run.env("SUDO_USER", user);
-    }
-    run.output().expect("sh runs")
 }
 
-/// Every folder and file under `dir`, each file with its bytes: what a refused run must leave as
-/// it found it.
+impl Installer {
+    /// `sh install.sh <prefix>`, as a user runs it from the unpacked tarball, in `shell`.
+    fn run(&self, prefix: &Path, shell: &Shell<'_>) -> Output {
+        let stand_ins = self.dir("stand-ins");
+        fs::write(stand_ins.join("listed"), shell.listed.join("\n") + "\n")
+            .expect("the listed accounts are written");
+        fs::write(stand_ins.join("unlisted"), shell.unlisted.join("\n") + "\n")
+            .expect("the unlisted accounts are written");
+        write_executable(
+            &stand_ins.join("getent"),
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = passwd ] || exit 1\n\
+                 if [ \"$#\" -eq 1 ]; then cat '{dir}/listed'; exit 0; fi\n\
+                 awk -F: -v key=\"$2\" '$1 == key || $3 == key {{ print; found = 1 }} \
+                 END {{ exit found ? 0 : 2 }}' '{dir}/listed' '{dir}/unlisted'\n",
+                dir = stand_ins.display()
+            ),
+        );
+        // Whoever runs the tests, root in a container included, the script sees the user the
+        // shell is of.
+        let (uid, user) = if shell.root {
+            (0, "root")
+        } else {
+            (1000, "someone")
+        };
+        write_executable(
+            &stand_ins.join("id"),
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in -u) echo {uid} ;; -un) echo {user} ;; *) exit 1 ;; \
+                 esac\n"
+            ),
+        );
+
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![stand_ins];
+        paths.extend(std::env::split_paths(&path));
+        let mut run = command("sh");
+        run.arg(self.script())
+            .arg(prefix)
+            .env("PATH", std::env::join_paths(paths).expect("PATH is joined"))
+            .env("HOME", shell.home)
+            .env_remove("XDG_DATA_HOME");
+        for invoker in ["SUDO_USER", "DOAS_USER", "PKEXEC_UID"] {
+            run.env_remove(invoker);
+        }
+        run.env("USER", user);
+        if let Some(data_home) = shell.data_home {
+            run.env("XDG_DATA_HOME", data_home);
+        }
+        if let Some((variable, value)) = shell.invoker {
+            run.env(variable, value);
+        }
+        run.output().expect("sh runs")
+    }
+}
+
+/// Every folder, file and link under `dir`, each file with its bytes and each link with where it
+/// leads: what a refused run must leave as it found it.
 fn snapshot(dir: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     let mut found = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
     while let Some(dir) = pending.pop() {
         for entry in fs::read_dir(&dir).expect("the folder is listed") {
             let path = entry.expect("an entry").path();
-            if path.is_dir() {
+            if path.is_symlink() {
+                let to = fs::read_link(&path).expect("the link is read");
+                found.push((path, Some(to.into_os_string().into_encoded_bytes())));
+            } else if path.is_dir() {
                 found.push((path.clone(), None));
                 pending.push(path);
             } else {
@@ -924,8 +989,8 @@ fn snapshot(dir: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     found
 }
 
-/// The run changed nothing and said why: exit status 1 and the refusal.
-fn assert_refused(run: &Output, prefix: &Path) {
+/// The run changed nothing and said why: exit status 1 and the refusal, which names `why`.
+fn assert_refused(run: &Output, prefix: &Path, why: &str) {
     assert_eq!(run.status.code(), Some(1), "{}", transcript(run));
     let said = format!(
         "{}{}",
@@ -933,10 +998,21 @@ fn assert_refused(run: &Output, prefix: &Path) {
         String::from_utf8_lossy(&run.stderr)
     );
     assert!(
-        said.contains(&format!("refusing to install into {}", prefix.display())),
-        "{}",
+        said.contains(&format!("refusing to install into {}: ", prefix.display()))
+            && said.contains(why),
+        "not refused for {why:?}: {}",
         transcript(run)
     );
+}
+
+/// `prefix`'s `share/crossfx/presets/Input/Clean Voice.toml`, as a user who tuned the factory
+/// voice preset keeps it: under the factory name, which is all the tarball's own copy needs to
+/// replace it.
+fn tuned_clean_voice(prefix: &Path) -> PathBuf {
+    let tuned = prefix.join("share/crossfx/presets/Input/Clean Voice.toml");
+    fs::create_dir_all(tuned.parent().expect("a folder")).expect("the presets' folder is made");
+    fs::write(&tuned, "the user's own tuning\n").expect("the preset is written");
+    tuned
 }
 
 /// (a) `~/.local` holds the user's own presets in `share/crossfx/presets`, where `cp -a` would
@@ -952,21 +1028,16 @@ fn install_sh_refuses_a_prefix_in_the_users_home_and_leaves_their_presets_alone(
     fs::write(&mine, "the user's own voice preset\n").expect("the preset is written");
     let before = snapshot(&prefix);
 
-    let shell = Shell {
-        home: &home,
-        data_home: None,
-        sudo_user: None,
-        stand_ins: None,
-    };
-    let run = run_install(&installer.script(), &prefix, &shell);
+    let run = installer.run(&prefix, &Shell::of(&home));
 
-    assert_refused(&run, &prefix);
+    assert_refused(&run, &prefix, &format!("home, {}", home.display()));
     assert_eq!(text(&mine), "the user's own voice preset\n");
     assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
 }
 
 /// (b) Under `sudo`, `$HOME` is root's: the home that counts is the invoking user's, which
-/// `getent passwd "$SUDO_USER"` names.
+/// `getent passwd "$SUDO_USER"` names — here only when asked by name, as a directory service
+/// with its enumeration off answers.
 #[test]
 fn install_sh_under_sudo_refuses_the_home_getent_names_for_the_invoking_user() {
     let installer = Installer::new("install-sudo");
@@ -975,25 +1046,20 @@ fn install_sh_under_sudo_refuses_the_home_getent_names_for_the_invoking_user() {
     let prefix = home.join(".local");
     fs::create_dir_all(&prefix).expect("the prefix is made");
     let before = snapshot(&prefix);
-    let stand_ins = installer.dir("stand-ins");
-    write_executable(
-        &stand_ins.join("getent"),
-        &format!(
-            "#!/bin/sh\n[ \"$1\" = passwd ] && [ \"$2\" = someone ] || exit 2\n\
-             echo 'someone:x:1000:1000:Someone:{}:/bin/sh'\n",
-            home.display()
-        ),
-    );
 
     let shell = Shell {
-        home: &root_home,
-        data_home: None,
-        sudo_user: Some("someone"),
-        stand_ins: Some(&stand_ins),
+        invoker: Some(("SUDO_USER", "someone")),
+        unlisted: vec![account("someone", 1000, &home)],
+        root: true,
+        ..Shell::of(&root_home)
     };
-    let run = run_install(&installer.script(), &prefix, &shell);
+    let run = installer.run(&prefix, &shell);
 
-    assert_refused(&run, &prefix);
+    assert_refused(
+        &run,
+        &prefix,
+        &format!("someone's home, {}", home.display()),
+    );
     assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
 }
 
@@ -1008,14 +1074,12 @@ fn install_sh_refuses_a_prefix_whose_share_is_the_users_data_home() {
     let before = snapshot(&elsewhere);
 
     let shell = Shell {
-        home: &home,
         data_home: Some(&data_home),
-        sudo_user: None,
-        stand_ins: None,
+        ..Shell::of(&home)
     };
-    let run = run_install(&installer.script(), &elsewhere, &shell);
+    let run = installer.run(&elsewhere, &shell);
 
-    assert_refused(&run, &elsewhere);
+    assert_refused(&run, &elsewhere, "a user's data home");
     assert_eq!(
         snapshot(&elsewhere),
         before,
@@ -1023,8 +1087,9 @@ fn install_sh_refuses_a_prefix_whose_share_is_the_users_data_home() {
     );
 }
 
-/// (d) A prefix outside the home: installed under CrossFX's names, with the user unit and the
-/// D-Bus activation file starting the binary where it now is.
+/// (d) A prefix outside every home: installed under CrossFX's names, with the user unit and the
+/// D-Bus activation file starting the binary where it now is. A system account whose "home"
+/// holds the prefix, and a person's account whose home is `/`, are no reason to refuse it.
 #[test]
 fn install_sh_installs_into_a_prefix_outside_the_home_and_starts_crossfx_from_there() {
     let installer = Installer::new("install-prefix");
@@ -1032,12 +1097,13 @@ fn install_sh_installs_into_a_prefix_outside_the_home_and_starts_crossfx_from_th
     let prefix = installer.dir("prefix");
 
     let shell = Shell {
-        home: &home,
-        data_home: None,
-        sudo_user: None,
-        stand_ins: None,
+        listed: vec![
+            account("www-data", 33, prefix.parent().expect("a parent")),
+            account("odd", 1600, Path::new("/")),
+        ],
+        ..Shell::of(&home)
     };
-    let run = run_install(&installer.script(), &prefix, &shell);
+    let run = installer.run(&prefix, &shell);
 
     assert!(run.status.success(), "{}", transcript(&run));
     assert!(prefix.join("bin/crossfx").is_file(), "no bin/crossfx");
@@ -1059,5 +1125,195 @@ fn install_sh_installs_into_a_prefix_outside_the_home_and_starts_crossfx_from_th
             .lines()
             .any(|line| line.trim() == format!("Exec={binary} --activated")),
         "the activation file does not start {binary}:\n{activation}"
+    );
+}
+
+/// (e) Installing a CrossFX tarball where one was installed before goes ahead: what it finds in
+/// `share/crossfx` is its own factory presets.
+#[test]
+fn install_sh_installs_again_over_what_it_installed_before() {
+    let installer = Installer::new("install-again");
+    let home = installer.dir("home");
+    let prefix = installer.dir("prefix");
+    let shell = Shell::of(&home);
+
+    let first = installer.run(&prefix, &shell);
+    assert!(first.status.success(), "{}", transcript(&first));
+    let again = installer.run(&prefix, &shell);
+
+    assert!(again.status.success(), "{}", transcript(&again));
+    assert!(
+        prefix
+            .join("share/crossfx/presets/Input/Clean Voice.toml")
+            .is_file()
+    );
+}
+
+/// (f) Run as root with nobody to go by — `su`, `su -`, a root login: `$HOME` is root's and no
+/// variable names the user. A prefix in anyone else's home is still refused, the home of every
+/// account the password database lists from `UID_MIN` on, and the voice preset the user tuned
+/// under its factory name stays theirs.
+#[test]
+fn install_sh_run_as_root_refuses_the_home_of_any_account_it_lists() {
+    let installer = Installer::new("install-root");
+    let root_home = installer.dir("root");
+    let alice = installer.dir("alice");
+    let prefix = alice.join(".local");
+    let tuned = tuned_clean_voice(&prefix);
+    let before = snapshot(&prefix);
+
+    let shell = Shell {
+        listed: vec![account("alice", 1500, &alice)],
+        root: true,
+        ..Shell::of(&root_home)
+    };
+    let run = installer.run(&prefix, &shell);
+
+    assert_refused(&run, &prefix, &format!("alice's home, {}", alice.display()));
+    assert_eq!(text(&tuned), "the user's own tuning\n");
+    assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
+}
+
+/// (g) Under `doas` and `pkexec`, as under `sudo`, the invoking user's home is refused: `doas`
+/// names the user in `DOAS_USER`, `pkexec` gives the uid in `PKEXEC_UID`.
+#[test]
+fn install_sh_under_doas_or_pkexec_refuses_the_invoking_users_home() {
+    let installer = Installer::new("install-doas");
+    let root_home = installer.dir("root");
+    let home = installer.dir("someone");
+    let prefix = home.join(".local");
+    let tuned = tuned_clean_voice(&prefix);
+    let before = snapshot(&prefix);
+
+    for invoker in [("DOAS_USER", "someone"), ("PKEXEC_UID", "1000")] {
+        let shell = Shell {
+            invoker: Some(invoker),
+            unlisted: vec![account("someone", 1000, &home)],
+            root: true,
+            ..Shell::of(&root_home)
+        };
+        let run = installer.run(&prefix, &shell);
+
+        assert_refused(
+            &run,
+            &prefix,
+            &format!("someone's home, {}", home.display()),
+        );
+        assert_eq!(text(&tuned), "the user's own tuning\n", "{invoker:?}");
+        assert_eq!(snapshot(&prefix), before, "{invoker:?} changed the prefix");
+    }
+}
+
+/// (h) An administrator's `sudo` for another account: `SUDO_USER` names the administrator, and
+/// the prefix is in the other account's home, which is refused as well.
+#[test]
+fn install_sh_under_sudo_refuses_another_accounts_home_as_well() {
+    let installer = Installer::new("install-sudo-other");
+    let root_home = installer.dir("root");
+    let admin = installer.dir("admin");
+    let alice = installer.dir("alice");
+    let prefix = alice.join(".local");
+    let tuned = tuned_clean_voice(&prefix);
+    let before = snapshot(&prefix);
+
+    let shell = Shell {
+        invoker: Some(("SUDO_USER", "admin")),
+        listed: vec![
+            account("admin", 1001, &admin),
+            account("alice", 1500, &alice),
+        ],
+        root: true,
+        ..Shell::of(&root_home)
+    };
+    let run = installer.run(&prefix, &shell);
+
+    assert_refused(&run, &prefix, &format!("alice's home, {}", alice.display()));
+    assert_eq!(text(&tuned), "the user's own tuning\n");
+    assert_eq!(snapshot(&prefix), before, "the refused prefix was changed");
+}
+
+/// (i) Wherever the prefix lies, a `share/crossfx` that holds what the tarball does not ship —
+/// unsaved edits in `AutoSave/`, the `.bak` of a preset saved over, the fonts a user added — or
+/// that is a link is someone's presets: refused, and left as it was.
+#[test]
+fn install_sh_refuses_a_prefix_whose_share_crossfx_holds_what_the_tarball_does_not_ship() {
+    let installer = Installer::new("install-stray");
+    let home = installer.dir("home");
+    for (tag, stray, first) in [
+        ("autosave", "presets/AutoSave/Rock.fac", "presets/AutoSave"),
+        (
+            "backup",
+            "presets/Input/Clean Voice.toml.bak",
+            "presets/Input/Clean Voice.toml.bak",
+        ),
+        ("fonts", "fonts/Gilroy-Regular.ttf", "fonts"),
+    ] {
+        let prefix = installer.dir(&format!("opt-{tag}"));
+        let file = prefix.join("share/crossfx").join(stray);
+        fs::create_dir_all(file.parent().expect("a folder")).expect("the folder is made");
+        fs::write(&file, "the user's own\n").expect("the file is written");
+        let before = snapshot(&prefix);
+
+        let run = installer.run(&prefix, &Shell::of(&home));
+
+        assert_refused(&run, &prefix, &format!("already holds {first}, "));
+        assert_eq!(
+            snapshot(&prefix),
+            before,
+            "{tag}: the refused prefix was changed"
+        );
+    }
+
+    let data = installer.dir("someones-data");
+    tuned_clean_voice(&data);
+    let prefix = installer.dir("opt-link");
+    fs::create_dir_all(prefix.join("share")).expect("share/ is made");
+    symlink(data.join("share/crossfx"), prefix.join("share/crossfx")).expect("the link is made");
+    let before = (snapshot(&prefix), snapshot(&data));
+
+    let run = installer.run(&prefix, &Shell::of(&home));
+
+    assert_refused(&run, &prefix, "is not a folder of its own");
+    assert_eq!(
+        (snapshot(&prefix), snapshot(&data)),
+        before,
+        "the link or what it leads to was changed"
+    );
+}
+
+/// (j) A prefix outside every home whose `share` is a link into one — here into the data home of
+/// a user who tuned a factory voice preset, and kept nothing else there that the tarball does not
+/// ship: the copy would follow the link and replace that preset, so the prefix is refused for the
+/// home its presets would land in, and the link and the user's folder stay as they were.
+#[test]
+fn install_sh_refuses_a_prefix_whose_share_leads_into_a_home() {
+    let installer = Installer::new("install-share-link");
+    let root_home = installer.dir("root");
+    let alice = installer.dir("alice");
+    let tuned = tuned_clean_voice(&alice.join(".local"));
+    let prefix = installer.dir("opt-share-link");
+    symlink(alice.join(".local/share"), prefix.join("share")).expect("the link is made");
+    let before = (snapshot(&prefix), snapshot(&alice));
+
+    let shell = Shell {
+        listed: vec![account("alice", 1500, &alice)],
+        root: true,
+        ..Shell::of(&root_home)
+    };
+    let run = installer.run(&prefix, &shell);
+
+    assert_refused(
+        &run,
+        &prefix,
+        &format!(
+            "its share/crossfx leads to {}, inside alice's home",
+            alice.join(".local/share/crossfx").display()
+        ),
+    );
+    assert_eq!(text(&tuned), "the user's own tuning\n");
+    assert_eq!(
+        (snapshot(&prefix), snapshot(&alice)),
+        before,
+        "the link or the home it leads into was changed"
     );
 }

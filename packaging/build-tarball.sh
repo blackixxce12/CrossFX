@@ -153,58 +153,173 @@ inside() {
   return 1
 }
 
+# Stop, saying why, before anything has been changed.
+refuse() {
+  echo "refusing to install into ${prefix}: $* CrossFX finds its factory presets only under" \
+    "/usr and /usr/local: run 'sudo ${here}/install.sh' to install into /usr/local." >&2
+  exit 1
+}
+
+# Refuse the prefix when it, or the folder its share/crossfx leads to, is the folder DIR or lies
+# under it; the words after DIR say what DIR is. A home that is / itself (a service account's, an
+# emptied environment's) keeps nothing clear: the data home under it is still kept clear by
+# not_onto.
+not_inside() {
+  n_dir="$(resolved "$1")"
+  shift
+  [ "${n_dir}" != / ] || return 0
+  if inside "${target}" "${n_dir}"; then
+    refuse "it is inside $*."
+  elif inside "${data_target}" "${n_dir}"; then
+    refuse "its share/crossfx leads to ${data_target}, inside $*."
+  fi
+}
+
+# Refuse the prefix when its share folder is DATA, a user's data home.
+not_onto() {
+  if [ "$(resolved "${target}/share")" = "$(resolved "$1")" ]; then
+    refuse "its share folder is $1, a user's data home, where CrossFX keeps that user's own" \
+      "presets ($1/crossfx)."
+  fi
+}
+
+# Lines of the password database: every account it lists, or the one named or numbered $1.
+# getent asks every source the system has, a directory service included; /etc/passwd is all
+# there is to read where getent is missing.
+passwd_lines() {
+  if command -v getent >/dev/null 2>&1; then
+    getent passwd "$@" 2>/dev/null || :
+  elif [ "$#" -eq 0 ]; then
+    cat /etc/passwd 2>/dev/null || :
+  else
+    awk -F: -v key="$1" '$1 == key || $3 == key' /etc/passwd 2>/dev/null || :
+  fi
+}
+
+# The number /etc/login.defs gives the key $1, or $2 when it gives none.
+login_defs() {
+  l_value="$(awk -v key="$1" '$1 == key && $2 ~ /^[0-9]+$/ { value = $2 } END { print value }' \
+    /etc/login.defs 2>/dev/null)" || l_value=
+  printf '%s\n' "${l_value:-$2}"
+}
+
+# The first entry under the folder DIR, as find lists it, that the tarball's folder SHIPPED has
+# nothing of the same name and kind for — a link counts as nothing it ships — or nothing.
+unshipped() {
+  while IFS= read -r u_entry; do
+    [ -n "${u_entry}" ] || continue
+    if [ -h "$1/${u_entry}" ]; then
+      :
+    elif [ -d "$1/${u_entry}" ]; then
+      [ -d "$2/${u_entry}" ] && continue
+    elif [ -f "$1/${u_entry}" ]; then
+      [ -f "$2/${u_entry}" ] && continue
+    fi
+    printf '%s\n' "${u_entry#./}"
+    return 0
+  done <<UNSHIPPED
+$3
+UNSHIPPED
+}
+
 case "${prefix}" in
   /usr|/usr/local) ;;
   *)
-    # Not into a home folder. CrossFX keeps a user's own presets, voice presets and unsaved
-    # edits in their data home's crossfx/presets, which is <prefix>/share/crossfx/presets for a
-    # prefix such as ~/.local: the copy below would lay the factory presets over every one of
-    # theirs that shares a name, and the binary, which looks for factory presets only under /usr
-    # and /usr/local, would list none of them as such. Under sudo, $HOME is normally root's, so
-    # the home of the user who ran it comes from the password database.
-    if [ -n "${SUDO_USER:-}" ]; then
-      user=${SUDO_USER}
-      home="$(getent passwd "${SUDO_USER}" 2>/dev/null | cut -d: -f6)" || home=
-      data_home="${home}/.local/share"
-    else
-      user="${USER:-$(id -un 2>/dev/null || echo this user)}"
-      home=${HOME:-}
-      case "${XDG_DATA_HOME:-}" in
-        /*) data_home=${XDG_DATA_HOME} ;;
-        *) data_home="${home}/.local/share" ;;
-      esac
-    fi
-    case "${home}" in
-      /*) ;;
-      *)
-        echo "refusing to install into ${prefix}: it cannot tell where ${user}'s home is," \
-          "where CrossFX keeps that user's own presets. CrossFX finds its factory presets" \
-          "only under /usr and /usr/local: run 'sudo ${here}/install.sh' to install into" \
-          "/usr/local." >&2
-        exit 1
-        ;;
-    esac
+    # Not into anyone's home folder. CrossFX keeps a user's own presets, voice presets and
+    # unsaved edits in their data home's crossfx/presets, which is <prefix>/share/crossfx/presets
+    # for a prefix such as ~/.local: the copy below would lay the factory presets over every one
+    # of theirs that shares a name — the voice presets a user tuned keep the factory names —
+    # give their folders the owner and modes of the unpacked tree, and the binary, which looks
+    # for factory presets only under /usr and /usr/local, would list none of them as such.
     target="$(resolved "${prefix}")"
-    refuse=
-    if inside "${target}" "$(resolved "${home}")"; then
-      refuse=1
-    fi
+    # Where the factory presets land: under the prefix, unless its share folder is a link.
+    data_target="$(resolved "${target}/share/crossfx")"
+    # The user sudo, doas or pkexec was run by: there $HOME is normally root's, so their home
+    # comes from the password database, and one it cannot find is a home it cannot keep clear of.
+    invoked=
+    for invoker in "${SUDO_USER:-}" "${DOAS_USER:-}" "${PKEXEC_UID:-}"; do
+      [ -n "${invoker}" ] || continue
+      invoked=1
+      entry="$(passwd_lines "${invoker}" | head -n 1)"
+      name=${entry%%:*}
+      home="$(printf '%s\n' "${entry}" | cut -d: -f6)"
+      case "${home}" in
+        /*) ;;
+        *)
+          refuse "it cannot tell where ${invoker}'s home is, where CrossFX keeps that user's own" \
+            "presets."
+          ;;
+      esac
+      not_inside "${home}" "${name}'s home, ${home}, where CrossFX keeps that user's own presets" \
+        "(${home}/.local/share/crossfx)"
+      not_onto "${home%/}/.local/share"
+    done
+    # Whoever $HOME and $XDG_DATA_HOME belong to: the user running this, or under sudo the one
+    # sudo left them to.
+    user="${USER:-$(id -un 2>/dev/null || echo this user)}"
     case "${HOME:-}" in
       /*)
-        if inside "${target}" "$(resolved "${HOME}")"; then
-          refuse=1
+        not_inside "${HOME}" "${user}'s home, ${HOME}, where CrossFX keeps that user's own" \
+          "presets (${HOME}/.local/share/crossfx)"
+        not_onto "${HOME%/}/.local/share"
+        ;;
+      *)
+        if [ -z "${invoked}" ]; then
+          refuse "it cannot tell where ${user}'s home is, where CrossFX keeps that user's own" \
+            "presets."
         fi
         ;;
     esac
-    if [ "$(resolved "${target}/share")" = "$(resolved "${data_home}")" ]; then
-      refuse=1
+    case "${XDG_DATA_HOME:-}" in
+      /*) not_onto "${XDG_DATA_HOME}" ;;
+    esac
+    # Nor any other account's. Run as root — under su, doas or pkexec, from a root login, or by
+    # an administrator's sudo for someone else — the copy reaches every home on the system, and
+    # none of those says whose prefix it was given. So the homes of the accounts the system gives
+    # people, the uids from UID_MIN to UID_MAX of /etc/login.defs (1000 to 60000 when it names
+    # none), which leaves out the system accounts whose "homes" are /, /var/www or /usr/sbin; and
+    # as root also /home and root's own home, for the accounts a directory service does not list.
+    homes="$(passwd_lines | awk -F: -v min="$(login_defs UID_MIN 1000)" \
+      -v max="$(login_defs UID_MAX 60000)" \
+      '$3 ~ /^[0-9]+$/ && $3 + 0 >= min + 0 && $3 + 0 <= max + 0 && $6 ~ /^\/./ {
+        print $1 ":" $6
+      }')"
+    while IFS=: read -r name home; do
+      [ -n "${home}" ] || continue
+      not_inside "${home}" "${name}'s home, ${home}, where CrossFX keeps that user's own presets" \
+        "(${home}/.local/share/crossfx)"
+    done <<HOMES
+${homes}
+HOMES
+    if [ "$(id -u 2>/dev/null || :)" = 0 ]; then
+      not_inside /home "/home, where the users' home folders are"
+      not_inside /root "root's home, /root"
+      home="$(passwd_lines 0 | head -n 1 | cut -d: -f6)"
+      case "${home}" in
+        /?*) not_inside "${home}" "root's home, ${home}" ;;
+      esac
     fi
-    if [ -n "${refuse}" ]; then
-      echo "refusing to install into ${prefix}: it is inside ${user}'s home, where CrossFX" \
-        "keeps that user's own presets (${data_home}/crossfx). CrossFX finds its factory" \
-        "presets only under /usr and /usr/local: run 'sudo ${here}/install.sh' to install" \
-        "into /usr/local." >&2
-      exit 1
+    # And not over a folder of someone's presets, wherever it lies. All this tarball puts in
+    # share/crossfx is the factory presets, so anything else already there — a user's own
+    # presets, their unsaved edits in AutoSave/, the .bak of a preset saved over, the fonts they
+    # added — is that user's data, which the copy would mix the factory presets into and replace
+    # where a name is shared. Installing over what an earlier CrossFX tarball put there goes
+    # ahead, as long as it shipped no preset that this one does not.
+    data="${prefix}/share/crossfx"
+    if [ -h "${data}" ] || { [ -e "${data}" ] && [ ! -d "${data}" ]; }; then
+      refuse "${data} is not a folder of its own, and the copy would follow it to whatever it" \
+        "leads to."
+    fi
+    if [ -d "${data}" ]; then
+      listed="$(cd -- "${data}" && find . ! -name . -print)" ||
+        refuse "it cannot read all of ${data}, so it cannot tell whether a user keeps presets" \
+          "there."
+      stray="$(unshipped "${data}" "${here}/share/crossfx" "${listed}")"
+      if [ -n "${stray}" ]; then
+        refuse "${data} already holds ${stray}, which this CrossFX does not ship. A folder of a" \
+          "user's own presets looks like that; if an earlier CrossFX installed it, remove it and" \
+          "run this again."
+      fi
     fi
     # Not a refusal, because there are reasons to put a binary elsewhere — but the presets will
     # not be found there: the binary searches exactly /usr/share/crossfx and
