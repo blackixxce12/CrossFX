@@ -25,6 +25,7 @@
 #   share/man/man1/crossfx.1
 #   share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml
 #   share/doc/crossfx/{README.md,CHANGELOG.md,LICENSE,COPYING.rnnoise,OFL.noto,OFL.manrope,
+#                      UFL.ubuntu,MIT.hack,MIT.emoji-icons,
 #                      hyprland.conf.example,crossfx-autostart.desktop}
 #   install.sh
 #
@@ -104,17 +105,21 @@ install -Dm644 packaging/io.github.blackixxce12.CrossFX.metainfo.xml \
 install -Dm644 README.md CHANGELOG.md LICENSE \
   packaging/hyprland.conf.example packaging/crossfx-autostart.desktop \
   -t "${pkg}/share/doc/crossfx/"
-# Beside the AGPL, the notices of the three parts of the tree compiled into the binary that are not
-# AGPL, whose licences make shipping the text a condition of shipping the binary: the RNNoise code
-# and model (BSD-3-Clause), the embedded Noto fallback faces and the Manrope interface faces (both
-# SIL OFL 1.1, each with its own notice). crossfx-bin installs all four from here into
-# /usr/share/licenses. Every other package installs the same ones under the same names, and which
-# they are is read from the three lines below (crossfx-app's tests/licences.rs and
-# tests/windows_installers.rs, the packages workflow): one notice a line, as
-# `install -Dm644 <file> "${pkg}/share/doc/crossfx/<name>"`.
+# Beside the AGPL, the notices of the parts compiled into the binary that are not AGPL, whose
+# licences make shipping the text a condition of shipping the binary: the RNNoise code and model
+# (BSD-3-Clause), the embedded Noto fallback faces and the Manrope interface faces (both SIL OFL
+# 1.1, each with its own notice). crossfx-bin installs them all from here into /usr/share/licenses.
+# Every other package installs the same ones under the same names, and which they are is read from
+# the lines below (crossfx-app's tests/licences.rs and tests/windows_installers.rs, the packages
+# workflow): one notice a line, as `install -Dm644 <file> "${pkg}/share/doc/crossfx/<name>"`.
 install -Dm644 crates/crossfx-rnnoise/COPYING "${pkg}/share/doc/crossfx/COPYING.rnnoise"
 install -Dm644 assets/fonts/OFL.txt "${pkg}/share/doc/crossfx/OFL.noto"
 install -Dm644 assets/fonts/OFL-Manrope.txt "${pkg}/share/doc/crossfx/OFL.manrope"
+# The faces of egui's epaint_default_fonts that eframe's default_fonts feature compiles in: Ubuntu
+# Light, Hack and the five icons of emoji-icon-font (their licences, as that crate ships them).
+install -Dm644 assets/fonts/UFL-Ubuntu.txt "${pkg}/share/doc/crossfx/UFL.ubuntu"
+install -Dm644 assets/fonts/MIT-Hack.txt "${pkg}/share/doc/crossfx/MIT.hack"
+install -Dm644 assets/fonts/MIT-emoji-icon-font.txt "${pkg}/share/doc/crossfx/MIT.emoji-icons"
 
 cat > "${pkg}/install.sh" <<'INNER'
 #!/usr/bin/env sh

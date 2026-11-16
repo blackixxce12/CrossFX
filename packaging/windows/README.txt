@@ -16,6 +16,9 @@ What is in this folder
   COPYING.rnnoise   BSD-3-Clause, for the RNNoise noise suppression built into crossfx.exe
   OFL.noto          SIL Open Font License 1.1, for the Noto fonts built into crossfx.exe
   OFL.manrope       SIL Open Font License 1.1, for the Manrope font built into crossfx.exe
+  UFL.ubuntu        Ubuntu Font Licence 1.0, for the Ubuntu Light font built into crossfx.exe
+  MIT.hack          MIT and Bitstream Vera licences, for the Hack font built into crossfx.exe
+  MIT.emoji-icons   MIT licence, for the icons (from emoji-icon-font) built into crossfx.exe
   README.txt        this file
 
 The setup program and the .msi install CrossFX into Program Files, and only there, for every
@@ -50,6 +53,9 @@ CrossFX — это программа для улучшения звука FxSou
   COPYING.rnnoise   лицензия BSD-3-Clause для встроенного в crossfx.exe шумоподавления RNNoise
   OFL.noto          SIL Open Font License 1.1 для встроенных в crossfx.exe шрифтов Noto
   OFL.manrope       SIL Open Font License 1.1 для встроенного в crossfx.exe шрифта Manrope
+  UFL.ubuntu        Ubuntu Font Licence 1.0 для встроенного в crossfx.exe шрифта Ubuntu Light
+  MIT.hack          лицензии MIT и Bitstream Vera для встроенного в crossfx.exe шрифта Hack
+  MIT.emoji-icons   лицензия MIT для встроенных в crossfx.exe значков (из emoji-icon-font)
   README.txt        этот файл
 
 Программа установки и пакет .msi устанавливают CrossFX в Program Files, и только туда, для

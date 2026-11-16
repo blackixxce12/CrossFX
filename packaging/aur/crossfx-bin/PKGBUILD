@@ -74,10 +74,11 @@ package() {
 
   # README, CHANGELOG, the licences, the Hyprland rules and the autostart entry.
   install -Dm644 share/doc/crossfx/* -t "${pkgdir}/usr/share/doc/${_pkgname}/"
-  # The AGPL, and the notices of the three parts of CrossFX's tree compiled into the binary that
-  # are not AGPL and whose licences make shipping their text a condition of shipping the binary:
-  # the RNNoise code and model (BSD-3-Clause), and the embedded Noto fallback faces and Manrope
-  # interface faces (both SIL OFL 1.1, each with its own notice).
-  install -Dm644 share/doc/crossfx/{LICENSE,COPYING.rnnoise,OFL.noto,OFL.manrope} \
+  # The AGPL, and the notices of the parts compiled into the binary that are not AGPL and whose
+  # licences make shipping their text a condition of shipping the binary: the RNNoise code and
+  # model (BSD-3-Clause), the embedded Noto fallback faces and Manrope interface faces (both SIL OFL
+  # 1.1, each with its own notice), and the faces egui compiles in (Ubuntu Light, Hack and egui's
+  # icons: the Ubuntu Font Licence 1.0 and two MIT notices).
+  install -Dm644 share/doc/crossfx/{LICENSE,COPYING.rnnoise,OFL.noto,OFL.manrope,UFL.ubuntu,MIT.hack,MIT.emoji-icons} \
     -t "${pkgdir}/usr/share/licenses/${_pkgname}/"
 }

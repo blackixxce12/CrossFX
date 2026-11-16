@@ -64,8 +64,9 @@ fn transcript(output: &Output) -> String {
     )
 }
 
-/// The three notices every package has to carry beside `LICENSE`, as (installed name, source).
-fn notices() -> [(&'static str, PathBuf); 3] {
+/// The notices every package has to carry beside `LICENSE`, as (installed name, source): the three
+/// of the tree, and the three of the faces egui's `epaint_default_fonts` compiles in.
+fn notices() -> [(&'static str, PathBuf); 6] {
     [
         (
             "COPYING.rnnoise",
@@ -73,6 +74,12 @@ fn notices() -> [(&'static str, PathBuf); 3] {
         ),
         ("OFL.noto", repo().join("assets/fonts/OFL.txt")),
         ("OFL.manrope", repo().join("assets/fonts/OFL-Manrope.txt")),
+        ("UFL.ubuntu", repo().join("assets/fonts/UFL-Ubuntu.txt")),
+        ("MIT.hack", repo().join("assets/fonts/MIT-Hack.txt")),
+        (
+            "MIT.emoji-icons",
+            repo().join("assets/fonts/MIT-emoji-icon-font.txt"),
+        ),
     ]
 }
 
@@ -240,7 +247,7 @@ fi
     }
 }
 
-/// `dir` holds `LICENSE` and both notices, each byte for byte what the tree has.
+/// `dir` holds `LICENSE` and every notice, each byte for byte what the tree has.
 fn assert_notices_in(dir: &Path, package: &str) {
     assert_eq!(
         read(dir.join("LICENSE")),
@@ -540,6 +547,12 @@ fn debian_copyright_gives_the_fonts_and_the_vendored_rnnoise_the_licences_they_c
             || name == "OFL-Manrope.txt"
         {
             expect(&path, "OFL-1.1");
+        } else if name == "UFL-Ubuntu.txt" {
+            expect(&path, "Ubuntu-font-1.0");
+        } else if name == "MIT-Hack.txt" {
+            expect(&path, "Hack");
+        } else if name == "MIT-emoji-icon-font.txt" {
+            expect(&path, "Expat");
         } else {
             expect(&path, "a licence this test has been told of");
         }
@@ -648,6 +661,33 @@ fn debian_copyright_reproduces_the_rnnoise_notice_and_the_ofl_word_for_word() {
         words(licence),
         "assets/fonts/OFL-Manrope.txt's licence is not the OFL 1.1 of OFL.txt"
     );
+
+    // The three faces of egui's epaint_default_fonts: each notice file whole, bar the lines of
+    // UFL-Ubuntu.txt that say whose face it is, ahead of the licence's own rule.
+    let ufl = text(repo().join("assets/fonts/UFL-Ubuntu.txt"));
+    let ufl_licence = &ufl[ufl
+        .find("-------------------------------\nUBUNTU FONT LICENCE")
+        .expect("UFL-Ubuntu.txt carries the licence")..];
+    assert_eq!(
+        words(&standalone("Ubuntu-font-1.0")),
+        words(ufl_licence),
+        "debian/copyright's Ubuntu-font-1.0 text is not assets/fonts/UFL-Ubuntu.txt's"
+    );
+    assert!(
+        ufl.contains("Copyright 2011 Canonical Ltd."),
+        "assets/fonts/UFL-Ubuntu.txt does not name Ubuntu's copyright holder"
+    );
+    for (name, file) in [
+        ("Hack", "MIT-Hack.txt"),
+        ("Expat", "MIT-emoji-icon-font.txt"),
+    ] {
+        let notice = text(repo().join("assets/fonts").join(file));
+        assert_eq!(
+            words(&standalone(name)),
+            words(&notice),
+            "debian/copyright's {name} text is not assets/fonts/{file}'s"
+        );
+    }
 }
 
 #[test]

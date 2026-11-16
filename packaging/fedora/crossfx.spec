@@ -317,16 +317,21 @@ install -Dpm0644 packaging/crossfx.1 %{buildroot}%{_mandir}/man1/crossfx.1
 install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.metainfo.xml \
     %{buildroot}%{_metainfodir}/io.github.blackixxce12.CrossFX.metainfo.xml
 
-# Three parts of the tree compiled into the binary are not AGPL, and each licence makes shipping
-# its text a condition of shipping the binary: the RNNoise code and model compiled in from
-# crates/crossfx-rnnoise (BSD-3-Clause), and the Noto fallback faces and the Manrope interface
-# faces embedded in the window (both SIL OFL 1.1, each with its own notice). LICENSE.dependencies
-# only names licences, so the texts are shipped as %%license files, under the names every other
-# package gives them: %%license on the source paths would install them as a bare COPYING and
-# OFL.txt beside our own LICENSE.
+# Parts compiled into the binary are not AGPL, and each licence makes shipping its text a
+# condition of shipping the binary: the RNNoise code and model compiled in from
+# crates/crossfx-rnnoise (BSD-3-Clause), the Noto fallback faces and the Manrope interface faces
+# embedded in the window (both SIL OFL 1.1, each with its own notice), and the three faces of
+# egui's epaint_default_fonts that eframe compiles in: Ubuntu Light (Ubuntu Font Licence 1.0),
+# Hack (MIT, and the Bitstream Vera licence) and egui's icons, a subset of emoji-icon-font (MIT).
+# LICENSE.dependencies only names licences, so the texts are shipped as %%license files, under the
+# names every other package gives them: %%license on the source paths would install them as a bare
+# COPYING and OFL.txt beside our own LICENSE.
 cp -p crates/crossfx-rnnoise/COPYING COPYING.rnnoise
 cp -p assets/fonts/OFL.txt OFL.noto
 cp -p assets/fonts/OFL-Manrope.txt OFL.manrope
+cp -p assets/fonts/UFL-Ubuntu.txt UFL.ubuntu
+cp -p assets/fonts/MIT-Hack.txt MIT.hack
+cp -p assets/fonts/MIT-emoji-icon-font.txt MIT.emoji-icons
 
 
 %check
@@ -357,6 +362,9 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/io.github.blackixxce1
 %license COPYING.rnnoise
 %license OFL.noto
 %license OFL.manrope
+%license UFL.ubuntu
+%license MIT.hack
+%license MIT.emoji-icons
 %license LICENSE.dependencies
 %license cargo-vendor.txt
 %doc README.md

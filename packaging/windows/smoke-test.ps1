@@ -120,6 +120,9 @@ $expected['LICENSE'] = Join-Path $root 'LICENSE'
 $expected['COPYING.rnnoise'] = Join-Path $root 'crates\crossfx-rnnoise\COPYING'
 $expected['OFL.noto'] = Join-Path $root 'assets\fonts\OFL.txt'
 $expected['OFL.manrope'] = Join-Path $root 'assets\fonts\OFL-Manrope.txt'
+$expected['UFL.ubuntu'] = Join-Path $root 'assets\fonts\UFL-Ubuntu.txt'
+$expected['MIT.hack'] = Join-Path $root 'assets\fonts\MIT-Hack.txt'
+$expected['MIT.emoji-icons'] = Join-Path $root 'assets\fonts\MIT-emoji-icon-font.txt'
 foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', '.toml'))) {
     $from = Join-Path $root "assets\presets\$($set[0])"
     foreach ($file in @(Get-ChildItem -LiteralPath $from -File | Where-Object { $_.Extension -eq $set[1] })) {
@@ -348,7 +351,7 @@ Write-Host '  the .msi refuses to install over it'
 # 'OFL.noto.', Windows deletes the notice beside it, which Assert-Tree then finds gone. These files
 # are written, looked for and, once checked, taken away again by their exact names, through \\?\,
 # for the legs below, which want the package's tree and nothing more.
-$dropped = @('presets\Factsoft\Dropped.fac', 'presets\BonusPresets\Dropped.fac', 'presets\Input\Dropped.toml', 'OFL.dropped', 'COPYING.dropped')
+$dropped = @('presets\Factsoft\Dropped.fac', 'presets\BonusPresets\Dropped.fac', 'presets\Input\Dropped.toml', 'OFL.dropped', 'COPYING.dropped', 'UFL.dropped', 'MIT.dropped')
 foreach ($relative in $dropped) {
     [System.IO.File]::WriteAllText((Join-Path $installDir $relative), "shipped by an earlier version`n")
 }

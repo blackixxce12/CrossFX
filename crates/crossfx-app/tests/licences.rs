@@ -21,9 +21,7 @@ use std::path::{Path, PathBuf};
 /// The files of `assets/images` that are the original's: FxSound LLC's interface artwork, taken
 /// across from `fxsound/Images` in its repository (`docs/spec/13-assets.md`). Every other image in
 /// the folder is one CrossFX drew to match, which the Licence section names.
-const ORIGINAL_IMAGES: [&str; 62] = [
-    "Button_OFF.svg",
-    "Button_ON.svg",
+const ORIGINAL_IMAGES: [&str; 56] = [
     "Slider_Thumb.svg",
     "Slider_Thumb_blue.svg",
     "Slider_Thumb_bw.svg",
@@ -41,9 +39,6 @@ const ORIGINAL_IMAGES: [&str; 62] = [
     "arrow_up_black.svg",
     "arrow_up_blue.svg",
     "arrow_up_white.svg",
-    "button-depressed.svg",
-    "button-hover.svg",
-    "button-normal.svg",
     "donate.svg",
     "donate_blue.svg",
     "donate_hover.svg",
@@ -51,7 +46,6 @@ const ORIGINAL_IMAGES: [&str; 62] = [
     "dropdown_arrow_bw.svg",
     "dropdown_arrow_hover.svg",
     "dropdown_arrow_hover_blue.svg",
-    "equalizer.svg",
     "flip.svg",
     "flip_black.svg",
     "flip_blue.svg",
@@ -85,6 +79,12 @@ const ORIGINAL_IMAGES: [&str; 62] = [
     "settings.svg",
     "speaker.svg",
 ];
+
+/// The notices of the faces of egui's `epaint_default_fonts` that eframe's `default_fonts` feature
+/// compiles into the binary (Ubuntu Light, Hack, egui's icons), by the names every package installs
+/// them under, and the files of `assets/fonts` they come from. They are not parts of the tree, so
+/// the Licence section counts them apart from the three it has.
+const EGUI_FACE_NOTICES: [&str; 3] = ["UFL.ubuntu", "MIT.hack", "MIT.emoji-icons"];
 
 /// The repository this test binary was built from.
 fn repo() -> PathBuf {
@@ -267,7 +267,18 @@ fn holders<'a>(stanzas: &'a [Stanza], path: &str) -> &'a str {
 /// `share/doc/crossfx` and the packages' `/usr/share/licenses/crossfx` hold name each such part.
 #[test]
 fn the_readme_counts_and_names_the_notice_of_every_part_of_the_tree_under_a_licence_of_its_own() {
-    let notices = notices();
+    let all = notices();
+    for expected in EGUI_FACE_NOTICES {
+        assert!(
+            all.iter().any(|notice| notice == expected),
+            "packaging/build-tarball.sh no longer installs {expected}: {all:?}"
+        );
+    }
+    // The faces of egui are counted and named by the test below; these are the tree's own.
+    let notices: Vec<String> = all
+        .into_iter()
+        .filter(|notice| !EGUI_FACE_NOTICES.contains(&notice.as_str()))
+        .collect();
     for expected in ["COPYING.rnnoise", "OFL.noto", "OFL.manrope"] {
         assert!(
             notices.iter().any(|notice| notice == expected),
@@ -355,6 +366,68 @@ fn the_readme_names_the_faces_egui_compiles_into_the_binary() {
             section.contains(named),
             "README.md's Licence section does not name {named}, of the faces egui compiles into \
              the binary:\n{section}"
+        );
+    }
+    // Their licences make shipping the notice a condition of shipping the binary (the Ubuntu Font
+    // Licence's first condition, the MIT and Bitstream Vera licences' notice clauses), so the
+    // section names each notice and the tree holds each; the packages install them
+    // (`tests/packaging.rs`, `tests/windows_installers.rs`).
+    for (name, file) in EGUI_FACE_NOTICES.iter().zip([
+        "assets/fonts/UFL-Ubuntu.txt",
+        "assets/fonts/MIT-Hack.txt",
+        "assets/fonts/MIT-emoji-icon-font.txt",
+    ]) {
+        assert!(
+            section.contains(&format!("`{name}`")) && section.contains(&format!("`{file}`")),
+            "README.md's Licence section does not name {name} and {file}, the notice of a face \
+             egui compiles into the binary:\n{section}"
+        );
+        assert!(
+            !text(file).trim().is_empty(),
+            "{file}, the notice of a face egui compiles into the binary, is empty"
+        );
+    }
+}
+
+/// `debian/copyright` counts the parts of the tree that are the original's work, and says which,
+/// in the comment of its `Files: *` paragraph: the DSP, the presets, the artwork and the
+/// translation tables (the original's own JUCE `LocalisedStrings` files, which CrossFX carried
+/// across unchanged, CrossFX's own strings being in `assets/translations/port/`). The count had
+/// stayed at three after the tables were added to the tree.
+#[test]
+fn debian_copyright_counts_every_part_of_the_original_it_carries_across() {
+    let copyright = text("packaging/debian/copyright");
+    let start = copyright
+        .find("\nFiles: *\n")
+        .expect("debian/copyright has a Files: * paragraph");
+    let paragraph = &copyright[start..];
+    let paragraph = &paragraph[..paragraph.find("\n\n").expect("the paragraph ends")];
+    let bullets = paragraph.matches("\n   * ").count();
+    let words = [
+        "No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+    ];
+    let count = words[bullets].to_lowercase();
+    let flat = flowing(paragraph);
+    assert!(
+        flat.contains(&format!("and {count} parts of it are the original's work")),
+        "debian/copyright's Files: * comment lists {bullets} parts of the original's work but \
+         counts another number:\n{paragraph}"
+    );
+    assert!(
+        flat.contains(&format!("All {count} inherit the original FxSound's terms")),
+        "debian/copyright's Files: * comment closes on another number than the {bullets} parts it \
+         lists:\n{paragraph}"
+    );
+    for part in [
+        "crates/crossfx-dsp",
+        "assets/presets/Factsoft",
+        "assets/images",
+        "assets/translations/*.txt",
+        "assets/translations/port/",
+    ] {
+        assert!(
+            flat.contains(part),
+            "debian/copyright's Files: * comment does not name {part}:\n{paragraph}"
         );
     }
 }
@@ -455,5 +528,45 @@ fn debian_copyright_gives_the_artwork_the_holders_the_readme_gives_it() {
         wrong.is_empty(),
         "debian/copyright gives this artwork to the wrong holders:\n{}",
         wrong.join("\n")
+    );
+}
+
+/// Every `.rs` file under `dir`, read into one string.
+fn rust_sources(dir: &Path, into: &mut String) {
+    for entry in fs::read_dir(dir).expect("the directory is listed") {
+        let path = entry.expect("an entry").path();
+        if path.is_dir() {
+            rust_sources(&path, into);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            into.push_str(&fs::read_to_string(&path).unwrap_or_default());
+        }
+    }
+}
+
+/// The tree ships no artwork nothing uses: each image of `assets/images` is named by the source
+/// of one of the crates (the interface embeds them with `include_bytes!`), so that the original's
+/// button states and equalizer glyph, which CrossFX never drew with, are not carried for nothing.
+#[test]
+fn every_image_in_assets_images_is_used_by_the_source() {
+    let mut source = String::new();
+    for crate_dir in fs::read_dir(repo().join("crates")).expect("crates is listed") {
+        let src = crate_dir.expect("an entry").path().join("src");
+        if src.is_dir() {
+            rust_sources(&src, &mut source);
+        }
+    }
+    let unused: Vec<String> = artwork()
+        .iter()
+        .filter_map(|path| path.strip_prefix("assets/images/"))
+        .filter(|name| {
+            name.ends_with(".svg")
+                && !(source.contains(&format!("\"{name}\""))
+                    || source.contains(&format!("/{name}\"")))
+        })
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "assets/images holds images no crate refers to; remove them: {unused:?}"
     );
 }

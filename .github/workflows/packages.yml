@@ -393,9 +393,10 @@ jobs:
           test -f "$prefix/share/icons/hicolor/scalable/apps/$name.svg"
           echo "::endgroup::"
 
-          # Three parts of the tree compiled into the binary are not AGPL, and each licence makes
-          # shipping its text a condition of shipping the binary: the RNNoise code (BSD-3-Clause),
-          # and the Noto and the Manrope faces (SIL OFL 1.1, each with its own notice). Which
+          # Parts compiled into the binary are not AGPL, and each licence makes shipping its text a
+          # condition of shipping the binary: the RNNoise code (BSD-3-Clause), the Noto and the
+          # Manrope faces (SIL OFL 1.1, each with its own notice), and the three faces of egui's
+          # epaint_default_fonts (Ubuntu Light, Hack, egui's icons). Which
           # notices those are is read from packaging/build-tarball.sh, which installs each under
           # the name every package gives it, so that a notice added there is checked on every leg
           # here as well. Read out of the package this leg built wherever a container image may
@@ -413,7 +414,7 @@ jobs:
           notices=$(sed -n \
             's|^install -Dm644 \([^ ]*\) "${pkg}/share/doc/crossfx/\([^"]*\)"$|\2 \1|p' \
             "$GITHUB_WORKSPACE/packaging/build-tarball.sh")
-          for name in COPYING.rnnoise OFL.noto OFL.manrope; do
+          for name in COPYING.rnnoise OFL.noto OFL.manrope UFL.ubuntu MIT.hack MIT.emoji-icons; do
             if ! awk -v name="$name" '$1 == name { found = 1 } END { exit !found }' <<<"$notices"; then
               echo "::error::packaging/build-tarball.sh does not install $name the way this check reads it"
               exit 1
@@ -485,10 +486,11 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 90
     env:
-      # WiX 5.0.2 and nothing later: WiX 6 and 7 build only once `wix eula accept` has accepted
-      # the Open Source Maintenance Fee licence, which this project has not. Inno Setup 6, the
-      # release packaging/windows/crossfx.iss was compiled with.
-      WIX_VERSION: '5.0.2'
+      # WiX 7.0.1, the release packaging/windows/build-windows.ps1 is tested with. WiX 7 builds only
+      # with the Open Source Maintenance Fee (OSMF) EULA accepted, which the owner has done for this
+      # free project: every wix command passes `-acceptEula wix7`. Inno Setup 6, the release
+      # packaging/windows/crossfx.iss was compiled with.
+      WIX_VERSION: '7.0.1'
       INNO_SETUP_VERSION: '6.7.3'
     # Windows PowerShell 5.1, which the scripts are written and tested against. The runner's
     # wrapper stops on a failing cmdlet but not on a failing program, hence the exit-code checks.
@@ -538,7 +540,7 @@ jobs:
           dotnet tool install --global wix --version $env:WIX_VERSION
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $wix = Join-Path $env:USERPROFILE '.dotnet\tools\wix.exe'
-          & $wix extension add -g "WixToolset.UI.wixext/$env:WIX_VERSION"
+          & $wix extension add -g -acceptEula wix7 "WixToolset.UI.wixext/$env:WIX_VERSION"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $wix --version
           Add-Content -LiteralPath $env:GITHUB_PATH -Value (Split-Path -Parent $wix)
