@@ -73,7 +73,7 @@ const PAIRS: &[Pair] = &[
         item: "#13",
         twins: &[
             "at_interface_and_sound_a_curve_of_another_count_is_read_by_position_as_on_windows",
-            "the_windows_remap_by_position_is_0f05ba5s",
+            "the_windows_remap_by_position_is_cccf702s",
             "at_interface_and_sound_a_curve_of_another_count_is_fitted_by_position",
         ],
     },
