@@ -574,7 +574,9 @@ fn check_settings(path: &Path) -> Check {
             );
         }
         // A directory is left where it is, and every save fails until someone removes it.
-        Err(err) if err.kind() == io::ErrorKind::IsADirectory => {
+        // Windows (and Unix, for an unreadable directory) reports opening one as a denied
+        // access, not `IsADirectory`, so ask the path too, as `Settings::load_from` does.
+        Err(err) if err.kind() == io::ErrorKind::IsADirectory || path.is_dir() => {
             return Check::fail(NAME, format!("{}: {err}", path.display()));
         }
         Err(err) => {
@@ -1852,6 +1854,20 @@ pub(crate) mod tests {
         );
         assert!(path.is_file(), "the file was moved");
         assert!(!tmp.path().join("settings.toml.2.bad").exists());
+    }
+
+    #[test]
+    fn a_directory_in_place_of_the_settings_file_fails_and_is_not_promised_a_move() {
+        // `Settings::load_from` leaves a directory where it is on every OS; the self-test
+        // must not say it will be moved aside as `settings.toml.bad`.
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.toml");
+        fs::create_dir(&path).unwrap();
+        let settings = check_settings(&path);
+        assert_eq!(settings.status, Status::Fail);
+        assert!(!settings.detail.contains(".bad"), "{}", settings.detail);
+        assert!(!settings.detail.contains("move it aside"), "{}", settings.detail);
+        assert!(path.is_dir(), "the directory was moved");
     }
 
     #[test]
