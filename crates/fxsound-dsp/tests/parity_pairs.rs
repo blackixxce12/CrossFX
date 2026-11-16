@@ -15,7 +15,7 @@
 //!
 //! One item has a twin of another kind. The voice chain's frozen fixture (`frozen_voice_chain.rs`)
 //! was re-measured for the limiter's fixes (#8, R1, R2), which Dynamic Boost's limiter shares; the
-//! Windows build has no voice chain, so at every level the voice chain keeps them, and the twin is
+//! original has no voice chain, so at every level the voice chain keeps them, and the twin is
 //! the application's test that Interface and sound leaves every voice route's snapshot alone.
 
 use std::path::{Path, PathBuf};

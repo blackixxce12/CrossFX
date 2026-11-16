@@ -18,7 +18,7 @@ windowrule {
     float = true
     border_size = 0
     rounding = 8
-    # The app paints its own drop shadow; disable the compositor's to match Windows.
+    # The original FxSound's window has no drop shadow; disable the compositor's to match it.
     no_shadow = true
 }
 

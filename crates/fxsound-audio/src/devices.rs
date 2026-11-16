@@ -1057,10 +1057,11 @@ impl DeviceInfo {
 /// `sndDevicesReg.cpp:125-128` reads back for a missing value. The engine keeps one of these per
 /// direction, so trying a microphone never forgets which speakers the user had.
 ///
-/// Unlike Windows, `user_selected` is actually written — by [`UiToAudio::SelectDevice`]. The
-/// original declared the value and read it in four places but never wrote it
-/// (`docs/spec/12-audio-io.md` open question 8), expressing user choice by forcing the system
-/// default instead; recording the preference without mutating global state is the honest version.
+/// Unlike the original FxSound for Windows, `user_selected` is actually written — by
+/// [`UiToAudio::SelectDevice`]. The original declared the value and read it in four places but
+/// never wrote it (`docs/spec/12-audio-io.md` open question 8), expressing user choice by forcing
+/// the system default instead; recording the preference without mutating global state is the
+/// honest version.
 ///
 /// [`UiToAudio::SelectDevice`]: fxsound_core::messages::UiToAudio::SelectDevice
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

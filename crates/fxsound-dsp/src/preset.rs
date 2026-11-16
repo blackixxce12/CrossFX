@@ -26,7 +26,7 @@
 //! The levels every music chain shares — the filter width, the master gain, the balance and the
 //! volume leveller — are the settings', not the preset's ([`MusicLevels`]), and so is whose DSP
 //! plays them: CrossFX's, or at «Like the original FxSound LLC» = Interface and sound the
-//! Windows build's ([`DspCompat`]). The same `.fac` is read at either, and the Windows DSP reads
+//! original's ([`DspCompat`]). The same `.fac` is read at either, and the Windows DSP reads
 //! it as the original does: Ambience's slider on its straight line again (audit #39), a curve
 //! of another count by position (#13), and twenty bands on the Windows ladder, a curve on the
 //! half-octave one moved onto it band for band (R4) — so a preset taken there and back is the

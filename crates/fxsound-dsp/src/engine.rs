@@ -19,12 +19,12 @@
 //! alone). With the power off it calls `GraphicEqProcess_MasterGainOnly` (`:158-169`), the master
 //! gain alone and no balance (`SosProcess.cpp:500-516`), behind the same equalizer test — and on
 //! 5.1 or 7.1, where that test read `(i_eq_on) && a || b || c` until aad64c1 bracketed it, whatever
-//! the equalizer said. So on Windows the level jumped by the master gain whenever the equalizer's
-//! switch moved, and a mix balanced to one side recentred the moment CrossFX went off. Here the
-//! gain stage is taken out of the block and runs on every path, so neither switch moves the level
-//! by the master gain or the balance: at −6 dB and a balance of +6 dB each side plays −12/−6 dB
-//! powered with the equalizer on or off, and the same with CrossFX off, within Dynamic Boost's 0.3
-//! dB ceiling.
+//! the equalizer said. So in the original FxSound for Windows the level jumped by the master gain
+//! whenever the equalizer's switch moved, and a mix balanced to one side recentred the moment it
+//! went off. Here the gain stage is taken out of the block and runs on every path, so neither
+//! switch moves the level by the master gain or the balance: at −6 dB and a balance of +6 dB each
+//! side plays −12/−6 dB powered with the equalizer on or off, and the same with CrossFX off,
+//! within Dynamic Boost's 0.3 dB ceiling.
 //!
 //! It runs *before* the equalizer rather than between it and the leveller, where the original's
 //! block had it, so that the equalizer's switch can fade the rest of the block in and out against
@@ -913,8 +913,8 @@ impl SideGains {
 }
 
 /// The side each channel of a `channels`-channel block takes the balance for in the Windows DSP
-/// (audit report #44 as Windows has it): channels 0 and 1 of a stereo block, and nothing on any
-/// other count — its surround path multiplies every channel by the master gain alone
+/// (audit report #44 as the original has it): channels 0 and 1 of a stereo block, and nothing on
+/// any other count — its surround path multiplies every channel by the master gain alone
 /// (`SosProcess.cpp:846-908`), and it has no path for 3, 4, 5 or 7 channels, which take the
 /// master gain alone here too. The power-off bypass is the master gain alone on every channel at
 /// any count, which the stage's factors already say.
@@ -1708,10 +1708,11 @@ mod tests {
     #[test]
     fn switching_crossfx_off_with_the_equalizer_off_keeps_the_level_and_the_balance() {
         // Audit report R3, the user's decision: the master gain and the balance play powered with
-        // the equalizer off as well. Windows plays neither there (0 dB on both sides, less Dynamic
-        // Boost's 0.3 dB), and with CrossFX off it plays neither either; the port's first answer
-        // to R3 brought them in on switching off, a step of 11.7 and 5.7 dB. Now both paths play
-        // -12 dB on the left and -6 dB on the right, within the ceiling's 0.3 dB of each other.
+        // the equalizer off as well. The original FxSound for Windows plays neither there (0 dB
+        // on both sides, less Dynamic Boost's 0.3 dB), and switched off it plays neither either;
+        // CrossFX's first answer to R3 brought them in on switching off, a step of 11.7 and
+        // 5.7 dB. Now both paths play -12 dB on the left and -6 dB on the right, within the
+        // ceiling's 0.3 dB of each other.
         let (powered, bypassed) = power_switch_levels(false);
         assert_levels(&powered, &[-12.3, -6.3], "powered, equalizer off");
         assert_levels(&bypassed, &[-12.0, -6.0], "bypassed, equalizer off");
@@ -1719,10 +1720,11 @@ mod tests {
 
     #[test]
     fn switching_the_equalizer_off_keeps_the_master_gain_and_the_balance() {
-        // Audit report R3, the user's decision. On Windows the equalizer's switch took the master
-        // gain and the balance with it (the original's aad64c1), so at -6 dB and +6 dB switching
-        // the equalizer off jumped the left side up 12 dB and the right 6 dB. With a flat curve and
-        // no levelling the switch now moves neither side at all.
+        // Audit report R3, the user's decision. In the original FxSound for Windows the
+        // equalizer's switch took the master gain and the balance with it (the original's
+        // aad64c1), so at -6 dB and +6 dB switching the equalizer off jumped the left side up
+        // 12 dB and the right 6 dB. With a flat curve and no levelling the switch now moves
+        // neither side at all.
         let levels = |eq_on| {
             settled_side_levels(&DspParams {
                 eq_on,
@@ -3309,8 +3311,8 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_the_balance_plays_on_stereo_only_as_the_windows_c_code_has_it() {
-        // Audit report #44 as Windows: on 6 and 8 channels every speaker takes the master gain and
-        // none the balance; on stereo the left takes the balance too.
+        // Audit report #44 as the original has it: on 6 and 8 channels every speaker takes the
+        // master gain and none the balance; on stereo the left takes the balance too.
         for (channels, vector) in WINDOWS_GAIN_STAGE {
             let mut engine = Engine::new(48_000.0, 64, channels);
             engine.set_lfe_channel((channels >= 6).then_some(LFE));

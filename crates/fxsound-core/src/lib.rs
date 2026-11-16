@@ -1918,7 +1918,8 @@ mod tests {
 
     #[test]
     fn a_curve_for_windows_has_its_end_bands_put_back_on_the_ladders_edges() {
-        // Audit report R6: a `.fac` Windows reads carries end bands its wheels can show.
+        // Audit report R6: a `.fac` the original FxSound for Windows reads carries end bands its
+        // wheels can show.
         let mut ten = eq::default_bands();
         ten[0].center_hz = 46.0;
         ten[9].center_hz = 20000.0;

@@ -1504,9 +1504,9 @@ mod tests {
 
     #[test]
     fn the_overshoot_is_the_originals_2_26_on_a_low_sine_at_twice_the_ceiling() {
-        // The twin of `a_low_sine_cannot_drive_the_envelope_past_its_own_peak`, as Windows plays
-        // it: with the overshoot the envelope climbs past the crest to 2.26, and nothing leaves
-        // above the ceiling all the same.
+        // The twin of `a_low_sine_cannot_drive_the_envelope_past_its_own_peak`, as the original
+        // plays it: with the overshoot the envelope climbs past the crest to 2.26, and nothing
+        // leaves above the ceiling all the same.
         let mut l = original_timing(0.0);
         l.set_overshoot(true);
         assert!(l.overshoot());

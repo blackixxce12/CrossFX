@@ -58,9 +58,9 @@
 //! 4 and 5 again with CrossFX's hook in WirePlumber (`crate::wireplumber_hook`, D5), which fades
 //! the moves WirePlumber makes itself;
 //!
-//! and the music equalizer and presets, the voice equalizer and presets, and «Like CrossFX for
-//! Windows» moved between Off and Interface and sound, on the lane and in an application's route
-//! (roadmap 0.5.0 §1 A4). Every stream but the
+//! and the music equalizer and presets, the voice equalizer and presets, and «Like the original
+//! FxSound LLC» moved between Off and Interface and sound, on the lane and in an application's
+//! route (roadmap 0.5.0 §1 A4). Every stream but the
 //! pinned ones of the first test follows the default, as most applications' do. Both lanes but in
 //! the preset tests, which play into the lane a preset belongs to. Tests 4 and 5 run as the engine
 //! does until the app ranks its devices, following the system's default device: the mode in which
@@ -864,7 +864,7 @@ impl Switch {
             Self::Route(false) => "route off".to_owned(),
             Self::Device(other) => format!("CrossFX picks {}", lane_devices(*other).join(", ")),
             Self::Desktop(other) => format!("desktop picks {}", lane_devices(*other).join(", ")),
-            Self::Parity(level, _) => format!("like Windows: {}", level.key()),
+            Self::Parity(level, _) => format!("like the original: {}", level.key()),
         }
     }
 }
@@ -2391,7 +2391,7 @@ fn under_a_steady_tone_the_equalizer_and_the_music_presets_switch_without_a_clic
 fn under_a_steady_tone_moving_like_the_original_fxsound_llc_between_off_and_sound_does_not_click() {
     check(&Scenario {
         tag: "clk-parity",
-        title: "like Windows, Off and Interface and sound",
+        title: "like the original, Off and Interface and sound",
         streams: Streams::Following,
         lanes: &[DeviceDirection::Output],
         switches: vec![
@@ -2422,7 +2422,7 @@ fn under_a_steady_tone_moving_like_the_original_fxsound_llc_in_an_application_ro
 {
     check(&Scenario {
         tag: "clk-parroute",
-        title: "like Windows, Off and Interface and sound, in an application's route",
+        title: "like the original, Off and Interface and sound, in an application's route",
         streams: Streams::Following,
         lanes: &[DeviceDirection::Output],
         switches: vec![

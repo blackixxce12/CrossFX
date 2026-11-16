@@ -51,7 +51,7 @@
 //! # Where this departs from `Maxi32.c`
 //!
 //! Five changes, each a defect of the original that the 0.4.0 audit of what CrossFX copied found
-//! audible, and each one a reason CrossFX no longer sounds exactly like Windows here:
+//! audible, and each one a reason CrossFX no longer sounds exactly like the original here:
 //!
 //! * **#6 — slider 0 boosts nothing.** The anti-pumping floor at `Maxi32.c:288-289` stops the
 //!   back-off at ×1.06 (+0.5 dB) whatever the slider says, so at slider 0 — Flat, and stored values
@@ -875,7 +875,7 @@ mod tests {
         // The inherited quirk, spec §15.5. `DFXP_MUSIC_MODE2_DYNAMIC_BOOST_FACTOR = 1.8` is applied
         // before a clamp written to keep a 128-entry lookup in range, and `f32(1.8 × 70)` rounds to
         // exactly 126.0 — so 58 of the 128 storable values collapse onto one table index. The
-        // Windows build does the same; this is pinned so nobody "fixes" the clamp order later and
+        // original does the same; this is pinned so nobody "fixes" the clamp order later and
         // silently changes what every preset ever made sounds like.
         //
         // The *slider* no longer walks into this dead zone — `scale::slider_to_value_for` spreads

@@ -2889,7 +2889,7 @@ mod tests {
     #[test]
     fn end_bands_tuned_past_the_windows_ranges_are_exported_inside_them() {
         // 0.4.0 audit R6: here band 1 of ten reaches down to 46 Hz and band 10 up to 20 kHz; the
-        // Windows build's wheels stop at 62.5 Hz and 16 kHz.
+        // original's wheels stop at 62.5 Hz and 16 kHz.
         let tmp = tempdir("export-wide-ends");
         let mut store = PresetStore::with_dirs(Vec::new(), tmp.join("user"));
         let mut wide = Preset {

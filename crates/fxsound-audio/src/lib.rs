@@ -494,7 +494,8 @@ pub enum AudioError {
     #[error("no output devices present")]
     NoOutputDevices,
     /// No `Audio/Source` node exists other than ours. The input-direction twin of
-    /// [`AudioError::NoOutputDevices`]; Windows had no capture mode and so no code for it.
+    /// [`AudioError::NoOutputDevices`]; the original FxSound for Windows had no capture mode and so
+    /// no code for it.
     #[error("no input devices present")]
     NoInputDevices,
     /// The requested device is not in the graph. ≡ `-2 SND_DEVICES_DEVICE_NOT_PRESENT`.

@@ -23,7 +23,7 @@
 //! `scripts/voicing/` hear what the application plays, not the raw values of the file. The
 //! effect flags and `--no-eq` are set over the preset, whatever order they come in.
 //! `--compat windows` (or `--windows-dsp`) plays it as «Like the original FxSound LLC» = Interface
-//! and sound does, through the original's DSP ([`fxsound_core::DspCompat`]) and the Windows build's
+//! and sound does, through the original's DSP ([`fxsound_core::DspCompat`]) and the original's
 //! reading of it — a curve of another count by position, twenty bands on the Windows ladder,
 //! Ambience's slider on its straight line; `--compat linux`, the default, is Off's, and
 //! `preset_drift.rs` takes the same choice (`PRESET_DRIFT_COMPAT`). A build that has one DSP only
