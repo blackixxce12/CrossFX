@@ -153,7 +153,7 @@ Jazz,new,h,sure,2,old|new|dry,2026-09-21T02:50:16+04:00
   finding worth having. Pull the voicing back toward flat rather than tuning it
   sideways.
 - **`flags` contains `p`** (pumping) — look at Dynamic Boost before anything else.
-  The port has a known cliff there: stored positions 6 through 10 are all
+  CrossFX has a known cliff there: stored positions 6 through 10 are all
   +11.60 dB, so a preset sitting above stored 70 is shouting at the same volume
   regardless of what its slider says. The fix is to move the stored value down
   into the 0..70 range where it still does something, not to nudge the slider.
@@ -211,11 +211,11 @@ engine. `FXSV_WORK` keeps the run apart from a revoicing session's votes.
 
 ```sh
 # from the repository root; keep the checkout off /tmp, a release build does not fit a tmpfs
-scripts/reference-checkout.sh --with-process-wav <commit> ../fxsound-before
-(cd ../fxsound-before && cargo build --release -p fxsound-dsp --example process_wav)
+scripts/reference-checkout.sh --with-process-wav <commit> ../crossfx-before
+(cd ../crossfx-before && cargo build --release -p fxsound-dsp --example process_wav)
 
 export FXSV_WORK="$PWD/target/voicing-engine"
-export FXSV_OLD_PROCESS_WAV="$(cd ../fxsound-before && pwd)/target/release/examples/process_wav"
+export FXSV_OLD_PROCESS_WAV="$(cd ../crossfx-before && pwd)/target/release/examples/process_wav"
 export FXSV_NEW_PRESETS="$FXSV_WORK/presets-new"
 mkdir -p "$FXSV_WORK/presets-old" "$FXSV_NEW_PRESETS" "$FXSV_WORK/material"
 cp assets/presets/BonusPresets/*.fac "$FXSV_NEW_PRESETS/"
@@ -234,11 +234,11 @@ In the tally, `old` is the older engine and `new` the current one; `dry` still
 means the untouched excerpt beat both. `crates/fxsound-dsp/tests/preset_drift.rs`
 is the measuring half of the same question.
 
-The same set-up compares «Like FxSound for Windows» = Interface and sound with Off
-in one build: `process_wav --compat windows` plays a preset through the Windows
-build's DSP and reads it as the Windows build does (a curve of another band
-count by position, twenty bands on the Windows ladder), as that level does.
-Point `FXSV_OLD_PROCESS_WAV` at a wrapper that adds it, and `old` is the Windows
+The same set-up compares «Like the original FxSound LLC» = Interface and sound
+with Off in one build: `process_wav --compat windows` plays a preset through the
+original's DSP and reads it as the original does (a curve of another band count
+by position, twenty bands on the original's ladder), as that level does. Point
+`FXSV_OLD_PROCESS_WAV` at a wrapper that adds it, and `old` is the original's
 sound:
 
 ```sh
@@ -251,7 +251,7 @@ export FXSV_OLD_PROCESS_WAV="$FXSV_WORK/windows-dsp"
 ```
 
 The measuring half takes the same choice: `PRESET_DRIFT_COMPAT=windows` renders
-every shipped preset through the Windows build's DSP, and set beside a run at Off
+every shipped preset through the original's DSP, and set beside a run at Off
 (`PRESET_DRIFT_BEFORE`) prints what the level changes, preset by preset
 (`crates/fxsound-dsp/tests/preset_drift.rs`).
 

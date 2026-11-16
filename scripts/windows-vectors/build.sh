@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Rebuild the golden vectors the Windows DSP of «Like FxSound for Windows» is held to (A2): the
-# C of FxSound LLC's Windows build, compiled here, prints what the unit tests compare against.
+# Rebuild the golden vectors the Windows DSP of «Like the original FxSound LLC» is held to (A2):
+# the C of FxSound LLC's Windows build, compiled here, prints what the unit tests compare against.
 #
 #   scripts/windows-vectors/build.sh <checkout of https://github.com/fxsound2/fxsound-app>
 #
@@ -13,7 +13,7 @@ set -euo pipefail
 [ $# -eq 1 ] || { echo "usage: $0 <fxsound-app checkout>" >&2; exit 2; }
 app="$(cd "$1" && pwd)"
 here="$(cd "$(dirname "$0")" && pwd)"
-work="$(mktemp -d "${TMPDIR:-$HOME}/fxsound-windows-vectors.XXXXXX")"
+work="$(mktemp -d "${TMPDIR:-$HOME}/crossfx-windows-vectors.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 # The Windows headers pull in <crtdbg.h>, <windows.h> and, off Windows, <android/log.h>; none of

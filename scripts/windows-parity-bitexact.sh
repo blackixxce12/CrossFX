@@ -11,12 +11,13 @@
 #                                                         # from the engine before the 0.4.0
 #                                                         # audit's fixes
 #
-# --compat=windows has the working tree play the Windows build's DSP, as «Like FxSound for
-# Windows» = Interface and sound does (FXSOUND_BITEXACT_COMPAT); the default is linux, Off's.
+# --compat=windows has the working tree play the original's DSP, as
+# «Like the original FxSound LLC» = Interface and sound does (FXSOUND_BITEXACT_COMPAT); the default
+# is linux, Off's.
 #
 # 3596e99 is the reference for "Interface and sound": its crates/fxsound-dsp and its preset
 # parser are 0f05ba5's, the last engine before the audit's fixes, byte for byte, and its
-# application is the one that played a preset on the user's band count as Windows does, by
+# application is the one that played a preset on the user's band count as the original does, by
 # position — which 0f05ba5's own application did not do yet.
 #
 # The reference is checked out with scripts/reference-checkout.sh into --dir (default

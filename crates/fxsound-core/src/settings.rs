@@ -266,14 +266,13 @@ mod folder_tests {
     #[test]
     fn the_check_for_the_originals_folder_ignores_case() {
         assert!(names_the_original(Path::new(
-            "/home/u/.config/fxsound/settings.toml"
+            "C:/Users/u/AppData/Roaming/FxSound/FxSound.settings"
         )));
         assert!(names_the_original(Path::new("/x/FXSOUND")));
         assert!(names_the_original(Path::new("FxSound/Presets")));
         assert!(!names_the_original(Path::new(
-            "/home/u/.config/crossfx/fxsound.toml"
+            "C:/Users/u/AppData/Roaming/CrossFX/settings.toml"
         )));
-        assert!(!names_the_original(Path::new("/x/FxSound Port")));
     }
 
     /// On Windows, where `%APPDATA%\FxSound` and `%LOCALAPPDATA%\FxSound` are the original's: every

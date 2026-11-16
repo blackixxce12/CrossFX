@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check an older commit out beside this one, ready to be the other side of a two-build comparison:
-# the bit-exactness harness of «Like FxSound for Windows»
+# the bit-exactness harness of «Like the original FxSound LLC»
 # (crates/fxsound-dsp/tests/windows_parity_bitexact.rs, scripts/windows-parity-bitexact.sh), the
 # drift measurement (crates/fxsound-dsp/tests/preset_drift.rs) and the "two engines" listening
 # comparison (scripts/voicing/README.md).
@@ -14,11 +14,11 @@
 # than the application's music_controls (0f05ba5 and before) played a preset on the preset's own
 # band count, with the effects read through the sliders; its preset.rs says so and does that.
 #
-# A commit older than the Windows DSP of «Like FxSound for Windows» (0.5.0's W1b) has one DSP only,
-# and no MusicLevels::with_windows_dsp to choose it with; the comparisons call it on both sides, so
-# such a commit gets one that changes nothing. A commit older than the Windows reading of a preset
-# (W1c) reads one way whichever DSP plays: it gets MusicLevels::ladder, slider_to_value and
-# value_to_slider that are its own ladder and slider mappings.
+# A commit older than the Windows DSP of «Like the original FxSound LLC» (0.5.0's W1b) has one
+# DSP only, and no MusicLevels::with_windows_dsp to choose it with; the comparisons call it on both
+# sides, so such a commit gets one that changes nothing. A commit older than the Windows reading of
+# a preset (W1c) reads one way whichever DSP plays: it gets MusicLevels::ladder, slider_to_value
+# and value_to_slider that are its own ladder and slider mappings.
 #
 # The measuring files are this checkout's, copied over: the harness, preset_drift.rs, their
 # material modules and, with --with-process-wav, the process_wav example.

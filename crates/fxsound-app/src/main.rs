@@ -1518,7 +1518,7 @@ impl<'a> Shell<'a> {
     /// The hamburger menu (`FxMainWindow.cpp:507-553`, `docs/spec/01-window-layout.md` §4.4,
     /// `docs/spec/03-controls.md` §8.5).
     ///
-    /// Absent on purpose: Donate (removed from this fork), Download Bonus Presets and Check for
+    /// Absent on purpose: Donate (removed from CrossFX), Download Bonus Presets and Check for
     /// updates (no network; the bonus presets ship in the package), Always On Top (winit's
     /// Wayland backend ignores window levels, and a control that does nothing is worse than
     /// none). Save New Preset and Rename Preset open the original's inline name editor

@@ -2142,7 +2142,7 @@ mod tests {
 
     #[test]
     fn the_harmonic_generator_is_kept_out_of_the_subwoofer() {
-        // `docs/spec/08-dsp-api.md:905-906` — the original sends Fidelity to the front, rear, side
+        // `docs/spec/08-dsp-api.md:962-963` — the original sends Fidelity to the front, rear, side
         // and centre instances and explicitly not to the LFE. Putting sine-fold harmonics on the
         // one channel that exists to carry only the bottom two octaves is the clearest possible
         // case of the wrong signal in the wrong place.

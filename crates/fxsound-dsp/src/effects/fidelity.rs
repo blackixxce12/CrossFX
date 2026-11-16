@@ -180,7 +180,7 @@ impl Effect for Fidelity {
             // The glide's value for this frame; the drive it was set to, exactly, when none runs.
             let drive = self.drive.advance();
             for (channel, sample) in frame.iter_mut().enumerate() {
-                // The subwoofer never gets this. `docs/spec/08-dsp-api.md:905-906`: the original
+                // The subwoofer never gets this. `docs/spec/08-dsp-api.md:962-963`: the original
                 // sends the harmonic generator to the front, rear, side and centre instances and
                 // explicitly not to the LFE — and it would not survive the trip anyway, since the
                 // waveshaper's whole output is high-frequency content on a channel that is
