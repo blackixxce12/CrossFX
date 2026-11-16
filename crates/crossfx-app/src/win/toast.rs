@@ -135,20 +135,27 @@ fn register_app_id(icon: Option<&PathBuf>) -> windows::core::Result<()> {
     Ok(())
 }
 
-/// The icon a toast is shown with: the tray's blue bars, written once as a PNG where the
-/// registration can point at it ([`icon_path`]). `None` when it cannot be written; the toast then
-/// has Windows' default.
+/// The icon a toast is shown with: the tray's "processing" icon, CrossFX's wave-X in cyan, as a
+/// PNG where the registration can point at it ([`icon_path`]). It is drawn once in every run, for
+/// the first notification, and written over a file that holds anything else, so that the picture
+/// this build draws is the one its notifications show. `None` when there is none to point at;
+/// the toast then has Windows' default.
 fn toast_icon() -> Option<PathBuf> {
     let path = icon_path()?;
-    if path.is_file() {
+    let Some(png) = crate::tray::rasterise_png(crate::tray::TrayIcon::Processing.svg(), 64) else {
+        return path.is_file().then_some(path);
+    };
+    if std::fs::read(&path).is_ok_and(|written| written == png) {
         return Some(path);
     }
-    let png = crate::tray::rasterise_png(crate::tray::TrayIcon::Processing.svg(), 64)?;
-    std::fs::create_dir_all(path.parent()?)
-        .and_then(|()| std::fs::write(&path, png))
-        .map_err(|err| log::debug!("no icon for the notifications: {err}"))
-        .ok()?;
-    Some(path)
+    let dir = path.parent()?;
+    match std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&path, png)) {
+        Ok(()) => Some(path),
+        Err(err) => {
+            log::debug!("the notifications' icon could not be written: {err}");
+            path.is_file().then_some(path)
+        }
+    }
 }
 
 /// Where the toasts' icon is kept: `notification.png` in CrossFX's own local folder,

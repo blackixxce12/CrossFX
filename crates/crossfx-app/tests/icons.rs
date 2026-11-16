@@ -1,9 +1,11 @@
 //! CrossFX's icon as the tree carries it is what its two drawings draw (`crossfx_app::icon`): the
 //! PNG of every size the Linux packages install, and every frame of `crossfx.exe`'s icon. A
 //! drawing changed without `cargo run -p crossfx-app --example icons` after it fails here, and so
-//! does a bitmap resampled from another size instead of drawn at its own.
+//! does a bitmap resampled from another size instead of drawn at its own. And the tray's three
+//! icons are its wave-X, one colour per state.
 
 use crossfx_app::icon;
+use crossfx_app::tray::{TrayIcon, rasterise_rgba};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -200,4 +202,60 @@ fn assert_dib_is_the_drawing(frame: &[u8], size: u32) {
             drawing(size)
         );
     }
+}
+
+/// The wave-X of the tray's icons, as their SVGs draw it in a square of 256 units: the diagonal,
+/// then the wave.
+const WAVE_X: &str =
+    "M44 44 L212 212 M44 212 C100.3 212.3 128.3 184.3 128 128 C127.7 71.7 155.7 43.7 212 44";
+
+#[test]
+fn every_status_icon_is_the_wave_x_alone_in_its_states_colour() {
+    let mut colours = Vec::new();
+    for state in TrayIcon::ALL {
+        let svg = std::str::from_utf8(state.svg()).expect("utf-8");
+        assert!(
+            svg.contains(r#"viewBox="0 0 256 256""#),
+            "{state:?}: a square, so that no host squeezes the glyph"
+        );
+        assert_eq!(svg.matches("<path").count(), 1, "{state:?}: one path");
+        assert!(
+            svg.contains(&format!(r#"d="{WAVE_X}""#)),
+            "{state:?}: the wave-X"
+        );
+        assert!(
+            !svg.contains("<rect") && svg.contains(r#"fill="none""#),
+            "{state:?}: the glyph alone, on a transparent background"
+        );
+        let at = svg.find("stroke=\"").expect("a stroke colour") + "stroke=\"".len();
+        let colour = svg[at..at + 7].to_owned();
+
+        // Drawn at 32 pixels: clear in the corner, and opaque in that colour where the diagonal
+        // and the wave cross.
+        let rgba = rasterise_rgba(state.svg(), 32).expect("drawn");
+        assert_eq!(rgba[3], 0, "{state:?}: the corner");
+        let middle = (16 * 32 + 16) * 4;
+        let hex = format!(
+            "#{:02x}{:02x}{:02x}",
+            rgba[middle],
+            rgba[middle + 1],
+            rgba[middle + 2]
+        );
+        assert_eq!(
+            (hex.as_str(), rgba[middle + 3]),
+            (colour.as_str(), 255),
+            "{state:?}"
+        );
+        colours.push(colour);
+    }
+    // The Windows tray draws "on" dark on a light taskbar by putting another colour where this
+    // white is, spelled as it is spelled here.
+    assert_eq!(
+        colours,
+        ["#6f6f6f", "#ffffff", "#2dd4e6"],
+        "grey, white, cyan"
+    );
+    // The cyan is the application icon's.
+    let app = String::from_utf8_lossy(icon::SVG).to_lowercase();
+    assert!(app.contains(r##"stroke="#2dd4e6""##), "{app}");
 }

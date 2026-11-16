@@ -16,7 +16,7 @@
 //!   theme change (which cannot be posted at all), Explorer's `TaskbarCreated`, and the shell's
 //!   callbacks for the icon. A sent message is handled inside `GetMessageW`, which then goes on
 //!   waiting, so what it left behind waited for some unrelated message: a switch to the light
-//!   theme left white bars on the light taskbar until the sound next started or stopped, and a
+//!   theme left a white icon on the light taskbar until the sound next started or stopped, and a
 //!   click that came with no pointer moves to start tray-icon's timer — a tap on a touch screen,
 //!   the keyboard's Enter on the icon — could wait as long. Whatever a window procedure,
 //!   tray-icon or muda reports is recorded (`Pending`) and followed by a posted `WM_WAKE`
@@ -39,9 +39,9 @@
 //!   (`FxSystemTrayView.cpp:446-455`), and a double click counts once — the second click of it is
 //!   not a second toggle that would close the window it just opened. The right button opens the
 //!   menu.
-//! - **The icon** is the same SVG rasterised at the notification area's size, and the white bars
-//!   of "on" are drawn dark on a light taskbar, where white would not be seen. The original keyed
-//!   its icons to its own theme; the taskbar's is the one the icon is drawn on.
+//! - **The icon** is the same SVG rasterised at the notification area's size, and the white
+//!   wave-X of "on" is drawn near-black on a light taskbar, where white would not be seen. The
+//!   original keyed its icons to its own theme; the taskbar's is the one the icon is drawn on.
 //! - **The tooltip** is the original's, cut at the 127 characters the notification area keeps.
 
 use std::cell::{Cell, RefCell};
@@ -104,9 +104,9 @@ const ICON_SUBCLASS: usize = 1;
 /// terminating NUL).
 const TOOLTIP_UNITS: usize = 127;
 
-/// What the bars of "on" are drawn with on a light taskbar: the near-black of the system's own
-/// glyphs there.
-const ON_LIGHT_TASKBAR: &str = "#1f1f1f";
+/// What the wave-X of "on" is drawn with on a light taskbar instead of its white: the near-black
+/// CrossFX's icon has for light taskbars, close to the system's own glyphs there.
+const ON_LIGHT_TASKBAR: &str = "#1b1b1b";
 
 /// Why there is no tray.
 #[derive(Debug)]
@@ -1234,18 +1234,25 @@ mod tests {
                 "something is drawn"
             );
         }
-        let brightest = |rgba: &[u8]| {
+        let opaque = |rgba: &[u8]| -> Vec<u32> {
             rgba.chunks(4)
                 .filter(|pixel| pixel[3] == 255)
                 .map(|pixel| u32::from(pixel[0]) + u32::from(pixel[1]) + u32::from(pixel[2]))
-                .max()
-                .unwrap_or(0)
+                .collect()
         };
+        let (dark, light) = (opaque(&icons.on_dark), opaque(&icons.on_light));
         assert!(
-            brightest(&icons.on_dark) > 700,
-            "white bars on a dark taskbar"
+            !dark.is_empty() && dark.len() == light.len(),
+            "the same glyph"
         );
-        assert!(brightest(&icons.on_light) < 150, "dark bars on a light one");
+        assert!(
+            dark.iter().all(|&sum| sum > 700),
+            "a white glyph on a dark taskbar"
+        );
+        assert!(
+            light.iter().all(|&sum| sum < 150),
+            "a dark one on a light one"
+        );
     }
 
     // ---- the loop -----------------------------------------------------------------------------
@@ -1329,7 +1336,7 @@ mod tests {
     }
 
     #[test]
-    fn a_theme_change_that_windows_sends_wakes_the_loop_and_redraws_the_bars_for_the_taskbar() {
+    fn a_theme_change_that_windows_sends_wakes_the_loop_and_redraws_the_icon_for_the_taskbar() {
         on_a_thread_of_its_own(|| {
             let window = create_window().expect("the tray's window");
             WAKE.set(window.0 as isize);
@@ -1346,7 +1353,7 @@ mod tests {
             assert_eq!(
                 *icon.pictures.borrow(),
                 [(TrayIcon::On, true)],
-                "the bars of on, drawn for the light taskbar at once"
+                "the icon of on, drawn for the light taskbar at once"
             );
             assert!(icon.tips.borrow().is_empty(), "the tooltip did not change");
             WAKE.set(0);

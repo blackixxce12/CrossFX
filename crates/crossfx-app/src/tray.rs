@@ -22,7 +22,9 @@
 //!    depending on its own theme (`FxSystemTrayView.cpp:90-111`). A panel owns its own background
 //!    and recolours symbolic icons itself, so keying tray artwork off *our* theme is wrong here;
 //!    the four states collapse onto `io.github.blackixxce12.CrossFX-{off,on,processing}`
-//!    (`docs/spec/07-startup-tray.md` §5.8): the five bars in grey, white and blue.
+//!    (`docs/spec/07-startup-tray.md` §5.8). They are CrossFX's own icon, not the original's five
+//!    bars: the wave-X of its application icon ([`crate::icon`]) without the tile, in grey, white
+//!    and the icon's cyan.
 //! 2. **The status stays `Active`.** §5.8 suggests carrying "processing" as
 //!    `Status::NeedsAttention`, but that is the state a panel flashes or highlights, and audio
 //!    playing is not an alert — it would blink for as long as music runs. `Status::Passive` is
@@ -100,13 +102,14 @@ pub use crate::win::tray::{TrayHandle, spawn};
 /// Wayland `app_id` for shells to associate the tray item with the window.
 pub const APP_ID: &str = crossfx_core::identity::APP_ID;
 
-/// Tray icon for "audio processing is off" — the original's `IDI_LOGO_GRAY`, `#6f6f6f`. The three
-/// names are [`APP_ID`] and a state, as the packages install the icons.
+/// Tray icon for "audio processing is off", the state of the original's `IDI_LOGO_GRAY`: the
+/// wave-X in grey, `#6f6f6f`. The three names are [`APP_ID`] and a state, as the packages install
+/// the icons.
 pub const ICON_OFF: &str = "io.github.blackixxce12.CrossFX-off";
-/// Tray icon for "on but idle" — the original's `IDI_LOGO_WHITE`.
+/// Tray icon for "on but idle", the state of the original's `IDI_LOGO_WHITE`: the wave-X in white.
 pub const ICON_ON: &str = "io.github.blackixxce12.CrossFX-on";
-/// Tray icon for "on and audio is flowing" — the original's `IDI_LOGO_BLUE`/`IDI_LOGO_RED`,
-/// `#23b6eb`.
+/// Tray icon for "on and audio is flowing", the state of the original's
+/// `IDI_LOGO_BLUE`/`IDI_LOGO_RED`: the wave-X in the cyan of CrossFX's icon, `#2dd4e6`.
 pub const ICON_PROCESSING: &str = "io.github.blackixxce12.CrossFX-processing";
 
 /// The three icons as the packages install them, compiled in to be drawn where no icon theme has
@@ -1741,28 +1744,6 @@ mod tests {
     }
 
     #[test]
-    fn every_status_icon_is_the_five_bars_centred_in_a_square_with_a_transparent_background() {
-        for icon in TrayIcon::ALL {
-            let svg = std::str::from_utf8(icon.svg()).expect("utf-8");
-            assert_eq!(svg.matches("<rect").count(), 5, "{icon:?}: the five bars");
-            assert!(
-                svg.contains(r#"viewBox="0 -40.285 299.83 299.83""#),
-                "{icon:?}: a square around the glyph, so no host squeezes it"
-            );
-        }
-        let colours = TrayIcon::ALL.map(|icon| {
-            let svg = std::str::from_utf8(icon.svg()).expect("utf-8");
-            let at = svg.find("fill=\"").expect("a fill") + 6;
-            svg[at..at + 7].to_owned()
-        });
-        assert_eq!(
-            colours,
-            ["#6f6f6f", "#ffffff", "#23b6eb"],
-            "grey, white, blue"
-        );
-    }
-
-    #[test]
     fn the_pixmaps_are_rasterised_at_every_size_as_argb_with_the_corners_left_clear() {
         let pixmaps = TrayPixmaps::rasterised();
         for icon in TrayIcon::ALL {
@@ -1784,10 +1765,11 @@ mod tests {
                 );
             }
         }
-        // The middle of the tallest bar, at 32 pixels: opaque, in the icon's colour, as A R G B.
-        let blue = &pixmaps.processing[3];
-        let middle = ((16 * blue.width + 16) * 4) as usize;
-        assert_eq!(&blue.data[middle..middle + 4], &[0xff, 0x23, 0xb6, 0xeb]);
+        // The middle, where the diagonal and the wave cross, at 32 pixels: opaque, in the icon's
+        // colour, as A R G B.
+        let cyan = &pixmaps.processing[3];
+        let middle = ((16 * cyan.width + 16) * 4) as usize;
+        assert_eq!(&cyan.data[middle..middle + 4], &[0xff, 0x2d, 0xd4, 0xe6]);
         let grey = &pixmaps.off[3];
         assert_eq!(&grey.data[middle..middle + 4], &[0xff, 0x6f, 0x6f, 0x6f]);
     }
