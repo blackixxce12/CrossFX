@@ -346,8 +346,11 @@ pub fn run(env: &Environment) -> Report {
     {
         let service = env.probe_audio.then(crate::win::audio::service);
         checks.push(check_windows_audio(service.as_ref()));
-        let devices = matches!(service, Some(crate::win::audio::Service::Running))
-            .then(crate::win::audio::playback_devices);
+        let devices = matches!(service, Some(crate::win::audio::Service::Running)).then(|| {
+            crossfx_audio::InstalledCables::read()
+                .map(|cables| cables.playback)
+                .map_err(|err| err.to_string())
+        });
         checks.push(check_virtual_device(env.probe_audio, devices));
         checks.push(check_control_pipe(env.control_pipe.as_deref()));
     }
@@ -371,10 +374,15 @@ fn check_windows_audio(service: Option<&crate::win::audio::Service>) -> Check {
     }
 }
 
-/// A virtual playback device, from the active endpoints' names; `None` when they were not listed
-/// — not probed, or the service is not running.
+/// A virtual playback device, as the engine tells one (`crossfx_audio::InstalledCables`): the
+/// active playback endpoints' names, each with whether the output lane can stand on it — any
+/// maker's cable, or the original FxSound's driver. `None` when they were not listed — not
+/// probed, or the service is not running.
 #[cfg(windows)]
-fn check_virtual_device(probed: bool, devices: Option<Result<Vec<String>, String>>) -> Check {
+fn check_virtual_device(
+    probed: bool,
+    devices: Option<Result<Vec<(String, bool)>, String>>,
+) -> Check {
     const NAME: &str = "virtual_device";
     match devices {
         None if probed => Check::skip(NAME, "without the audio service there is nothing to list"),
@@ -383,19 +391,21 @@ fn check_virtual_device(probed: bool, devices: Option<Result<Vec<String>, String
             NAME,
             format!("the playback devices cannot be listed: {why}"),
         ),
-        Some(Ok(devices)) => match devices
-            .iter()
-            .find(|name| crate::win::audio::is_virtual(name))
-        {
-            Some(device) => Check::ok(NAME, device.clone()),
+        Some(Ok(devices)) => match devices.iter().find(|(_, is_virtual)| *is_virtual) {
+            Some((device, _)) => Check::ok(NAME, device.clone()),
             None => Check::fail(
                 NAME,
                 format!(
-                    "no virtual playback device among {}: install the FxSound driver or VB-CABLE ({})",
+                    "no virtual playback device among {}: install VB-CABLE ({}) or another \
+                     virtual cable",
                     if devices.is_empty() {
                         "none".to_owned()
                     } else {
-                        devices.join(", ")
+                        devices
+                            .iter()
+                            .map(|(name, _)| name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     },
                     crossfx_ui::state::VB_CABLE_PAGE,
                 ),
@@ -1273,20 +1283,32 @@ pub(crate) mod tests {
         );
         assert_eq!(check_windows_audio(None).status, Status::Skip);
 
-        let speakers = || Some(Ok(vec!["Speakers (Realtek(R) Audio)".to_owned()]));
-        let missing = check_virtual_device(true, speakers());
+        let speakers = || ("Speakers (Realtek(R) Audio)".to_owned(), false);
+        let missing = check_virtual_device(true, Some(Ok(vec![speakers()])));
         assert_eq!(missing.status, Status::Fail);
         assert!(missing.detail.contains("VB-CABLE"), "{}", missing.detail);
-        assert!(missing.detail.contains("Realtek"), "{}", missing.detail);
-        let found = check_virtual_device(
-            true,
-            Some(Ok(vec![
-                "Speakers (Realtek(R) Audio)".to_owned(),
-                "CABLE Input (VB-Audio Virtual Cable)".to_owned(),
-            ])),
+        assert!(
+            missing.detail.contains("another virtual cable"),
+            "{}",
+            missing.detail
         );
-        assert_eq!(found.status, Status::Ok);
-        assert_eq!(found.detail, "CABLE Input (VB-Audio Virtual Cable)");
+        assert!(
+            !missing.detail.contains("FxSound"),
+            "the original's driver comes only with the original: {}",
+            missing.detail
+        );
+        assert!(missing.detail.contains("Realtek"), "{}", missing.detail);
+        // Whichever virtual device the engine stands on, by its own classification: VB-CABLE,
+        // and a cable whose name says nothing of VB-Audio, as Virtual Audio Cable's does not.
+        for name in [
+            "CABLE Input (VB-Audio Virtual Cable)",
+            "Line 1 (Virtual Audio Cable)",
+        ] {
+            let found =
+                check_virtual_device(true, Some(Ok(vec![speakers(), (name.to_owned(), true)])));
+            assert_eq!(found.status, Status::Ok, "{name}");
+            assert_eq!(found.detail, name);
+        }
         assert_eq!(check_virtual_device(true, None).status, Status::Skip);
         assert_eq!(
             check_virtual_device(true, Some(Err("no COM".to_owned()))).status,

@@ -893,10 +893,11 @@ pub struct SettingsState {
     /// one. A field rather than the constant, so that a test can draw either platform's window on
     /// either.
     pub platform: Platform,
-    /// On Windows, no VB-Audio cable is installed: Settings ▸ Audio offers VB-Audio's page for
-    /// VB-CABLE (["Get VB-CABLE…"](crate::state::GET_VB_CABLE)) under the device list. The app
-    /// layer reads it and fills it in; never set on Linux, and not drawn there.
-    pub vb_cable_missing: bool,
+    /// On Windows, no virtual cable of any maker's is installed: Settings ▸ Audio offers
+    /// VB-Audio's page for VB-CABLE (["Get VB-CABLE…"](crate::state::GET_VB_CABLE)) under the
+    /// device list. The app layer reads it and fills it in; never set on Linux, and not drawn
+    /// there.
+    pub cable_missing: bool,
 }
 
 /// What Settings ▸ General says about Gilroy under "Interface font".
@@ -998,7 +999,7 @@ impl SettingsState {
             wireplumber_hook: WirePlumberHook::default(),
             font: FontPane::default(),
             platform: crossfx_core::PLATFORM,
-            vb_cable_missing: false,
+            cable_missing: false,
         }
     }
 
@@ -1531,8 +1532,8 @@ pub fn reset_button_rect(pane: Rect, size: Vec2) -> Rect {
     )
 }
 
-/// How much of the device list's bottom the VB-CABLE offer takes, on a Windows with no VB-Audio
-/// cable installed ([`SettingsState::vb_cable_missing`]): the button and the note under it.
+/// How much of the device list's bottom the VB-CABLE offer takes, on a Windows with no virtual
+/// cable installed ([`SettingsState::cable_missing`]): the button and the note under it.
 pub const VB_CABLE_ROOM: f32 = 100.0;
 
 /// The device list's rect and the VB-CABLE offer's under it, when the offer is shown: the list
@@ -1591,8 +1592,8 @@ fn audio_pane(
         Align2::LEFT_CENTER,
     );
 
-    // On a Windows with no VB-Audio cable, the list makes room under it for VB-Audio's page.
-    let offer_vb_cable = state.vb_cable_missing && state.platform == Platform::WINDOWS;
+    // On a Windows with no virtual cable, the list makes room under it for VB-Audio's page.
+    let offer_vb_cable = state.cable_missing && state.platform == Platform::WINDOWS;
     let (list, offer) = if offer_vb_cable {
         let (list, offer) = vb_cable_split(pane);
         (list, Some(offer))
@@ -7767,11 +7768,11 @@ mod tests {
     }
 
     #[test]
-    fn on_windows_with_no_vb_audio_cable_the_audio_pane_offers_vb_cables_page() {
+    fn on_windows_with_no_cable_the_audio_pane_offers_vb_cables_page() {
         use crate::state::{GET_VB_CABLE, VB_CABLE_EXPLAINED};
         let mut state = SettingsState {
             platform: Platform::WINDOWS,
-            vb_cable_missing: true,
+            cable_missing: true,
             ..SettingsState::default()
         };
         let mut window = Window::new(ThemeMode::Dark);
@@ -7794,10 +7795,10 @@ mod tests {
             window.click(&state, button.center()),
             [SettingsAction::GetVbCable]
         );
-        // A VB-Audio cable installed, or Linux: no offer.
+        // A cable installed (VB-Audio's or another), or Linux: no offer.
         for (platform, missing) in [(Platform::WINDOWS, false), (Platform::LINUX, true)] {
             state.platform = platform;
-            state.vb_cable_missing = missing;
+            state.cable_missing = missing;
             let (_, shapes) = Window::new(ThemeMode::Dark).frame(&state, Vec::new());
             let texts = painted(&shapes);
             assert!(

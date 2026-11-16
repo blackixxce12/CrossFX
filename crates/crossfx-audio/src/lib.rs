@@ -239,14 +239,22 @@ pub use locale::{node_description, sink_description, source_description};
 #[cfg(windows)]
 pub use wasapi::probe as wasapi_probe;
 
-/// The virtual cables installed on Windows, as the engine tells them apart (`wasapi`'s
-/// endpoints): what the window reads to offer VB-Audio's page, for a machine with no cable for
-/// CrossFX to stand on. Read with [`InstalledCables::read`]; nothing is changed.
+/// The virtual devices installed on Windows, as the engine tells them apart (`wasapi`'s
+/// endpoints): what the window reads to offer VB-Audio's page on a machine with no cable for
+/// CrossFX to stand on, and what `--self-test` reads to say whether there is a virtual playback
+/// device at all. Read with [`InstalledCables::read`]; nothing is changed.
 #[cfg(windows)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InstalledCables {
-    /// A VB-Audio cable — VB-CABLE, its cables A to D, or the Hi-Fi Cable — with an active side.
-    pub vb_audio: bool,
+    /// A cable with an active side — VB-CABLE, VB-Audio's cables A to D or its Hi-Fi Cable, or
+    /// Virtual Audio Cable: a device whose recording side records what its playback side plays,
+    /// which either lane can stand on. The original FxSound's driver is not one: it has no
+    /// recording side, so the microphone lane cannot stand on it.
+    pub cable: bool,
+    /// The active playback endpoints, by the name the Sound settings show, each with whether it
+    /// is a virtual device the output lane can stand on: a cable, or the original FxSound's
+    /// driver.
+    pub playback: Vec<(String, bool)>,
 }
 
 /// What the `node.name` of every node of this crate's starts with: the lanes' pairs, the node that

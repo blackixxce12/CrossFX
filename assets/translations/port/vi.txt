@@ -155,6 +155,7 @@ countries: vn
 "No virtual playback device: install VB-CABLE" = "Không có thiết bị phát ảo: hãy cài VB-CABLE"
 "No virtual cable left for the microphone: install one" = "Không còn cáp ảo nào cho micrô: hãy cài thêm một cáp"
 "The virtual cable is in use: choose another device or add a cable" = "Cáp ảo đang được dùng: hãy chọn thiết bị khác hoặc thêm cáp"
-"Get VB-CABLE…" = "Tải VB-CABLE…"
+"Get VB-CABLE…" = "Nhận VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE là phần mềm quyên góp (donationware) của VB-Audio mà bạn tự cài đặt (cần quyền quản trị; Windows có thể yêu cầu khởi động lại). Nó không thuộc CrossFX."
 "The Windows audio service is not available" = "Dịch vụ âm thanh của Windows không khả dụng"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Tệp cài đặt đang được chương trình khác sử dụng: CrossFX đã khởi động với cài đặt mặc định và sẽ lưu các thay đổi của bạn vào tệp đó"

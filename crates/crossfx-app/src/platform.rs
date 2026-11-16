@@ -10,7 +10,7 @@
 //! | | Linux | Windows |
 //! |---|---|---|
 //! | [`open_url`], [`open_folder`] | `xdg-open` | `ShellExecuteW` (`win::shell`) |
-//! | [`vb_cable_missing`] | `false`: no cable is needed | no VB-Audio cable among the endpoints (`crossfx_audio::InstalledCables`) |
+//! | [`cable_missing`] | `false`: no cable is needed | no virtual cable among the endpoints (`crossfx_audio::InstalledCables`) |
 //! | [`autostart_enabled`], [`set_autostart`] | `~/.config/autostart/io.github.blackixxce12.CrossFX.desktop` ([`AUTOSTART_ENTRY`]) | `HKCU\…\Run`, `CrossFX` (`win::autostart`) |
 //! | [`adopt_desktop_language`] | the session's `LANG`, as it is | the first preferred language, as `LANG` (`win::language`) |
 //! | [`attach_parent_console`], [`release_terminal`], [`on_the_terminal`] | the terminal, as it is | `AttachConsole`, `FreeConsole` (`win::session`) |
@@ -42,14 +42,16 @@ pub fn open_url(url: &str) -> Result<(), String> {
     }
 }
 
-/// Whether CrossFX could offer VB-CABLE to a user who has no VB-Audio cable: on Windows, the
-/// active endpoints hold none (`crossfx_audio::InstalledCables`, read only). `false` when they
-/// cannot be listed — there is no telling then — and always on Linux, which needs no cable.
+/// Whether CrossFX could offer VB-CABLE to a user who has no virtual cable: on Windows, the
+/// active endpoints hold no cable of any maker's (`crossfx_audio::InstalledCables::cable`, read
+/// only). The original FxSound's driver is no cable: the microphone lane cannot stand on it.
+/// `false` when the endpoints cannot be listed — there is no telling then — and always on Linux,
+/// which needs no cable.
 #[must_use]
-pub fn vb_cable_missing() -> bool {
+pub fn cable_missing() -> bool {
     #[cfg(windows)]
     {
-        crossfx_audio::InstalledCables::read().is_ok_and(|cables| !cables.vb_audio)
+        crossfx_audio::InstalledCables::read().is_ok_and(|cables| !cables.cable)
     }
     #[cfg(not(windows))]
     {

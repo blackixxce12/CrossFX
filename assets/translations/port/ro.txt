@@ -159,3 +159,4 @@ countries: ro
 "Get VB-CABLE…" = "Obțineți VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE este un program donationware de la VB-Audio pe care îl instalați singur (sunt necesare drepturi de administrator; Windows poate cere o repornire). Nu face parte din CrossFX."
 "The Windows audio service is not available" = "Serviciul audio Windows nu este disponibil"
+"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Fișierul de setări era folosit de alt program: CrossFX a pornit cu setările implicite și va salva modificările dvs. în el"

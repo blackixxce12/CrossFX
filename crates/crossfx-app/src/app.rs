@@ -674,11 +674,12 @@ pub struct App {
     /// Settings ▸ Experimental's "Smooth moves in WirePlumber": CrossFX's hook in the user's
     /// WirePlumber, and the WirePlumber it goes into (roadmap 0.5.0 §7, D5).
     wireplumber: wireplumber::WirePlumberHost,
-    /// On Windows, no VB-Audio cable is installed, as last read: the notice of a missing virtual
-    /// device links to VB-CABLE's page, and Settings ▸ Audio offers it. Never on Linux.
-    vb_cable_missing: bool,
-    /// How that is read: [`crate::platform::vb_cable_missing`], or a test's answer.
-    read_vb_cable_missing: fn() -> bool,
+    /// On Windows, no virtual cable of any maker's is installed, as last read: the notice of a
+    /// missing virtual device links to VB-CABLE's page, and Settings ▸ Audio offers it. Never
+    /// on Linux.
+    cable_missing: bool,
+    /// How that is read: [`crate::platform::cable_missing`], or a test's answer.
+    read_cable_missing: fn() -> bool,
 }
 
 impl App {
@@ -699,14 +700,28 @@ impl App {
         let mut voice_presets = InputPresetStore::with_default_dirs();
         voice_presets.rescan();
         let notifier = Notifier::new(settings.hide_notifications);
-        Self::start(
+        let mut app = Self::start(
             settings,
             presets,
             voice_presets,
             engine.map(|engine| AudioLink::engine(engine, waker)),
             notifier,
             true,
-        )
+        );
+        // A file another program held through the load ([`crossfx_core::held`]): this run is on
+        // the defaults where the user's file says otherwise, and the user is told why.
+        if [
+            Settings::config_path(),
+            crossfx_core::AppRules::config_path(),
+        ]
+        .iter()
+        .any(|path| crossfx_core::held::is_left_unread(path))
+        {
+            app.raise_notice(tr(
+                "The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it",
+            ));
+        }
+        app
     }
 
     /// The start-up every run goes through, whatever the engine is: build the state from the
@@ -797,8 +812,8 @@ impl App {
             } else {
                 wireplumber::WirePlumberHost::none()
             },
-            vb_cable_missing: crate::platform::vb_cable_missing(),
-            read_vb_cable_missing: crate::platform::vb_cable_missing,
+            cable_missing: crate::platform::cable_missing(),
+            read_cable_missing: crate::platform::cable_missing,
         };
         // A hook an earlier CrossFX installed is this build's from now on.
         app.wireplumber.bring_up_to_date();
@@ -1006,7 +1021,7 @@ impl App {
             AudioToUi::Devices(devices) => {
                 // A cable installed or taken away changes the list: Settings ▸ Audio offers VB-CABLE's
                 // page only while there is none.
-                self.vb_cable_missing = (self.read_vb_cable_missing)();
+                self.cable_missing = (self.read_cable_missing)();
                 for message in self.adopt_device_list(devices) {
                     self.send(message);
                 }
@@ -1091,11 +1106,11 @@ impl App {
                 // of the user's language.
                 log::info!("audio engine error shown to the user: {message}");
                 self.raise_notice(engine_error_notice(&message));
-                // Nothing to work through, and no VB-Audio cable: the notice links to VB-CABLE's
+                // Nothing to work through, and no cable to stand on: the notice links to VB-CABLE's
                 // page. Looked at now, not at start: the user may have installed one since.
                 if needs_a_virtual_cable(&message) {
-                    self.vb_cable_missing = (self.read_vb_cable_missing)();
-                    if self.vb_cable_missing {
+                    self.cable_missing = (self.read_cable_missing)();
+                    if self.cable_missing {
                         self.state.notice_link = Some(NoticeLink::VbCable);
                     }
                 }
@@ -3098,8 +3113,8 @@ impl App {
             wizard_holds_microphone: false,
             microphone_held: false,
             wireplumber: wireplumber::WirePlumberHost::none(),
-            vb_cable_missing: false,
-            read_vb_cable_missing: || false,
+            cable_missing: false,
+            read_cable_missing: || false,
         };
         app.start_the_stream_here();
         app
@@ -5398,7 +5413,7 @@ impl App {
     /// every frame the pane is open; everything else in the pane's working copy changes only
     /// through [`App::handle_settings`].
     pub fn refresh_settings_state(&self, state: &mut SettingsState) {
-        state.vb_cable_missing = self.vb_cable_missing;
+        state.cable_missing = self.cable_missing;
         // Before the rows: a row's preset is an index into this list, counted in the live
         // store's order, and a save, rename or delete from the command line or D-Bus while the
         // pane is open moves the names under it. A stale list would show a row one name and bind
@@ -7993,7 +8008,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_virtual_device_links_to_vb_cables_page_only_while_no_vb_audio_cable_is_there() {
+    fn a_missing_virtual_device_links_to_vb_cables_page_only_while_no_cable_is_there() {
         use crossfx_audio::AudioError;
         use crossfx_ui::state::NoticeLink;
         let errors = [
@@ -8003,7 +8018,7 @@ mod tests {
         ];
         for error in &errors {
             let mut app = headless();
-            app.read_vb_cable_missing = || true;
+            app.read_cable_missing = || true;
             app.receive(AudioToUi::Error {
                 direction: None,
                 message: error.to_string(),
@@ -8016,7 +8031,7 @@ mod tests {
             // Settings ▸ Audio offers it too, from what was read.
             let mut settings = app.settings_state();
             app.refresh_settings_state(&mut settings);
-            assert!(settings.vb_cable_missing);
+            assert!(settings.cable_missing);
             // A later notice never carries the link.
             app.receive(AudioToUi::Error {
                 direction: None,
@@ -8024,9 +8039,9 @@ mod tests {
             });
             assert_eq!(app.state.notice_link, None);
 
-            // A VB-Audio cable is there: the notice says what to do, with no link.
+            // A cable is there, whoever made it: the notice says what to do, with no link.
             let mut app = headless();
-            app.read_vb_cable_missing = || false;
+            app.read_cable_missing = || false;
             app.receive(AudioToUi::Error {
                 direction: None,
                 message: error.to_string(),
@@ -8036,7 +8051,7 @@ mod tests {
         }
         // Another error never links, whatever is installed.
         let mut app = headless();
-        app.read_vb_cable_missing = || true;
+        app.read_cable_missing = || true;
         app.receive(AudioToUi::Error {
             direction: None,
             message: AudioError::NoOutputDevices.to_string(),
