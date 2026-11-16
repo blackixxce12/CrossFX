@@ -257,7 +257,7 @@ pub fn release_borrowed_console() -> Relays {
 
 /// The standard output and error of the running CrossFX that are pipes — `crossfx 2>&1 |
 /// findstr preset`, a launcher reading its log — each given a pipe of CrossFX's own, which a
-/// thread copies into the one it was started with ([`relay`]).
+/// thread copies into the one it was started with (`relay`).
 ///
 /// A write into a pipe whose reader has gone fails, and Rust's `eprintln!` panics on a failed
 /// write: the `tray-icon` crate writes one line to the standard error whenever Windows does not
@@ -267,7 +267,7 @@ pub fn release_borrowed_console() -> Relays {
 /// write into it fails; what reaches the relay once the reader has gone is dropped.
 ///
 /// Dropped, the relays put the standard handles back, let their threads pass on what is still in
-/// their pipes, and wait for that a moment ([`RELAY_DRAIN`]): the last lines of the way out are
+/// their pipes, and wait for that a moment (`RELAY_DRAIN`): the last lines of the way out are
 /// not lost to the process ending first.
 #[must_use = "the relays are put away when dropped"]
 pub struct Relays(Vec<Relay>);
