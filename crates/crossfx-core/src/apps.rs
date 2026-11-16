@@ -358,6 +358,17 @@ pub struct AppRules {
 }
 
 impl AppRules {
+    /// The file's list of rules as a merge into a held file ([`crate::held::merge`]) tells them
+    /// apart: by the application they are for, as [`AppRules::sanitise`] does.
+    const KEYED: crate::held::Keyed = crate::held::Keyed {
+        array: "app",
+        key: |value| {
+            let rule: AppRule = value.clone().try_into().ok()?;
+            let (flatpak, binary, name) = rule.key.identity();
+            Some(format!("{flatpak}\n{binary}\n{name}"))
+        },
+    };
+
     /// `~/.config/crossfx/apps.toml` (or `$XDG_CONFIG_HOME/crossfx/apps.toml`), beside
     /// `settings.toml`.
     #[must_use]
@@ -489,9 +500,10 @@ impl AppRules {
         let ours = toml::to_string_pretty(&checked)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
         // A store the load found held is the user's, whole, and this one started empty: the
-        // entries made since go in first, beside the user's ([`crate::held::merge`]), so where
-        // both name one application the newer entry is the one the sanitising keeps.
-        let Some(merged) = crate::held::merge_if_unread(path, &ours)? else {
+        // entries are merged one by one ([`crate::held::merge`]), so where both name one
+        // application the session's entry takes the user's place, and one made since goes in
+        // first.
+        let Some(merged) = crate::held::merge_if_unread(path, &ours, &[Self::KEYED])? else {
             return crate::atomic::write(path, ours.as_bytes());
         };
         let mut merged: Self = toml::from_str(&merged)
