@@ -289,8 +289,10 @@ fn main() -> eframe::Result<()> {
     // This process is the running CrossFX, and what remains to be said waits for the engine: a
     // release build on Windows gives back the terminal it borrowed before the engine starts, and
     // runs on as a program of its own. Held, a Ctrl+C typed there or the terminal closing would
-    // end it halfway through taking over the default device.
-    crossfx_app::platform::release_terminal();
+    // end it halfway through taking over the default device. What it returns is held to the end
+    // of `main`, after everything declared later is dropped: a standard output or error that is
+    // a pipe is relayed until then.
+    let _streams = crossfx_app::platform::release_terminal();
 
     // The UI language, decided before anything is drawn or named: the desktop's unless the
     // settings say otherwise (`crossfx_core::i18n`). The engine gets it too, for the node
