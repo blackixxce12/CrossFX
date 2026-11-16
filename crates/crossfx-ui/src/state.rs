@@ -16,6 +16,51 @@ use std::time::{Duration, Instant};
 /// How long a notice stays on screen before the application clears it (0.4.0 design, §11).
 pub const NOTICE_LIFETIME: Duration = Duration::from_secs(4);
 
+/// VB-Audio's own page for VB-CABLE, which "Get VB-CABLE…" opens. CrossFX never ships VB-CABLE —
+/// VB-Audio's licence keeps it to VB-Audio's own download — and never installs it: it only links
+/// here.
+pub const VB_CABLE_PAGE: &str = "https://vb-audio.com/Cable/";
+/// The button that opens [`VB_CABLE_PAGE`].
+pub const GET_VB_CABLE: &str = "Get VB-CABLE…";
+/// Beside it, or under it as its tooltip where there is no room: whose VB-CABLE is, and what
+/// installing it takes.
+pub const VB_CABLE_EXPLAINED: &str = "VB-CABLE is VB-Audio's donationware, which you install \
+yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX.";
+
+/// A link a notice offers beside its text, as a button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeLink {
+    /// VB-Audio's page for VB-CABLE ([`VB_CABLE_PAGE`]), with a notice that CrossFX has no
+    /// virtual device to work through, on a Windows with no VB-Audio cable installed.
+    VbCable,
+}
+
+impl NoticeLink {
+    /// The button's label, translated.
+    #[must_use]
+    pub fn label(self) -> String {
+        match self {
+            Self::VbCable => tr(GET_VB_CABLE),
+        }
+    }
+
+    /// What the button says on hover, translated: the note that goes with the link.
+    #[must_use]
+    pub fn note(self) -> String {
+        match self {
+            Self::VbCable => tr(VB_CABLE_EXPLAINED),
+        }
+    }
+
+    /// The page the button opens.
+    #[must_use]
+    pub const fn url(self) -> &'static str {
+        match self {
+            Self::VbCable => VB_CABLE_PAGE,
+        }
+    }
+}
+
 /// One preset as the combo box needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresetEntry {
@@ -217,6 +262,10 @@ pub struct UiState {
     /// The notice last stamped and when. Stamped by the application, never by a view; a text that
     /// differs from `notification` is a new notice whose clock has not started yet.
     pub notice_clock: Option<(String, Instant)>,
+    /// The link the notice up offers, drawn beside it as a button; `None` for none. Set by the
+    /// application right after it raises the notice: [`UiState::notify`] clears it, so that a
+    /// later notice never carries an earlier one's link.
+    pub notice_link: Option<NoticeLink>,
     /// Suppresses every tooltip, matching the `hide_help_tooltips` setting.
     pub hide_tooltips: bool,
     /// The level of «Как в оригинальном FxSound LLC» / "Like the original FxSound LLC" in force —
@@ -282,6 +331,7 @@ impl Default for UiState {
             denoise_level: DenoiseLevel::default(),
             notification: None,
             notice_clock: None,
+            notice_link: None,
             hide_tooltips: false,
             windows_parity: WindowsParity::Off,
             routed_apps: Vec::new(),
@@ -432,12 +482,22 @@ impl UiState {
         let text = text.into();
         self.notice_clock = Some((text.clone(), Instant::now()));
         self.notification = Some(text);
+        self.notice_link = None;
+    }
+
+    /// Keep the notice up for another [`NOTICE_LIFETIME`] from `now`: the pointer is on it, and
+    /// whoever reads it, or reaches for its link, is not to see it go from under them.
+    pub fn hold_notification(&mut self, now: Instant) {
+        if let Some(text) = &self.notification {
+            self.notice_clock = Some((text.clone(), now));
+        }
     }
 
     /// Take the notice down.
     pub fn dismiss_notification(&mut self) {
         self.notification = None;
         self.notice_clock = None;
+        self.notice_link = None;
     }
 
     /// Start the clock of a notice seen for the first time, and clear one that has been up for
@@ -599,6 +659,10 @@ pub enum UiAction {
     SetEditDirection(DeviceDirection),
     /// Take the notice down before its time is up.
     DismissNotice,
+    /// The pointer is on the notice: keep it up ([`UiState::hold_notification`]).
+    HoldNotice,
+    /// The notice's link was clicked: open its page in the browser.
+    OpenNoticeLink(NoticeLink),
 
     /// Move one effect knob, on the GUI's `0..=10` scale.
     SetEffect(Effect, f32),

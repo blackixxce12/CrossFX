@@ -1139,13 +1139,11 @@ const GILROY_EXPLAINED: &str = "Gilroy, the font of the original FxSound, is Rad
 
 /// Every string the interface asks for that names FxSound, each of them meaning the original
 /// FxSound by FxSound LLC: the font it is set in ([`GILROY_EXPLAINED`]), the mode named after it
-/// (crossfx-ui's `LIKE_ORIGINAL_TITLE`), its driver (the app's notice when there is no virtual
-/// playback device, `engine_error_notice`) and the original running (crossfx-audio's
+/// (crossfx-ui's `LIKE_ORIGINAL_TITLE`) and the original running (crossfx-audio's
 /// `ORIGINAL_FXSOUND_RUNNING`). Any other string that says FxSound calls CrossFX by its old name.
-const MEAN_THE_ORIGINAL: [&str; 4] = [
+const MEAN_THE_ORIGINAL: [&str; 3] = [
     GILROY_EXPLAINED,
     "Like the original FxSound LLC",
-    "No virtual playback device: install the FxSound driver or VB-CABLE",
     "The original FxSound is running and is using the virtual device: quit it so that CrossFX can \
      process the sound",
 ];

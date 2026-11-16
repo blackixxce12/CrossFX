@@ -43,7 +43,7 @@
 
 use crate::assets::AssetCache;
 use crate::layout;
-use crate::state::{UiAction, UiResponse, UiState};
+use crate::state::{NoticeLink, UiAction, UiResponse, UiState};
 use crate::theme::{FxColor, Palette};
 use crate::views::{self, ViewScratch, at, titlebar, window_origin, window_rect};
 use crossfx_core::ViewMode;
@@ -134,6 +134,7 @@ pub fn show(
         notice_strip(
             ui,
             text,
+            state.notice_link,
             palette,
             at(origin, layout::lite::notification()),
             &mut response,
@@ -143,35 +144,144 @@ pub fn show(
     response
 }
 
-/// The notice as one line: centred under the combos, elided when it is longer than they are wide.
-/// Returns where the text went.
+/// The room between the notice and its link's button in the strip.
+pub const NOTICE_LINK_GAP: f32 = 12.0;
+
+/// The notice as one line: centred under the combos, with its link's button after it when it
+/// offers one ([`NoticeLink`]). The line is set at [`NOTICE_FONT_PX`], or smaller down to
+/// [`crate::dialogs::MIN_FIT_SCALE`] of it to fit the strip, and only then is the text elided —
+/// never the button. The whole notice, every line of it and the link's note, is the strip's
+/// tooltip, and the notice stays up while the pointer is on it ([`UiAction::HoldNotice`]): a
+/// sentence too long for the strip is read there, and the link reached before it goes. Returns
+/// where the text went.
 fn notice_strip(
     ui: &Ui,
     text: &str,
+    link: Option<NoticeLink>,
     palette: Palette,
     strip: Rect,
     response: &mut UiResponse,
 ) -> Rect {
     let colour = palette.color(FxColor::DefaultText);
-    // One line only: the first line of a multi-line message, and that elided to the strip.
+    let label = link.map(NoticeLink::label);
     let line = text.lines().next().unwrap_or_default();
-    let mut job = LayoutJob::single_section(
-        line.to_owned(),
-        egui::TextFormat::simple(views::pro::caption_font(NOTICE_FONT_PX), colour),
-    );
-    job.wrap = TextWrapping::truncate_at_width(strip.width());
+    // A point short of the strip: a line elided at a fitted size can overshoot by a fraction.
+    let room = strip.width() - 1.0;
+    let font = notice_strip_font(ui.ctx(), line, label.as_deref(), room);
+    let label_galley = label.as_ref().map(|label| {
+        ui.painter().layout_no_wrap(
+            label.clone(),
+            font.clone(),
+            palette.color(FxColor::HighlightedText),
+        )
+    });
+    let label_room = label_galley
+        .as_ref()
+        .map_or(0.0, |galley| galley.size().x + NOTICE_LINK_GAP);
+    // One line only: the first line of a multi-line message, and that elided to what is left.
+    let mut job =
+        LayoutJob::single_section(line.to_owned(), egui::TextFormat::simple(font, colour));
+    job.wrap = TextWrapping::truncate_at_width((room - label_room).max(0.0));
     let galley = ui.painter().layout_job(job);
-    let placed = Rect::from_center_size(strip.center(), galley.size());
+    let width = galley.size().x + label_room;
+    let left = strip.center().x - width / 2.0;
+    let placed = Rect::from_min_size(
+        pos2(left, strip.center().y - galley.size().y / 2.0),
+        galley.size(),
+    );
     ui.painter().galley(placed.min, galley, colour);
 
+    // The strip first and the button over it: the later of two is the one a click on both
+    // reaches.
+    let whole = link.map_or_else(
+        || text.to_owned(),
+        |link| format!("{text}\n\n{}", link.note()),
+    );
     let hit = ui.interact(strip, Id::unique("fx_notice_strip"), Sense::click());
     if hit.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        response.push(UiAction::HoldNotice);
+        // Frames keep coming while it is held, so that the hold outlasts a still pointer.
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs(1));
     }
     if hit.clicked() {
         response.push(UiAction::DismissNotice);
     }
+    let _ = hit.on_hover_text(whole);
+
+    if let (Some(link), Some(label_galley)) = (link, label_galley) {
+        let size = label_galley.size();
+        let button = Rect::from_min_size(
+            pos2(
+                placed.right() + NOTICE_LINK_GAP,
+                strip.center().y - size.y / 2.0,
+            ),
+            size,
+        );
+        let link_colour = palette.color(FxColor::HighlightedText);
+        ui.painter().galley(button.min, label_galley, link_colour);
+        ui.painter().hline(
+            button.x_range(),
+            button.bottom() - 1.0,
+            egui::Stroke::new(1.0, link_colour),
+        );
+        let hit = ui.interact(button, Id::unique("fx_notice_link"), Sense::click());
+        if hit.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            response.push(UiAction::HoldNotice);
+        }
+        if hit.clicked() {
+            response.push(UiAction::OpenNoticeLink(link));
+        }
+        let _ = hit.on_hover_text(link.note());
+    }
+
     placed
+}
+
+/// The font the strip's line is set in: [`NOTICE_FONT_PX`]'s caption font, or the size down to
+/// [`crate::dialogs::MIN_FIT_SCALE`] of it at which `line` fits `room` — side by side with the
+/// link's `label`, when there is one.
+#[must_use]
+pub fn notice_strip_font(
+    ctx: &egui::Context,
+    line: &str,
+    label: Option<&str>,
+    room: f32,
+) -> egui::FontId {
+    let font = views::pro::caption_font(NOTICE_FONT_PX);
+    let Some(label) = label else {
+        return crate::dialogs::fitted_font(ctx, line, font, room);
+    };
+    let label_width = |font: &egui::FontId| {
+        ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(label.to_owned(), font.clone(), egui::Color32::PLACEHOLDER)
+                .size()
+                .x
+        })
+    };
+    // The label shrinks with the line: fit the two as one, then check the label's own share.
+    let joined = format!("{line}{label}");
+    let mut fitted =
+        crate::dialogs::fitted_font(ctx, &joined, font.clone(), room - NOTICE_LINK_GAP);
+    while fitted.size > font.size * crate::dialogs::MIN_FIT_SCALE
+        && notice_line_width(ctx, line, &fitted) + label_width(&fitted) + NOTICE_LINK_GAP > room
+    {
+        fitted.size -= 0.5;
+    }
+    fitted
+}
+
+/// How wide `line` is set in `font`.
+fn notice_line_width(ctx: &egui::Context, line: &str, font: &egui::FontId) -> f32 {
+    ctx.fonts_mut(|fonts| {
+        fonts
+            .layout_no_wrap(line.to_owned(), font.clone(), egui::Color32::PLACEHOLDER)
+            .size()
+            .x
+    })
 }
 
 #[cfg(test)]
@@ -704,6 +814,99 @@ mod tests {
         };
         harness.settle(&state);
         let actions = harness.click(&state, layout::lite::notification().center());
-        assert_eq!(actions, vec![UiAction::DismissNotice]);
+        assert!(
+            actions.contains(&UiAction::HoldNotice),
+            "held while the pointer is on it"
+        );
+        let others: Vec<_> = actions
+            .into_iter()
+            .filter(|action| *action != UiAction::HoldNotice)
+            .collect();
+        assert_eq!(others, vec![UiAction::DismissNotice]);
+    }
+
+    /// Every line of text painted with the pointer resting on `pos`, tooltips shown at once.
+    fn hovered(harness: &mut Harness, state: &UiState, pos: Pos2) -> Vec<String> {
+        harness.ctx.all_styles_mut(|style| {
+            style.interaction.tooltip_delay = 0.0;
+            style.interaction.show_tooltips_only_when_still = false;
+        });
+        harness.frame(state, vec![Event::PointerMoved(pos)]);
+        harness.frame(state, Vec::new());
+        let (_, shapes) = harness.frame(state, Vec::new());
+        texts(&shapes).into_iter().map(|(text, ..)| text).collect()
+    }
+    #[test]
+    fn a_notice_cut_to_the_strip_shows_all_of_itself_on_hover() {
+        // The strip has room for one line of about seventy letters; the rest of a longer notice,
+        // and every line after its first, was nowhere to be read (v3-lite-notice-cuts-the-remedy).
+        let mut harness = Harness::new(ThemeMode::Dark);
+        let text = format!(
+            "{}the remedy at its end
+and a second line",
+            "a long cause, ".repeat(8)
+        );
+        let state = UiState {
+            notification: Some(text.clone()),
+            ..state()
+        };
+        let shapes = harness.settle(&state);
+        let painted = texts(&shapes)
+            .into_iter()
+            .find(|(line, _, _)| line.starts_with("a long cause"))
+            .expect("the notice is painted");
+        let strip = layout::lite::notification();
+        assert!(
+            strip.expand(0.5).contains_rect(painted.1),
+            "cut to the strip: {:?}",
+            painted.1
+        );
+        let shown = hovered(&mut harness, &state, layout::lite::notification().center());
+        assert!(
+            shown.contains(&text),
+            "the whole notice on hover: {shown:?}"
+        );
+    }
+
+    #[test]
+    fn a_notice_with_a_link_has_its_button_after_the_text_and_the_button_opens_the_page() {
+        let mut harness = Harness::new(ThemeMode::Dark);
+        let state = UiState {
+            notification: Some("No virtual playback device: install VB-CABLE".to_owned()),
+            notice_link: Some(NoticeLink::VbCable),
+            ..state()
+        };
+        let shapes = harness.settle(&state);
+        let painted = texts(&shapes);
+        let find = |wanted: &str| {
+            painted
+                .iter()
+                .find(|(text, _, _)| text == wanted)
+                .map(|(_, rect, _)| *rect)
+                .unwrap_or_else(|| panic!("{wanted:?} is painted"))
+        };
+        let notice = find("No virtual playback device: install VB-CABLE");
+        let button = find(crate::state::GET_VB_CABLE);
+        let strip = layout::lite::notification();
+        assert!(strip.expand(0.5).contains_rect(notice));
+        assert!(
+            strip.expand(0.5).contains_rect(button),
+            "{button:?} in {strip:?}"
+        );
+        assert!(button.left() >= notice.right() + NOTICE_LINK_GAP - 0.5);
+        // The note goes with the button, on hover.
+        let shown = hovered(&mut harness, &state, button.center());
+        assert!(
+            shown
+                .iter()
+                .any(|line| line == crate::state::VB_CABLE_EXPLAINED),
+            "{shown:?}"
+        );
+        let actions = harness.click(&state, button.center());
+        assert!(
+            actions.contains(&UiAction::OpenNoticeLink(NoticeLink::VbCable)),
+            "{actions:?}"
+        );
+        assert!(!actions.contains(&UiAction::DismissNotice), "{actions:?}");
     }
 }

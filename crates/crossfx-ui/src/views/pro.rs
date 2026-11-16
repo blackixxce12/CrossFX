@@ -41,7 +41,7 @@
 
 use crate::assets::{AssetCache, FxImage};
 use crate::layout;
-use crate::state::{UiAction, UiResponse, UiState};
+use crate::state::{NoticeLink, UiAction, UiResponse, UiState};
 use crate::theme::{self, FxColor, Palette};
 use crate::views::{
     self, ColumnFace, ViewScratch, at, equalizer_controls, titlebar, window_origin, window_rect,
@@ -274,6 +274,7 @@ pub fn show(
         notice_bubble(
             ui,
             text,
+            state.notice_link,
             palette,
             at(origin, layout::pro::notification()),
             &mut response,
@@ -341,10 +342,13 @@ pub fn notice_rect(max: Rect, text_width: f32, rows: usize) -> Rect {
 /// The notice, drawn the way the original draws its in-window notification: a `DefaultFill`
 /// rounded rectangle over a soft shadow, the message centred in `DefaultText`, wrapped to at most
 /// three lines. A click takes it down; otherwise the application does, four seconds after it went
-/// up. Returns where it was drawn.
+/// up. A notice that offers a link ([`NoticeLink`]) has it as a button on a row of its own
+/// under the text, with the link's note on hover; the bubble stays up while the pointer is on it
+/// ([`UiAction::HoldNotice`]). Returns where it was drawn.
 fn notice_bubble(
     ui: &Ui,
     text: &str,
+    link: Option<NoticeLink>,
     palette: Palette,
     max: Rect,
     response: &mut UiResponse,
@@ -380,7 +384,25 @@ fn notice_bubble(
     } else {
         galley.size().x
     };
-    let bubble = notice_rect(max, text_width, galley.rows.len());
+    let link_colour = palette.color(FxColor::HighlightedText);
+    let link_galley = link.map(|link| {
+        ui.painter().layout_no_wrap(
+            link.label(),
+            theme::semibold(notice::FONT_PX / icon_button::JUCE_HEIGHT_PER_EM),
+            link_colour,
+        )
+    });
+    let text_width = link_galley
+        .as_ref()
+        .map_or(text_width, |label| text_width.max(label.size().x));
+    let mut bubble = notice_rect(max, text_width, galley.rows.len());
+    // The link's row, under the text's.
+    let link_row = if link_galley.is_some() {
+        notice::LINE_PITCH
+    } else {
+        0.0
+    };
+    bubble.max.y = (bubble.max.y + link_row).min(max.bottom());
 
     let corner = CornerRadius::same(notice::CORNER_RADIUS);
     let shadow = egui::epaint::Shadow {
@@ -393,16 +415,48 @@ fn notice_bubble(
     ui.painter()
         .rect_filled(bubble, corner, palette.color(FxColor::DefaultFill));
     // A centred job lays its rows out around x = 0, so the galley goes at the bubble's centre line.
-    let top = bubble.center().y - galley.size().y / 2.0;
+    let top = bubble.center().y - (galley.size().y + link_row) / 2.0;
+    let text_bottom = top + galley.size().y;
     ui.painter()
         .galley(pos2(bubble.center().x, top), galley, colour);
 
+    // The bubble first and the button over it: the later of two is the one a click on both
+    // reaches.
     let hit = ui.interact(bubble, Id::unique("fx_notice_bubble"), Sense::click());
     if hit.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        response.push(UiAction::HoldNotice);
+        // Frames keep coming while it is held, so that the hold outlasts a still pointer.
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs(1));
     }
     if hit.clicked() {
         response.push(UiAction::DismissNotice);
+    }
+    if let (Some(link), Some(label)) = (link, link_galley) {
+        let size = label.size();
+        let button = Rect::from_min_size(
+            pos2(
+                bubble.center().x - size.x / 2.0,
+                text_bottom + (notice::LINE_PITCH - size.y) / 2.0,
+            ),
+            size,
+        );
+        ui.painter().galley(button.min, label, link_colour);
+        ui.painter().hline(
+            button.x_range(),
+            button.bottom() - 1.0,
+            egui::Stroke::new(1.0, link_colour),
+        );
+        let hit = ui.interact(button, Id::unique("fx_notice_bubble_link"), Sense::click());
+        if hit.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            response.push(UiAction::HoldNotice);
+        }
+        if hit.clicked() {
+            response.push(UiAction::OpenNoticeLink(link));
+        }
+        let _ = hit.on_hover_text(link.note());
     }
     bubble
 }
@@ -3174,7 +3228,48 @@ mod tests {
         let shapes = harness.settle(&state);
         let rect = bubble(&shapes, harness.palette).expect("a bubble");
         let actions = harness.click(&state, rect.center());
-        assert_eq!(actions, vec![UiAction::DismissNotice]);
+        assert!(
+            actions.contains(&UiAction::HoldNotice),
+            "held while the pointer is on it"
+        );
+        let others: Vec<_> = actions
+            .into_iter()
+            .filter(|action| *action != UiAction::HoldNotice)
+            .collect();
+        assert_eq!(others, vec![UiAction::DismissNotice]);
+    }
+
+    #[test]
+    fn a_bubble_with_a_link_has_its_button_under_the_text_and_the_button_opens_the_page() {
+        let mut harness = Harness::new(ThemeMode::Dark);
+        let state = UiState {
+            notification: Some("No virtual playback device: install VB-CABLE".to_owned()),
+            notice_link: Some(crate::state::NoticeLink::VbCable),
+            ..state()
+        };
+        let shapes = harness.settle(&state);
+        let rect = bubble(&shapes, harness.palette).expect("a bubble");
+        let painted = texts(&shapes);
+        let find = |wanted: &str| {
+            painted
+                .iter()
+                .find(|(text, _, _)| text == wanted)
+                .map(|(_, rect, _)| *rect)
+                .unwrap_or_else(|| panic!("{wanted:?} is painted"))
+        };
+        let notice = find("No virtual playback device: install VB-CABLE");
+        let button = find(crate::state::GET_VB_CABLE);
+        assert!(
+            rect.contains_rect(notice) && rect.contains_rect(button),
+            "{rect:?}"
+        );
+        assert!(button.top() >= notice.bottom(), "under the text");
+        let actions = harness.click(&state, button.center());
+        assert!(
+            actions.contains(&UiAction::OpenNoticeLink(crate::state::NoticeLink::VbCable)),
+            "{actions:?}"
+        );
+        assert!(!actions.contains(&UiAction::DismissNotice), "{actions:?}");
     }
 
     #[test]

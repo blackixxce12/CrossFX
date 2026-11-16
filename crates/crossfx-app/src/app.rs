@@ -32,7 +32,7 @@ use crossfx_ui::{
         CalibrationAction, CalibrationView, ExportState, ImportState, ImportSummary,
         OverwriteChoice, PresetsAction,
     },
-    state::{EqSolo, PresetEntry},
+    state::{EqSolo, NoticeLink, PresetEntry, VB_CABLE_PAGE},
 };
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -674,6 +674,11 @@ pub struct App {
     /// Settings ▸ Experimental's "Smooth moves in WirePlumber": CrossFX's hook in the user's
     /// WirePlumber, and the WirePlumber it goes into (roadmap 0.5.0 §7, D5).
     wireplumber: wireplumber::WirePlumberHost,
+    /// On Windows, no VB-Audio cable is installed, as last read: the notice of a missing virtual
+    /// device links to VB-CABLE's page, and Settings ▸ Audio offers it. Never on Linux.
+    vb_cable_missing: bool,
+    /// How that is read: [`crate::platform::vb_cable_missing`], or a test's answer.
+    read_vb_cable_missing: fn() -> bool,
 }
 
 impl App {
@@ -792,6 +797,8 @@ impl App {
             } else {
                 wireplumber::WirePlumberHost::none()
             },
+            vb_cable_missing: crate::platform::vb_cable_missing(),
+            read_vb_cable_missing: crate::platform::vb_cable_missing,
         };
         // A hook an earlier CrossFX installed is this build's from now on.
         app.wireplumber.bring_up_to_date();
@@ -997,6 +1004,9 @@ impl App {
             // In arrival order, so a device that vanished in one list and came back in the next
             // is announced afresh.
             AudioToUi::Devices(devices) => {
+                // A cable installed or taken away changes the list: Settings ▸ Audio offers VB-CABLE's
+                // page only while there is none.
+                self.vb_cable_missing = (self.read_vb_cable_missing)();
                 for message in self.adopt_device_list(devices) {
                     self.send(message);
                 }
@@ -1081,6 +1091,14 @@ impl App {
                 // of the user's language.
                 log::info!("audio engine error shown to the user: {message}");
                 self.raise_notice(engine_error_notice(&message));
+                // Nothing to work through, and no VB-Audio cable: the notice links to VB-CABLE's
+                // page. Looked at now, not at start: the user may have installed one since.
+                if needs_a_virtual_cable(&message) {
+                    self.vb_cable_missing = (self.read_vb_cable_missing)();
+                    if self.vb_cable_missing {
+                        self.state.notice_link = Some(NoticeLink::VbCable);
+                    }
+                }
             }
             // Something that works but that the user should know — one Bluetooth headset on both
             // lanes, which drops its music to call quality (U9). Already translated.
@@ -1492,6 +1510,8 @@ impl App {
                 self.set_edit_direction(direction);
             }
             UiAction::DismissNotice => self.state.dismiss_notification(),
+            UiAction::HoldNotice => self.state.hold_notification(Instant::now()),
+            UiAction::OpenNoticeLink(link) => self.open_link(link.url()),
 
             // The five effects, the balance and the volume leveller are the music chain's alone,
             // so they go to the speakers whichever lane the window shows: a command line or a
@@ -3078,6 +3098,8 @@ impl App {
             wizard_holds_microphone: false,
             microphone_held: false,
             wireplumber: wireplumber::WirePlumberHost::none(),
+            vb_cable_missing: false,
+            read_vb_cable_missing: || false,
         };
         app.start_the_stream_here();
         app
@@ -3175,6 +3197,14 @@ impl App {
     /// ([`AppEvent::touches_tray`]) is the other reason.
     pub fn take_tray_refresh(&mut self) -> bool {
         std::mem::take(&mut self.tray_stale)
+    }
+
+    /// Open `url` in the user's browser; a notice says so when there is none to open it in.
+    fn open_link(&mut self, url: &str) {
+        if let Err(err) = crate::platform::open_url(url) {
+            log::warn!("could not open {url}: {err}");
+            self.raise_notice(tr("Could not open the link"));
+        }
     }
 
     /// Put up a notice in the window and tell the stream: the one way the application raises
@@ -4446,21 +4476,22 @@ fn engine_error_notice(message: &str) -> String {
     } else if is(AudioError::FormatNegotiation) {
         "The audio format could not be agreed with PipeWire"
     } else if is(AudioError::NoVirtualDevice) {
-        // The Windows engine's: what is missing, and the two drivers that give CrossFX one.
-        "No virtual playback device: install the FxSound driver or VB-CABLE"
+        // The Windows engine's: what is missing, and the one remedy — VB-CABLE, whose page the
+        // notice links to ([`needs_a_virtual_cable`]). FxSound's driver serves as well, but comes
+        // only with the original FxSound. Short, so that the cause, the remedy and the link fit
+        // the Lite window's one-line strip in every language.
+        "No virtual playback device: install VB-CABLE"
     } else if is(AudioError::NoVirtualInputDevice) {
         // The Windows engine's: the microphone plays into a cable of its own, and none is left
         // for it — none is installed, or the only one is the one CrossFX's output lane stands on
         // (a machine without FxSound's driver), where installing VB-CABLE again adds nothing.
-        "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
-         CrossFX's output already uses one"
+        "No virtual cable left for the microphone: install one"
     } else if is(AudioError::VirtualInputDeviceInUse) {
         // The Windows engine's: a cable is there, but in the user's use — they picked it as
         // CrossFX's output, which plays into it, or a default device of theirs is on one of its
         // sides — and the microphone is not mixed into what they send through it. Installing
         // one would not help them; another output or default device, or a second cable, does.
-        "The virtual cable is in use as CrossFX's output or a default device: choose another, or \
-         install a second cable for the microphone"
+        "The virtual cable is in use: choose another device or add a cable"
     } else if message.starts_with(windows_unavailable.trim_end()) {
         // The Windows engine's, whatever the detail the log has: the service every WASAPI client
         // talks to (`Audiosrv`, "Windows Audio" in the list of services).
@@ -4468,6 +4499,21 @@ fn engine_error_notice(message: &str) -> String {
     } else {
         "The audio engine reported an error"
     })
+}
+
+/// Whether the engine's error `message` says that CrossFX has no virtual device to work through on
+/// Windows — none to play through, none left for the microphone, or the one there in the user's
+/// own use — for which VB-CABLE is a remedy, and the notice links to its page while no VB-Audio
+/// cable is installed.
+fn needs_a_virtual_cable(message: &str) -> bool {
+    use crossfx_audio::AudioError;
+    [
+        AudioError::NoVirtualDevice,
+        AudioError::NoVirtualInputDevice,
+        AudioError::VirtualInputDeviceInUse,
+    ]
+    .iter()
+    .any(|error| message == error.to_string())
 }
 
 /// Why the engine says echo cancellation is not running, from the detail it sends: `None` for
@@ -5213,12 +5259,8 @@ impl App {
                 self.notify(message);
             }
 
-            A::OpenUrl(url) => {
-                if let Err(err) = crate::platform::open_url(url) {
-                    log::warn!("could not open {url}: {err}");
-                    self.raise_notice(tr("Could not open the link"));
-                }
-            }
+            A::OpenUrl(url) => self.open_link(url),
+            A::GetVbCable => self.open_link(VB_CABLE_PAGE),
             A::Font(action) => {
                 if crate::fonts::act(action, &mut self.settings, state) {
                     self.persist_settings();
@@ -5356,6 +5398,7 @@ impl App {
     /// every frame the pane is open; everything else in the pane's working copy changes only
     /// through [`App::handle_settings`].
     pub fn refresh_settings_state(&self, state: &mut SettingsState) {
+        state.vb_cable_missing = self.vb_cable_missing;
         // Before the rows: a row's preset is an index into this list, counted in the live
         // store's order, and a save, rename or delete from the command line or D-Bus while the
         // pane is open moves the names under it. A stale list would show a row one name and bind
@@ -7950,6 +7993,149 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_virtual_device_links_to_vb_cables_page_only_while_no_vb_audio_cable_is_there() {
+        use crossfx_audio::AudioError;
+        use crossfx_ui::state::NoticeLink;
+        let errors = [
+            AudioError::NoVirtualDevice,
+            AudioError::NoVirtualInputDevice,
+            AudioError::VirtualInputDeviceInUse,
+        ];
+        for error in &errors {
+            let mut app = headless();
+            app.read_vb_cable_missing = || true;
+            app.receive(AudioToUi::Error {
+                direction: None,
+                message: error.to_string(),
+            });
+            assert_eq!(
+                app.state.notice_link,
+                Some(NoticeLink::VbCable),
+                "{error:?}"
+            );
+            // Settings ▸ Audio offers it too, from what was read.
+            let mut settings = app.settings_state();
+            app.refresh_settings_state(&mut settings);
+            assert!(settings.vb_cable_missing);
+            // A later notice never carries the link.
+            app.receive(AudioToUi::Error {
+                direction: None,
+                message: AudioError::NoInputDevices.to_string(),
+            });
+            assert_eq!(app.state.notice_link, None);
+
+            // A VB-Audio cable is there: the notice says what to do, with no link.
+            let mut app = headless();
+            app.read_vb_cable_missing = || false;
+            app.receive(AudioToUi::Error {
+                direction: None,
+                message: error.to_string(),
+            });
+            assert!(app.state.notification.is_some());
+            assert_eq!(app.state.notice_link, None, "{error:?}");
+        }
+        // Another error never links, whatever is installed.
+        let mut app = headless();
+        app.read_vb_cable_missing = || true;
+        app.receive(AudioToUi::Error {
+            direction: None,
+            message: AudioError::NoOutputDevices.to_string(),
+        });
+        assert_eq!(app.state.notice_link, None);
+        assert!(!needs_a_virtual_cable("something a later engine says"));
+    }
+
+    #[test]
+    fn a_notice_the_pointer_is_on_stays_up() {
+        let mut app = headless();
+        app.raise_notice("Preset: Rock");
+        let raised = app
+            .state
+            .notice_clock
+            .as_ref()
+            .map(|(_, since)| *since)
+            .expect("stamped");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        app.handle(&[UiAction::HoldNotice]);
+        let held = app
+            .state
+            .notice_clock
+            .as_ref()
+            .map(|(_, since)| *since)
+            .expect("still stamped");
+        assert!(held > raised, "the clock starts again");
+        assert!(
+            !app.state
+                .expire_notification(raised + crossfx_ui::state::NOTICE_LIFETIME)
+        );
+        assert!(app.state.notification.is_some());
+    }
+
+    #[test]
+    fn the_cable_notices_and_their_link_fit_the_lite_strip_in_every_language() {
+        // The Lite window's strip is one line (`crossfx_ui::views::lite`): the cause, the remedy
+        // and the "Get VB-CABLE…" button have to fit it, at no less than the smallest size the
+        // strip sets its line in, so that nothing of them is cut.
+        use crossfx_audio::AudioError;
+        use crossfx_core::i18n::{Catalogue, LANGUAGES};
+        use crossfx_ui::views::lite::{NOTICE_LINK_GAP, notice_strip_font};
+        let english: Vec<String> = [
+            AudioError::NoVirtualDevice,
+            AudioError::NoVirtualInputDevice,
+            AudioError::VirtualInputDeviceInUse,
+        ]
+        .iter()
+        .map(|error| engine_error_notice(&error.to_string()))
+        .collect();
+        // As the strip measures it: a point short of its width.
+        let room = crossfx_ui::layout::lite::notification().width() - 1.0;
+        let smallest =
+            crossfx_ui::views::pro::caption_font(crossfx_ui::views::lite::NOTICE_FONT_PX).size
+                * crossfx_ui::dialogs::MIN_FIT_SCALE;
+        let ctx = eframe::egui::Context::default();
+        ctx.set_fonts(crossfx_ui::theme::font_definitions());
+        let mut problems = Vec::new();
+        ctx.run_ui(eframe::egui::RawInput::default(), |ui| {
+            for language in &LANGUAGES {
+                let table = Catalogue::for_language(language);
+                let label = table
+                    .get(crossfx_ui::state::GET_VB_CABLE)
+                    .unwrap_or(crossfx_ui::state::GET_VB_CABLE)
+                    .to_owned();
+                for (key, linked) in english.iter().flat_map(|key| [(key, true), (key, false)]) {
+                    let line = table.get(key).unwrap_or(key).to_owned();
+                    let label = if linked { label.clone() } else { String::new() };
+                    let font =
+                        notice_strip_font(ui.ctx(), &line, linked.then_some(label.as_str()), room);
+                    let width = |text: &str| {
+                        ui.painter()
+                            .layout_no_wrap(
+                                text.to_owned(),
+                                font.clone(),
+                                eframe::egui::Color32::PLACEHOLDER,
+                            )
+                            .size()
+                            .x
+                    };
+                    let total = if linked {
+                        width(&line) + NOTICE_LINK_GAP + width(&label)
+                    } else {
+                        width(&line)
+                    };
+                    if total > room || font.size < smallest - 0.01 {
+                        problems.push(format!(
+                            "{}: {line:?} and {label:?} are {total:.0} of {room} at {}",
+                            language.code, font.size
+                        ));
+                    }
+                }
+            }
+        })
+        .drop_without_applying_deltas();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
     fn every_engine_error_is_shown_as_a_sentence_of_the_interface_never_as_the_engines_log_line() {
         use crossfx_audio::AudioError;
         let cases = [
@@ -7980,17 +8166,15 @@ mod tests {
             ),
             (
                 AudioError::NoVirtualDevice,
-                "No virtual playback device: install the FxSound driver or VB-CABLE",
+                "No virtual playback device: install VB-CABLE",
             ),
             (
                 AudioError::NoVirtualInputDevice,
-                "No virtual cable left for the microphone: install VB-CABLE, or a second cable if \
-                 CrossFX's output already uses one",
+                "No virtual cable left for the microphone: install one",
             ),
             (
                 AudioError::VirtualInputDeviceInUse,
-                "The virtual cable is in use as CrossFX's output or a default device: choose \
-                 another, or install a second cable for the microphone",
+                "The virtual cable is in use: choose another device or add a cable",
             ),
             (
                 AudioError::WindowsAudioUnavailable("IMMDeviceEnumerator: 0x80070422".to_owned()),

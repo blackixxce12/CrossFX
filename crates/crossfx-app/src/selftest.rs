@@ -391,12 +391,13 @@ fn check_virtual_device(probed: bool, devices: Option<Result<Vec<String>, String
             None => Check::fail(
                 NAME,
                 format!(
-                    "no virtual playback device among {}: install the FxSound driver or VB-CABLE",
+                    "no virtual playback device among {}: install the FxSound driver or VB-CABLE ({})",
                     if devices.is_empty() {
                         "none".to_owned()
                     } else {
                         devices.join(", ")
-                    }
+                    },
+                    crossfx_ui::state::VB_CABLE_PAGE,
                 ),
             ),
         },
