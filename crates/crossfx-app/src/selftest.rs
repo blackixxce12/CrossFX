@@ -752,18 +752,16 @@ fn status_icons() -> Vec<String> {
     .collect()
 }
 
-/// The application icon at the two sizes every package installs, under its one name: the
-/// application id, which the desktop file's `Icon=` names and every notification is sent with.
+/// The application icon as every package installs it, under its one name, the application id,
+/// which the desktop file's `Icon=` names and every notification is sent with: a PNG of each of
+/// [`crate::icon::SIZES`], and the drawing as the scalable icon.
 #[cfg(target_os = "linux")]
 fn app_icons() -> Vec<String> {
-    ["256x256", "32x32"]
+    let id = crate::tray::APP_ID;
+    crate::icon::SIZES
         .iter()
-        .map(|size| {
-            format!(
-                "share/icons/hicolor/{size}/apps/{}.png",
-                crate::tray::APP_ID
-            )
-        })
+        .map(|size| format!("share/icons/hicolor/{size}x{size}/apps/{id}.png"))
+        .chain([format!("share/icons/hicolor/scalable/apps/{id}.svg")])
         .collect()
 }
 

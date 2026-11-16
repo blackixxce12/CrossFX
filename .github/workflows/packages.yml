@@ -385,11 +385,12 @@ jobs:
             test -f "$prefix/share/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-$state.svg"
           done
           # The application icon under the application id, the one name the desktop entry, the
-          # notifications and the sound settings look it up by.
-          for name in io.github.blackixxce12.CrossFX; do
-            test -f "$prefix/share/icons/hicolor/256x256/apps/$name.png"
-            test -f "$prefix/share/icons/hicolor/32x32/apps/$name.png"
+          # notifications and the sound settings look it up by: every size, and the scalable SVG.
+          name=io.github.blackixxce12.CrossFX
+          for size in 16 24 32 48 64 128 256 512; do
+            test -f "$prefix/share/icons/hicolor/${size}x${size}/apps/$name.png"
           done
+          test -f "$prefix/share/icons/hicolor/scalable/apps/$name.svg"
           echo "::endgroup::"
 
           # Two parts of the binary are not AGPL, and each licence makes shipping its text a

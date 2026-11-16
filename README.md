@@ -177,7 +177,7 @@ On an older distribution than Debian 12, build from source instead.
 | `/usr/share/applications/io.github.blackixxce12.CrossFX.desktop` | the launcher entry |
 | `/usr/lib/systemd/user/crossfx.service` | `systemctl --user enable --now crossfx` |
 | `/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service` | starts CrossFX, through that unit, for a D-Bus call |
-| `/usr/share/icons/hicolor/*/apps/io.github.blackixxce12.CrossFX.png` | the icon, under the application id, the name the launcher and the notifications carry |
+| `/usr/share/icons/hicolor/*/apps/io.github.blackixxce12.CrossFX.{png,svg}` | CrossFX's icon, drawn at each size from 16 to 512 pixels and as an SVG, under the application id, the name the launcher and the notifications carry |
 | `/usr/share/icons/hicolor/scalable/status/` | the tray's three status icons |
 | `/usr/share/man/man1/crossfx.1` | the manual page: every option, the status document and the D-Bus interface |
 | `/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml` | what GNOME Software and Discover show |

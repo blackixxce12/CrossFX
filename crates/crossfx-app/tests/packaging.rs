@@ -698,18 +698,32 @@ fn the_noto_notice_covers_every_noto_face_in_the_tree() {
 /// "theme icon not found" for each notice.
 const NOTIFICATION_ICON: &str = crossfx_app::tray::APP_ID;
 
-/// Each size of the application icon under `share/icons/hicolor`, as (size, source in the tree):
-/// the five bars of the original's artwork, whose file names stay.
-const APPLICATION_ICONS: [(&str, &str); 2] = [
-    ("256x256", "assets/images/fxsound_large.png"),
-    ("32x32", "assets/images/fxsound.png"),
-];
+/// Each file of the application icon under `share/icons/hicolor`, as (path there, source in the
+/// tree): CrossFX's icon drawn at every size of `crossfx_app::icon::SIZES`, and the drawing itself
+/// as the scalable icon.
+fn application_icons() -> Vec<(String, String)> {
+    crossfx_app::icon::SIZES
+        .iter()
+        .map(|size| {
+            (
+                format!("{size}x{size}/apps/{NOTIFICATION_ICON}.png"),
+                format!("assets/icons/apps/crossfx-{size}.png"),
+            )
+        })
+        .chain([(
+            format!("scalable/apps/{NOTIFICATION_ICON}.svg"),
+            "assets/icons/apps/crossfx.svg".to_owned(),
+        )])
+        .collect()
+}
 
 /// `share` holds the application icon at every size under its one name, the application id, byte
-/// for byte the tree's file.
+/// for byte the tree's file, and no other file of it.
 fn assert_notification_icon_in(share: &Path, package: &str) {
-    for (size, source) in APPLICATION_ICONS {
-        let installed = share.join(format!("icons/hicolor/{size}/apps/{NOTIFICATION_ICON}.png"));
+    let hicolor = share.join("icons/hicolor");
+    let expected = application_icons();
+    for (path, source) in &expected {
+        let installed = hicolor.join(path);
         assert!(
             installed.is_file(),
             "{package} does not install {}",
@@ -722,6 +736,26 @@ fn assert_notification_icon_in(share: &Path, package: &str) {
             installed.display()
         );
     }
+    // Nothing else under the application id: a size the icon no longer has, or the bars of old.
+    let mut found = Vec::new();
+    for size in fs::read_dir(&hicolor).expect("share/icons/hicolor is listed") {
+        let size = size.expect("an entry of share/icons/hicolor").file_name();
+        let Ok(apps) = fs::read_dir(hicolor.join(&size).join("apps")) else {
+            continue;
+        };
+        for icon in apps {
+            let name = icon.expect("an icon").file_name();
+            found.push(format!(
+                "{}/apps/{}",
+                size.to_string_lossy(),
+                name.to_string_lossy()
+            ));
+        }
+    }
+    found.sort();
+    let mut wanted: Vec<String> = expected.into_iter().map(|(path, _)| path).collect();
+    wanted.sort();
+    assert_eq!(found, wanted, "{package}: the application icons");
 }
 
 /// The shell commands of a script or a spec section, each with its `\` continuations joined into
@@ -806,10 +840,10 @@ fn the_fedora_package_installs_and_lists_the_notification_icon_under_the_applica
     let spec = text(repo().join("packaging/fedora/crossfx.spec"));
     let install = shell_commands(spec_section(&spec, "%install"));
     let files = spec_section(&spec, "%files");
-    for (size, source) in APPLICATION_ICONS {
-        let path = format!("%{{_datadir}}/icons/hicolor/{size}/apps/{NOTIFICATION_ICON}.png");
+    for (icon, source) in application_icons() {
+        let path = format!("%{{_datadir}}/icons/hicolor/{icon}");
         assert!(
-            installs(&install, source, &path),
+            installs(&install, &source, &path),
             "the spec's %install does not install {source} as {path}"
         );
         assert!(
@@ -823,10 +857,10 @@ fn the_fedora_package_installs_and_lists_the_notification_icon_under_the_applica
 fn both_debian_builds_install_the_notification_icon_under_the_application_id() {
     for recipe in ["packaging/debian/rules", "packaging/build-deb.sh"] {
         let commands = shell_commands(text(repo().join(recipe)).lines());
-        for (size, source) in APPLICATION_ICONS {
-            let path = format!("/usr/share/icons/hicolor/{size}/apps/{NOTIFICATION_ICON}.png");
+        for (icon, source) in application_icons() {
+            let path = format!("/usr/share/icons/hicolor/{icon}");
             assert!(
-                installs(&commands, source, &path),
+                installs(&commands, &source, &path),
                 "{recipe} does not install {source} as {path}"
             );
         }

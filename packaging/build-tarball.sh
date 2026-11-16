@@ -17,7 +17,9 @@
 #   lib/systemd/user/crossfx.service
 #   share/dbus-1/services/io.github.blackixxce12.CrossFX.service
 #   share/applications/io.github.blackixxce12.CrossFX.desktop
-#   share/icons/hicolor/{256x256,32x32}/apps/io.github.blackixxce12.CrossFX.png
+#   share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256x256,512x512}/apps/
+#     io.github.blackixxce12.CrossFX.png
+#   share/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg
 #   share/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-{off,on,processing}.svg
 #   share/crossfx/presets/{Factsoft,BonusPresets}/*.fac  share/crossfx/presets/Input/*.toml
 #   share/man/man1/crossfx.1
@@ -72,13 +74,16 @@ install -Dm644 packaging/crossfx.service "${pkg}/lib/systemd/user/crossfx.servic
 # D-Bus activation, with Exec=/usr/bin/crossfx rewritten by install.sh as the unit is.
 install -Dm644 packaging/io.github.blackixxce12.CrossFX.service \
   "${pkg}/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
-# The two icon sizes the tree actually carries, at the paths packaging/PKGBUILD uses, under the
-# application id: the one name the desktop entry, the notifications
-# (crates/crossfx-app/src/notify.rs) and the sound settings look the icon up by.
-install -Dm644 assets/images/fxsound_large.png \
-  "${pkg}/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
-install -Dm644 assets/images/fxsound.png \
-  "${pkg}/share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png"
+# The application icon at the paths packaging/PKGBUILD uses, under the application id: the one
+# name the desktop entry, the notifications (crates/crossfx-app/src/notify.rs) and the sound
+# settings look the icon up by. Drawn at each size (crates/crossfx-app/src/icon.rs), and the
+# drawing itself as the scalable icon.
+for size in 16 24 32 48 64 128 256 512; do
+  install -Dm644 "assets/icons/apps/crossfx-${size}.png" \
+    "${pkg}/share/icons/hicolor/${size}x${size}/apps/io.github.blackixxce12.CrossFX.png"
+done
+install -Dm644 assets/icons/apps/crossfx.svg \
+  "${pkg}/share/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg"
 # The tray icon's three states, resolved by name through the theme; without them the tray shows
 # a blank where the icon should be.
 install -Dm644 assets/icons/status/io.github.blackixxce12.CrossFX-{off,on,processing}.svg \

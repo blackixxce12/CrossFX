@@ -360,11 +360,26 @@ install -D -m 0644 "$REPO/packaging/io.github.blackixxce12.CrossFX.service" \
     "$DATA/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
 # The application icon under the application id, the one name the desktop entry,
 # the notifications (crates/crossfx-app/src/notify.rs) and the sound settings
-# look it up by.
-install -D -m 0644 "$REPO/assets/images/fxsound_large.png" \
-    "$DATA/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
-install -D -m 0644 "$REPO/assets/images/fxsound.png" \
+# look it up by: drawn at each size (crates/crossfx-app/src/icon.rs), and the
+# drawing itself as the scalable icon.
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-16.png" \
+    "$DATA/usr/share/icons/hicolor/16x16/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-24.png" \
+    "$DATA/usr/share/icons/hicolor/24x24/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-32.png" \
     "$DATA/usr/share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-48.png" \
+    "$DATA/usr/share/icons/hicolor/48x48/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-64.png" \
+    "$DATA/usr/share/icons/hicolor/64x64/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-128.png" \
+    "$DATA/usr/share/icons/hicolor/128x128/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-256.png" \
+    "$DATA/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx-512.png" \
+    "$DATA/usr/share/icons/hicolor/512x512/apps/io.github.blackixxce12.CrossFX.png"
+install -D -m 0644 "$REPO/assets/icons/apps/crossfx.svg" \
+    "$DATA/usr/share/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg"
 
 # The tray icon's three states. A StatusNotifier host resolves an icon *name*
 # through the theme, so without these under hicolor's status context the tray

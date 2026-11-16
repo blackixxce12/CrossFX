@@ -57,11 +57,13 @@ package() {
   install -Dm644 "share/dbus-1/services/io.github.blackixxce12.CrossFX.service" \
     "${pkgdir}/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
   # The application icon under the application id, the one name the desktop entry, the
-  # notifications and the sound settings look it up by.
-  install -Dm644 "share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png" \
-    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
-  install -Dm644 "share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png" \
-    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png"
+  # notifications and the sound settings look it up by: at each size, and as the scalable icon.
+  for _size in 16 24 32 48 64 128 256 512; do
+    install -Dm644 "share/icons/hicolor/${_size}x${_size}/apps/io.github.blackixxce12.CrossFX.png" \
+      "${pkgdir}/usr/share/icons/hicolor/${_size}x${_size}/apps/io.github.blackixxce12.CrossFX.png"
+  done
+  install -Dm644 "share/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg"
   # The tray icon's three states, resolved by name through the theme.
   install -Dm644 share/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-*.svg \
     -t "${pkgdir}/usr/share/icons/hicolor/scalable/status/"

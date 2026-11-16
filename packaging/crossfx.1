@@ -1374,9 +1374,12 @@ The tray icon's three states, looked up by name by the StatusNotifier host.
 The binary carries the same three and offers them as pixmaps too, for a host
 that does not look icons up in the theme.
 .TP
-.I /usr/share/icons/hicolor/{256x256,32x32}/apps/io.github.blackixxce12.CrossFX.png
+.I /usr/share/icons/hicolor/*/apps/io.github.blackixxce12.CrossFX.{png,svg}
 The application icon, under the application id: the icon name the desktop
 entry, the notifications and CrossFX's streams in the sound settings carry.
+A PNG drawn at each size from 16x16 to 512x512, and the drawing itself, as
+an SVG, under
+.IR scalable .
 .SH EXAMPLES
 Bind the shortcut targets in the compositor, here on Super+Alt, which few
 desktops and no applications use \(en in Hyprland:

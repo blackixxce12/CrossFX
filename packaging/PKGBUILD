@@ -96,11 +96,14 @@ package() {
   install -Dm644 "packaging/io.github.blackixxce12.CrossFX.service" \
     "${pkgdir}/usr/share/dbus-1/services/io.github.blackixxce12.CrossFX.service"
   # The application icon under the application id, the one name the desktop entry, the
-  # notifications (crates/crossfx-app/src/notify.rs) and the sound settings look it up by.
-  install -Dm644 "assets/images/fxsound_large.png" \
-    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png"
-  install -Dm644 "assets/images/fxsound.png" \
-    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png"
+  # notifications (crates/crossfx-app/src/notify.rs) and the sound settings look it up by: drawn
+  # at each size (crates/crossfx-app/src/icon.rs), and the drawing itself as the scalable icon.
+  for _size in 16 24 32 48 64 128 256 512; do
+    install -Dm644 "assets/icons/apps/crossfx-${_size}.png" \
+      "${pkgdir}/usr/share/icons/hicolor/${_size}x${_size}/apps/io.github.blackixxce12.CrossFX.png"
+  done
+  install -Dm644 "assets/icons/apps/crossfx.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg"
 
   # The tray icon's three states. A StatusNotifier host resolves an icon *name* through the theme,
   # so without these under hicolor's status context the tray shows a blank where the icon should

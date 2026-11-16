@@ -277,12 +277,27 @@ install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.service \
     %{buildroot}%{_datadir}/dbus-1/services/io.github.blackixxce12.CrossFX.service
 
 # The application icon under the application id, the one name the desktop entry, the
-# notifications (crates/crossfx-app/src/notify.rs) and the sound settings look it up by. 256x256
-# and 32x32 respectively; both verified against the files, not assumed from the names.
-install -Dpm0644 assets/images/fxsound_large.png \
-    %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
-install -Dpm0644 assets/images/fxsound.png \
+# notifications (crates/crossfx-app/src/notify.rs) and the sound settings look it up by: drawn at
+# each size (crates/crossfx-app/src/icon.rs), which crates/crossfx-app/tests/icons.rs checks every
+# PNG against, and the drawing itself as the scalable icon.
+install -Dpm0644 assets/icons/apps/crossfx-16.png \
+    %{buildroot}%{_datadir}/icons/hicolor/16x16/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx-24.png \
+    %{buildroot}%{_datadir}/icons/hicolor/24x24/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx-32.png \
     %{buildroot}%{_datadir}/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx-48.png \
+    %{buildroot}%{_datadir}/icons/hicolor/48x48/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx-64.png \
+    %{buildroot}%{_datadir}/icons/hicolor/64x64/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx-128.png \
+    %{buildroot}%{_datadir}/icons/hicolor/128x128/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx-256.png \
+    %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx-512.png \
+    %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/io.github.blackixxce12.CrossFX.png
+install -Dpm0644 assets/icons/apps/crossfx.svg \
+    %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg
 
 # The tray icon's three states. A StatusNotifier host resolves an icon *name* through the theme,
 # so without these under hicolor's status context the tray shows a blank where the icon should be.
@@ -353,8 +368,15 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/io.github.blackixxce1
 %{_datadir}/crossfx/presets/Factsoft/
 %{_datadir}/crossfx/presets/BonusPresets/
 %{_datadir}/crossfx/presets/Input/
-%{_datadir}/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/16x16/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/24x24/apps/io.github.blackixxce12.CrossFX.png
 %{_datadir}/icons/hicolor/32x32/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/48x48/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/64x64/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/128x128/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/256x256/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/512x512/apps/io.github.blackixxce12.CrossFX.png
+%{_datadir}/icons/hicolor/scalable/apps/io.github.blackixxce12.CrossFX.svg
 %{_datadir}/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-off.svg
 %{_datadir}/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-on.svg
 %{_datadir}/icons/hicolor/scalable/status/io.github.blackixxce12.CrossFX-processing.svg

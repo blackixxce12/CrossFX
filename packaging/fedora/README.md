@@ -2,9 +2,9 @@
 
 `crossfx.spec` builds CrossFX on Fedora 43 and newer. It installs exactly what the
 Arch package in `packaging/PKGBUILD` installs: the binary, the `.fac` factory and bonus presets,
-the TOML input presets, the desktop entry, both icon sizes, the tray's status icons, the manual
-page, the AppStream metainfo, the systemd **user** unit and the D-Bus activation file that
-starts it.
+the TOML input presets, the desktop entry, the application icon at every size and as an SVG,
+the tray's status icons, the manual page, the AppStream metainfo, the systemd **user** unit and
+the D-Bus activation file that starts it.
 
 The Rust dependencies are vendored — `eframe`/`egui` 0.36, `pipewire`, `ksni`, `rfd` and
 `resvg` are not packaged as crates in Fedora, so a system-registry build cannot resolve. The
@@ -110,8 +110,10 @@ still only exercised by hand). What was checked locally before that, by running 
 reading:
 
 - every path and glob `%install` touches (15 `Factsoft/*.fac`, 19 `BonusPresets/*.fac`,
-  13 `Input/*.toml`, both icons at the sizes the hicolor paths claim, the three status icons,
-  the manual page, the metainfo, the D-Bus activation file, every doc and licence file);
+  13 `Input/*.toml`, both icons of that time at the sizes the hicolor paths claimed, the three
+  status icons, the manual page, the metainfo, the D-Bus activation file, every doc and licence
+  file). The application icon has since become CrossFX's own, a PNG of each size and an SVG,
+  and `crates/crossfx-app/tests/icons.rs` holds each PNG to the size its path names;
 - the macro behaviour, against `cargo-rpm-macros` 28.5 itself: `%cargo_prep -v <dir>` keeps
   `Cargo.lock`, writes `[net] offline`, creates `target/rpm` and symlinks `target/release` to
   it, and `%cargo_build` builds `--profile rpm` — hence `target/rpm/crossfx` in `%install`;
