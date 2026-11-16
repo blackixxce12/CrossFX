@@ -143,4 +143,8 @@ package() {
   install -Dm644 "assets/fonts/MIT-Hack.txt" "${pkgdir}/usr/share/licenses/${pkgname}/MIT.hack"
   install -Dm644 "assets/fonts/MIT-emoji-icon-font.txt" \
     "${pkgdir}/usr/share/licenses/${pkgname}/MIT.emoji-icons"
+  # The notices of the Rust crates compiled into the binary, generated from Cargo.lock by
+  # crossfx-app's tests/third_party_notices.rs.
+  install -Dm644 "THIRD-PARTY-NOTICES.txt" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/THIRD-PARTY-NOTICES.txt"
 }

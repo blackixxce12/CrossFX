@@ -332,6 +332,9 @@ cp -p assets/fonts/OFL-Manrope.txt OFL.manrope
 cp -p assets/fonts/UFL-Ubuntu.txt UFL.ubuntu
 cp -p assets/fonts/MIT-Hack.txt MIT.hack
 cp -p assets/fonts/MIT-emoji-icon-font.txt MIT.emoji-icons
+# The notices of the Rust crates compiled in, generated from Cargo.lock by crossfx-app's
+# tests/third_party_notices.rs. LICENSE.dependencies names their licences; this file has the texts,
+# and %%license installs it from the source tree under its own name.
 
 
 %check
@@ -365,6 +368,7 @@ appstreamcli validate --no-net %{buildroot}%{_metainfodir}/io.github.blackixxce1
 %license UFL.ubuntu
 %license MIT.hack
 %license MIT.emoji-icons
+%license THIRD-PARTY-NOTICES.txt
 %license LICENSE.dependencies
 %license cargo-vendor.txt
 %doc README.md

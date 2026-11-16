@@ -17,13 +17,16 @@ Comment:
  which the interface uses only when the user adds the files they licensed
  themselves.
  .
- The binary is also statically linked against roughly three hundred crates
- resolved from crates.io through Cargo.lock, which the source package does not
- carry and whose licences are not reproduced here. egui / eframe (MIT or
- Apache-2.0) is worth naming because it is load-bearing rather than
- incidental. BSD-3-Clause, MIT and Apache-2.0 are compatible with
- AGPL-3.0-or-later in the direction that matters: the combined work may be
- distributed under the AGPL.
+ The binary is also statically linked against roughly three hundred Rust
+ crates resolved from crates.io through Cargo.lock, which the source package
+ does not carry. The licence and copyright notices of every crate compiled in,
+ as the crates' own sources ship them, are in THIRD-PARTY-NOTICES.txt, which
+ the package installs as /usr/share/doc/crossfx/THIRD-PARTY-NOTICES.txt.gz and
+ which crossfx-app's tests/third_party_notices.rs generates from Cargo.lock
+ and checks. egui / eframe (MIT or Apache-2.0) is worth naming because it is
+ load-bearing rather than incidental. BSD-3-Clause, MIT and Apache-2.0 are
+ compatible with AGPL-3.0-or-later in the direction that matters: the combined
+ work may be distributed under the AGPL.
  .
  egui brings faces as well as code. The interface starts from egui's own set
  of faces and puts its own before them, so three faces of egui's

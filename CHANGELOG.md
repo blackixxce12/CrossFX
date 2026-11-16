@@ -44,7 +44,9 @@ package. Its name, and the clean break that comes with the name, are below.
   Gilroy to anyone who bought it: add the font files, or have them installed in the system.
 - **Every bundled component's licence notice ships.** The licences of RNNoise, of the Noto and
   Manrope faces and of egui's built-in fonts (Ubuntu Light, Hack, egui's icons) are installed by
-  every package, beside CrossFX's own.
+  every package, beside CrossFX's own, with `THIRD-PARTY-NOTICES.txt`: the licence and copyright
+  notices of the Rust crates compiled into the binary, generated from `Cargo.lock` and kept current
+  by a test.
 - **The Windows interface language follows the user's list of preferred languages:** the first
   language in it that CrossFX has a table for, which is Windows' own rule for applications, and
   not merely the display language. `--language=` and the language switch in Settings still override it.

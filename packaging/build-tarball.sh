@@ -25,7 +25,7 @@
 #   share/man/man1/crossfx.1
 #   share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml
 #   share/doc/crossfx/{README.md,CHANGELOG.md,LICENSE,COPYING.rnnoise,OFL.noto,OFL.manrope,
-#                      UFL.ubuntu,MIT.hack,MIT.emoji-icons,
+#                      UFL.ubuntu,MIT.hack,MIT.emoji-icons,THIRD-PARTY-NOTICES.txt,
 #                      hyprland.conf.example,crossfx-autostart.desktop}
 #   install.sh
 #
@@ -120,6 +120,9 @@ install -Dm644 assets/fonts/OFL-Manrope.txt "${pkg}/share/doc/crossfx/OFL.manrop
 install -Dm644 assets/fonts/UFL-Ubuntu.txt "${pkg}/share/doc/crossfx/UFL.ubuntu"
 install -Dm644 assets/fonts/MIT-Hack.txt "${pkg}/share/doc/crossfx/MIT.hack"
 install -Dm644 assets/fonts/MIT-emoji-icon-font.txt "${pkg}/share/doc/crossfx/MIT.emoji-icons"
+# The licence and copyright notices of the Rust crates compiled into the binary, generated from
+# Cargo.lock by crossfx-app's tests/third_party_notices.rs (which fails when the file is stale).
+install -Dm644 THIRD-PARTY-NOTICES.txt "${pkg}/share/doc/crossfx/THIRD-PARTY-NOTICES.txt"
 
 cat > "${pkg}/install.sh" <<'INNER'
 #!/usr/bin/env sh

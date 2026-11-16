@@ -410,7 +410,9 @@ install -m 0644 "$REPO/packaging/crossfx-autostart.desktop" "$DOCDIR/examples/"
 gzip -9nc "$REPO/CHANGELOG.md" > "$DOCDIR/changelog.gz"
 gzip -9nc "$DEBIAN_DIR/changelog" > "$DOCDIR/changelog.Debian.gz"
 gzip -9nc "$REPO/README.md" > "$DOCDIR/README.md.gz"
-chmod 0644 "$DOCDIR/changelog.gz" "$DOCDIR/changelog.Debian.gz" "$DOCDIR/README.md.gz"
+gzip -9nc "$REPO/THIRD-PARTY-NOTICES.txt" > "$DOCDIR/THIRD-PARTY-NOTICES.txt.gz"
+chmod 0644 "$DOCDIR/changelog.gz" "$DOCDIR/changelog.Debian.gz" "$DOCDIR/README.md.gz" \
+    "$DOCDIR/THIRD-PARTY-NOTICES.txt.gz"
 if [ -f "$DEBIAN_DIR/README.Debian" ]; then
     gzip -9nc "$DEBIAN_DIR/README.Debian" > "$DOCDIR/README.Debian.gz"
     chmod 0644 "$DOCDIR/README.Debian.gz"
