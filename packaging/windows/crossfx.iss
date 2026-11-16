@@ -12,8 +12,8 @@
 ;
 ; Its identity is its own, never the original's: FxSound LLC's FxSound may be installed and
 ; running beside it. Another AppId, name, publisher, folder and Start menu entry, and no driver:
-; the virtual playback device CrossFX plays through belongs to the original FxSound or to
-; VB-CABLE, and the last page says so instead of installing one.
+; the virtual playback device CrossFX plays through is VB-CABLE, another virtual cable or the
+; original FxSound's driver, and the last page says so instead of installing one.
 
 #if Ver < EncodeVer(6, 3, 0)
   #error Inno Setup 6.3 or later is needed (x64compatible)
@@ -130,10 +130,10 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 ; The last page, with the one sentence about the device CrossFX plays through after the standard
 ; text, so that the layout makes room for it above the "Launch" box. NoIcons is the same page
 ; after a /NOICONS install.
-english.FinishedLabel=Setup has finished installing [name] on your computer. The application may be launched by selecting the installed shortcut.%n%nCrossFX needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.
-english.FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nCrossFX needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE.
-russian.FinishedLabel=Программа [name] установлена на ваш компьютер. Приложение можно запустить с помощью ярлыка в меню «Пуск».%n%nДля работы CrossFX нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: драйвер FxSound Audio Enhancer из оригинального FxSound или VB-CABLE.
-russian.FinishedLabelNoIcons=Программа [name] установлена на ваш компьютер.%n%nДля работы CrossFX нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: драйвер FxSound Audio Enhancer из оригинального FxSound или VB-CABLE.
+english.FinishedLabel=Setup has finished installing [name] on your computer. The application may be launched by selecting the installed shortcut.%n%nCrossFX needs a virtual playback device, which it does not install: VB-Audio's VB-CABLE (https://vb-audio.com/Cable/) or another virtual cable, or the FxSound Audio Enhancer driver that comes with the original FxSound. While the original FxSound runs, CrossFX leaves the speakers to it.
+english.FinishedLabelNoIcons=Setup has finished installing [name] on your computer.%n%nCrossFX needs a virtual playback device, which it does not install: VB-Audio's VB-CABLE (https://vb-audio.com/Cable/) or another virtual cable, or the FxSound Audio Enhancer driver that comes with the original FxSound. While the original FxSound runs, CrossFX leaves the speakers to it.
+russian.FinishedLabel=Программа [name] установлена на ваш компьютер. Приложение можно запустить с помощью ярлыка в меню «Пуск».%n%nДля работы CrossFX нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: VB-CABLE от VB-Audio (https://vb-audio.com/Cable/), другой виртуальный кабель или драйвер FxSound Audio Enhancer из оригинального FxSound. Пока работает оригинальный FxSound, CrossFX уступает ему динамики.
+russian.FinishedLabelNoIcons=Программа [name] установлена на ваш компьютер.%n%nДля работы CrossFX нужно виртуальное устройство воспроизведения, которое программа не устанавливает сама: VB-CABLE от VB-Audio (https://vb-audio.com/Cable/), другой виртуальный кабель или драйвер FxSound Audio Enhancer из оригинального FxSound. Пока работает оригинальный FxSound, CrossFX уступает ему динамики.
 
 [CustomMessages]
 english.InstalledFromMsi=CrossFX is already installed from its .msi package. Uninstall it from the list of installed apps first, or install this version from the .msi as well.

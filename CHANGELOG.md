@@ -10,8 +10,9 @@ whose entries keep the names of their time. The format follows
 CrossFX 1.0 is for Linux and for Windows 10 and 11, and it is the release in which the program
 leaves the grey zone and becomes legal to distribute. It no longer ships the Gilroy font: Manrope
 is the default, and anyone who bought Gilroy imports it. It has an icon of its own where it
-showed FxSound LLC's logo. And every component built into it brings its licence notice in every
-package. Its name, and the clean break that comes with the name, are below.
+showed FxSound LLC's logo. And every package installs, beside CrossFX's own licence, the notices
+of RNNoise and of the Noto, Manrope and egui faces built into it. Its name, and the clean break
+that comes with the name, are below.
 
 ### Added
 - **CrossFX for Windows 10 and 11 (64-bit).** The same window, presets, equalizer, effects,
@@ -40,9 +41,9 @@ package. Its name, and the clean break that comes with the name, are below.
 ### Changed
 - **The Gilroy font is no longer shipped.** Gilroy is Radomir Tinkov's commercial typeface, and
   CrossFX neither ships nor downloads it. The interface is set in Manrope (SIL Open Font
-  License), which is built in. the "Interface font" choice in Settings, General tab, offers
+  License), which is built in. The "Interface font" choice in Settings, General tab, offers
   Gilroy to anyone who bought it: add the font files, or have them installed in the system.
-- **Every bundled component's licence notice ships.** The licences of RNNoise, of the Noto and
+- **The notices of RNNoise and of the fonts ship.** The licences of RNNoise, of the Noto and
   Manrope faces and of egui's built-in fonts (Ubuntu Light, Hack, egui's icons) are installed by
   every package, beside CrossFX's own.
 - **The Windows interface language follows the user's list of preferred languages:** the first
@@ -74,8 +75,10 @@ package. Its name, and the clean break that comes with the name, are below.
   treats either as one; a default that the user put on a cable themselves stays theirs.
 - **A crash when CrossFX writes to a console that has been closed** — a command line started from
   a terminal that was closed while it ran — is gone.
-- **Settings are no longer lost when another program has `settings.toml` locked** (an antivirus
-  scan or a sync client, say) while CrossFX reads or writes it.
+- **A `settings.toml` or `apps.toml` that another program holds is no longer set aside or
+  replaced by the defaults** (an antivirus scan or a sync client, say). When it is still held as
+  CrossFX starts, CrossFX runs on the defaults that time and says so, and once the file can be
+  read it writes only the changes made since into it: the user's other settings stay as they were.
 
 ### Breaking changes
 - **The command is `crossfx`.** `crossfx --version` prints `crossfx <version>`, the manual is

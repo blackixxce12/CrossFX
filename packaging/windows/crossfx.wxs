@@ -15,8 +15,8 @@
 
   Its identity is its own, never the original's: FxSound LLC's FxSound may be installed and
   running beside it. Another product name, publisher, folder, Start menu entry and upgrade code,
-  and no driver: the virtual playback device CrossFX plays through belongs to the
-  original FxSound or to VB-CABLE, and this package says so on its last page instead of
+  and no driver: the virtual playback device CrossFX plays through is VB-CABLE, another virtual
+  cable or the original FxSound's driver, and this package says so on its last page instead of
   shipping one.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
@@ -157,7 +157,7 @@
          ticked, to start CrossFX. The launch runs in the wizard's own process, which is the
          user's and not elevated, so CrossFX does not start as an administrator. -->
     <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
-              Value="CrossFX needs a virtual playback device, which it does not install: the FxSound Audio Enhancer driver that comes with the original FxSound, or VB-CABLE." />
+              Value="CrossFX needs a virtual playback device, which it does not install: VB-Audio's VB-CABLE (https://vb-audio.com/Cable/) or another virtual cable, or the FxSound Audio Enhancer driver that comes with the original FxSound. While the original FxSound runs, CrossFX leaves the speakers to it." />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch CrossFX" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
     <CustomAction Id="LaunchCrossFX" FileRef="CrossFXExe" ExeCommand="" Return="asyncNoWait" />

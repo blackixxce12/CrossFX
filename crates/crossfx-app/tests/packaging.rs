@@ -273,9 +273,17 @@ fn assert_notices_in(dir: &Path, package: &str) {
     }
 }
 
-/// An Arch recipe that installs the BSD and OFL texts says it ships those licences, too.
+/// An Arch recipe says it ships the licences whose texts it installs: BSD, OFL, the Ubuntu Font
+/// Licence, MIT and Bitstream Vera.
 fn assert_declares_the_notices(declared: &[String], package: &str) {
-    for licence in ["AGPL-3.0-or-later", "BSD-3-Clause", "OFL-1.1"] {
+    for licence in [
+        "AGPL-3.0-or-later",
+        "BSD-3-Clause",
+        "OFL-1.1",
+        "Ubuntu-font-1.0",
+        "MIT",
+        "Bitstream-Vera",
+    ] {
         assert!(
             declared.iter().any(|declared| declared == licence),
             "{package}'s license=() is {declared:?}, without {licence}"
