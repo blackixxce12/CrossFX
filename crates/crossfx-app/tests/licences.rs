@@ -57,11 +57,12 @@ fn notices() -> Vec<String> {
         .collect()
 }
 
-/// Every folder of `assets/` and `packaging/` that holds artwork (an SVG, PNG or ICO file), as a
-/// path from the repository with `/` between its parts.
+/// Every folder of `assets/`, where all the artwork the binary and the packages carry lives, that
+/// holds an SVG, PNG or ICO file, as a path from the repository with `/` between its parts. Not
+/// `packaging/`: a `makepkg` run there leaves the icons it installed in its `pkg/`.
 fn artwork_folders() -> Vec<String> {
     let mut folders = Vec::new();
-    let mut pending = vec![repo().join("assets"), repo().join("packaging")];
+    let mut pending = vec![repo().join("assets")];
     while let Some(dir) = pending.pop() {
         for entry in fs::read_dir(&dir).expect("the directory is listed") {
             let path = entry.expect("an entry").path();
