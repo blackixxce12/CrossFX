@@ -285,8 +285,9 @@ fn assert_notices_in(dir: &Path, package: &str) {
     }
 }
 
-/// An Arch recipe says it ships the licences whose texts it installs: BSD, OFL, the Ubuntu Font
-/// Licence, MIT and Bitstream Vera.
+/// An Arch recipe names in license=() the licences of what the binary carries besides the code of
+/// the Rust crates, whose texts it installs: BSD, OFL, the Ubuntu Font Licence, MIT and Bitstream
+/// Vera.
 fn assert_declares_the_notices(declared: &[String], package: &str) {
     for licence in [
         "AGPL-3.0-or-later",

@@ -7,15 +7,17 @@ whose entries keep the names of their time. The format follows
 
 ## [1.0.0] — 2026-11-17
 
-CrossFX 1.0 is for Linux and for Windows 10 and 11, and it is the release in which the program
-leaves the grey zone and becomes legal to distribute. It no longer ships the Gilroy font: Manrope
-is the default, and anyone who bought Gilroy imports it. It has an icon of its own where it
-showed FxSound LLC's logo. And every package installs, beside CrossFX's own licence, the notices
-of RNNoise and of the Noto, Manrope and egui faces built into it. Its name, and the clean break
+CrossFX 1.0 is for Linux and for Windows 10 (version 1703 or later) and 11, and it is the release
+in which the program leaves the grey zone: what it ships, it ships on the terms of its licence. It
+no longer ships the Gilroy font: Manrope is the default, and anyone who bought Gilroy imports it.
+It has an icon of its own where it showed FxSound LLC's logo. And every package installs, beside
+CrossFX's own licence, the notices of RNNoise and of the Noto, Manrope and egui faces built into
+it, and THIRD-PARTY-NOTICES.txt, the licence and copyright notices of the Rust crates it is built
+from. Its name, and the clean break
 that comes with the name, are below.
 
 ### Added
-- **CrossFX for Windows 10 and 11 (64-bit).** The same window, presets, equalizer, effects,
+- **CrossFX for Windows 10 (version 1703 or later) and 11, 64-bit.** The same window, presets, equalizer, effects,
   voice chain and command line as on Linux, on WASAPI: a setup program
   (`crossfx-1.0.0-windows-x64-setup.exe`), a Windows Installer package
   (`crossfx-1.0.0-windows-x64.msi`, built with WiX 7) and a portable `.zip`. The tray icon lives
@@ -43,7 +45,7 @@ that comes with the name, are below.
   CrossFX neither ships nor downloads it. The interface is set in Manrope (SIL Open Font
   License), which is built in. The "Interface font" choice in Settings, General tab, offers
   Gilroy to anyone who bought it: add the font files, or have them installed in the system.
-- **The notices of RNNoise and of the fonts ship.** The licences of RNNoise, of the Noto and
+- **The notices of RNNoise, of the fonts and of the Rust crates ship.** The licences of RNNoise, of the Noto and
   Manrope faces and of egui's built-in fonts (Ubuntu Light, Hack, egui's icons) are installed by
   every package, beside CrossFX's own, with `THIRD-PARTY-NOTICES.txt`: the licence and copyright
   notices of the Rust crates compiled into the binary, generated from `Cargo.lock` and kept current

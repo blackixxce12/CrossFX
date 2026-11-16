@@ -786,8 +786,9 @@ impl Settings {
         let ours = toml::to_string_pretty(&checked)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
         // A file the load found held is the user's, whole, and these started as the defaults:
-        // only what changed since is written into it ([`crate::held::merge`]).
-        let Some(merged) = crate::held::merge_if_unread(path, &ours)? else {
+        // only what changed since is written into it ([`crate::held::merge`]), the remembered
+        // devices and volumes entry by entry, so neither list gains a second entry for one place.
+        let Some(merged) = crate::held::merge_if_unread(path, &ours, &Self::KEYED)? else {
             return crate::atomic::write(path, ours.as_bytes());
         };
         let mut merged: Self = toml::from_str(&merged)
@@ -799,6 +800,28 @@ impl Settings {
         crate::held::merged(path, &ours);
         Ok(())
     }
+
+    /// The lists of the file whose entries a merge into a held file ([`crate::held::merge`])
+    /// tells apart by what they are for: a device and lane, and a lane, device and port.
+    const KEYED: [crate::held::Keyed; 2] = [
+        crate::held::Keyed {
+            array: "device_configs",
+            key: |value| {
+                let entry: DeviceConfig = value.clone().try_into().ok()?;
+                Some(format!("{:?}\n{}", entry.direction, entry.device_id))
+            },
+        },
+        crate::held::Keyed {
+            array: "device_volumes",
+            key: |value| {
+                let entry: TargetVolume = value.clone().try_into().ok()?;
+                Some(format!(
+                    "{:?}\n{}\n{}",
+                    entry.direction, entry.target, entry.port
+                ))
+            },
+        },
+    ];
 
     /// Force the DSP fields into the ranges the controls enforce.
     ///
@@ -864,6 +887,13 @@ impl Settings {
             }
         }
         self.device_volumes = kept;
+
+        // One remembered device per lane, as [`Settings::remember_device_preset`] keeps it: a
+        // second entry can only be a hand edit, and every lookup answers with the first, so the
+        // first is the one kept, in its place in the ranking.
+        let mut seen = std::collections::HashSet::with_capacity(self.device_configs.len());
+        self.device_configs
+            .retain(|entry| seen.insert((entry.direction, entry.device_id.clone())));
     }
 
     /// The volume remembered for CrossFX's node while attached to `target` on its port `port`

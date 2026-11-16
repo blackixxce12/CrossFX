@@ -12,8 +12,11 @@ pkgrel=1
 pkgdesc="System-wide audio enhancement for Linux: EQ, ambience, surround, bass and dynamic boost (Rust/egui port of FxSound)"
 arch=('x86_64')
 url="https://github.com/blackixxce12/CrossFX"
-# The licences whose texts the package installs: CrossFX's, RNNoise's, the Noto and Manrope
-# faces', and those of egui's built-in faces (Ubuntu Light, Hack, the icons).
+# license=() names the licence of CrossFX and those of what the binary carries besides the code
+# of the Rust crates: the RNNoise code, the Noto and Manrope faces and egui's built-in faces
+# (Ubuntu Light, Hack, the icons); the package installs each one's text. The Rust crates compiled
+# in each have a licence of their own, which is not listed here: THIRD-PARTY-NOTICES.txt, installed
+# beside the others, names each crate's licence and gives its text.
 license=('AGPL-3.0-or-later' 'BSD-3-Clause' 'OFL-1.1' 'Ubuntu-font-1.0' 'MIT' 'Bitstream-Vera')
 # Runtime: PipeWire for audio, the Wayland/GL stack for the window, D-Bus for the tray and
 # notifications, fontconfig because egui asks it for fallback faces.

@@ -158,4 +158,5 @@ countries: vn
 "Get VB-CABLE…" = "Nhận VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE là phần mềm quyên góp (donationware) của VB-Audio mà bạn tự cài đặt (cần quyền quản trị; Windows có thể yêu cầu khởi động lại). Nó không thuộc CrossFX."
 "The Windows audio service is not available" = "Dịch vụ âm thanh của Windows không khả dụng"
-"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Tệp cài đặt đang được chương trình khác sử dụng: CrossFX đã khởi động với cài đặt mặc định và sẽ lưu các thay đổi của bạn vào tệp đó"
+"%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Tệp %s đang được chương trình khác sử dụng: CrossFX đã khởi động với cài đặt mặc định và sẽ lưu các thay đổi của bạn vào tệp đó"
+"Your changes are not saved: CrossFX cannot read %s" = "Các thay đổi của bạn không được lưu: CrossFX không thể đọc tệp %s"

@@ -578,7 +578,8 @@ fn every_image_in_assets_images_is_used_by_the_source() {
 
 /// The notices of the Rust crates compiled into the binary are a file of the tree, which every
 /// package installs, and the Licence section says so: what the file is, that it is generated from
-/// `Cargo.lock` by a test, and the command that rewrites it. The archive's and the packages' lists
+/// `Cargo.lock` by a test, and the commands that compare it with `Cargo.lock` (after fetching
+/// every target's crates) and rewrite it. The archive's and the packages' lists
 /// name it too.
 #[test]
 fn the_readme_names_the_generated_notices_of_the_crates_and_how_they_are_kept_current() {
@@ -597,6 +598,8 @@ fn the_readme_names_the_generated_notices_of_the_crates_and_how_they_are_kept_cu
         format!("`{THIRD_PARTY}`"),
         "crates/crossfx-app/tests/third_party_notices.rs".to_string(),
         "CROSSFX_WRITE_NOTICES=1 cargo test -p crossfx-app --test third_party_notices".to_string(),
+        "CROSSFX_CHECK_NOTICES=1 cargo test -p crossfx-app --test third_party_notices".to_string(),
+        "cargo fetch --locked".to_string(),
     ] {
         assert!(
             flat.contains(&needed),

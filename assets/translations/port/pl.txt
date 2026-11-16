@@ -158,4 +158,5 @@ countries: pl
 "Get VB-CABLE…" = "Zdobądź VB-CABLE…"
 "VB-CABLE is VB-Audio's donationware, which you install yourself (administrator rights; Windows may ask for a restart). It is not part of CrossFX." = "VB-CABLE to donationware firmy VB-Audio, które instalujesz samodzielnie (potrzebne są uprawnienia administratora; Windows może poprosić o ponowne uruchomienie). Nie jest częścią CrossFX."
 "The Windows audio service is not available" = "Usługa audio systemu Windows jest niedostępna"
-"The settings file was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Plik ustawień był używany przez inny program: CrossFX uruchomił się z ustawieniami domyślnymi i zapisze w nim Twoje zmiany"
+"%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Plik %s był używany przez inny program: CrossFX uruchomił się z ustawieniami domyślnymi i zapisze w nim Twoje zmiany"
+"Your changes are not saved: CrossFX cannot read %s" = "Twoje zmiany nie są zapisywane: CrossFX nie może odczytać pliku %s"
