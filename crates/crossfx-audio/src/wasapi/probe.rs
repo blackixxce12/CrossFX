@@ -41,6 +41,41 @@ pub fn probe() -> Result<String, AudioError> {
         })
 }
 
+impl crate::InstalledCables {
+    /// The virtual cables among the active endpoints of both directions, read the way
+    /// [`crate::wasapi_probe`] reads them: on a thread of its own, in the multithreaded apartment, so that the
+    /// GUI's single-threaded one may ask. Read only: the endpoints' property stores, nothing else.
+    ///
+    /// # Errors
+    /// [`AudioError::WindowsAudioUnavailable`] when COM or the MMDevice API cannot be reached.
+    pub fn read() -> Result<Self, AudioError> {
+        std::thread::Builder::new()
+            .name("crossfx-cables".to_owned())
+            .spawn(|| {
+                let _apartment = com::Apartment::join()
+                    .map_err(|error| AudioError::WindowsAudioUnavailable(error.message()))?;
+                let enumerator = com::Enumerator::new()
+                    .map_err(|error| AudioError::WindowsAudioUnavailable(error.message()))?;
+                let mut all: Vec<Endpoint> = Vec::new();
+                for direction in DeviceDirection::ALL {
+                    all.extend(
+                        enumerator.endpoints(direction).map_err(|error| {
+                            AudioError::WindowsAudioUnavailable(error.message())
+                        })?,
+                    );
+                }
+                Ok(Self::among(&all))
+            })
+            .map_err(|error| AudioError::WindowsAudioUnavailable(error.to_string()))?
+            .join()
+            .unwrap_or_else(|_| {
+                Err(AudioError::WindowsAudioUnavailable(
+                    "the cables' thread panicked".to_owned(),
+                ))
+            })
+    }
+}
+
 fn report() -> Result<String, AudioError> {
     let _apartment = com::Apartment::join()
         .map_err(|error| AudioError::WindowsAudioUnavailable(error.message()))?;
@@ -385,5 +420,15 @@ fn name_of(all: &[Endpoint], id: Option<&str>) -> String {
             .iter()
             .find(|endpoint| endpoint.id == id)
             .map_or_else(|| id.to_owned(), |endpoint| endpoint.label().to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_installed_cables_are_read_without_changing_anything() {
+        // Whatever this machine has: the read answers, and answers the same twice.
+        let first = crate::InstalledCables::read().expect("the endpoints are listed");
+        assert_eq!(crate::InstalledCables::read().ok(), Some(first));
     }
 }

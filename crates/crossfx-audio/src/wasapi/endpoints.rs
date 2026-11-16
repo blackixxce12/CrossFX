@@ -480,6 +480,21 @@ pub(crate) fn one_headset(output: &Endpoint, input: &Endpoint) -> bool {
         && output.container == input.container
 }
 
+impl crate::InstalledCables {
+    /// What `endpoints` hold: a VB-Audio cable on either side of one, as
+    /// [`Endpoint::virtual_kind`] tells it from its adapter's name.
+    pub(crate) fn among(endpoints: &[Endpoint]) -> Self {
+        Self {
+            vb_audio: endpoints.iter().any(|endpoint| {
+                matches!(
+                    endpoint.virtual_kind(),
+                    Some(VirtualKind::VbCable | VirtualKind::VbAudioCable)
+                )
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1185,5 +1200,28 @@ pub(crate) mod tests {
                 ..hands_free
             }
         ));
+    }
+
+    #[test]
+    fn a_vb_audio_cable_is_found_on_either_side_and_no_other_virtual_device_counts() {
+        let found = |endpoints: &[Endpoint]| crate::InstalledCables::among(endpoints).vb_audio;
+        assert!(!found(&[]));
+        assert!(!found(&[speakers(), microphone(), fxsound()]));
+        let line = virtual_endpoint(
+            "line1",
+            OUT,
+            "Line 1 (Virtual Audio Cable)",
+            "Line 1",
+            "Virtual Audio Cable",
+        );
+        assert!(
+            !found(&[speakers(), line]),
+            "Virtual Audio Cable is not VB-Audio's"
+        );
+        let [playback, recording] = cable();
+        assert!(found(&[speakers(), playback]));
+        assert!(found(&[microphone(), recording]));
+        assert!(found(&cable_a()));
+        assert!(found(&cable_2()));
     }
 }

@@ -239,6 +239,16 @@ pub use locale::{node_description, sink_description, source_description};
 #[cfg(windows)]
 pub use wasapi::probe as wasapi_probe;
 
+/// The virtual cables installed on Windows, as the engine tells them apart (`wasapi`'s
+/// endpoints): what the window reads to offer VB-Audio's page, for a machine with no cable for
+/// CrossFX to stand on. Read with [`InstalledCables::read`]; nothing is changed.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InstalledCables {
+    /// A VB-Audio cable — VB-CABLE, its cables A to D, or the Hi-Fi Cable — with an active side.
+    pub vb_audio: bool,
+}
+
 /// What the `node.name` of every node of this crate's starts with: the lanes' pairs, the node that
 /// holds the microphone awake, the echo canceller's and the per-application routes'
 /// ([`OUR_NODE_NAMES`], [`AEC_NODE_PREFIX`], [`ROUTE_NODE_PREFIX`]). The WirePlumber hook's script
