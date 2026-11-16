@@ -104,11 +104,14 @@ install -Dm644 packaging/io.github.blackixxce12.CrossFX.metainfo.xml \
 install -Dm644 README.md CHANGELOG.md LICENSE \
   packaging/hyprland.conf.example packaging/crossfx-autostart.desktop \
   -t "${pkg}/share/doc/crossfx/"
-# Beside the AGPL, the notices of the three parts of the binary that are not AGPL, whose licences
-# make shipping the text a condition of shipping the binary: the RNNoise code and model
-# (BSD-3-Clause), the embedded Noto fallback faces and the Manrope interface faces (both SIL OFL
-# 1.1, each with its own notice). crossfx-bin installs all four from here into
-# /usr/share/licenses.
+# Beside the AGPL, the notices of the three parts of the tree compiled into the binary that are not
+# AGPL, whose licences make shipping the text a condition of shipping the binary: the RNNoise code
+# and model (BSD-3-Clause), the embedded Noto fallback faces and the Manrope interface faces (both
+# SIL OFL 1.1, each with its own notice). crossfx-bin installs all four from here into
+# /usr/share/licenses. Every other package installs the same ones under the same names, and which
+# they are is read from the three lines below (crossfx-app's tests/licences.rs and
+# tests/windows_installers.rs, the packages workflow): one notice a line, as
+# `install -Dm644 <file> "${pkg}/share/doc/crossfx/<name>"`.
 install -Dm644 crates/crossfx-rnnoise/COPYING "${pkg}/share/doc/crossfx/COPYING.rnnoise"
 install -Dm644 assets/fonts/OFL.txt "${pkg}/share/doc/crossfx/OFL.noto"
 install -Dm644 assets/fonts/OFL-Manrope.txt "${pkg}/share/doc/crossfx/OFL.manrope"

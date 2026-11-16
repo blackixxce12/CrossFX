@@ -1,15 +1,19 @@
 //! The Windows installers and their smoke test, held against the names the code goes by
-//! (`crossfx_core::identity`), on every system: `packaging/windows/crossfx.iss`, `crossfx.wxs` and
-//! `smoke-test.ps1` are read here as they lie in the tree.
+//! (`crossfx_core::identity`), on every system: `packaging/windows/crossfx.iss`, `crossfx.wxs`,
+//! `build-windows.ps1` and `smoke-test.ps1` are read here as they lie in the tree, and
+//! `packaging/build-tarball.sh` for the notices the Linux packages carry.
 //!
-//! Two things are held. The names CrossFX installs, registers and deletes are CrossFX's own: the
+//! Three things are held. The names CrossFX installs, registers and deletes are CrossFX's own: the
 //! product, the publisher, the folders, the program, the "Run at startup" value, the
 //! AppUserModelID of its notifications, and the setup program's AppId and the package's
-//! UpgradeCode, each with the mirror the other installer keeps of it. And none of the three files
-//! names a registry value, key or folder of the original FxSound by FxSound LLC — its Run value,
-//! its keys under `HKCU\Software`, its AppUserModelID, its folders in the application data — not
-//! to write it, not to read it, not to assert it untouched, not in a comment: they are the
-//! original's whatever their case, since Windows does not tell one spelling from another.
+//! UpgradeCode, each with the mirror the other installer keeps of it. None of `crossfx.iss`,
+//! `crossfx.wxs` and `smoke-test.ps1` names a registry value, key or folder of the original
+//! FxSound by FxSound LLC — its Run value, its keys under `HKCU\Software`, its AppUserModelID, its
+//! folders in the application data — not to write it, not to read it, not to assert it untouched,
+//! not in a comment: they are the original's whatever their case, since Windows does not tell one
+//! spelling from another. And the Windows packages carry every notice the Linux ones do, whatever
+//! the tree holds: the build once went on without Manrope's, with a warning, where the tree did
+//! not have it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -213,6 +217,66 @@ fn the_smoke_test_looks_for_crossfx_and_installs_only_on_a_throw_away_runner() {
         ),
         "smoke-test.ps1 does not say why -InstallOnThisMachine refuses"
     );
+}
+
+/// The notices `packaging/build-tarball.sh` installs beside `LICENSE`, the ones every Linux
+/// package carries (`tests/licences.rs` reads them the same way), as (name, source): its
+/// `install -Dm644 <source> "${pkg}/share/doc/crossfx/<name>"` lines.
+fn tarball_notices() -> Vec<(String, String)> {
+    let path = repo().join("packaging/build-tarball.sh");
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{} could not be read: {error}", path.display()))
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.strip_prefix("install -Dm644 ")?.split_whitespace();
+            let source = words.next()?;
+            let name = words
+                .next()?
+                .trim_matches('"')
+                .strip_prefix("${pkg}/share/doc/crossfx/")?;
+            Some((name.to_owned(), source.to_owned()))
+        })
+        .collect()
+}
+
+/// Every notice the Linux packages carry beside `LICENSE` is one `build-windows.ps1` stages under
+/// the same name from the same file, as an entry of the table it copies them by, not added to it
+/// on a condition; and one `smoke-test.ps1` expects in every tree it checks, on a line of the
+/// script's own, outside any block. A notice the tree lacks then fails the build, rather than
+/// leaving the packages without it.
+#[test]
+fn the_windows_packages_carry_every_notice_the_linux_ones_do() {
+    let notices = tarball_notices();
+    assert!(
+        notices.iter().any(|(name, _)| name == "OFL.manrope"),
+        "packaging/build-tarball.sh no longer installs OFL.manrope the way this test reads it: \
+         {notices:?}"
+    );
+    let build = text("build-windows.ps1");
+    let staged: Vec<&str> = build
+        .lines()
+        .skip_while(|line| line.trim() != "$notices = [ordered]@{")
+        .skip(1)
+        .take_while(|line| line.trim() != "}")
+        .map(str::trim)
+        .collect();
+    assert!(
+        !staged.is_empty(),
+        "build-windows.ps1 has no $notices = [ordered]@{{ … }} table"
+    );
+    let smoke = text("smoke-test.ps1");
+    for (name, source) in &notices {
+        let source = source.replace('/', "\\");
+        assert!(
+            staged.contains(&format!("'{name}' = '{source}'").as_str()),
+            "build-windows.ps1's $notices does not stage {source} as {name}: {staged:?}"
+        );
+        let expected = format!("$expected['{name}'] = Join-Path $root '{source}'");
+        assert!(
+            smoke.lines().any(|line| line == expected),
+            "smoke-test.ps1 does not expect {name} in every tree (no line `{expected}`)"
+        );
+    }
 }
 
 #[test]

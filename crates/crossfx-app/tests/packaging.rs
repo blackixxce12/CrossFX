@@ -3,19 +3,20 @@
 //! each Arch recipe in a plain bash, the way makepkg calls it. What cannot be run here — an RPM
 //! build, dpkg — is read: the Fedora spec's `%files` and Debian's machine-readable `copyright`.
 //!
-//! Two things are held. The first is the licences. The binary carries three parts that are not
-//! AGPL: the RNNoise code and model in `crates/crossfx-rnnoise` (BSD-3-Clause, whose second clause
-//! makes reproducing the notice in the accompanying materials the condition of shipping a binary),
-//! and the Noto fallback faces and the Manrope interface faces embedded in the window (SIL OFL 1.1,
-//! whose second condition asks the same of each font's notice and licence). 0.4.0's first packages
-//! installed only `LICENSE`, and Debian's `copyright` called every file in the tree AGPL, fonts
-//! included. The second is that the tarball script packs the binary of the tree it sits in: it
-//! used to build only when there was no binary at all, so a 0.3.0 left in `target/release` went
-//! out under the 0.4.0 name. And the tarball's `install.sh` refuses a prefix inside anyone's home
-//! folder — whoever runs it, and through `sudo`, `doas`, `pkexec` or `su`, as root also in a folder
-//! that belongs to one of the people's accounts — and one whose `share/crossfx` already holds what
-//! neither the tarball ships nor an earlier install put there, where its copy would lay the
-//! factory presets over a user's own; over an earlier install it upgrades.
+//! Two things are held. The first is the licences. Three parts of the tree compiled into the
+//! binary are not AGPL: the RNNoise code and model in `crates/crossfx-rnnoise` (BSD-3-Clause, whose
+//! second clause makes reproducing the notice in the accompanying materials the condition of
+//! shipping a binary), and the Noto fallback faces and the Manrope interface faces embedded in the
+//! window (SIL OFL 1.1, whose second condition asks the same of each font's notice and licence).
+//! 0.4.0's first packages installed only `LICENSE`, and Debian's `copyright` called every file in
+//! the tree AGPL, fonts included. The second is that the tarball script packs the binary of the
+//! tree it sits in: it used to build only when there was no binary at all, so a 0.3.0 left in
+//! `target/release` went out under the 0.4.0 name. And the tarball's `install.sh` refuses a prefix
+//! inside anyone's home folder — whoever runs it, and through `sudo`, `doas`, `pkexec` or `su`, as
+//! root also in a folder that belongs to one of the people's accounts — and one whose
+//! `share/crossfx` already holds what neither the tarball ships nor an earlier install put there,
+//! where its copy would lay the factory presets over a user's own; over an earlier install it
+//! upgrades.
 //!
 //! The recipes and files are read under CrossFX's names: `crossfx`, `crossfx-bin`,
 //! `crossfx.spec`, `debian/crossfx.install`.

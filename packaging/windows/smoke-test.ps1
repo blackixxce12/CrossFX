@@ -119,10 +119,7 @@ $expected = [ordered]@{ 'crossfx.exe' = $null; 'README.txt' = $null }
 $expected['LICENSE'] = Join-Path $root 'LICENSE'
 $expected['COPYING.rnnoise'] = Join-Path $root 'crates\crossfx-rnnoise\COPYING'
 $expected['OFL.noto'] = Join-Path $root 'assets\fonts\OFL.txt'
-$manrope = Join-Path $root 'assets\fonts\OFL-Manrope.txt'
-if (Test-Path -LiteralPath $manrope -PathType Leaf) {
-    $expected['OFL.manrope'] = $manrope
-}
+$expected['OFL.manrope'] = Join-Path $root 'assets\fonts\OFL-Manrope.txt'
 foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', '.toml'))) {
     $from = Join-Path $root "assets\presets\$($set[0])"
     foreach ($file in @(Get-ChildItem -LiteralPath $from -File | Where-Object { $_.Extension -eq $set[1] })) {

@@ -24,6 +24,14 @@ Comment:
  AGPL-3.0-or-later in the direction that matters: the combined work may be
  distributed under the AGPL.
  .
+ egui brings faces as well as code. The interface starts from egui's own set
+ of faces and puts its own before them, so three faces of egui's
+ epaint_default_fonts crate are compiled into the binary too: Ubuntu Light
+ (Ubuntu Font Licence 1.0), Hack (MIT, and the Bitstream Vera licence of the
+ face it grew from) and egui's icons, a subset of emoji-icon-font (MIT). They
+ stay under their own licences, which are in that crate's fonts/ folder and
+ are not reproduced here either.
+ .
  Anyone preparing this for an archive that requires the full dependency tree to
  be auditable should run `cargo vendor` and regenerate this file from the
  result; see README.Debian.
@@ -35,7 +43,7 @@ Copyright:
 License: AGPL-3.0-or-later
 Comment:
  CrossFX is a fork of the original FxSound rather than a wrapper around it,
- and two parts of it are the original's work carried across rather than
+ and three parts of it are the original's work carried across rather than
  rewritten:
  .
    * The DSP under crates/crossfx-dsp is a line-by-line port of the C sources
@@ -44,9 +52,36 @@ Comment:
    * The .fac presets under assets/presets/Factsoft and
      assets/presets/BonusPresets are the original FxSound's own files, byte
      for byte, so that a preset means the same thing in both programs.
+   * The interface artwork under assets/images is the original's, from its
+     repository, apart from three Settings icons CrossFX drew to match. The
+     two paragraphs after this one say which are whose.
  .
- Both inherit the original FxSound's terms, which are the same terms CrossFX
- uses.
+ All three inherit the original FxSound's terms, which are the same terms
+ CrossFX uses.
+
+Files: assets/images/*
+Copyright: 2025 FxSound LLC
+License: AGPL-3.0-or-later
+Comment:
+ The original FxSound's interface artwork, from fxsound/Images in its
+ repository: the buttons, arrows, slider thumbs and Settings icons the window
+ draws in the original's likeness. Not the original's logotype or its five
+ bars, which CrossFX does not carry.
+
+Files: assets/images/applications.svg assets/images/experimental.svg
+ assets/images/microphone.svg
+Copyright: 2026 CrossFX contributors
+License: AGPL-3.0-or-later
+Comment:
+ The icons of the Settings pages the original does not have, which CrossFX
+ drew to match the original's.
+
+Files: assets/icons/* assets/windows/crossfx.ico
+Copyright: 2026 CrossFX contributors
+License: AGPL-3.0-or-later
+Comment:
+ CrossFX's own icon, the wave-X: the application icon, the tray's status
+ icons and the Windows icon. None of it is FxSound LLC's.
 
 Files: assets/presets/Input/*
 Copyright: 2026 CrossFX contributors

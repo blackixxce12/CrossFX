@@ -65,10 +65,6 @@ $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $root = (Resolve-Path -LiteralPath (Join-Path $here '..\..')).Path
 
-# Manrope's licence lives beside its faces; until the branch that adds them is merged, neither is
-# in the tree.
-$manropeOfl = 'assets\fonts\OFL-Manrope.txt'
-
 function Write-Step([string]$text) {
     Write-Host ''
     Write-Host "==> $text"
@@ -447,22 +443,16 @@ foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', 
     }
 }
 
-# The AGPL, and beside it the notices of the parts of the binary that are not AGPL, whose
-# licences make shipping the text a condition of shipping the binary: the RNNoise code and model
-# (BSD-3-Clause) and the embedded fonts (SIL OFL 1.1).
+# The AGPL, and beside it the notices of the three parts of the tree compiled into the binary that
+# are not AGPL, whose licences make shipping the text a condition of shipping the binary: the
+# RNNoise code and model (BSD-3-Clause), and the Noto and the Manrope faces (SIL OFL 1.1, each with
+# its own notice). The names and files are build-tarball.sh's, as every Linux package's are; a
+# file missing from the tree stops the build here.
 $notices = [ordered]@{
     'LICENSE' = 'LICENSE'
     'COPYING.rnnoise' = 'crates\crossfx-rnnoise\COPYING'
     'OFL.noto' = 'assets\fonts\OFL.txt'
-}
-if (Test-Path -LiteralPath (Join-Path $root $manropeOfl) -PathType Leaf) {
-    $notices['OFL.manrope'] = $manropeOfl
-} elseif (@(Get-ChildItem -LiteralPath (Join-Path $root 'assets\fonts') -Filter 'Manrope*' -File).Count -gt 0) {
-    throw "assets\fonts has Manrope faces but no $manropeOfl; their licence has to ship with them"
-} else {
-    Write-LoudWarning 'Manrope licence missing' @(
-        "$manropeOfl is not in this tree, so the packages go out WITHOUT OFL.manrope.",
-        'It arrives with the Manrope faces; a release must not be built before they are merged.')
+    'OFL.manrope' = 'assets\fonts\OFL-Manrope.txt'
 }
 foreach ($name in $notices.Keys) {
     Copy-Item -LiteralPath (Join-Path $root $notices[$name]) -Destination (Join-Path $stage $name)

@@ -100,6 +100,10 @@ Summary:        System-wide audio enhancement: EQ, ambience, surround, bass and 
 # assets/fonts. Gilroy, the face of the original FxSound, is not in the tree: it is a commercial
 # typeface, which the window uses only when the user adds files they licensed themselves.
 #
+# And one licence no crate declares: of the three faces egui's epaint_default_fonts compiles in,
+# Hack is MIT and, for the Bitstream Vera Sans Mono it grew from, Bitstream-Vera, which that
+# crate's "(MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0" leaves out. The tag adds it.
+#
 # %%build re-runs %%{cargo_license_summary} on every build and prints it to the build log: if it
 # stops matching this comment, the dependency tree moved and this tag has to be updated.
 # LICENSE.dependencies, shipped in the package, carries the per-crate breakdown.
@@ -118,6 +122,7 @@ License:        %{shrink:
     BSD-2-Clause AND
     BSD-3-Clause AND
     BSL-1.0 AND
+    Bitstream-Vera AND
     ISC AND
     MIT AND
     (MIT OR Unlicense) AND
@@ -312,13 +317,13 @@ install -Dpm0644 packaging/crossfx.1 %{buildroot}%{_mandir}/man1/crossfx.1
 install -Dpm0644 packaging/io.github.blackixxce12.CrossFX.metainfo.xml \
     %{buildroot}%{_metainfodir}/io.github.blackixxce12.CrossFX.metainfo.xml
 
-# Three parts of the binary are not AGPL, and each licence makes shipping its text a condition of
-# shipping the binary: the RNNoise code and model compiled in from crates/crossfx-rnnoise
-# (BSD-3-Clause), and the Noto fallback faces and the Manrope interface faces embedded in the
-# window (both SIL OFL 1.1, each with its own notice). LICENSE.dependencies only names licences,
-# so the texts are shipped as %%license files, under the names every other package gives them:
-# %%license on the source paths would install them as a bare COPYING and OFL.txt beside our own
-# LICENSE.
+# Three parts of the tree compiled into the binary are not AGPL, and each licence makes shipping
+# its text a condition of shipping the binary: the RNNoise code and model compiled in from
+# crates/crossfx-rnnoise (BSD-3-Clause), and the Noto fallback faces and the Manrope interface
+# faces embedded in the window (both SIL OFL 1.1, each with its own notice). LICENSE.dependencies
+# only names licences, so the texts are shipped as %%license files, under the names every other
+# package gives them: %%license on the source paths would install them as a bare COPYING and
+# OFL.txt beside our own LICENSE.
 cp -p crates/crossfx-rnnoise/COPYING COPYING.rnnoise
 cp -p assets/fonts/OFL.txt OFL.noto
 cp -p assets/fonts/OFL-Manrope.txt OFL.manrope

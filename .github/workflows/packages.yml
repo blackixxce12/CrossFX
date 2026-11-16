@@ -393,10 +393,15 @@ jobs:
           test -f "$prefix/share/icons/hicolor/scalable/apps/$name.svg"
           echo "::endgroup::"
 
-          # Two parts of the binary are not AGPL, and each licence makes shipping its text a
-          # condition of shipping the binary: the RNNoise code (BSD-3-Clause) and the embedded Noto
-          # faces (SIL OFL 1.1). Read out of the package this leg built wherever a container image
-          # may leave docs uninstalled; %license files and the tarball's tree are always there.
+          # Three parts of the tree compiled into the binary are not AGPL, and each licence makes
+          # shipping its text a condition of shipping the binary: the RNNoise code (BSD-3-Clause),
+          # and the Noto and the Manrope faces (SIL OFL 1.1, each with its own notice). Which
+          # notices those are is read from packaging/build-tarball.sh, which installs each under
+          # the name every package gives it, so that a notice added there is checked on every leg
+          # here as well. Read out of the package this leg built wherever a container image may
+          # leave docs uninstalled; %license files and the tarball's tree are always there. The
+          # .deb carries them all in its copyright file, which has to be the tree's
+          # debian/copyright, the one tests/packaging.rs holds to the same notices.
           echo "::group::licences"
           same() {
             if [ "$(sha256sum < "$1")" != "$(sha256sum < "$2")" ]; then
@@ -404,40 +409,43 @@ jobs:
               exit 1
             fi
           }
-          rnnoise="$GITHUB_WORKSPACE/crates/crossfx-rnnoise/COPYING"
-          ofl="$GITHUB_WORKSPACE/assets/fonts/OFL.txt"
+          # One "<name> <source>" line per notice: "OFL.manrope assets/fonts/OFL-Manrope.txt".
+          notices=$(sed -n \
+            's|^install -Dm644 \([^ ]*\) "${pkg}/share/doc/crossfx/\([^"]*\)"$|\2 \1|p' \
+            "$GITHUB_WORKSPACE/packaging/build-tarball.sh")
+          for name in COPYING.rnnoise OFL.noto OFL.manrope; do
+            if ! awk -v name="$name" '$1 == name { found = 1 } END { exit !found }' <<<"$notices"; then
+              echo "::error::packaging/build-tarball.sh does not install $name the way this check reads it"
+              exit 1
+            fi
+          done
           unpacked=$(mktemp -d)
+          licences=
           case '${{ matrix.family }}' in
             arch)
               bsdtar -xf "$(ls dist/crossfx-[0-9]*.pkg.tar.zst)" -C "$unpacked" \
                 usr/share/licenses/crossfx
-              same "$unpacked/usr/share/licenses/crossfx/COPYING.rnnoise" "$rnnoise" COPYING.rnnoise
-              same "$unpacked/usr/share/licenses/crossfx/OFL.noto" "$ofl" OFL.noto
+              licences="$unpacked/usr/share/licenses/crossfx"
               ;;
             deb)
               deb=$(ls dist/crossfx_*.deb)
               dpkg-deb --fsys-tarfile "$deb" \
                 | tar -xf - -C "$unpacked" ./usr/share/doc/crossfx/copyright
-              copyright="$unpacked/usr/share/doc/crossfx/copyright"
-              for line in 'Files: crates/crossfx-rnnoise/*' 'License: BSD-3-Clause' \
-                'Files: assets/fonts/Noto* assets/fonts/OFL.txt' 'License: OFL-1.1' \
-                ' - Neither the name of the Xiph.Org Foundation nor the names of its' \
-                ' SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007'; do
-                if ! grep -qxF -- "$line" "$copyright"; then
-                  echo "::error::the package's copyright file has no line '$line'"
-                  exit 1
-                fi
-              done
+              same "$unpacked/usr/share/doc/crossfx/copyright" \
+                "$GITHUB_WORKSPACE/packaging/debian/copyright" copyright
               ;;
             rpm)
-              same /usr/share/licenses/crossfx/COPYING.rnnoise "$rnnoise" COPYING.rnnoise
-              same /usr/share/licenses/crossfx/OFL.noto "$ofl" OFL.noto
+              licences=/usr/share/licenses/crossfx
               ;;
             tarball)
-              same "$prefix/share/doc/crossfx/COPYING.rnnoise" "$rnnoise" COPYING.rnnoise
-              same "$prefix/share/doc/crossfx/OFL.noto" "$ofl" OFL.noto
+              licences="$prefix/share/doc/crossfx"
               ;;
           esac
+          if [ -n "$licences" ]; then
+            while read -r name source; do
+              same "$licences/$name" "$GITHUB_WORKSPACE/$source" "$name"
+            done <<<"$notices"
+          fi
           rm -rf "$unpacked"
           echo "::endgroup::"
 
