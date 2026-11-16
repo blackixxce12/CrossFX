@@ -140,8 +140,9 @@ pub const WINDOWS_ORDER: [&str; 30] = [
 ///
 /// The interface asks for the second; [`Language::original_catalogue`] moves each original entry
 /// to it, with `FxSound` swapped for `CrossFX` in the value. Only these four: the original's other
-/// strings that name FxSound are not shown, and one joins the list only when the interface starts
-/// to show it.
+/// strings that name FxSound are not shown, and one joins the list when the interface starts to
+/// show it — `tests/translations.rs` fails until it does, since a string the interface asks for
+/// may name FxSound only when it means the original.
 pub const RENAMED_ORIGINALS: [(&str, &str); 4] = [
     ("FxSound is %s.", "CrossFX is %s."),
     (

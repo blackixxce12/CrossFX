@@ -17,10 +17,14 @@
 //! one fails `every_argument_the_scan_cannot_read_is_listed_with_its_strings` until someone
 //! lists it.
 //!
-//! The strings that name the program say CrossFX, and only they do; the original's four that name
-//! it are read under CrossFX's keys (`fxsound_core::i18n::RENAMED_ORIGINALS`), and the original's
-//! name stays only where a string means the original FxSound: the name audit, the grammar guard,
-//! provenance and the derived values below.
+//! The strings that name the program say CrossFX, and the original's name stays only in the ones
+//! that mean the original FxSound ([`MEAN_THE_ORIGINAL`]); the original's four strings that name
+//! the program are read under CrossFX's keys (`fxsound_core::i18n::RENAMED_ORIGINALS`). The name
+//! audit holds the translations to that both ways: none brings a name its English does not have,
+//! and every port translation names CrossFX as often as its English does and the original wherever
+//! its English does — save one Russian and one Ukrainian sentence that need not name the program
+//! ([`NAME_CROSSFX_LESS_OFTEN`]). The grammar guard, provenance and the derived values below hold
+//! the four strings the original's tables give.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -1126,12 +1130,40 @@ fn a_placeholder_dropped_by_a_translation_is_reported() {
 /// The names a translation may carry only where its key does: CrossFX's, and the original's.
 const NAMES: [&str; 2] = ["CrossFX", "FxSound"];
 
+/// fxsound-ui's `GILROY_EXPLAINED`: the font the original FxSound is set in, which CrossFX cannot
+/// include.
+const GILROY_EXPLAINED: &str = "Gilroy, the font of the original FxSound, is Radomir Tinkov's \
+                                commercial typeface, so CrossFX cannot include it. You can buy a \
+                                licence and add its files here.";
+
+/// Every string the interface asks for that names FxSound, each of them meaning the original
+/// FxSound by FxSound LLC: the font it is set in ([`GILROY_EXPLAINED`]), the mode named after it
+/// (fxsound-ui's `LIKE_ORIGINAL_TITLE`), its driver (the app's notice when there is no virtual
+/// playback device, `engine_error_notice`) and the original running (fxsound-audio's
+/// `ORIGINAL_FXSOUND_RUNNING`). Any other string that says FxSound calls CrossFX by its old name.
+const MEAN_THE_ORIGINAL: [&str; 4] = [
+    GILROY_EXPLAINED,
+    "Like the original FxSound LLC",
+    "No virtual playback device: install the FxSound driver or VB-CABLE",
+    "The original FxSound is running and is using the virtual device: quit it so that CrossFX can \
+     process the sound",
+];
+
+/// The port translations that name CrossFX less often than their English does, as (language,
+/// key). Russian and Ukrainian say that Gilroy is not included without naming the program that
+/// leaves it out, a sentence that reads as well without the name (S5 of the rename's string
+/// table).
+const NAME_CROSSFX_LESS_OFTEN: [(&str, &str); 2] =
+    [("ru", GILROY_EXPLAINED), ("ua", GILROY_EXPLAINED)];
+
 #[test]
 fn a_translation_names_crossfx_or_the_original_only_where_its_key_does() {
-    // The name audit. A string that names CrossFX names it in every language, and one that names
-    // the original FxSound (the font's owner, the original running, its driver, the mode named
-    // after it) names the original; no translation brings a name its English does not have, the
-    // old name of the program least of all. Case-sensitive: the command `crossfx` is not a name.
+    // The name audit. No translation brings a name its English does not have: CrossFX into a
+    // string about the original FxSound (the font's owner, the original running, its driver, the
+    // mode named after it), nor the original's — the old name of the program — into one about
+    // CrossFX. Case-sensitive: the command `crossfx` is not a name. The other way round is the
+    // next test's, over the translations the port wrote, and which English strings may name
+    // FxSound at all is `only_the_strings_that_mean_the_original_name_fxsound`'s.
     let keys = interface_keys();
     let mut misnamed = Vec::new();
     for table in tables() {
@@ -1150,6 +1182,93 @@ fn a_translation_names_crossfx_or_the_original_only_where_its_key_does() {
         }
     }
     assert!(misnamed.is_empty(), "{}", misnamed.join("\n"));
+}
+
+#[test]
+fn every_port_translation_names_crossfx_as_often_as_its_english_and_the_original_where_it_does() {
+    // The name audit the other way round, over the translations the port wrote by hand. One that
+    // drops CrossFX, or says "this FxSound" where it stood — the port's own wording before the
+    // rename — names the wrong program in that one language, and the test above passes it: the
+    // name it carries is one its English has. So CrossFX as often as the English names it, and
+    // the original wherever the English names it, at least once, since several languages name it
+    // twice ("FxSound of FxSound LLC"). The original's tables are not read: the four strings of
+    // theirs that name the program are derived and held by
+    // `every_derived_value_names_crossfx_wherever_the_original_named_itself`, and some of the
+    // original's translations never named it (the Polish hotkey's "Włącz/Wyłącz").
+    let excepted = |code: &str, key: &str| {
+        NAME_CROSSFX_LESS_OFTEN
+            .iter()
+            .any(|&(language, string)| language == code && string == key)
+    };
+    let mut misnamed = Vec::new();
+    for language in &LANGUAGES[1..] {
+        let port = language.port_catalogue();
+        for key in port.keys() {
+            let value = port.get(key).unwrap_or_default();
+            let (wanted, named) = (
+                key.matches(NAMES[0]).count(),
+                value.matches(NAMES[0]).count(),
+            );
+            if named != wanted && !(named < wanted && excepted(language.code, key)) {
+                misnamed.push(format!(
+                    "{}: {key:?} = {value:?} names {} {named} times, its English {wanted}",
+                    language.code, NAMES[0]
+                ));
+            }
+            if key.contains(NAMES[1]) && !value.contains(NAMES[1]) {
+                misnamed.push(format!(
+                    "{}: {key:?} = {value:?} does not name the original {}",
+                    language.code, NAMES[1]
+                ));
+            }
+        }
+    }
+    assert!(misnamed.is_empty(), "{}", misnamed.join("\n"));
+
+    // And each exception is still one: a translation that names CrossFX after all leaves the list.
+    for (code, key) in NAME_CROSSFX_LESS_OFTEN {
+        let language = LANGUAGES
+            .iter()
+            .find(|language| language.code == code)
+            .unwrap_or_else(|| panic!("no language {code}"));
+        let value = language.port_catalogue().get(key).map(str::to_owned);
+        assert!(
+            value.as_deref().is_some_and(|value| {
+                value.matches(NAMES[0]).count() < key.matches(NAMES[0]).count()
+            }),
+            "{code}: {key:?} = {value:?} is no exception any more"
+        );
+    }
+}
+
+#[test]
+fn only_the_strings_that_mean_the_original_name_fxsound() {
+    // Which English strings may say FxSound at all. One the interface asks for that calls the
+    // program FxSound — another of the original's own strings that name it, such as "FxSound is
+    // now open-source", shown without moving it to a key of CrossFX's (`RENAMED_ORIGINALS`), or a
+    // new string of the port's written with the old name — reads the old name in every language
+    // at once, and the audits above pass it, since its key and its translations agree. In any
+    // case: `fxsound --show` is the old command.
+    let keys = interface_keys();
+    let misnamed: Vec<String> = keys
+        .iter()
+        .filter(|key| key.to_lowercase().contains("fxsound"))
+        .filter(|key| !MEAN_THE_ORIGINAL.contains(&key.as_str()))
+        .map(|key| format!("{key:?}"))
+        .collect();
+    assert!(
+        misnamed.is_empty(),
+        "strings that call the program FxSound — give one of the original's a key of CrossFX's in \
+         RENAMED_ORIGINALS, write one of the port's with CrossFX, or list one that means the \
+         original FxSound in MEAN_THE_ORIGINAL:\n  {}",
+        misnamed.join("\n  ")
+    );
+    // And the list is of strings the interface still asks for.
+    let gone: Vec<&str> = MEAN_THE_ORIGINAL
+        .into_iter()
+        .filter(|key| !keys.contains(*key))
+        .collect();
+    assert!(gone.is_empty(), "no longer asked for: {gone:?}");
 }
 
 /// Whether `value` follows the original's name with a Latin letter or an apostrophe — an ending
