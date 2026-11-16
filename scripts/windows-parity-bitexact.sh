@@ -52,7 +52,8 @@ while [ $# -gt 0 ]; do
             dir="$1"
             ;;
         -h | --help)
-            sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+            # The comment this file opens with, all of it, however long it grows.
+            awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
             exit 0
             ;;
         -*) die "unknown option $1" ;;

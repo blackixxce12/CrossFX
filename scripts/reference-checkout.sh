@@ -44,7 +44,8 @@ for arg in "$@"; do
     case "$arg" in
         --with-process-wav) with_process_wav=1 ;;
         -h | --help)
-            sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+            # The comment this file opens with, all of it, however long it grows.
+            awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
             exit 0
             ;;
         -*) die "unknown option $arg" ;;
