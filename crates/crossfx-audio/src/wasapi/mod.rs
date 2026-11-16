@@ -1504,8 +1504,9 @@ impl<S: System> Engine<S> {
     }
 
     /// Record what the user made `role`'s default of `direction`, as a decided change of it says
-    /// ([`Self::decide_default`]): the cable, when they moved it onto one; nothing when it went
-    /// anywhere else, or by anyone else's hand. Kept in CrossFX's record when it changed.
+    /// ([`Self::decide_default`]): the cable, when they moved it onto one; nothing when they moved
+    /// it anywhere else, or it lost its default. Never called for Windows' placements, which
+    /// leave the user's cable theirs. Kept in CrossFX's record when it changed.
     fn users_chose(&mut self, direction: DeviceDirection, role: Role, cable: Option<String>) {
         let cables = self.users_cables.get_mut(direction);
         if cables.get(role) == cable.as_deref() {
@@ -1518,7 +1519,9 @@ impl<S: System> Engine<S> {
 
     /// At the first read: forget each role's cable the record says the user chose, when the role
     /// is on some other endpoint now — moved while no CrossFX ran — unless that endpoint is
-    /// CrossFX's own, where a run that was killed holding the role left it.
+    /// CrossFX's own, where a run that was killed holding the role left it, or another cable
+    /// nobody chose while the user's is still listed: Windows' placement, kept as one
+    /// ([`Self::placed`]) for the role to go back to the user's cable.
     fn forget_users_cables_moved_since(&mut self) {
         let mut cables = self.users_cables.clone();
         for direction in DeviceDirection::ALL {
@@ -1530,6 +1533,25 @@ impl<S: System> Engine<S> {
                 let moved = match current.get(role) {
                     None => true,
                     Some(now) if now == cable => false,
+                    // On another cable nobody chose, the user's still listed: Windows' placement
+                    // (module docs, "Whose default it is") — a cable installed while no CrossFX
+                    // ran, or while nothing of CrossFX's was in the role's path — and the role
+                    // goes back to the user's cable as any placement goes back.
+                    Some(now)
+                        if self.is_cable(now)
+                            && self.is_cable(cable)
+                            && !self.remembers(direction, now) =>
+                    {
+                        self.placed.get_mut(direction).set(
+                            role,
+                            Some(Placed {
+                                endpoint: now.to_owned(),
+                                before: Some(cable.to_owned()),
+                            }),
+                        );
+                        self.placements_due = true;
+                        false
+                    }
                     Some(now) => {
                         !self.is_driver(now) && self.claimed.get(direction).as_deref() != Some(now)
                     }
@@ -1645,8 +1667,14 @@ impl<S: System> Engine<S> {
         played_to
             || DeviceDirection::ALL.into_iter().any(|direction| {
                 Role::ALL.into_iter().any(|role| {
-                    self.defaults.get(direction).get(role) == Some(id)
-                        && !self.windows_default(direction, role, id)
+                    (self.defaults.get(direction).get(role) == Some(id)
+                        && !self.windows_default(direction, role, id))
+                        // Or the user's cable for a role Windows has just moved off it, which
+                        // goes back there once the rules have run (`put_placements_back`).
+                        || (self.users_cables.get(direction).get(role) == Some(id)
+                            && self.placed.get(direction).get(role).is_some_and(|placed| {
+                                placed.before.as_deref() == Some(id)
+                            }))
                 }) && self
                     .lanes
                     .get(direction)
@@ -2360,7 +2388,8 @@ impl<S: System> Engine<S> {
                  pick of the user's",
                 direction.key()
             );
-            self.users_chose(direction, role, None);
+            // Windows' placement, not the user's word: the cable they had the role on, if any,
+            // stays theirs, and is where the role goes back to.
             self.placed.get_mut(direction).set(
                 role,
                 Some(Placed {
@@ -2380,7 +2409,12 @@ impl<S: System> Engine<S> {
         let cable = self.is_cable(&id);
         let ours = cable && self.stands_on(&id);
         let windows = cable && (fallback || arriving || ours || change.original);
-        self.users_chose(direction, role, (cable && !windows).then(|| id.clone()));
+        // Only the user's own move says what their cable for the role is. One of Windows' leaves
+        // the record as it was: the cable they had the role on stays theirs while Windows has it
+        // elsewhere, and is where it goes back to ([`Self::put_placements_back`]).
+        if !windows {
+            self.users_chose(direction, role, cable.then(|| id.clone()));
+        }
         self.placed.get_mut(direction).set(
             role,
             windows.then(|| Placed {
@@ -2521,6 +2555,9 @@ impl<S: System> Engine<S> {
                 !leaving.contains(before)
                     && (claim_endpoint.as_deref() == Some(before.as_str())
                         || self.may_hold_default(direction, before)
+                        // The cable the user had the role on themselves, still listed: theirs
+                        // for the role, though no lane plays to it.
+                        || (self.is_cable(before) && self.users_cable(direction, role, before))
                         // While the original FxSound runs its driver is where it plays from.
                         || (direction == DeviceDirection::Output
                             && self.original.is_some()

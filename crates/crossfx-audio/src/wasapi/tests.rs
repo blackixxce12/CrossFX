@@ -2206,6 +2206,161 @@ fn a_cable_windows_makes_the_default_as_it_is_installed_is_no_pick_and_the_micro
     }
 }
 
+/// Both lanes ranked, the speakers and the microphone first.
+fn ranked_options() -> StartOptions {
+    StartOptions {
+        output_priority: DevicePriority {
+            names: vec![speakers().id],
+            new_devices_first: false,
+        },
+        input_priority: DevicePriority {
+            names: vec![microphone().id],
+            new_devices_first: false,
+        },
+        ..StartOptions::default()
+    }
+}
+
+#[test]
+fn a_second_cable_windows_makes_the_default_leaves_the_user_s_cable_theirs() {
+    // VB-Cable has long been there, and the user sends every playback role to "CABLE Input" for
+    // a streaming program; picking the microphone then says that cable is in use, and the user
+    // installs Cable A for it, as the notice asks. Windows gives Cable A every role as it
+    // arrives: its placement, which takes nothing of the user's.
+    let [cable_in, cable_out] = cable();
+    let [a_in, a_out] = cable_a();
+    for options in [StartOptions::default(), ranked_options()] {
+        for pick_microphone in [false, true] {
+            let mut h = harness_with(
+                vec![
+                    speakers(),
+                    fxsound(),
+                    microphone(),
+                    cable_in.clone(),
+                    cable_out.clone(),
+                ],
+                all_roles(&speakers().id),
+                all_roles(&microphone().id),
+                &options,
+            );
+            h.start();
+            h.send(UiToAudio::SeedRememberedDefaults {
+                output: speakers().id,
+                input: microphone().id,
+            });
+            h.tick(PICK_WAIT + SUPERVISOR_PERIOD);
+            h.fake().defaults.output = all_roles(&cable_in.id);
+            h.burst(Role::ALL.into_iter().map(|role| Event::DefaultChanged {
+                direction: OUT,
+                role,
+                id: Some(cable_in.id.clone()),
+            }));
+            h.tick(SUPERVISOR_PERIOD);
+            let label = format!("{options:?}, microphone picked: {pick_microphone}");
+            if pick_microphone {
+                h.send(UiToAudio::SelectDevice {
+                    node_name: microphone().id,
+                    direction: IN,
+                });
+                assert!(
+                    h.messages().contains(&AudioToUi::Error {
+                        direction: Some(IN),
+                        message: AudioError::VirtualInputDeviceInUse.to_string(),
+                    }),
+                    "{label}"
+                );
+            }
+            let defaults = h.defaults(OUT);
+            let users_cables = h.engine.users_cables.clone();
+            assert_eq!(
+                users_cables.output.get(Role::Communications),
+                Some(cable_in.id.as_str()),
+                "{label}: the user's cable is recorded"
+            );
+            h.tick(PICK_WAIT);
+            windows_gives_a_new_cable_every_role(&mut h, &a_in, &a_out);
+            assert_eq!(
+                h.defaults(OUT),
+                defaults,
+                "{label}: the playback roles go back where they were"
+            );
+            assert_eq!(h.engine.users_cables, users_cables, "{label}");
+            assert_eq!(h.fake().users_cables, users_cables, "{label}: the record");
+            if pick_microphone {
+                // The microphone takes the cable just installed for it, never the user's.
+                assert_eq!(
+                    h.engine
+                        .lanes
+                        .input
+                        .claim
+                        .as_ref()
+                        .map(|claim| claim.endpoint.clone()),
+                    Some(a_out.id.clone()),
+                    "{label}"
+                );
+                assert_eq!(h.defaults(IN), all_roles(&a_out.id), "{label}");
+                h.engine.shutdown();
+                assert_eq!(h.defaults(IN), all_roles(&microphone().id), "{label}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_cable_windows_made_the_default_while_no_crossfx_ran_leaves_the_user_s_cable_theirs() {
+    // The record says the user had every playback role on "CABLE Input"; Cable A was installed
+    // while CrossFX was not running, and Windows gave it every role.
+    let [cable_in, cable_out] = cable();
+    let [a_in, a_out] = cable_a();
+    let users_cables = PerDirection {
+        output: all_roles(&cable_in.id),
+        input: Defaults::default(),
+    };
+    let mut h = harness_kept(
+        vec![
+            speakers(),
+            fxsound(),
+            microphone(),
+            cable_in.clone(),
+            cable_out.clone(),
+            a_in.clone(),
+            a_out.clone(),
+        ],
+        all_roles(&a_in.id),
+        all_roles(&microphone().id),
+        &ranked_options(),
+        PerDirection::default(),
+        users_cables.clone(),
+    );
+    h.start();
+    h.send(UiToAudio::SeedRememberedDefaults {
+        output: speakers().id,
+        input: microphone().id,
+    });
+    h.tick(REPAIR_PATIENCE + SUPERVISOR_PERIOD);
+    assert_eq!(h.engine.users_cables, users_cables, "the record is kept");
+    assert_eq!(
+        h.defaults(OUT).get(Role::Communications),
+        Some(cable_in.id.as_str()),
+        "back on the user's cable"
+    );
+    // VB-Cable is the user's: the microphone takes Cable A.
+    h.send(UiToAudio::SelectDevice {
+        node_name: microphone().id,
+        direction: IN,
+    });
+    h.tick(SUPERVISOR_PERIOD);
+    assert_eq!(
+        h.engine
+            .lanes
+            .input
+            .claim
+            .as_ref()
+            .map(|claim| claim.endpoint.clone()),
+        Some(a_out.id.clone())
+    );
+}
+
 #[test]
 fn a_role_windows_moves_from_one_cable_it_installed_to_the_next_is_still_from_the_user_s_device() {
     // The power is off, so CrossFX holds no default and puts nothing back; VB-Cable is installed,
