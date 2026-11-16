@@ -39,7 +39,8 @@
 //!   (`FxSystemTrayView.cpp:446-455`), and a double click counts once — the second click of it is
 //!   not a second toggle that would close the window it just opened. The right button opens the
 //!   menu.
-//! - **The icon** is the same SVG rasterised at the notification area's size, and the white
+//! - **The icon** is the same SVG rasterised at the notification area's size — the small icon at
+//!   the DPI of the monitor that holds the taskbar, drawn again when that changes — and the white
 //!   wave-X of "on" is drawn near-black on a light taskbar, where white would not be seen. The
 //!   original keyed its icons to its own theme; the taskbar's is the one the icon is drawn on.
 //! - **The tooltip** is the original's, cut at the 127 characters the notification area keeps.
@@ -60,18 +61,20 @@ use tray_icon::{
     MouseButton, MouseButtonState, TrayIcon as NotifyIcon, TrayIconBuilder, TrayIconEvent,
 };
 use windows::Win32::Foundation::{ERROR_SUCCESS, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTOPRIMARY, MonitorFromWindow};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows::Win32::UI::HiDpi::{
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForSystem, GetSystemMetricsForDpi,
-    SetThreadDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, GetDpiForSystem,
+    GetSystemMetricsForDpi, MDT_EFFECTIVE_DPI, SetThreadDpiAwarenessContext,
 };
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW, GetMessageW,
     MSG, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SM_CXSMICON,
-    TranslateMessage, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_DESTROY, WM_MOUSEMOVE, WM_NCDESTROY,
-    WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_OVERLAPPED,
+    TranslateMessage, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE,
+    WM_DPICHANGED, WM_MOUSEMOVE, WM_NCDESTROY, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW,
+    WS_OVERLAPPED,
 };
 use windows::core::{PCWSTR, w};
 
@@ -310,12 +313,38 @@ fn taskbar_is_light() -> bool {
     status == ERROR_SUCCESS && value != 0
 }
 
-/// The notification area's icon size: the small icon of the system's DPI — 16 pixels at 100 %,
-/// 24 at 150 %, 32 at 200 %.
+/// The notification area's icon size: the small icon of the DPI of the monitor the taskbar is
+/// on ([`taskbar_dpi`]), or of the system's DPI when that cannot be read. The system's DPI is
+/// fixed at sign-in, so it is wrong after a change of scale, and for a taskbar on a monitor of
+/// another scale: the shell then resamples the picture, and it blurs.
 fn icon_size() -> u32 {
-    // SAFETY: plain queries. The thread is per-monitor aware (see `run`), so the DPI is the real one.
-    let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem()) };
+    // SAFETY: a plain query.
+    size_for_dpi(taskbar_dpi().unwrap_or_else(|| unsafe { GetDpiForSystem() }))
+}
+
+/// The small icon's size at `dpi` — 16 pixels at 96 (100 %), 24 at 144, 32 at 192.
+fn size_for_dpi(dpi: u32) -> u32 {
+    // SAFETY: a plain query.
+    let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) };
     u32::try_from(size).unwrap_or(16).clamp(16, 256)
+}
+
+/// The effective DPI of the monitor that holds the taskbar (`Shell_TrayWnd`); `None` while there
+/// is no taskbar, or the monitor's DPI cannot be read. The thread is per-monitor aware (see
+/// `run`), so the DPI is the monitor's own and not one scaled for the thread.
+fn taskbar_dpi() -> Option<u32> {
+    // SAFETY: a lookup by class name; the window handle is only used for the next query.
+    let taskbar = unsafe { FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()) }.ok()?;
+    if taskbar.is_invalid() {
+        return None;
+    }
+    // SAFETY: plain queries, the second into locals.
+    unsafe {
+        let monitor = MonitorFromWindow(taskbar, MONITOR_DEFAULTTOPRIMARY);
+        let (mut x, mut y) = (0_u32, 0_u32);
+        GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &raw mut x, &raw mut y).ok()?;
+        (x != 0).then_some(x)
+    }
 }
 
 /// The four icons, rasterised once at the notification area's size, as straight RGBA.
@@ -607,6 +636,9 @@ struct Pending {
     picks: Vec<MenuId>,
     /// The system's settings changed, the taskbar's theme among them.
     settings_changed: bool,
+    /// A monitor's scale or the displays changed (`WM_DPICHANGED`, `WM_DISPLAYCHANGE`): the
+    /// taskbar's monitor may have another DPI, and the icon another size.
+    metrics_changed: bool,
     /// Explorer made a new taskbar, and tray-icon has added the icon to it again.
     taskbar_created: bool,
 }
@@ -747,6 +779,17 @@ unsafe extern "system" fn tray_window(
                 record(|pending| pending.settings_changed = true);
                 DefWindowProcW(window, message, wparam, lparam)
             }
+            // Sent as well: a change of the scale of the monitor this window is on, or of the
+            // displays. Either can move the taskbar to another DPI. The window is never shown,
+            // so the size `WM_DPICHANGED` suggests for it is not taken.
+            WM_DPICHANGED => {
+                record(|pending| pending.metrics_changed = true);
+                LRESULT(0)
+            }
+            WM_DISPLAYCHANGE => {
+                record(|pending| pending.metrics_changed = true);
+                DefWindowProcW(window, message, wparam, lparam)
+            }
             WM_QUIT_TRAY => {
                 let _ = DestroyWindow(window);
                 LRESULT(0)
@@ -813,18 +856,21 @@ trait Notify {
     fn tip(&self, tip: &str) -> bool;
     /// Put `menu` behind the right button.
     fn menu(&self, menu: Menu);
+    /// Draw the pictures `size` pixels square from now on; the next [`Notify::picture`] shows it.
+    fn resize(&self, size: u32);
 }
 
 /// tray-icon's icon, with the pictures rasterised for it.
 struct Notification {
     icon: NotifyIcon,
-    icons: Icons,
+    icons: RefCell<Icons>,
 }
 
 impl Notify for Notification {
     fn picture(&self, icon: TrayIcon, light: bool) -> bool {
+        let picture = self.icons.borrow().icon(icon, light);
         self.icon
-            .set_icon(self.icons.icon(icon, light))
+            .set_icon(picture)
             .map_err(|err| log::warn!("the tray icon could not be changed: {err}"))
             .is_ok()
     }
@@ -838,6 +884,12 @@ impl Notify for Notification {
 
     fn menu(&self, menu: Menu) {
         self.icon.set_menu(Some(Box::new(menu)));
+    }
+
+    fn resize(&self, size: u32) {
+        if self.icons.borrow().size != size {
+            *self.icons.borrow_mut() = Icons::rasterised(size);
+        }
     }
 }
 
@@ -859,6 +911,10 @@ struct Tray {
     light: bool,
     /// How that is read: [`taskbar_is_light`], or a test's answer.
     taskbar_light: fn() -> bool,
+    /// The size the pictures are drawn at.
+    size: u32,
+    /// How the size the taskbar wants is read: [`icon_size`], or a test's answer.
+    icon_size: fn() -> u32,
     /// What the notification area shows, which is not the mirror while the shell refuses a change.
     shown: Shown,
     commands: HashMap<MenuId, TrayCommand>,
@@ -905,6 +961,16 @@ impl Tray {
         if pending.taskbar_created {
             // What tray-icon added back is what the old taskbar last took, not what is shown now.
             self.shown = Shown::default();
+        }
+        // The scale of the taskbar's monitor may have changed, or the taskbar may be on another
+        // monitor now: the picture is drawn again at the size it wants, never resampled.
+        if pending.settings_changed || pending.metrics_changed || pending.taskbar_created {
+            let size = (self.icon_size)();
+            if size != self.size {
+                self.size = size;
+                icon.resize(size);
+                self.shown.picture = None;
+            }
         }
         // A pick: the menu ticked the row it was clicked on, and the mirror says what is ticked.
         let state = shared.take_changed().unwrap_or_else(|| self.state.clone());
@@ -965,7 +1031,8 @@ fn run(
     // Before the icon exists, which is what sends its events.
     route_events();
     let light = taskbar_is_light();
-    let icons = Icons::rasterised(icon_size());
+    let size = icon_size();
+    let icons = Icons::rasterised(size);
     let (menu, commands) = build_menu(&menu_rows(&state));
     let tip = tooltip(&state);
     let mut builder = TrayIconBuilder::new()
@@ -1013,10 +1080,15 @@ fn run(
         state,
         light,
         taskbar_light: taskbar_is_light,
+        size,
+        icon_size,
         commands,
         swallow_release: false,
     };
-    let notification = Notification { icon, icons };
+    let notification = Notification {
+        icon,
+        icons: RefCell::new(icons),
+    };
     let _ = ready.send(Ok(window.0 as isize));
     let mut msg = MSG::default();
     // SAFETY: the loop of the thread the windows belong to.
@@ -1265,6 +1337,7 @@ mod tests {
         pictures: RefCell<Vec<(TrayIcon, bool)>>,
         tips: RefCell<Vec<String>>,
         menus: Cell<usize>,
+        sizes: RefCell<Vec<u32>>,
     }
 
     impl Notify for Recorder {
@@ -1281,6 +1354,10 @@ mod tests {
         fn menu(&self, _menu: Menu) {
             self.menus.set(self.menus.get() + 1);
         }
+
+        fn resize(&self, size: u32) {
+            self.sizes.borrow_mut().push(size);
+        }
     }
 
     /// The tray thread's state for `state`, drawn as the builder draws it.
@@ -1294,6 +1371,8 @@ mod tests {
             state,
             light,
             taskbar_light,
+            size: 16,
+            icon_size: || 16,
             swallow_release: false,
         }
     }
@@ -1356,6 +1435,72 @@ mod tests {
                 "the icon of on, drawn for the light taskbar at once"
             );
             assert!(icon.tips.borrow().is_empty(), "the tooltip did not change");
+            WAKE.set(0);
+            // SAFETY: the window made above, on this thread.
+            let _ = unsafe { DestroyWindow(window) };
+        });
+    }
+
+    #[test]
+    fn the_icon_is_sized_for_the_taskbars_monitor_and_not_the_sign_in_dpi() {
+        assert_eq!(size_for_dpi(96), 16);
+        assert_eq!(size_for_dpi(144), 24);
+        assert_eq!(size_for_dpi(192), 32);
+        if taskbar_present() {
+            let dpi = taskbar_dpi().expect("the taskbar's monitor has a DPI");
+            assert!((96..=960).contains(&dpi), "{dpi}");
+            assert_eq!(icon_size(), size_for_dpi(dpi));
+        } else {
+            // SAFETY: a plain query.
+            assert_eq!(icon_size(), size_for_dpi(unsafe { GetDpiForSystem() }));
+        }
+    }
+
+    #[test]
+    fn a_change_of_scale_wakes_the_loop_and_draws_the_icon_again_at_the_new_size() {
+        on_a_thread_of_its_own(|| {
+            let window = create_window().expect("the tray's window");
+            WAKE.set(window.0 as isize);
+            let (tx, _rx) = crossbeam_channel::unbounded();
+            let tx = WakingSender::from(tx);
+            let state = populated();
+            for message in [WM_DPICHANGED, WM_DISPLAYCHANGE] {
+                send(window, message, 0);
+                assert!(woken(window), "{message:#x} wakes the loop");
+                let icon = Recorder::default();
+                let mut tray = tray(state.clone(), false, || false);
+                tray.icon_size = || 24;
+                tray.after_dispatch(&icon, &tx, &quiet(state.clone()));
+                assert_eq!(*icon.sizes.borrow(), [24], "{message:#x}");
+                assert_eq!(
+                    *icon.pictures.borrow(),
+                    [(TrayIcon::On, false)],
+                    "the same picture, drawn again at 24 pixels"
+                );
+                assert_eq!(tray.size, 24);
+
+                // Heard again at the same size: nothing is drawn for nothing.
+                send(window, message, 0);
+                assert!(woken(window));
+                tray.after_dispatch(&icon, &tx, &quiet(state.clone()));
+                assert_eq!(icon.sizes.borrow().len(), 1);
+                assert_eq!(icon.pictures.borrow().len(), 1);
+            }
+
+            // A theme change and a new taskbar look again too, and the light recolour stays.
+            let icon = Recorder::default();
+            let mut tray = tray(state.clone(), false, || true);
+            tray.icon_size = || 32;
+            send(window, WM_SETTINGCHANGE, 0);
+            assert!(woken(window));
+            tray.after_dispatch(&icon, &tx, &quiet(state.clone()));
+            assert_eq!(*icon.sizes.borrow(), [32]);
+            assert_eq!(*icon.pictures.borrow(), [(TrayIcon::On, true)]);
+            tray.icon_size = || 16;
+            PENDING.with_borrow_mut(|pending| pending.taskbar_created = true);
+            tray.after_dispatch(&icon, &tx, &quiet(state));
+            assert_eq!(*icon.sizes.borrow(), [32, 16]);
+            assert_eq!(icon.pictures.borrow().last(), Some(&(TrayIcon::On, true)));
             WAKE.set(0);
             // SAFETY: the window made above, on this thread.
             let _ = unsafe { DestroyWindow(window) };
