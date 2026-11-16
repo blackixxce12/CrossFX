@@ -161,3 +161,5 @@ countries: sl
 "The Windows audio service is not available" = "Zvočna storitev sistema Windows ni na voljo"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Datoteko %s je uporabljal drug program: CrossFX se je zagnal s privzetimi nastavitvami in bo vanjo shranil vaše spremembe"
 "Your changes are not saved: CrossFX cannot read %s" = "Vaše spremembe se ne shranjujejo: CrossFX ne more prebrati datoteke %s"
+"Microphone processing" = "Obdelava mikrofona"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX v sistemu Windows še ne odpravlja odmeva: med klicem lahko sogovornik sliši samega sebe, tudi s slušalkami, prednastavitve z ojačitvijo, kot je »Noisy Room«, pa lahko povzročijo cviljenje. Primerno za snemanje in pretakanje. Potrebuje lasten navidezni kabel (VB-CABLE)."

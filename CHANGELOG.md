@@ -33,6 +33,14 @@ that comes with the name, are below.
   virtual device is found the window says so and offers **Get VB-CABLE…**, which opens VB-Audio's
   own page, <https://vb-audio.com/Cable/>. VB-CABLE is VB-Audio's donationware: you install it
   yourself, and CrossFX never bundles it.
+- **On Windows the microphone is experimental, and off by default.** CrossFX does not cancel echo
+  on Windows yet, so in a call the other person could hear themselves, even with headphones, and
+  a preset with gain such as "Noisy Room" could howl. Until **Settings > Experimental >
+  Microphone processing** is turned on, CrossFX does not capture the microphone or take a cable
+  for it, the window, the tray and Settings show no microphone, `--status --json` reports the
+  input lane as `"hidden": true` and not enabled, and a command line with `--input`,
+  `--next-input`, `--edit=input` or `--noise-suppression` is refused whole; turned off again, the
+  lane stops and gives the recording default back, with no restart. Linux is unchanged.
 - **CrossFX stands aside while the original FxSound runs.** Both programs would take the same
   default device from each other, so while `FxSound.exe` runs the output lane neither takes the
   default nor processes, and says why. CrossFX never reads or changes the original's files,

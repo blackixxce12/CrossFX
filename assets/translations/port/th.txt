@@ -159,3 +159,5 @@ countries: th
 "The Windows audio service is not available" = "บริการเสียงของ Windows ไม่พร้อมใช้งาน"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "ไฟล์ %s ถูกโปรแกรมอื่นใช้อยู่: CrossFX เริ่มด้วยค่าเริ่มต้นและจะบันทึกการเปลี่ยนแปลงของคุณลงในไฟล์นั้น"
 "Your changes are not saved: CrossFX cannot read %s" = "การเปลี่ยนแปลงของคุณไม่ได้รับการบันทึก: CrossFX อ่านไฟล์ %s ไม่ได้"
+"Microphone processing" = "การประมวลผลไมโครโฟน"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX ยังไม่ตัดเสียงสะท้อนบน Windows: ระหว่างการโทร อีกฝ่ายอาจได้ยินเสียงตัวเองแม้คุณจะใช้หูฟัง และพรีเซ็ตที่เพิ่มเกน เช่น “Noisy Room” อาจทำให้เกิดเสียงหอน เหมาะสำหรับการบันทึกเสียงและสตรีม ต้องใช้สายเคเบิลเสมือนแยกต่างหาก (VB-CABLE)"

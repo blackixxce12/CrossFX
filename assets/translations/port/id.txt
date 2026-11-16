@@ -160,3 +160,5 @@ countries: id
 "The Windows audio service is not available" = "Layanan audio Windows tidak tersedia"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "Berkas %s sedang dipakai program lain: CrossFX dimulai dengan pengaturan bawaan dan akan menyimpan perubahan Anda ke berkas itu"
 "Your changes are not saved: CrossFX cannot read %s" = "Perubahan Anda tidak disimpan: CrossFX tidak dapat membaca berkas %s"
+"Microphone processing" = "Pemrosesan mikrofon"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX belum membatalkan gema di Windows: dalam panggilan, lawan bicara bisa mendengar suaranya sendiri, bahkan dengan headphone, dan preset dengan penguatan seperti “Noisy Room” bisa menimbulkan dengingan. Cocok untuk merekam dan streaming. Membutuhkan kabel virtual tersendiri (VB-CABLE)."

@@ -338,6 +338,10 @@ impl DeviceMenu {
     pub fn both(state: &UiState) -> Self {
         let mut menu = Self::default();
         for (_, direction) in device_sections(&state.devices).titles {
+            // A hidden microphone gets no section.
+            if direction == DeviceDirection::Input && state.microphone_hidden {
+                continue;
+            }
             if !menu.rows.is_empty() && menu.separator.is_none() {
                 menu.separator = Some(menu.rows.len());
             }
@@ -463,8 +467,18 @@ pub(crate) fn lane_combos(
         (DeviceDirection::Output, "output_list"),
         (DeviceDirection::Input, "input_list"),
     ] {
+        // A hidden microphone has no picker: the speakers' takes both halves, the original's
+        // single list.
+        if direction == DeviceDirection::Input && state.microphone_hidden {
+            continue;
+        }
         let menu = DeviceMenu::lane(state, direction);
-        let rect = at(origin, layout::pro::device_combo(direction));
+        let rect = if state.microphone_hidden {
+            layout::pro::output_combo_alone()
+        } else {
+            layout::pro::device_combo(direction)
+        };
+        let rect = at(origin, rect);
         let edited = state.direction == direction;
         let box_response = menu.show(ui, state, palette, assets, rect, edited, id_salt, response);
         let switch = UiAction::SetEditDirection(direction);
@@ -1070,6 +1084,53 @@ mod tests {
         assert_eq!(menu.titles, vec![(0, DeviceDirection::Output)]);
         assert_eq!(menu.separator, None);
         assert_eq!(DeviceMenu::both(&UiState::default()), DeviceMenu::default());
+    }
+
+    #[test]
+    fn a_hidden_microphone_is_left_out_of_the_combined_list_and_has_no_picker() {
+        let mut state = lanes();
+        state.microphone_hidden = true;
+        let menu = DeviceMenu::both(&state);
+        assert_eq!(menu.titles, vec![(0, DeviceDirection::Output)]);
+        assert_eq!(menu.separator, None);
+        assert!(
+            menu.rows.iter().all(|row| match row {
+                DeviceRow::Off(direction) => *direction == DeviceDirection::Output,
+                DeviceRow::Device(index) =>
+                    state.devices[*index].direction == DeviceDirection::Output,
+            }),
+            "{:?}",
+            menu.labels
+        );
+
+        // The Pro view draws the speakers' picker alone: a microphone the lane is on is not shown.
+        for hidden in [false, true] {
+            let mut state = lanes();
+            state.selected_input = Some(2);
+            state.microphone_hidden = hidden;
+            let mut harness = testing::Harness::new(crossfx_core::ThemeMode::Dark);
+            let painted = testing::texts(&harness.settle(&state));
+            assert_eq!(
+                painted.iter().any(|(text, _, _)| text == "Microphone"),
+                !hidden,
+                "{painted:?}"
+            );
+
+            // Alone, the speakers' picker spans both halves, as the original's one list did: the
+            // microphone's half opens the speakers' list, which offers "Speakers" (not selected,
+            // so painted only in the open list).
+            harness.click(&state, crate::layout::pro::input_combo().center());
+            let open = testing::texts(&harness.settle(&state));
+            assert_eq!(
+                open.iter().any(|(text, _, _)| text == "Speakers"),
+                hidden,
+                "{open:?}"
+            );
+        }
+        assert_eq!(
+            crate::layout::pro::output_combo_alone(),
+            crate::layout::pro::output_combo().union(crate::layout::pro::input_combo())
+        );
     }
 
     #[test]

@@ -750,6 +750,7 @@ impl App {
                 volume_leveling: settings.volume_leveling,
                 hide_tooltips: settings.hide_help_tooltips,
                 windows_parity: settings.windows_parity.offered_or_below(),
+                microphone_hidden: settings.microphone_hidden(crossfx_core::PLATFORM),
                 ..UiState::default()
             },
             params: DspParams::default(),
@@ -849,9 +850,29 @@ impl App {
     /// voice presets — against `engine`, a stand-in that records what it is told. Nothing is
     /// written to the settings file and nothing reaches the desktop's notifications; the stores
     /// write where they were pointed.
+    ///
+    /// With microphone processing allowed, as [`App::headless_for_tests`] has it, so that the
+    /// microphone's tests describe the same lane on Windows as on Linux;
+    /// [`App::start_as_given_for_tests`] starts from `settings` exactly.
     #[doc(hidden)]
     #[must_use]
     pub fn start_for_tests(
+        settings: Settings,
+        presets: PresetStore,
+        voices: InputPresetStore,
+        engine: &FakeEngine,
+    ) -> Self {
+        let settings = Settings {
+            windows_microphone: true,
+            ..settings
+        };
+        Self::start_as_given_for_tests(settings, presets, voices, engine)
+    }
+
+    /// [`App::start_for_tests`] from `settings` exactly, microphone processing as they say.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn start_as_given_for_tests(
         settings: Settings,
         presets: PresetStore,
         voices: InputPresetStore,
@@ -878,7 +899,9 @@ impl App {
     /// are seeded from its own chain and nothing of one reaches the other. Called while toasts are
     /// still held back, so none of this is announced.
     fn adopt_saved_presets(&mut self) {
-        let edit = self.settings.device_direction;
+        // The speakers' while the microphone is hidden, whatever the file says: a 1.0.0-rc.1 file
+        // left on the microphone opens on the speakers, with no microphone lane.
+        let edit = self.settings.edit_direction();
         self.state.direction = edit.other();
         self.enter_lane_for_the_first_time(edit.other());
         self.set_edit_direction(edit);
@@ -1096,6 +1119,14 @@ impl App {
                 self.raise_notice(tr("Audio disconnected"));
                 // `"Output Disconnected"` (`FxController.cpp:1170`).
                 self.notify(Message::output_disconnected());
+            }
+            // A hidden microphone has no lane to be in trouble: whatever was on its way when it
+            // was hidden is logged, and no notice about its cable is shown.
+            AudioToUi::Error {
+                direction: Some(DeviceDirection::Input),
+                message,
+            } if self.microphone_hidden() => {
+                log::info!("audio engine error about the hidden microphone, not shown: {message}");
             }
             AudioToUi::Error { direction, message } => {
                 // An error about a lane is the engine's answer to what that lane was asked for: a
@@ -1526,7 +1557,12 @@ impl App {
             UiAction::SelectOutput(index) => self.select_device(index, DeviceDirection::Output),
             UiAction::SelectInput(index) => self.select_device(index, DeviceDirection::Input),
             UiAction::DetachOutput => self.detach_lane(DeviceDirection::Output),
-            UiAction::DetachInput => self.detach_lane(DeviceDirection::Input),
+            // A hidden microphone keeps the lane's key as it is, for when it is shown again.
+            UiAction::DetachInput => {
+                if !self.microphone_hidden() {
+                    self.detach_lane(DeviceDirection::Input);
+                }
+            }
             UiAction::SetEditDirection(direction) => {
                 self.set_edit_direction(direction);
             }
@@ -2484,6 +2520,11 @@ impl App {
         lane: DeviceDirection,
         picked: Option<String>,
     ) {
+        // A hidden microphone is not there to pick, from any path.
+        if lane == DeviceDirection::Input && self.microphone_hidden() {
+            log::info!("the microphone is hidden; no microphone selected");
+            return;
+        }
         // Everything needed from the device is taken before anything borrows `self` mutably,
         // because restoring the remembered preset calls back into `select_preset`.
         let Some((name, description, direction)) = self
@@ -2580,6 +2621,15 @@ impl App {
     /// is not touched, whichever of the two the window is editing. With both lanes off CrossFX
     /// processes nothing, which is what the two `Off` rows say.
     fn detach_lane(&mut self, direction: DeviceDirection) {
+        self.settings.set_lane_enabled(direction, false);
+        self.settings_dirty = true;
+        self.stop_lane(direction);
+    }
+
+    /// [`App::detach_lane`] with the settings left as they are: the lane's default handed back
+    /// and its processing stopped. What hiding the microphone does to a lane that runs
+    /// ([`App::set_windows_microphone`]), which keeps `input_enabled` for when it is shown again.
+    fn stop_lane(&mut self, direction: DeviceDirection) {
         // `Off` is the later word on the lane, wherever it was chosen — the window's list as the
         // tray's and the command line's: a device the lane was still waiting for the list with
         // must not switch it back on when the list comes.
@@ -2590,8 +2640,6 @@ impl App {
         set_lane_active(&mut self.state, direction, false);
         self.note_lane_devices();
         self.note_audio(direction);
-        self.settings.set_lane_enabled(direction, false);
-        self.settings_dirty = true;
         if let Some(engine) = &self.engine {
             engine.send(UiToAudio::DetachLane(direction));
         }
@@ -2608,17 +2656,24 @@ impl App {
     /// preset the settings file remembers for it, loaded the way start-up loads one, without a
     /// toast.
     fn set_edit_direction(&mut self, direction: DeviceDirection) -> bool {
+        // A hidden microphone has no chain to show.
+        // While it is hidden the speakers are the only lane, not a choice: the saved key is kept,
+        // so turning the microphone back on finds the window where it was
+        // ([`Settings::edit_direction`]).
+        let hidden = self.microphone_hidden();
+        if direction == DeviceDirection::Input && hidden {
+            return false;
+        }
+        let record = !hidden && self.settings.device_direction != direction;
+        if record {
+            self.settings.set_edit_direction(direction);
+            self.settings_dirty = true;
+        }
         if direction == self.state.direction {
-            if self.settings.device_direction != direction {
-                self.settings.set_edit_direction(direction);
-                self.settings_dirty = true;
-            }
             return false;
         }
         // The window's solo was on the lane it no longer shows.
         self.end_solo();
-        self.settings.set_edit_direction(direction);
-        self.settings_dirty = true;
         self.show_lane(direction);
         self.note_direction();
         true
@@ -3063,7 +3118,9 @@ impl App {
     }
 
     /// An app with no audio engine and no preset directory — the shape the controller tests and
-    /// the command-line tests both need.
+    /// the command-line tests both need — with microphone processing allowed
+    /// ([`Settings::windows_microphone`]), so that the microphone's tests describe the same lane
+    /// on Windows as on Linux. The tests of the default turn it off.
     ///
     /// Kept out of `cfg(test)` so sibling modules can use it; it is harmless in a release build
     /// and costs one unused function.
@@ -3091,7 +3148,10 @@ impl App {
             autosave_due: None,
             solo: None,
             pending_devices: Vec::new(),
-            settings: Settings::default(),
+            settings: Settings {
+                windows_microphone: true,
+                ..Settings::default()
+            },
             presets: PresetStore::with_dirs(Vec::new(), std::env::temp_dir().join("crossfx-test")),
             loaded_preset: None,
             loaded_voice: None,
@@ -3523,6 +3583,21 @@ impl App {
     /// each with its presets and its device (0.4.0 design §1.4).
     #[must_use]
     pub fn tray_state(&self) -> crate::tray::TrayState {
+        // A hidden microphone reaches the tray as nothing at all: no microphone in the list, no
+        // voice presets, no lane — so no submenu of it and no line of it in the tooltip.
+        let hidden = self.microphone_hidden();
+        let shown: Vec<usize> = (0..self.state.devices.len())
+            .filter(|&at| !hidden || self.state.devices[at].direction == DeviceDirection::Output)
+            .collect();
+        let mut output = self.tray_lane(DeviceDirection::Output);
+        output.device = output
+            .device
+            .and_then(|at| shown.iter().position(|&kept| kept == at));
+        let input = if hidden {
+            crate::tray::TrayLane::default()
+        } else {
+            self.tray_lane(DeviceDirection::Input)
+        };
         crate::tray::TrayState {
             power: self.state.power,
             // The shown lane's non-silent buffers, as the window's logo, the visualizer and
@@ -3531,20 +3606,22 @@ impl App {
             // stays `processing` while a paused stream keeps the device running on silence.
             processing: self.state.audio_active,
             theme: self.state.theme,
-            output: self.tray_lane(DeviceDirection::Output),
-            input: self.tray_lane(DeviceDirection::Input),
-            devices: self
-                .state
-                .devices
-                .iter()
-                .map(|d| crate::tray::TrayDevice {
-                    name: d.description.clone(),
-                    node_name: d.name.clone(),
-                    direction: d.direction,
+            output,
+            input,
+            devices: shown
+                .into_iter()
+                .map(|at| {
+                    let d = &self.state.devices[at];
+                    crate::tray::TrayDevice {
+                        name: d.description.clone(),
+                        node_name: d.name.clone(),
+                        direction: d.direction,
+                    }
                 })
                 .collect(),
             language: i18n::current(),
             windows_parity: self.windows_parity(),
+            microphone_hidden: hidden,
         }
     }
 
@@ -4931,6 +5008,7 @@ impl App {
         self.settings.windows_parity = level;
         // What the window draws from Interface on (W2) follows at the next frame.
         self.state.windows_parity = self.windows_parity();
+        self.state.microphone_hidden = self.microphone_hidden();
         self.persist_settings();
         // Interface and sound brings the original's DSP to the output lane and the
         // applications' output routes, and its reading of a preset to the window; the other
@@ -5069,6 +5147,48 @@ impl App {
         self.settings.windows_parity.offered_or_below()
     }
 
+    /// Whether the microphone is hidden here, and its lane kept down
+    /// ([`Settings::microphone_hidden`] on this build's platform): what the window, the tray,
+    /// the status document and the command line all go by.
+    #[must_use]
+    pub fn microphone_hidden(&self) -> bool {
+        self.settings.microphone_hidden(crossfx_core::PLATFORM)
+    }
+
+    /// Settings ▸ Experimental ▸ "Microphone processing", live: no restart. Turned on, the
+    /// microphone's lane comes up as `input_enabled` and its saved device say, as at a start;
+    /// turned off, a lane that runs stops and hands the recording default back, as `Off` does,
+    /// while the settings keep the lane's key for the next time. A window on the microphone goes
+    /// to the speakers, and the saved edit direction stays, so turned back on the window returns
+    /// to the microphone. On Linux the setting is stored and changes nothing.
+    pub fn set_windows_microphone(&mut self, on: bool) {
+        let was_hidden = self.microphone_hidden();
+        self.settings.windows_microphone = on;
+        let hidden = self.microphone_hidden();
+        self.state.microphone_hidden = hidden;
+        self.persist_settings();
+        if hidden == was_hidden {
+            return;
+        }
+        if hidden {
+            if self.state.direction == DeviceDirection::Input {
+                self.set_edit_direction(DeviceDirection::Output);
+            }
+            // A lane that never came up has no default to hand back.
+            if self.settings.input_enabled {
+                self.stop_lane(DeviceDirection::Input);
+            }
+        } else {
+            for message in self.saved_devices_for_engine() {
+                self.send(message);
+            }
+            // The window goes back to the lane the file keeps, as it was before it was hidden.
+            self.set_edit_direction(self.settings.edit_direction());
+        }
+        self.show_lane_selections();
+        self.tray_stale = true;
+    }
+
     /// Hand a toast to the desktop, unless notifications are hidden or start-up is still going.
     /// With no window up — none there, or one minimised — an echo of a change is all the answer a
     /// tray pick or a keybind gets, so it goes out as an alert ([`Message::raised`]).
@@ -5176,6 +5296,10 @@ impl App {
             A::SetWindowsParity(level) => {
                 let _ = self.set_windows_parity(*level, true);
                 state.settings.windows_parity = self.settings.windows_parity;
+            }
+            A::SetWindowsMicrophone(on) => {
+                self.set_windows_microphone(*on);
+                state.settings.windows_microphone = *on;
             }
             A::SetHideHelpTips(on) => {
                 self.settings.hide_help_tooltips = *on;
@@ -6778,7 +6902,10 @@ mod tests {
             device("alsa_input.mic", DeviceDirection::Input, true),
             device("alsa_input.webcam", DeviceDirection::Input, false),
         ];
-        let mut settings = Settings::default();
+        let mut settings = Settings {
+            windows_microphone: true,
+            ..Settings::default()
+        };
         settings.set_device_name(DeviceDirection::Input, "alsa_input.webcam");
         settings.set_lane_enabled(DeviceDirection::Input, true);
         let input = DeviceDirection::Input;
@@ -7522,7 +7649,10 @@ mod tests {
 
     #[test]
     fn the_saved_device_is_announced_once_each_time_it_appears() {
-        let mut settings = Settings::default();
+        let mut settings = Settings {
+            windows_microphone: true,
+            ..Settings::default()
+        };
         settings.set_device_name(DeviceDirection::Input, "alsa_input.usb-fifine");
         settings.set_lane_enabled(DeviceDirection::Input, true);
         let without = vec![device("alsa_output.pci", DeviceDirection::Output, true)];
@@ -7589,7 +7719,10 @@ mod tests {
     /// both saved devices back — the speakers and the microphone, not one or the other.
     #[test]
     fn both_lanes_saved_devices_are_announced_when_both_lanes_were_on() {
-        let mut settings = Settings::default();
+        let mut settings = Settings {
+            windows_microphone: true,
+            ..Settings::default()
+        };
         settings.set_device_name(DeviceDirection::Output, "alsa_output.pci");
         settings.set_device_name(DeviceDirection::Input, "alsa_input.usb-fifine");
         settings.set_lane_enabled(DeviceDirection::Input, true);
@@ -9325,6 +9458,96 @@ mod tests {
         let _ = engine.take_sent();
         let _ = engine.take_events();
         (app, engine, dir)
+    }
+
+    /// Whether `sent` asks the engine to bring the microphone's lane up on a device.
+    fn asks_for_the_microphone(sent: &[UiToAudio]) -> bool {
+        sent.iter()
+            .any(|message| matches!(message, UiToAudio::SelectDevice { direction: IN, .. }))
+    }
+
+    #[test]
+    fn a_release_candidate_file_on_the_microphone_starts_on_the_speakers_with_no_microphone_lane() {
+        // A tester's 1.0.0-rc.1 file: the window last on the microphone, its lane on, and no
+        // word of microphone processing, which that version did not have.
+        let engine = FakeEngine::new();
+        let (store, dir) = music_store();
+        let mut app =
+            App::start_as_given_for_tests(saved_settings(IN), store, voices(&dir), &engine);
+        let hidden = cfg!(windows);
+        assert_eq!(app.microphone_hidden(), hidden);
+        assert_eq!(app.state.microphone_hidden, hidden);
+        assert_eq!(app.tray_state().microphone_hidden, hidden);
+        // The window is on the speakers, but the file's key is kept for when it is turned on.
+        assert_eq!(app.settings().device_direction, IN);
+        app.receive(AudioToUi::Devices(vec![
+            device(HEADPHONES, OUT, true),
+            device(MIC, IN, true),
+        ]));
+        let sent = engine.take_sent();
+        assert_eq!(asks_for_the_microphone(&sent), !hidden, "{sent:?}");
+        assert!(
+            sent.iter()
+                .any(|message| matches!(message, UiToAudio::SelectDevice { direction: OUT, .. }))
+        );
+        assert_eq!(app.state.direction, if hidden { OUT } else { IN });
+        let status = crate::commands::status_document(&app);
+        assert_eq!(status.input.hidden, hidden);
+        assert_eq!(status.input.lane.enabled, !hidden);
+        // The tray has no microphone to offer either.
+        let tray = app.tray_state();
+        assert_eq!(
+            tray.devices.iter().any(|device| device.direction == IN),
+            !hidden
+        );
+        assert_eq!(tray.input.presets.is_empty(), hidden);
+
+        // An error about the microphone's cable that was on its way says nothing.
+        app.state.notification = None;
+        app.receive(AudioToUi::Error {
+            direction: Some(IN),
+            message: crossfx_audio::AudioError::NoVirtualInputDevice.to_string(),
+        });
+        assert_eq!(app.state.notification.is_none(), hidden);
+        app.state.notification = None;
+
+        if hidden {
+            // Turned on: the lane comes up as the file says, with no restart.
+            app.set_windows_microphone(true);
+            assert!(asks_for_the_microphone(&engine.take_sent()));
+            assert!(!app.state.microphone_hidden);
+            assert!(app.settings().lane_enabled(IN));
+            assert!(app.settings().windows_microphone);
+            // ... and the window is back on the microphone, where the file left it.
+            assert_eq!(app.state.direction, IN);
+        }
+        // Turned off: a lane that runs stops and hands the recording default back, as `Off`
+        // does, while the file keeps it on for the next time. On Linux nothing changes.
+        app.set_windows_microphone(false);
+        let sent = engine.take_sent();
+        assert_eq!(
+            sent.contains(&UiToAudio::DetachLane(IN)),
+            hidden,
+            "{sent:?}"
+        );
+        assert!(app.settings().input_enabled);
+        assert_eq!(app.settings().lane_enabled(IN), !hidden);
+        assert_eq!(app.state.microphone_hidden, hidden);
+        if hidden {
+            assert_eq!(app.state.direction, OUT);
+            assert_eq!(app.settings().device_direction, IN, "the key is kept");
+            let status = crate::commands::status_document(&app);
+            assert!(status.input.hidden && !status.input.lane.enabled);
+            // Nothing the engine says about the lane afterwards brings it back.
+            app.receive(AudioToUi::Devices(vec![
+                device(HEADPHONES, OUT, true),
+                device(MIC, IN, true),
+            ]));
+            assert!(!asks_for_the_microphone(&engine.take_sent()));
+            app.handle(&[UiAction::SelectInput(1), UiAction::SetEditDirection(IN)]);
+            assert!(!asks_for_the_microphone(&engine.take_sent()));
+            assert_eq!(app.state.direction, OUT);
+        }
     }
 
     /// A solo of `band` with every other band at `db`, on a curve of `count` bands.

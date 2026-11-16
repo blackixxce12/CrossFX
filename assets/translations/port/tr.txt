@@ -160,3 +160,5 @@ countries: tr
 "Open/Close CrossFX" = "CrossFX'i Aç/Kapat"
 "%s was in use by another program: CrossFX started on the defaults and will save your changes into it" = "%s dosyası başka bir program tarafından kullanılıyordu: CrossFX varsayılan ayarlarla başladı ve değişikliklerinizi bu dosyaya kaydedecek"
 "Your changes are not saved: CrossFX cannot read %s" = "Değişiklikleriniz kaydedilmiyor: CrossFX %s dosyasını okuyamıyor"
+"Microphone processing" = "Mikrofon işleme"
+"CrossFX does not cancel echo on Windows yet: in a call the other person may hear themselves, even with headphones, and presets with gain such as “Noisy Room” can howl. Suits recording and streaming. Needs a virtual cable of its own (VB-CABLE)." = "CrossFX, Windows'ta henüz yankıyı engellemiyor: görüşmede karşı taraf, kulaklık kullansanız bile kendi sesini duyabilir; “Noisy Room” gibi kazanç ekleyen ön ayarlar da geri besleme ıslığına yol açabilir. Kayıt ve yayın için uygundur. Kendine ait bir sanal kablo gerekir (VB-CABLE)."

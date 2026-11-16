@@ -27,6 +27,7 @@ It processes what the machine plays and, at the same time, a microphone: each ha
 own, with its own device and preset. On Linux an application can have a preset of its own on either
 lane, and a running instance answers on the command line, over D-Bus and to compositor keybindings,
 and streams its changes to a status bar; on Windows the command line reaches it over a named pipe.
+On Windows the microphone is experimental and off by default ([Windows](#windows) says why).
 
 **On Windows, CrossFX needs a virtual playback device that you already have.** It ships no driver:
 it processes the sound that reaches VB-Audio's VB-CABLE (or another virtual cable), or the
@@ -260,6 +261,22 @@ preference:
 - the **"FxSound Speakers"** device that the driver of the original FxSound adds, when the original
   is (or was) installed on the machine; otherwise
 - a virtual cable: **VB-Audio's VB-CABLE**, which is donationware, or another virtual cable.
+
+**Microphone processing is experimental on Windows, and off by default.** CrossFX does not cancel
+echo on Windows yet (on Linux PipeWire's echo canceller can stand in front of the voice chain). In
+a call with headphones, the little of the headphones' sound that leaks into the microphone is what
+the call application's own echo canceller takes out; CrossFX's voice chain changes that leak in
+ways the canceller cannot follow — a gate, a compressor, makeup gain, noise suppression and a
+varying delay — so the other person may hear themselves, and a preset with gain such as
+"Noisy Room" can make it howl. Until you turn on **Settings ▸ Experimental ▸ Microphone
+processing**, CrossFX does not capture the microphone, takes no cable for it and does not take the
+recording default for it (it only moves one off a cable CrossFX itself is using, and gives back
+one an earlier run of CrossFX left there). The window, the tray and Settings show no microphone,
+`--status --json` reports the input lane as `"hidden": true` and not enabled, and a command line
+with `--input`, `--next-input`, `--edit=input` or `--noise-suppression` is refused whole. Turned
+on, the voice chain works as on Linux but with no echo cancellation in front of it, which suits
+recording and streaming; turned off again, a running microphone lane stops and gives the
+recording default back, with no restart. On Linux the switch does not exist.
 
 The microphone lane needs a virtual cable of its own besides (its playback side is where CrossFX
 writes the processed voice; its recording side is what applications record from), so the

@@ -98,7 +98,15 @@ impl Outcome {
 }
 
 /// Execute a whole command line against the controller.
+///
+/// While the microphone is hidden ([`App::microphone_hidden`]) a line with any command about the
+/// microphone is refused whole, before anything on it runs: the preset, band and gain commands
+/// after `--edit=input` act on whichever lane the window edits, and with the microphone refused
+/// that would be the speakers'.
 pub fn run(app: &mut App, commands: &[Command]) -> Outcome {
+    if app.microphone_hidden() && commands.iter().any(targets_the_microphone) {
+        return Outcome::refused(MICROPHONE_HIDDEN);
+    }
     let mut outcome = Outcome::default();
     for command in commands {
         let one = run_one(app, command);
@@ -151,6 +159,23 @@ fn self_test_outcome(env: &crate::selftest::Environment, json: bool) -> Outcome 
         failed: !report.ok(),
         ..Outcome::default()
     }
+}
+
+/// Why a command about the microphone is refused while the microphone is hidden
+/// ([`App::microphone_hidden`]): on Windows until Settings ▸ Experimental ▸ "Microphone
+/// processing" allows it.
+pub const MICROPHONE_HIDDEN: &str = "the microphone is hidden: turn on Settings > Experimental > \
+                                     Microphone processing first";
+
+/// Whether `command` acts on the microphone: its device, its lane, its noise suppression, or the
+/// window's edit direction moved onto it.
+fn targets_the_microphone(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Input(_)
+            | Command::NoiseSuppression(_)
+            | Command::EditDirection(DeviceDirection::Input)
+    )
 }
 
 fn run_one(app: &mut App, command: &Command) -> Outcome {
@@ -1210,7 +1235,9 @@ pub struct InputLaneStatus {
     pub noise_suppression: &'static str,
     /// The level the denoiser runs at once the override is applied.
     pub denoise_level: &'static str,
-    /// Whether the microphone lane is hidden by «Как в оригинальном FxSound LLC» = Everything.
+    /// Whether the microphone lane is hidden ([`App::microphone_hidden`]): by «Как в оригинальном
+    /// FxSound LLC» = Everything, and on Windows while Settings ▸ Experimental ▸ "Microphone
+    /// processing" is off. A hidden lane is never enabled.
     pub hidden: bool,
 }
 
@@ -1321,7 +1348,7 @@ pub fn status_document(app: &App) -> StatusDocument {
             lane: lane(DeviceDirection::Input),
             noise_suppression: app.settings().noise_suppression.key(),
             denoise_level: state.denoise_level.key(),
-            hidden: parity.changes(ParityClass::Full),
+            hidden: app.microphone_hidden(),
         },
         input_meters: input_meters(state),
         echo_cancel: EchoCancelStatus {
@@ -5106,6 +5133,74 @@ mod tests {
         assert_eq!(json["windows_parity"], "off");
         assert_eq!(json["apps_hidden"], false);
         assert_eq!(json["input"]["hidden"], false);
+    }
+
+    #[test]
+    fn with_microphone_processing_off_windows_hides_the_microphone_and_refuses_its_commands() {
+        let mut a = app();
+        a.handle(&[UiAction::SetEditDirection(DeviceDirection::Input)]);
+        assert_eq!(a.state.direction, DeviceDirection::Input);
+        a.set_windows_microphone(false);
+        let hidden = cfg!(windows);
+        assert_eq!(a.microphone_hidden(), hidden);
+        // The window went back to the speakers.
+        let edited = if hidden {
+            DeviceDirection::Output
+        } else {
+            DeviceDirection::Input
+        };
+        assert_eq!(a.state.direction, edited);
+        let json = status(&mut a);
+        assert_eq!(json["input"]["hidden"], hidden);
+        assert_eq!(json["input"]["enabled"], false);
+
+        for line in [
+            &["--input=off"][..],
+            &["--next-input"][..],
+            &["--edit=input"][..],
+            &["--noise-suppression=strong"][..],
+        ] {
+            let before = a.settings().clone();
+            let outcome = run_line(&mut a, line);
+            assert_eq!(outcome.failed, hidden, "{line:?}: {}", outcome.stderr);
+            if hidden {
+                assert_eq!(outcome.stderr, MICROPHONE_HIDDEN, "{line:?}");
+                assert_eq!(a.settings(), &before, "{line:?} changed nothing");
+                assert_eq!(a.state.direction, DeviceDirection::Output, "{line:?}");
+            }
+        }
+        // The speakers' side is still there to be set.
+        assert!(!run_line(&mut a, &["--edit=output"]).failed);
+
+        // A line that edits the microphone is refused whole: the preset commands after
+        // `--edit=input` would otherwise land on the speakers' lane, which the window still edits.
+        if hidden {
+            for line in [
+                &["--edit=input", "--next-preset"][..],
+                &["--edit=input", "--save_preset=Voice"][..],
+                &["--edit=input", "--delete_preset"][..],
+            ] {
+                let before = a.settings().clone();
+                let preset = a.state.preset().map(|p| p.name.clone());
+                let outcome = run_line(&mut a, line);
+                assert!(outcome.failed, "{line:?}");
+                assert_eq!(outcome.stderr, MICROPHONE_HIDDEN, "{line:?}");
+                assert_eq!(a.settings(), &before, "{line:?} changed nothing");
+                assert_eq!(a.state.direction, DeviceDirection::Output, "{line:?}");
+                assert_eq!(
+                    a.state.preset().map(|p| p.name.clone()),
+                    preset,
+                    "{line:?} left the speakers' preset alone"
+                );
+            }
+        }
+
+        // Allowed again, the microphone is back and its commands with it.
+        a.set_windows_microphone(true);
+        assert!(!a.microphone_hidden());
+        assert_eq!(status(&mut a)["input"]["hidden"], false);
+        assert!(!run_line(&mut a, &["--edit=input"]).failed);
+        assert_eq!(a.state.direction, DeviceDirection::Input);
     }
 
     #[test]

@@ -275,6 +275,10 @@ pub struct UiState {
     /// [`WindowsLook`] ([`UiState::windows_look`]); from Interface and sound on the effect sliders
     /// show and step through the stored values as the original maps them ([`UiState::dsp_compat`]).
     pub windows_parity: WindowsParity,
+    /// Whether the microphone is hidden (`Settings::microphone_hidden`): on Windows until
+    /// Settings ▸ Experimental ▸ "Microphone processing" allows it. Set by the application; the
+    /// window then lists no microphone, offers no lane of it, and never edits it.
+    pub microphone_hidden: bool,
 
     // ---- per-application presets -------------------------------------------------------------
     /// Every application the engine has moved onto a route of its own, both lanes, in the order
@@ -335,6 +339,7 @@ impl Default for UiState {
             notice_link: None,
             hide_tooltips: false,
             windows_parity: WindowsParity::Off,
+            microphone_hidden: false,
             routed_apps: Vec::new(),
         }
     }
