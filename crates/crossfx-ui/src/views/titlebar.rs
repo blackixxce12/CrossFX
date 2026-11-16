@@ -659,8 +659,8 @@ mod tests {
 
     #[test]
     fn the_wordmark_runs_from_the_logotypes_plain_colour_to_its_highlighted_one() {
-        // logo-white.svg and logo-red.svg in the dark theme, logo-black.svg and logo-blue.svg in
-        // the light one.
+        // The colours of the original's logo-white.svg and logo-red.svg in the dark theme, and of
+        // its logo-black.svg and logo-blue.svg in the light one.
         for (mode, plain, highlighted) in [
             (
                 ThemeMode::Dark,

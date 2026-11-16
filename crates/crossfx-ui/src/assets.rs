@@ -2,7 +2,11 @@
 //!
 //! The original registers 32 named images per theme and swaps the whole table when the theme
 //! changes (`fxsound/Source/GUI/FxTheme.cpp:31-56`). The names and their order are transcribed from
-//! `FxTheme.h`'s `FxImage` enum so the two tables can be diffed side by side.
+//! `FxTheme.h`'s `FxImage` enum so the two tables can be diffed side by side, less its first three:
+//! `DefaultLogo`, `HighlightedLogo` and `IconLogo`, FxSound LLC's logotype in its plain and lit
+//! colours and its five bars. They are the original's marks, not CrossFX's, which shows its own
+//! where the original shows them ([`crate::widgets::wordmark`]), so they are neither listed nor
+//! embedded here.
 //!
 //! Every file is embedded in the binary. The original ships its artwork as SVG, so rasterising at
 //! the exact size a control needs — including the compositor's fractional scale — costs nothing
@@ -12,12 +16,9 @@ use crossfx_core::ThemeMode;
 use egui::{Color32, ColorImage, Context, TextureHandle, TextureOptions};
 use std::collections::HashMap;
 
-/// The named images, in `FxTheme.h`'s `FxImage` order.
+/// The named images, in `FxTheme.h`'s `FxImage` order, from its fourth on (see the module docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FxImage {
-    DefaultLogo,
-    HighlightedLogo,
-    IconLogo,
     PowerOnButton,
     PowerOffButton,
     DonateButton,
@@ -49,8 +50,8 @@ pub enum FxImage {
     SliderThumbBW,
 }
 
-/// `FxImage::NumImages`.
-pub const NUM_IMAGES: usize = 32;
+/// `FxImage::NumImages`, 32, less the original's three logos.
+pub const NUM_IMAGES: usize = 29;
 
 macro_rules! svg {
     ($name:literal) => {
@@ -60,9 +61,6 @@ macro_rules! svg {
 
 /// `FxTheme::theme_images_[FxThemeMode::Dark]`.
 const DARK_IMAGES: [&[u8]; NUM_IMAGES] = [
-    svg!("logo-white.svg"),
-    svg!("logo-red.svg"),
-    svg!("FxSound White Bars.svg"),
     svg!("power_on.svg"),
     svg!("power_off.svg"),
     svg!("donate.svg"),
@@ -96,9 +94,6 @@ const DARK_IMAGES: [&[u8]; NUM_IMAGES] = [
 
 /// `FxTheme::theme_images_[FxThemeMode::Light]`.
 const LIGHT_IMAGES: [&[u8]; NUM_IMAGES] = [
-    svg!("logo-black.svg"),
-    svg!("logo-blue.svg"),
-    svg!("FxSound Black Bars.svg"),
     svg!("power_on_blue.svg"),
     svg!("power_off_black.svg"),
     svg!("donate_blue.svg"),
@@ -322,9 +317,6 @@ mod tests {
     use super::*;
 
     const ALL: [FxImage; NUM_IMAGES] = [
-        FxImage::DefaultLogo,
-        FxImage::HighlightedLogo,
-        FxImage::IconLogo,
         FxImage::PowerOnButton,
         FxImage::PowerOffButton,
         FxImage::DonateButton,
