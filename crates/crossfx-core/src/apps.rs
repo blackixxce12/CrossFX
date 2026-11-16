@@ -388,11 +388,30 @@ impl AppRules {
     /// so every save fails, loudly, until someone removes it — and moving someone's directory
     /// out of the way is not this loader's business. What parses is sanitised
     /// ([`AppRules::sanitise`]).
+    ///
+    /// A store another program holds open on Windows is neither ([`crate::held`]): it is waited
+    /// for a moment, and when it is still held it is left where it is, the store starts empty,
+    /// and no save replaces it until a later load has read it.
     #[must_use]
     pub fn load_from(path: &Path) -> Self {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Self::default(),
+        let text = match crate::held::read_to_string(path) {
+            Ok(text) => {
+                crate::held::read_after_all(path);
+                text
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                crate::held::read_after_all(path);
+                return Self::default();
+            }
+            Err(err) if crate::held::is_held(&err) => {
+                log::warn!(
+                    "{}: {err}; no per-application presets, and not saving over it until it \
+                     can be read",
+                    path.display()
+                );
+                crate::held::left_unread(path);
+                return Self::default();
+            }
             // Not only EISDIR: Windows refuses to open any directory as a file with "access
             // denied", and Unix one this user may not read with EACCES. Both are PermissionDenied,
             // so whether it is a directory is asked of the path itself, on every system.
@@ -461,6 +480,8 @@ impl AppRules {
     /// needed: an interrupted save leaves the previous file whole. What is written is sanitised
     /// first, so the file never holds an entry the loader would have to drop.
     pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        // A store the load found held is the user's, whole; this one started empty.
+        crate::held::refuse_if_unread(path)?;
         let mut checked = self.clone();
         checked.sanitise();
         let text = toml::to_string_pretty(&checked)

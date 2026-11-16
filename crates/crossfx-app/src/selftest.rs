@@ -576,7 +576,12 @@ fn check_settings(path: &Path) -> Check {
         // A directory is left where it is, and every save fails until someone removes it.
         // Windows (and Unix, for an unreadable directory) reports opening one as a denied
         // access, not `IsADirectory`, so ask the path too, as `Settings::load_from` does.
-        Err(err) if err.kind() == io::ErrorKind::IsADirectory || path.is_dir() => {
+        // So is a file another program holds open on Windows (`crossfx_core::held`).
+        Err(err)
+            if err.kind() == io::ErrorKind::IsADirectory
+                || path.is_dir()
+                || crossfx_core::held::is_held(&err) =>
+        {
             return Check::fail(NAME, format!("{}: {err}", path.display()));
         }
         Err(err) => {
@@ -1868,6 +1873,23 @@ pub(crate) mod tests {
         assert!(!settings.detail.contains(".bad"), "{}", settings.detail);
         assert!(!settings.detail.contains("move it aside"), "{}", settings.detail);
         assert!(path.is_dir(), "the directory was moved");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_held_settings_file_fails_and_is_not_promised_a_move() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.toml");
+        fs::write(&path, "power = false\n").unwrap();
+        let _holder = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let settings = check_settings(&path);
+        assert_eq!(settings.status, Status::Fail);
+        assert!(!settings.detail.contains(".bad"), "{}", settings.detail);
     }
 
     #[test]
