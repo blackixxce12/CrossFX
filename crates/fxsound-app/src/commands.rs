@@ -454,6 +454,19 @@ pub(crate) fn resolve_device(
     }
 }
 
+/// Why `--output` or `--input` (`lane`) refuses `name`, a device of the other lane: what the
+/// device is, and the option that selects it.
+fn other_lanes_device(name: &str, lane: DeviceDirection) -> String {
+    match lane {
+        DeviceDirection::Output => {
+            format!("{name:?} is a microphone, not a playback device; --input selects it")
+        }
+        DeviceDirection::Input => {
+            format!("{name:?} is a playback device, not a microphone; --output selects it")
+        }
+    }
+}
+
 /// `--output`, `--input`, `--next-output`, `--next-input` and their `off`.
 ///
 /// Whatever settles a lane's device also drops a name that lane was still waiting for the device
@@ -478,27 +491,11 @@ fn run_device(app: &mut App, lane: DeviceDirection, command: &DeviceCommand) -> 
                 app.cancel_pending_device(lane);
                 app.handle(&[select_on(lane, index)]);
             }
-            // 0.3.0 had one lane and `--output` was its one way into the microphone; scripts
-            // written then still work, and are told what to write now. It is an `--output`, and
-            // it settles the microphone's device: both lanes' held names are spent.
-            Resolved::OtherDirection(index) if lane == DeviceDirection::Output => {
-                app.cancel_pending_device(DeviceDirection::Output);
-                app.cancel_pending_device(DeviceDirection::Input);
-                app.handle(&[UiAction::SelectInput(index)]);
-                return Outcome {
-                    stderr: format!(
-                        "note: {name:?} is a microphone, so it was selected for the input lane; \
-                         --input is the option for that since 0.4.0"
-                    ),
-                    ..Outcome::default()
-                };
-            }
-            // No such courtesy the other way round: `--input` is new, and a speaker named there
-            // is a mistake, not a habit from an older version.
+            // A device of the other lane is a mistake, not a guess to act on: `--output` naming a
+            // microphone would switch the input lane on and send it to that microphone. Each
+            // option selects its own lane's device, and the refusal says which one this is.
             Resolved::OtherDirection(_) => {
-                return Outcome::refused(format!(
-                    "{name:?} is a playback device, not a microphone; --output selects it"
-                ));
+                return Outcome::refused(other_lanes_device(name, lane));
             }
             // The list exists and nothing in it is called that. Say so, and exit non-zero: a
             // script that asked for a device it did not get has to be able to find out.
@@ -2959,28 +2956,32 @@ mod tests {
     }
 
     #[test]
-    fn output_naming_a_microphone_still_selects_it_for_the_input_lane_with_a_note() {
+    fn output_naming_a_microphone_is_refused_and_switches_no_lane_on() {
         use fxsound_core::DeviceDirection::{Input, Output};
         let mut a = app();
         a.state.devices = mixed_devices();
 
-        // 0.3.0 compatibility: the node name is unambiguous and names a source, which was the
-        // CLI's way into the input mode. It still works, and says what to write instead.
+        // The node name is unambiguous and names a source: nothing `--output` can select. Taken as
+        // `--input` it would switch the input lane on and send it to that microphone, which is not
+        // what the line asked for; refused, saying which option selects it.
         let outcome = run(
             &mut a,
             &[Command::Output(OutputCommand::Select(
                 "alsa_input.usb-fifine".into(),
             ))],
         );
-        assert!(!outcome.failed, "a 0.3.0 script must keep working");
-        assert!(outcome.stderr.contains("--input"), "{:?}", outcome.stderr);
-        assert!(outcome.stderr.contains("alsa_input.usb-fifine"));
-        assert_eq!(a.state.selected_input, Some(2));
+        assert!(outcome.failed, "{outcome:?}");
+        assert_eq!(
+            outcome.stderr,
+            "\"alsa_input.usb-fifine\" is a microphone, not a playback device; --input selects it"
+        );
+        assert_eq!(a.state.selected_input, None, "the input lane stays off");
+        assert!(!a.settings().lane_enabled(Input));
         assert_eq!(
             a.state.selected_output, None,
             "the speakers were not touched"
         );
-        assert_eq!(a.state.direction, Input);
+        assert_eq!(a.state.direction, Output);
 
         // The shared description matches the output for `--output` — so a description alone never
         // lands on the microphone by accident — and leaves the input lane where it was.
@@ -2992,7 +2993,7 @@ mod tests {
         );
         assert!(outcome.stderr.is_empty(), "{:?}", outcome.stderr);
         assert_eq!(a.state.selected_output, Some(1));
-        assert_eq!(a.state.selected_input, Some(2));
+        assert_eq!(a.state.selected_input, None);
         assert_eq!(a.state.direction, Output);
     }
 
@@ -4115,9 +4116,11 @@ mod tests {
             &dir.path().join("voice-factory"),
             dir.path().join("user").join("Input"),
         );
-        let mut settings = fxsound_core::Settings::default();
-        settings.output_preset = "Music".to_owned();
-        settings.input_preset = "Clean".to_owned();
+        let mut settings = fxsound_core::Settings {
+            output_preset: "Music".to_owned(),
+            input_preset: "Clean".to_owned(),
+            ..fxsound_core::Settings::default()
+        };
         settings.set_lane_enabled(IN, true);
         let engine = FakeEngine::new();
         let mut app = App::start_for_tests(settings, music, voices, &engine);

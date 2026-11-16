@@ -4063,8 +4063,10 @@ mod confirmation_tests {
             presets.save_as(&preset, name).expect("save");
         }
         let voices = InputPresetStore::with_dirs(Vec::new(), dir.join("presets").join("Input"));
-        let mut settings = Settings::default();
-        settings.output_preset = "Mine".to_owned();
+        let settings = Settings {
+            output_preset: "Mine".to_owned(),
+            ..Settings::default()
+        };
         let app = App::start_for_tests(settings, presets, voices, &FakeEngine::new());
         let (_tray_tx, tray_rx) = crossbeam_channel::unbounded();
         Runtime {

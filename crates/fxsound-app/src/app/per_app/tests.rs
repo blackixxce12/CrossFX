@@ -113,12 +113,14 @@ fn voice_presets(dir: &Path) -> fxsound_preset::InputPresetStore {
 /// lanes on, the window on the speakers. What start-up said is taken already.
 fn started() -> (App, FakeEngine, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("scratch directory");
-    let mut settings = Settings::default();
-    settings.output_preset = "Music".to_owned();
-    settings.input_preset = "Clean".to_owned();
-    settings.master_gain = 2.0;
-    settings.balance = -1.5;
-    settings.volume_leveling = 1.0;
+    let mut settings = Settings {
+        output_preset: "Music".to_owned(),
+        input_preset: "Clean".to_owned(),
+        master_gain: 2.0,
+        balance: -1.5,
+        volume_leveling: 1.0,
+        ..Settings::default()
+    };
     settings.set_lane_enabled(IN, true);
     let engine = FakeEngine::new();
     let mut app = App::start_for_tests(
@@ -1206,9 +1208,11 @@ fn a_start_with_the_power_off_sends_no_route_until_it_is_turned_on() {
          last_seen = 1\n",
     )
     .expect("write the store");
-    let mut settings = Settings::default();
-    settings.output_preset = "Music".to_owned();
-    settings.power = false;
+    let settings = Settings {
+        output_preset: "Music".to_owned(),
+        power: false,
+        ..Settings::default()
+    };
     let engine = FakeEngine::new();
     let mut app = App::start_for_tests(
         settings,

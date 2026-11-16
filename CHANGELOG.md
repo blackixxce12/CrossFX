@@ -42,6 +42,8 @@ whose entries keep the names of their time. The format follows
 - **Exported presets** go to `Documents/CrossFX/Presets/Export`.
 - **WirePlumber's log topic of the hook** is `s-crossfx` (it was `s-fxsound`):
   `WIREPLUMBER_DEBUG=2,s-crossfx:4`.
+- **`--output` and D-Bus `SetOutput` refuse a microphone,** as `--input` and `SetInput` refuse a
+  speaker: `--input` selects it. They took it for the input lane and switched that lane on.
 
 ## [0.5.0] — 2026-09-30
 

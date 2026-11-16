@@ -99,18 +99,20 @@ fn main() -> eframe::Result<()> {
 const DEVICE: &str = "fifine Microphone Analogue Stereo";
 
 fn demo_state() -> SettingsState {
-    let mut settings = Settings::default();
-    settings.echo_cancel = true;
-    settings.calibration = Some(CalibrationRecord {
-        noise_floor_db: -48.2,
-        speech_rms_db: -19.4,
-        speech_peak_db: -6.0,
-        clipped_ratio: 0.0,
-        unix_time: 1_790_121_600,
-        preset: format!("Calibrated — {DEVICE}"),
-        device: "alsa_input.usb-fifine".to_owned(),
-        extra: Default::default(),
-    });
+    let settings = Settings {
+        echo_cancel: true,
+        calibration: Some(CalibrationRecord {
+            noise_floor_db: -48.2,
+            speech_rms_db: -19.4,
+            speech_peak_db: -6.0,
+            clipped_ratio: 0.0,
+            unix_time: 1_790_121_600,
+            preset: format!("Calibrated — {DEVICE}"),
+            device: "alsa_input.usb-fifine".to_owned(),
+            extra: Default::default(),
+        }),
+        ..Settings::default()
+    };
     let row = |id: &str, name: &str, preset, connected, present| DevicePriority {
         id: id.to_owned(),
         name: name.to_owned(),

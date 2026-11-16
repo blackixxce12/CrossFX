@@ -326,11 +326,13 @@ mod tests {
 
     #[test]
     fn the_levels_are_the_settings_and_the_power_is_on() {
-        let mut settings = Settings::default();
-        settings.filter_q = 2.0;
-        settings.master_gain = -6.0;
-        settings.balance = 4.0;
-        settings.volume_leveling = 1.5;
+        let settings = Settings {
+            filter_q: 2.0,
+            master_gain: -6.0,
+            balance: 4.0,
+            volume_leveling: 1.5,
+            ..Settings::default()
+        };
         let params = preset_params(
             &preset([64; 5], &[]),
             &ladder(10),
@@ -348,8 +350,10 @@ mod tests {
     fn interface_and_sound_plays_the_windows_dsp_and_the_levels_below_it_do_not() {
         use fxsound_core::WindowsParity;
         for level in WindowsParity::ALL {
-            let mut settings = Settings::default();
-            settings.windows_parity = level;
+            let settings = Settings {
+                windows_parity: level,
+                ..Settings::default()
+            };
             let params = preset_params(
                 &preset([64; 5], &[]),
                 &ladder(10),

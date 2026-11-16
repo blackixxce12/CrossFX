@@ -1069,9 +1069,11 @@ mod tests {
             &dir.path().join("voice-factory"),
             dir.path().join("user").join("Input"),
         );
-        let mut settings = Settings::default();
-        settings.output_preset = "Alpha".to_owned();
-        settings.input_preset = "Quiet".to_owned();
+        let mut settings = Settings {
+            output_preset: "Alpha".to_owned(),
+            input_preset: "Quiet".to_owned(),
+            ..Settings::default()
+        };
         settings.set_lane_enabled(IN, true);
         let engine = FakeEngine::new();
         let app = App::start_for_tests(settings, music, voices, &engine);

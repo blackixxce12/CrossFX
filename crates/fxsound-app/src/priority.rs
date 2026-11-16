@@ -237,16 +237,17 @@ mod tests {
     }
 
     fn known(pairs: &[(&str, DeviceDirection)]) -> Settings {
-        let mut settings = Settings::default();
-        settings.device_configs = pairs
-            .iter()
-            .map(|(name, direction)| DeviceConfig {
-                device_id: (*name).to_owned(),
-                direction: *direction,
-                ..DeviceConfig::default()
-            })
-            .collect();
-        settings
+        Settings {
+            device_configs: pairs
+                .iter()
+                .map(|(name, direction)| DeviceConfig {
+                    device_id: (*name).to_owned(),
+                    direction: *direction,
+                    ..DeviceConfig::default()
+                })
+                .collect(),
+            ..Settings::default()
+        }
     }
 
     #[test]

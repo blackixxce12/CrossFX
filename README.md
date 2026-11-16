@@ -580,8 +580,8 @@ changes, and **Export Presets** and **Import Presets** work with unsaved changes
 original FxSound LLC» = Interface, as in the original, the first waits for changes and the other two
 for none. A new preset's name is cut to the 126 bytes the original FxSound for Windows reads a name
 in (63 Cyrillic letters), and a line break or a tab in it becomes a space. Saving over one of your
-presets writes the file it was listed from, whatever that file is called, so a preset 0.3.0 saved as
-`Rock:Live.fac` keeps its file, and the unsaved edits 0.3.0 left in `AutoSave/` come back with it.
+presets writes the file it was listed from, whatever that file is called, such as a preset file you
+copied in by hand.
 **Reset presets** in Settings asks first, then discards every unsaved change and keeps your saved
 presets. `max_user_presets` in the settings file allows 10 to 1000 presets.
 

@@ -2785,9 +2785,10 @@ impl App {
     /// that is not a device, and holding it for the next list would mean a typo at login quietly
     /// changing the device half a minute later when something unrelated is plugged in. A name is
     /// resolved exactly as it would have been had the list been there when it arrived
-    /// ([`crate::commands::resolve_device`]), 0.3.0's `--output` naming a microphone included —
-    /// and a preset picked for the lane in the meantime is kept rather than replaced by the one
-    /// the device remembers, since with the list there it would have been picked after the device.
+    /// ([`crate::commands::resolve_device`]), a device of the other lane refused as it would have
+    /// been — and a preset picked for the lane in the meantime is kept rather than replaced by the
+    /// one the device remembers, since with the list there it would have been picked after the
+    /// device.
     /// The same goes for the edit direction: holding a name made its lane the edit direction, and
     /// if the window is on the other lane by now, something later — `--edit`, the window, a device
     /// that was listed — chose that, and it stays chosen.
@@ -2808,16 +2809,12 @@ impl App {
             // status to. The log is the only place anything here can be said.
             match resolve_device(&self.state.devices, &wanted, lane) {
                 Resolved::Found(index) => self.select_device_keeping(index, lane, preset),
-                // A preset picked for the output lane means nothing on the microphone this turned
-                // out to be, so the device brings back its own.
-                Resolved::OtherDirection(index) if lane == DeviceDirection::Output => {
-                    log::info!("{wanted:?} is a microphone; --output selected it as --input would");
-                    self.select_device(index, DeviceDirection::Input);
-                }
                 Resolved::OtherDirection(_) => {
-                    log::warn!(
-                        "{wanted:?} is a playback device, not a microphone; --input did nothing"
-                    );
+                    let what = match lane {
+                        DeviceDirection::Output => "a microphone, not a playback device",
+                        DeviceDirection::Input => "a playback device, not a microphone",
+                    };
+                    log::warn!("{wanted:?} is {what}; --{} did nothing", lane.key());
                 }
                 Resolved::NotFound => log::warn!(
                     "no audio device is called {wanted:?}; --{} did nothing",
@@ -6402,7 +6399,7 @@ mod tests {
         let outcome = crate::commands::run(
             &mut app,
             &[crate::cli::Command::Output(
-                crate::cli::OutputCommand::Select("alsa_input.mic".to_owned()),
+                crate::cli::OutputCommand::Select("alsa_output.headphones".to_owned()),
             )],
         );
         assert!(
@@ -6416,11 +6413,35 @@ mod tests {
         app.devices_seen = true;
         app.state.devices = vec![
             device("alsa_output.speakers", DeviceDirection::Output, true),
-            device("alsa_input.mic", DeviceDirection::Input, false),
+            device("alsa_output.headphones", DeviceDirection::Output, false),
         ];
         app.apply_pending_device();
         assert_eq!(app.state.selected_device(), Some(1));
-        assert_eq!(app.state.direction, DeviceDirection::Input);
+        assert_eq!(app.state.direction, DeviceDirection::Output);
+    }
+
+    #[test]
+    fn an_output_held_for_a_microphone_selects_nothing_when_the_list_arrives() {
+        // Resolved as it would have been with the list there: a microphone is no device for
+        // `--output`, so the input lane is neither switched on nor pointed at it.
+        let mut app = App::headless_for_tests();
+        let outcome = crate::commands::run(
+            &mut app,
+            &[crate::cli::Command::Output(
+                crate::cli::OutputCommand::Select("alsa_input.mic".to_owned()),
+            )],
+        );
+        assert!(!outcome.failed && outcome.stderr.is_empty(), "{outcome:?}");
+
+        app.devices_seen = true;
+        app.state.devices = vec![
+            device("alsa_output.speakers", DeviceDirection::Output, true),
+            device("alsa_input.mic", DeviceDirection::Input, false),
+        ];
+        app.apply_pending_device();
+        assert_eq!(app.state.selected_input, None);
+        assert!(!app.settings().lane_enabled(DeviceDirection::Input));
+        assert_eq!(app.state.direction, DeviceDirection::Output);
     }
 
     #[test]
@@ -8840,8 +8861,10 @@ mod tests {
         // that starts knowing nothing of it.
         let dir = ScratchDir::new("startup-echo");
         let path = dir.join("settings.toml");
-        let mut saved = Settings::default();
-        saved.echo_cancel = true;
+        let saved = Settings {
+            echo_cancel: true,
+            ..Settings::default()
+        };
         saved.save_to(&path).expect("save");
         let loaded = Settings::load_from(&path);
 
@@ -8869,10 +8892,12 @@ mod tests {
 
     #[test]
     fn the_remembered_defaults_are_still_the_first_thing_a_new_engine_hears() {
-        let mut settings = Settings::default();
-        settings.echo_cancel = true;
-        settings.remembered_default_output = "alsa_output.speakers".to_owned();
-        settings.remembered_default_input = "alsa_input.headset".to_owned();
+        let settings = Settings {
+            echo_cancel: true,
+            remembered_default_output: "alsa_output.speakers".to_owned(),
+            remembered_default_input: "alsa_input.headset".to_owned(),
+            ..Settings::default()
+        };
         assert_eq!(
             startup_messages(&settings),
             [
@@ -9046,10 +9071,12 @@ mod tests {
     /// A settings file from a run that used the headphones with `Beta` at a 4 dB master gain, and
     /// the microphone — switched on — with `Loud`, last editing `edit`.
     fn saved_settings(edit: DeviceDirection) -> Settings {
-        let mut settings = Settings::default();
-        settings.output_preset = "Beta".to_owned();
-        settings.input_preset = "Loud".to_owned();
-        settings.master_gain = 4.0;
+        let mut settings = Settings {
+            output_preset: "Beta".to_owned(),
+            input_preset: "Loud".to_owned(),
+            master_gain: 4.0,
+            ..Settings::default()
+        };
         settings.set_device_name(OUT, HEADPHONES);
         settings.set_device_name(IN, MIC);
         settings.set_lane_enabled(IN, true);
@@ -12039,8 +12066,10 @@ mod tests {
         }
         let mut music = PresetStore::with_dirs(vec![factory], dir.path().join("user"));
         music.rescan();
-        let mut settings = Settings::default();
-        settings.num_bands = num_bands;
+        let mut settings = Settings {
+            num_bands,
+            ..Settings::default()
+        };
         presets[0].name.clone_into(&mut settings.output_preset);
         let engine = FakeEngine::new();
         let app = App::start_for_tests(settings, music, voices(&dir), &engine);
@@ -12169,8 +12198,10 @@ mod tests {
 
         // A start with the level saved plays it from the first snapshot on.
         let dir = tempfile::tempdir().expect("scratch directory");
-        let mut settings = Settings::default();
-        settings.windows_parity = Sound;
+        let settings = Settings {
+            windows_parity: Sound,
+            ..Settings::default()
+        };
         let engine = FakeEngine::new();
         let music = PresetStore::with_dirs(vec![], dir.path().join("user"));
         let app = App::start_for_tests(settings, music, voices(&dir), &engine);
@@ -12495,8 +12526,10 @@ mod tests {
         let engine = FakeEngine::new();
         let dir = tempfile::tempdir().expect("scratch directory");
         let music = PresetStore::with_dirs(Vec::new(), dir.path().join("user"));
-        let mut settings = Settings::default();
-        settings.num_bands = 20;
+        let settings = Settings {
+            num_bands: 20,
+            ..Settings::default()
+        };
         let app = App::start_for_tests(settings, music, voices(&dir), &engine);
         assert_eq!(app.state.eq_bands.len(), 20);
         assert_eq!(centres(&app), ladder(20));

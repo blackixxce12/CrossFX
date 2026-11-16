@@ -321,10 +321,7 @@ letters. Voice presets follow
 the same rule with a
 .I .toml
 extension. A user preset saved over is written to the file it was listed
-from, whatever that file is called, such as one 0.3.0 saved under the name as
-written; its unsaved edits 0.3.0 kept in
-.I AutoSave/
-under that name are found there too.
+from, whatever that file is called, such as a preset file copied in by hand.
 .SS Devices and directions
 .TP
 .BI \-\-output= DEVICE|off
@@ -336,9 +333,10 @@ is accepted too, because that is what the settings file persists.
 .B off
 detaches the lane: CrossFX hands the session default back and removes that
 lane's nodes until a device is chosen again. Picking a device also makes that
-lane the edit direction. For compatibility with 0.3.0, naming a microphone here is treated as
+lane the edit direction. A microphone named here is an error rather than a
+guess;
 .B \-\-input
-with a note on standard error.
+selects it.
 A name that matches no device is an error, except before PipeWire has listed
 the devices, as at login: then the name is held, the lane becomes the edit
 direction at once, and the device is selected when the list arrives, keeping a

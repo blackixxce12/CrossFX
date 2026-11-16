@@ -6,14 +6,14 @@
 //! `~/.config/crossfx/settings.toml`; on Windows `%APPDATA%\CrossFX\settings.toml`) so the schema
 //! stays greppable against the original C++ and a user's settings are recognisable.
 //!
-//! The original's keys nothing here reads are not written (0.4.0 audit #35): the five hotkey chords
-//! and the `hotkeys` switch (a Wayland client cannot grab global shortcuts; the compositor binds
-//! them to the command line), `window_x`/`window_y` (Wayland gives a client no way to place its own
-//! toplevel), `always_on_top` (winit ignores window levels there), `automatic_updates` and
-//! `last_update_time` (CrossFX never contacts the network), and `device_configs_version`. A file
-//! that still has them, as every file 0.3.0 wrote does, loads as before: a key the struct does not
-//! know is skipped, and the next save leaves it out. `run_minimized`, which 0.3.0 read and never
-//! wrote, is written again whenever the window hides to the tray or shows.
+//! The original's keys nothing here reads are not settings of CrossFX's (0.4.0 audit #35): the
+//! five hotkey chords and the `hotkeys` switch (a Wayland client cannot grab global shortcuts; the
+//! compositor binds them to the command line), `window_x`/`window_y` (Wayland gives a client no way
+//! to place its own toplevel), `always_on_top` (winit ignores window levels there),
+//! `automatic_updates` and `last_update_time` (CrossFX never contacts the network), and
+//! `device_configs_version`. CrossFX writes none of them; a file that has one keeps it, as it keeps
+//! every key it does not know ([`Settings::extra`]). `run_minimized` is written whenever the window
+//! hides to the tray or shows.
 //!
 //! A file that does not load — it does not parse, it is not UTF-8, this user may not read it — is
 //! moved aside as `settings.toml.bad` (`settings.toml.2.bad` and so on when that is taken) and the
@@ -323,11 +323,9 @@ mod folder_tests {
 pub struct DeviceConfig {
     /// On Windows an endpoint id; here the PipeWire `node.name`, which is stable across restarts.
     pub device_id: String,
-    /// Which lane this memory belongs to. An entry without the key is an output entry: 0.3.0
-    /// wrote only output devices here — its preset picker returned before the memory was
-    /// written whenever the microphone was the live device — so there is no older microphone
-    /// entry for the default to misread. The two directions are separate namespaces regardless,
-    /// because a `.fac` name and a voice preset's name can collide.
+    /// Which lane this memory belongs to; an entry without the key, which only a hand edit
+    /// leaves, is an output entry. The two directions are separate namespaces, because a `.fac`
+    /// name and a voice preset's name can collide.
     #[serde(default)]
     pub direction: DeviceDirection,
     /// Human-readable name (`node.description`).
@@ -400,12 +398,6 @@ pub struct Settings {
     /// Master power state, restored on launch.
     pub power: bool,
     /// Name of the preset to select on launch while CrossFX sits in front of a playback device.
-    ///
-    /// A `settings.toml` written by 0.2.0 — which had one preset key because it had one chain —
-    /// is read through the private `legacy_preset` below. On the next save the file is written
-    /// under the new name only, so a 0.2.0 binary reading a 0.3.0 file falls back to its default
-    /// preset: a cosmetic loss on a downgrade, not a data one, since the presets themselves are
-    /// files of their own and are untouched.
     pub output_preset: String,
     /// Name of the preset to select while CrossFX sits behind a microphone.
     ///
@@ -415,33 +407,18 @@ pub struct Settings {
     /// chose. The default is the voice set's own reference preset, not the output set's: a name
     /// that is in neither list means the picker lands on whatever happens to sort first.
     pub input_preset: String,
-    /// The 0.2.0 spelling of [`Settings::output_preset`], folded in by [`Settings::sanitise`].
-    ///
-    /// `#[serde(alias)]` would have been one line, and was the first attempt. It is wrong here:
-    /// serde rejects a document carrying both the alias and the real name as a **duplicate
-    /// field**, and [`Settings::load`] turns any parse error into a full reset — so one stale
-    /// `preset =` line left in a hand-edited file would have cost the user every setting they
-    /// had. A field of its own cannot collide with anything, and is never written back.
-    #[serde(rename = "preset", skip_serializing)]
-    legacy_preset: Option<String>,
     /// `node.name` of the real output device CrossFX renders to.
     pub output_device_name: String,
     /// `node.name` of the real capture device CrossFX listens to.
     pub input_device_name: String,
     /// The **edit direction**: which lane the window's preset picker, equalizer, level controls
     /// and meters address. Linux only, and a GUI notion only — both lanes run regardless, and
-    /// the engine never sees this. The key keeps its 0.3.0 name, under which it meant "the one
-    /// live direction"; [`Settings::sanitise`] reads that older meaning into
-    /// [`Settings::input_enabled`] when a file predates the split.
+    /// the engine never sees this. Whether a lane runs is [`Settings::input_enabled`]'s and
+    /// [`Settings::output_enabled`]'s, never this key's.
     pub device_direction: DeviceDirection,
-    /// Whether the input lane comes up at start.
-    ///
-    /// An `Option` so that a 0.3.0 file can be told apart from a 0.4.0 one that says `false`: that
-    /// version had one lane, and `device_direction = "input"` was how it said the microphone was
-    /// the live one. [`Settings::sanitise`] turns the absence into `Some(device_direction ==
-    /// Input)`, so a user who left 0.3.0 on a microphone comes back to it. Read through
-    /// [`Settings::lane_enabled`], which applies the same rule before sanitising has run.
-    pub input_enabled: Option<bool>,
+    /// Whether the input lane comes up at start. `false` until the user gives the microphone lane
+    /// a device: what a fresh install does.
+    pub input_enabled: bool,
     /// Whether the output lane comes up at start. `true` unless the user detached it: the
     /// original's behaviour, and what a fresh install does.
     pub output_enabled: bool,
@@ -547,31 +524,11 @@ pub struct Settings {
     /// This is the file's top level; a key inside an entry of `device_configs` or
     /// `device_volumes`, or inside `[calibration]`, is kept by that entry's own `extra`.
     ///
-    /// A key written by a later version — this one's `windows_parity` read by 0.4.0, a
-    /// customisation key read by this one after a downgrade — survives a save here, so going back
-    /// up a version finds it again. 0.4.0 has no such table and drops what it does not know on its
-    /// next save. The retired Windows keys are the one exception ([`RETIRED_WINDOWS_KEYS`]).
+    /// A key written by a later version — a customisation key read by this one after a
+    /// downgrade — survives a save here, so going back up a version finds it again.
     #[serde(flatten)]
     pub extra: toml::Table,
 }
-
-/// The Windows keys nothing here reads (0.4.0 audit #35): every file 0.3.0 wrote carries them, and
-/// a hand edit of any of them did nothing. They load, and the next save leaves them out, rather
-/// than being kept in [`Settings::extra`] with the keys of later versions.
-pub const RETIRED_WINDOWS_KEYS: [&str; 12] = [
-    "device_configs_version",
-    "window_x",
-    "window_y",
-    "always_on_top",
-    "hotkeys",
-    "cmd_on_off",
-    "cmd_open_close",
-    "cmd_next_preset",
-    "cmd_previous_preset",
-    "cmd_change_output",
-    "automatic_updates",
-    "last_update_time",
-];
 
 impl Default for Settings {
     fn default() -> Self {
@@ -579,13 +536,10 @@ impl Default for Settings {
             power: true,
             output_preset: "General".into(),
             input_preset: "Clean Voice".into(),
-            legacy_preset: None,
             output_device_name: String::new(),
             input_device_name: String::new(),
             device_direction: DeviceDirection::Output,
-            // `None` and not `Some(false)`: the value is decided by `sanitise`, which is the only
-            // place that can tell a fresh default from a 0.3.0 file — both are missing the key.
-            input_enabled: None,
+            input_enabled: false,
             output_enabled: true,
             device_configs: Vec::new(),
             prioritize_new_output: false,
@@ -693,7 +647,7 @@ impl Settings {
         Self::load_from(&Self::config_path())
     }
 
-    /// [`Settings::load`] from an explicit path — the seam the migration tests use.
+    /// [`Settings::load`] from an explicit path — the seam the tests use.
     ///
     /// A file that is there but does not load is **moved aside**, to `<path>.bad`, before the
     /// defaults are returned: one that does not parse, one that is not UTF-8 (a comment saved in
@@ -785,8 +739,8 @@ impl Settings {
         crate::atomic::next_aside_name(Self::bad_path(path))
     }
 
-    /// The defaults as the loader hands them out: with the migration rule already applied, so a
-    /// first run and a run that found no file agree with a run that found one.
+    /// The defaults as the loader hands them out: sanitised as a file that loaded is, so a first
+    /// run and a run that found no file agree with a run that found one.
     fn sanitised_default() -> Self {
         let mut settings = Self::default();
         settings.sanitise();
@@ -824,32 +778,6 @@ impl Settings {
         use crate::limits::{self, finite};
 
         let default = Self::default();
-
-        // 0.4.0 audit #35: the Windows keys nothing reads are left out of the next save.
-        for key in RETIRED_WINDOWS_KEYS {
-            self.extra.remove(key);
-        }
-
-        // A 0.2.0 file's single preset is this version's *output* preset. It is taken only when
-        // the new key is absent — which, with `#[serde(default)]` filling it in, reads as "still
-        // the default". A file carrying both a stale `preset` line and a real `output_preset` is
-        // already strange; the worst this rule can do there is prefer the older of the two names,
-        // which beats the alternative of refusing to load the file at all.
-        if let Some(legacy) = self.legacy_preset.take()
-            && self.output_preset == default.output_preset
-        {
-            self.output_preset = legacy;
-        }
-
-        // A 0.3.0 file has no `input_enabled`, and its `device_direction` said which of the two
-        // devices was the live one. A user who left that version on a microphone comes back to
-        // the microphone; one who left it on the speakers gets the speakers and no input lane —
-        // which is also what a fresh install gets. Only the absence is read this way: a file that
-        // says `false` beside `device_direction = "input"` is a 0.4.0 file whose user detached
-        // the microphone while still editing its chain, and is believed.
-        if self.input_enabled.is_none() {
-            self.input_enabled = Some(self.device_direction == DeviceDirection::Input);
-        }
 
         // A language written the ISO way or as a locale (`uk`, `ru_RU.UTF-8`) is kept as the table's
         // own code, the one the switch and `--status` show (0.4.0 audit #28). One with no table is
@@ -977,16 +905,11 @@ impl Settings {
     }
 
     /// Whether a lane comes up at start.
-    ///
-    /// For the input lane this applies the 0.3.0 migration rule even before
-    /// [`Settings::sanitise`] has run, so the answer is the same whichever order a caller asks in.
     #[must_use]
     pub fn lane_enabled(&self, direction: DeviceDirection) -> bool {
         match direction {
             DeviceDirection::Output => self.output_enabled,
-            DeviceDirection::Input => self
-                .input_enabled
-                .unwrap_or(self.device_direction == DeviceDirection::Input),
+            DeviceDirection::Input => self.input_enabled,
         }
     }
 
@@ -994,7 +917,7 @@ impl Settings {
     pub fn set_lane_enabled(&mut self, direction: DeviceDirection, enabled: bool) {
         match direction {
             DeviceDirection::Output => self.output_enabled = enabled,
-            DeviceDirection::Input => self.input_enabled = Some(enabled),
+            DeviceDirection::Input => self.input_enabled = enabled,
         }
     }
 
@@ -1041,15 +964,6 @@ impl Settings {
     /// Record the preset for the edit direction, leaving the other direction's alone.
     pub fn set_selected_preset(&mut self, name: &str) {
         self.set_preset_for_direction(self.device_direction, name);
-    }
-
-    /// The 0.3.0 spelling of [`Settings::set_device_name`], argument order and all.
-    ///
-    /// It no longer moves the edit direction. In 0.3.0 it did, as a side effect, and every caller
-    /// that wanted the direction to follow the device relied on it silently; now a caller says so
-    /// with [`Settings::set_edit_direction`].
-    pub fn set_selected_device(&mut self, node_name: &str, direction: DeviceDirection) {
-        self.set_device_name(direction, node_name);
     }
 
     /// The language code the UI should be shown in right now: the system's, or the explicit
@@ -1143,50 +1057,6 @@ mod tests {
     }
 
     #[test]
-    fn the_windows_keys_nothing_reads_still_load_and_are_not_written_back() {
-        // 0.4.0 audit #35: every file 0.3.0 wrote carries these, and a hand edit of `window_x` or
-        // `always_on_top` did nothing. They load as before, and the next save leaves them out.
-        let dead = [
-            "device_configs_version = 2",
-            "window_x = 120",
-            "window_y = -40",
-            "always_on_top = true",
-            "hotkeys = false",
-            "cmd_on_off = \"Ctrl+Shift+Q\"",
-            "cmd_open_close = \"Ctrl+Shift+E\"",
-            "cmd_next_preset = \"Ctrl+Shift+A\"",
-            "cmd_previous_preset = \"Ctrl+Shift+Z\"",
-            "cmd_change_output = \"Ctrl+Shift+W\"",
-            "automatic_updates = true",
-            "last_update_time = 1700000000",
-        ];
-        let text = format!(
-            "power = false\nrun_minimized = true\n{}\noutput_preset = \"Rock\"\n",
-            dead.join("\n")
-        );
-        let dir = tempfile::tempdir().expect("a scratch directory");
-        let path = dir.path().join("settings.toml");
-        std::fs::write(&path, &text).expect("write");
-        let loaded = Settings::load_from(&path);
-        assert!(!Settings::bad_path(&path).exists(), "the file loaded");
-        assert!(!loaded.power);
-        assert!(loaded.run_minimized);
-        assert_eq!(loaded.output_preset, "Rock");
-
-        loaded.save_to(&path).expect("save");
-        let written = std::fs::read_to_string(&path).expect("read back");
-        for line in dead {
-            let key = line.split(' ').next().expect("a key");
-            assert!(
-                !written.lines().any(|l| l.starts_with(&format!("{key} "))),
-                "{key} is written back:\n{written}"
-            );
-        }
-        assert!(written.contains("run_minimized = true"), "{written}");
-        assert_eq!(Settings::load_from(&path), loaded);
-    }
-
-    #[test]
     fn a_language_written_the_iso_way_is_kept_as_the_tables_code() {
         // 0.4.0 audit #28: `uk` found no table and showed the system's language.
         for (written, kept) in [
@@ -1214,10 +1084,15 @@ mod tests {
     #[test]
     fn unknown_keys_do_not_break_loading() {
         let mut parsed: Settings =
-            toml::from_str("preset = \"Jazz\"\nsome_future_key = 3\n").expect("parse");
+            toml::from_str("output_preset = \"Jazz\"\nsome_future_key = 3\n").expect("parse");
         parsed.sanitise();
         assert_eq!(parsed.output_preset, "Jazz");
         assert_eq!(parsed.max_user_presets, 120);
+        assert_eq!(
+            parsed.extra.get("some_future_key"),
+            Some(&toml::Value::Integer(3)),
+            "kept to be written back"
+        );
     }
 
     #[test]
@@ -1237,34 +1112,6 @@ mod tests {
             settings.sanitise();
             assert_eq!(settings.max_user_presets, read, "{written}");
         }
-    }
-
-    #[test]
-    fn a_settings_file_written_by_0_2_0_still_finds_its_preset() {
-        // 0.2.0 had one preset key because it had one chain. The alias puts it where the playback
-        // direction now looks, and the microphone starts from the default rather than inheriting
-        // a music preset it was never meant to have.
-        let parsed: Settings = toml::from_str(
-            "preset = \"Rock\"\noutput_device_name = \"alsa_output.pci-0000_00_1f.3\"\n",
-        )
-        .expect("parse");
-        let mut parsed = parsed;
-        parsed.sanitise();
-        assert_eq!(parsed.output_preset, "Rock");
-        assert_eq!(
-            parsed.selected_preset(),
-            "Rock",
-            "0.2.0 files are output files"
-        );
-        assert_eq!(parsed.input_preset, Settings::default().input_preset);
-
-        // And a file carrying both keys still loads — which is the whole reason this is a field
-        // rather than a `#[serde(alias)]`. With an alias serde called it a duplicate field,
-        // `load` turned that into a full reset, and one stale line cost the user everything.
-        let mut both: Settings =
-            toml::from_str("preset = \"Rock\"\noutput_preset = \"Jazz\"\n").expect("parse");
-        both.sanitise();
-        assert_eq!(both.output_preset, "Jazz");
     }
 
     #[test]
@@ -1331,12 +1178,11 @@ mod tests {
     }
 
     #[test]
-    fn choosing_a_device_no_longer_moves_the_edit_direction() {
-        // The 0.3.0 coupling: `set_selected_device` flipped `device_direction` as a side effect,
-        // and picking a microphone silently re-pointed every control at it. Both spellings now
-        // leave the edit direction where it was.
+    fn choosing_a_device_does_not_move_the_edit_direction() {
+        // Coupling the two re-pointed every control at a microphone the moment it was picked
+        // (the 0.3.0 bug): choosing a device leaves the edit direction where it was.
         let mut s = Settings::default();
-        s.set_selected_device("alsa_input.usb-fifine", DeviceDirection::Input);
+        s.set_device_name(DeviceDirection::Input, "alsa_input.usb-fifine");
         assert_eq!(s.device_direction, DeviceDirection::Output);
         assert_eq!(
             s.device_name(DeviceDirection::Input),
@@ -1351,7 +1197,7 @@ mod tests {
         assert_eq!(s.device_name(DeviceDirection::Input), "alsa_input.other");
         assert_eq!(s.device_name(DeviceDirection::Output), "");
         assert!(s.output_enabled);
-        assert_eq!(s.input_enabled, None);
+        assert!(!s.input_enabled);
     }
 
     #[test]
@@ -1446,9 +1292,8 @@ mod tests {
 
     #[test]
     fn a_device_config_without_a_direction_reads_as_an_output() {
-        // 0.3.0 wrote only output devices into `device_configs`, without saying so: selecting a
-        // voice preset returned before the memory was written (`App::select_preset`), so an
-        // entry without the key can only be an output's, and reading it as one loses nothing.
+        // An entry a hand edit left without the key costs that key, not the entry: it is an
+        // output's, the default.
         let parsed: Settings = toml::from_str(
             "[[device_configs]]\ndevice_id = \"alsa_output.pci\"\ndevice_name = \"Speakers\"\npreset = \"Rock\"\ndevice_form_factor = \"speaker\"\n",
         )
@@ -1463,7 +1308,7 @@ mod tests {
             parsed.preset_for_device("alsa_output.pci", DeviceDirection::Input),
             None
         );
-        // And a 0.4.0 file that says so is believed.
+        // And an entry that says which lane it is for is believed.
         let parsed: Settings = toml::from_str(
             "[[device_configs]]\ndevice_id = \"alsa_input.usb\"\ndirection = \"input\"\npreset = \"Headset\"\n",
         )
@@ -1500,81 +1345,33 @@ num_bands = 4000000
     }
 
     #[test]
-    fn a_0_3_0_file_that_was_on_a_microphone_comes_back_to_the_microphone() {
-        // 0.3.0 had one lane, and `device_direction = "input"` was how it said the microphone
-        // was the live one. The output device it remembered is kept: the user is coming back to
-        // both lanes, and the speakers should be the speakers they had.
-        let text = "\
-device_direction = \"input\"
-output_device_name = \"alsa_output.pci-0000_00_1f.3\"
-input_device_name = \"alsa_input.usb-fifine\"
-output_preset = \"Rock\"
-input_preset = \"Headset\"
-";
-        let mut parsed: Settings = toml::from_str(text).expect("parse");
-        assert_eq!(
-            parsed.input_enabled, None,
-            "the key is absent before sanitise"
-        );
-        assert!(
-            parsed.lane_enabled(DeviceDirection::Input),
-            "the accessor applies the rule even before sanitise"
-        );
-        parsed.sanitise();
-        assert_eq!(parsed.input_enabled, Some(true));
-        assert!(parsed.output_enabled);
-        assert!(parsed.lane_enabled(DeviceDirection::Input));
-        assert!(parsed.lane_enabled(DeviceDirection::Output));
-        assert_eq!(
-            parsed.device_direction,
-            DeviceDirection::Input,
-            "still the edit direction"
-        );
-        assert_eq!(
-            parsed.device_name(DeviceDirection::Output),
-            "alsa_output.pci-0000_00_1f.3"
-        );
-        assert_eq!(
-            parsed.device_name(DeviceDirection::Input),
-            "alsa_input.usb-fifine"
-        );
-        assert_eq!(parsed.selected_preset(), "Headset");
-    }
-
-    #[test]
-    fn a_0_3_0_file_that_was_on_the_speakers_gets_no_input_lane() {
-        let text = "device_direction = \"output\"\ninput_device_name = \"alsa_input.usb-fifine\"\n";
-        let mut parsed: Settings = toml::from_str(text).expect("parse");
-        assert!(!parsed.lane_enabled(DeviceDirection::Input));
-        parsed.sanitise();
-        assert_eq!(parsed.input_enabled, Some(false));
-        assert!(parsed.output_enabled);
-        // The microphone it remembered is still remembered, for when the lane is enabled.
-        assert_eq!(
-            parsed.device_name(DeviceDirection::Input),
-            "alsa_input.usb-fifine"
-        );
-        // And a file with no direction at all is a 0.2.0 file, which is an output file.
-        let mut older: Settings = toml::from_str("preset = \"Rock\"\n").expect("parse");
-        older.sanitise();
-        assert_eq!(older.input_enabled, Some(false));
-    }
-
-    #[test]
-    fn an_explicit_input_enabled_is_believed_whatever_the_edit_direction_says() {
-        // A 0.4.0 file whose user detached the microphone while still editing its chain.
+    fn whether_a_lane_runs_is_its_own_key_whatever_the_edit_direction_says() {
+        // The user detached the microphone while still editing its chain.
         let text = "device_direction = \"input\"\ninput_enabled = false\n";
         let mut parsed: Settings = toml::from_str(text).expect("parse");
         parsed.sanitise();
-        assert_eq!(parsed.input_enabled, Some(false));
+        assert!(!parsed.input_enabled);
         assert!(!parsed.lane_enabled(DeviceDirection::Input));
         // And the converse: the lane on while the window edits the speakers.
         let text = "device_direction = \"output\"\ninput_enabled = true\noutput_enabled = false\n";
         let mut parsed: Settings = toml::from_str(text).expect("parse");
         parsed.sanitise();
-        assert_eq!(parsed.input_enabled, Some(true));
+        assert!(parsed.input_enabled);
         assert!(!parsed.output_enabled);
         assert!(!parsed.lane_enabled(DeviceDirection::Output));
+        // A file without the key has the input lane off, as a fresh install does, the edit
+        // direction notwithstanding; the microphone it remembers stays remembered for when the
+        // lane is switched on.
+        let text = "device_direction = \"input\"\ninput_device_name = \"alsa_input.usb-fifine\"\n";
+        let mut parsed: Settings = toml::from_str(text).expect("parse");
+        parsed.sanitise();
+        assert!(!parsed.lane_enabled(DeviceDirection::Input));
+        assert!(parsed.lane_enabled(DeviceDirection::Output));
+        assert_eq!(parsed.device_direction, DeviceDirection::Input);
+        assert_eq!(
+            parsed.device_name(DeviceDirection::Input),
+            "alsa_input.usb-fifine"
+        );
     }
 
     #[test]
@@ -1588,24 +1385,8 @@ input_preset = \"Headset\"
         assert!(text.contains("input_enabled = true"), "{text}");
         assert!(text.contains("output_enabled = false"), "{text}");
         let back: Settings = toml::from_str(&text).expect("parse");
-        assert_eq!(back.input_enabled, Some(true));
+        assert!(back.input_enabled);
         assert!(!back.output_enabled);
-    }
-
-    #[test]
-    fn a_default_file_is_written_with_the_migration_already_decided() {
-        // `save` sanitises, so the file it writes carries `input_enabled` explicitly and the
-        // next load never has to guess from the edit direction again.
-        let text = toml::to_string_pretty(&{
-            let mut s = Settings::default();
-            s.sanitise();
-            s
-        })
-        .expect("serialise");
-        assert!(text.contains("input_enabled = false"), "{text}");
-        // Whereas the raw default omits it, which is what lets `sanitise` see the absence.
-        let raw = toml::to_string_pretty(&Settings::default()).expect("serialise");
-        assert!(!raw.contains("input_enabled"), "{raw}");
     }
 
     #[test]
@@ -1817,10 +1598,11 @@ input_preset = \"Headset\"
         let path = dir.path().join("settings.toml");
         let loaded = Settings::load_from(&path);
         assert_eq!(
-            loaded.input_enabled,
-            Some(false),
-            "the loader's defaults are sanitised"
+            loaded,
+            Settings::sanitised_default(),
+            "the loader's defaults, sanitised"
         );
+        assert!(!loaded.input_enabled);
         assert_eq!(loaded.output_preset, "General");
         assert!(!path.exists());
         assert!(!Settings::bad_path(&path).exists());
@@ -1831,7 +1613,7 @@ input_preset = \"Headset\"
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("nested").join("settings.toml");
         let original = Settings {
-            input_enabled: Some(true),
+            input_enabled: true,
             output_enabled: false,
             device_direction: DeviceDirection::Input,
             noise_suppression: NoiseSuppressionOverride::Strong,
@@ -1972,7 +1754,7 @@ device = \"mic\"
         let mut fresh: Settings = toml::from_str("").expect("parse");
         fresh.sanitise();
         assert_eq!(fresh.noise_suppression, NoiseSuppressionOverride::Preset);
-        assert_eq!(fresh.input_enabled, Some(false));
+        assert!(!fresh.input_enabled);
     }
 
     fn volume(direction: DeviceDirection, target: &str, volumes: &[f32]) -> TargetVolume {

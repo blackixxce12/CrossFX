@@ -253,8 +253,8 @@ impl<F: PresetFile> Store<F> {
         let mut entries = merge(factory, user);
         for entry in &mut entries {
             entry.modified = self
-                .own_autosave_slots(&entry.name)
-                .any(|slot| slot.is_file());
+                .own_autosave(&entry.name)
+                .is_some_and(|autosave| autosave.is_file());
         }
         self.entries = entries;
     }
@@ -290,7 +290,10 @@ impl<F: PresetFile> Store<F> {
     pub fn load(&self, name: &str) -> Result<(F, bool), F::Error> {
         let entry = self.find(name).ok_or_else(|| F::unknown(name))?;
 
-        if let Some(autosave) = self.own_autosave_slots(name).find(|slot| slot.is_file()) {
+        if let Some(autosave) = self
+            .own_autosave(name)
+            .filter(|autosave| autosave.is_file())
+        {
             match F::load(&autosave) {
                 Ok(mut preset) => {
                     // The autosave carries the edited values but the canonical name.
@@ -323,80 +326,34 @@ impl<F: PresetFile> Store<F> {
         Ok(preset)
     }
 
-    /// Path of the autosave shadow copy for a preset: `AutoSave/` and the name's file
-    /// ([`Store::file_name`]), or where 0.3.0 kept it when only that is there.
-    ///
-    /// 0.3.0 filed an autosave under the name exactly as written — `AutoSave/Rock:Live.fac` — so
-    /// the unsaved edits it left of a preset whose name has a character a file name cannot keep
-    /// are found there until the next autosave or save moves them to the name's own file
-    /// ([`Store::autosave`], [`Store::clear_autosave`]). Without that they were orphaned: the
-    /// preset loaded as last saved, without its `*`, and the edits never came back. Only on Unix,
-    /// where 0.3.0 ran (`legacy_autosave_path` says why).
+    /// Path of the autosave shadow copy for a preset: `AutoSave/` and the name's file, its name
+    /// sanitised as [`Store::file_name`] sanitises it. A name is never joined as written: one
+    /// that is a path would reach out of `AutoSave/`.
     ///
     /// The path, whatever the volume finds there: on Windows it can be the 8.3 short name of
     /// another preset's autosave, which the store then neither reads as this name's edits nor
-    /// removes (`own_autosave_slots`) nor writes over ([`Store::autosave`]).
+    /// removes (`own_autosave`) nor writes over ([`Store::autosave`]).
     #[must_use]
     pub fn autosave_path(&self, name: &str) -> PathBuf {
-        let path = self.sanitised_autosave_path(name);
-        if !path.is_file()
-            && let Some(legacy) = self.legacy_autosave_path(name)
-            && legacy.is_file()
-        {
-            return legacy;
-        }
-        path
-    }
-
-    /// `AutoSave/` and the sanitised name: where an autosave is written.
-    fn sanitised_autosave_path(&self, name: &str) -> PathBuf {
         self.autosave_dir
             .join(format!("{}.{}", sanitise_preset_name(name), F::EXTENSION))
     }
 
-    /// `AutoSave/` and the name as written, where 0.3.0 kept a preset's autosave: `None` when that
-    /// is the sanitised path itself, when the name is no file name at all, and on any system but
-    /// Unix.
-    ///
-    /// The name is the one inside the preset's file, and a file put in the directory by hand can
-    /// carry any. Joined as written, a name that is a path reached out of `AutoSave/`, and the
-    /// file it found there was read as the preset's unsaved edits: listed with a `*`, removed for
-    /// good by its next autosave or undo, sent to the trash by its delete, moved by its rename —
-    /// the user's own preset beside `AutoSave/`, or anything else of theirs on the drive. On Unix,
-    /// where 0.3.0 ran, `/` is the one separator, so a name without it (or a NUL) is one file name
-    /// inside `AutoSave/`. Windows reads `\`, `..\`, a drive's `C:` and a leading `\` as path
-    /// syntax as well, and 0.3.0 never ran there: there is no 0.3.0 autosave to find, so none is
-    /// looked for.
-    ///
-    /// Inside `AutoSave/` it is never another preset's autosave: a sanitised stem holds none of
-    /// the characters, the surrounding spaces or the length that make the name differ from it.
-    fn legacy_autosave_path(&self, name: &str) -> Option<PathBuf> {
-        if !cfg!(unix) || name.is_empty() || name.contains(['/', '\0']) {
-            return None;
-        }
-        let legacy = self.autosave_dir.join(format!("{name}.{}", F::EXTENSION));
-        (legacy != self.sanitised_autosave_path(name)).then_some(legacy)
-    }
-
-    /// Where `name`'s unsaved edits can be, in the order [`Store::autosave_path`] looks: its file
-    /// in `AutoSave/`, then one 0.3.0 left under its name as written — each unless the volume
-    /// finds another file there, one the name reaches only as that file's alias (`alias_of`).
-    /// That file holds another preset's edits, and the name must neither read them as its own nor
-    /// remove them; [`Store::autosave`] refuses to write over them.
+    /// Where `name`'s unsaved edits are, [`Store::autosave_path`] — unless the volume finds
+    /// another file there, one the name reaches only as that file's alias (`alias_of`). That file
+    /// holds another preset's edits, and the name must neither read them as its own nor remove
+    /// them; [`Store::autosave`] refuses to write over them.
     ///
     /// On Windows `AutoSave/ROCKCO~1.fac` is `AutoSave/Rock Concert Live.fac` once NTFS has given
     /// that file the 8.3 short name: a preset called `ROCKCO~1` was listed with Rock Concert Live's
     /// `*`, loaded its edits, and dropped them with its own undo, save or delete.
-    fn own_autosave_slots(&self, name: &str) -> impl Iterator<Item = PathBuf> {
-        std::iter::once(self.sanitised_autosave_path(name))
-            .chain(self.legacy_autosave_path(name))
-            .filter(|slot| alias_of(slot).is_none())
+    fn own_autosave(&self, name: &str) -> Option<PathBuf> {
+        Some(self.autosave_path(name)).filter(|slot| alias_of(slot).is_none())
     }
 
     /// Stash the user's unsaved edits so they survive a preset switch or a restart.
     ///
-    /// Written to the name's own file in `AutoSave/`; a 0.3.0 autosave of the same preset under
-    /// its name as written, whose edits these now carry, goes.
+    /// Written to the name's own file in `AutoSave/` ([`Store::autosave_path`]).
     ///
     /// Never over another file the volume finds under that name (`alias_of`): on Windows,
     /// `AutoSave/ROCKCO~1.fac` is Rock Concert Live's autosave once NTFS has given it that 8.3
@@ -419,18 +376,14 @@ impl<F: PresetFile> Store<F> {
             ));
         }
         preset.save(&path)?;
-        if let Some(legacy) = self.legacy_autosave_path(name) {
-            remove_if_there(&legacy);
-        }
         Ok(())
     }
 
-    /// Drop a preset's autosave, clearing its modified marker: the one under its own file and any
-    /// 0.3.0 left under its name as written — never another preset's that the name reaches only as
-    /// an alias (`own_autosave_slots`).
+    /// Drop a preset's autosave, clearing its modified marker — never another preset's that the
+    /// name reaches only as an alias (`own_autosave`).
     pub fn clear_autosave(&mut self, name: &str) {
-        for slot in self.own_autosave_slots(name) {
-            remove_if_there(&slot);
+        if let Some(autosave) = self.own_autosave(name) {
+            remove_if_there(&autosave);
         }
         if let Some(entry) = self.entries.iter_mut().find(|e| e.name == name) {
             entry.modified = false;
@@ -450,11 +403,10 @@ impl<F: PresetFile> Store<F> {
     /// volume finds a file of another name, listed or not: on Windows `ROCKCO~1` once NTFS has
     /// given `Rock Concert Live.fac` that 8.3 short name (`alias_of`).
     ///
-    /// A user preset is overwritten in the file it is listed from, whatever that file is called.
-    /// 0.3.0 filed a preset saved from the window under its name as written — `Rock:Live.fac` —
-    /// and a hand-copied file can be called anything; writing the name's own file instead
-    /// (`RockLive.fac`) left the list on the old one, which still won, so the save looked lost,
-    /// and its unsaved edits, cleared by the save, were gone with it.
+    /// A user preset is overwritten in the file it is listed from, whatever that file is called:
+    /// a hand-copied file can be called anything, and writing the name's own file instead left
+    /// the list on the old one, which still won, so the save looked lost, and its unsaved edits,
+    /// cleared by the save, were gone with it.
     ///
     /// # Errors
     /// The name leaves nothing to file it under, its file belongs to a preset of a different
@@ -500,7 +452,7 @@ impl<F: PresetFile> Store<F> {
     /// preset with unsaved changes can be deleted, and those edits exist nowhere else. The trash
     /// records each file's own place, so restoring both puts the preset back in the list with its
     /// edits and its `*`. Should the autosave move nowhere at all, it is left where it is. Another
-    /// preset's that the name reaches only as an alias stays too (`own_autosave_slots`).
+    /// preset's that the name reaches only as an alias stays too (`own_autosave`).
     ///
     /// Returns where the preset's file went, or `None` for a name the list does not hold.
     ///
@@ -519,12 +471,10 @@ impl<F: PresetFile> Store<F> {
         }
         let path = entry.path.clone();
         let discarded = self.discard(&path)?;
-        // Its own autosave, and one 0.3.0 left under its name as written.
-        let autosaves = self
-            .own_autosave_slots(name)
+        if let Some(autosave) = self
+            .own_autosave(name)
             .filter(|autosave| autosave.is_file())
-            .collect::<Vec<_>>();
-        for autosave in autosaves {
+        {
             match self.discard(&autosave) {
                 Ok(Discarded::Trash(to) | Discarded::Backup(to)) => {
                     log::info!("{name}: its unsaved changes went to {}", to.display());
@@ -599,7 +549,7 @@ impl<F: PresetFile> Store<F> {
         // A file the new name reaches only as another's alias: one in the user directory, which
         // would be set aside under the new name's `.bak`, or another preset's unsaved edits, which
         // this one's would replace. Not this preset's own file or autosave, whatever it is called.
-        let old_autosave = self.own_autosave_slots(old).find(|slot| slot.is_file());
+        let old_autosave = self.own_autosave(old).filter(|autosave| autosave.is_file());
         let new_autosave = self.autosave_dir.join(&file);
         let reached = alias_of(&to)
             .filter(|_| !same_file(&from, &to))
@@ -620,15 +570,12 @@ impl<F: PresetFile> Store<F> {
         preset.save(&from)?;
         std::fs::rename(&from, &to)?;
 
-        // An autosave already under the new name is not this preset's: a 0.3.0 microphone curve
-        // stashed under a voice preset's name, the edits of a preset deleted by hand or one whose
-        // autosave the trash would not take. Left there, it would be read as the renamed preset's
-        // unsaved changes — the `*` on a preset that had none, and its curve loaded in place of
-        // the file's on the next pick or start (0.4.0 review FA). It goes where a deleted preset's
-        // edits go, not over them; so does one 0.3.0 left under the new name as written, which
-        // [`Store::autosave_path`] would find the same way. Another preset's autosave that the new
-        // name reaches only as an alias is no leftover of the new name's, and stays.
-        let mut leftovers = Vec::new();
+        // An autosave already under the new name is not this preset's: the edits of a preset
+        // deleted by hand, or of one whose autosave the trash would not take. Left there, it would
+        // be read as the renamed preset's unsaved changes — the `*` on a preset that had none, and
+        // its curve loaded in place of the file's on the next pick or start (0.4.0 review FA). It
+        // goes where a deleted preset's edits go, not over them. Another preset's autosave that
+        // the new name reaches only as an alias is no leftover of the new name's, and stays.
         if let Some(old_autosave) = old_autosave {
             let moved = F::load(&old_autosave).and_then(|mut stash| {
                 stash.set_name(new);
@@ -639,19 +586,13 @@ impl<F: PresetFile> Store<F> {
             if let Err(err) = moved {
                 log::warn!("{}: {err}", old_autosave.display());
             }
-        } else {
-            leftovers.push(new_autosave);
-        }
-        leftovers.extend(self.legacy_autosave_path(new));
-        for leftover in leftovers
-            .into_iter()
-            .filter(|leftover| leftover.is_file() && alias_of(leftover).is_none())
+        } else if new_autosave.is_file()
+            && alias_of(&new_autosave).is_none()
+            && let Err(err) = self.discard(&new_autosave)
         {
-            if let Err(err) = self.discard(&leftover) {
-                log::warn!("{}: {err}; removing it", leftover.display());
-                if let Err(err) = std::fs::remove_file(&leftover) {
-                    log::warn!("{}: {err}", leftover.display());
-                }
+            log::warn!("{}: {err}; removing it", new_autosave.display());
+            if let Err(err) = std::fs::remove_file(&new_autosave) {
+                log::warn!("{}: {err}", new_autosave.display());
             }
         }
         self.rescan();
@@ -2157,43 +2098,29 @@ mod tests {
         preset
     }
 
-    /// The user directory as 0.3.0 left a preset saved from its window: the file under the name
-    /// as written, `Rock:Live.fac`, and its unsaved edits under the same name in `AutoSave/`.
-    #[cfg(unix)]
-    fn as_0_3_0_left_it(tag: &str) -> (ScratchDir, PresetStore) {
-        let tmp = tempdir(tag);
-        let user = tmp.join("user");
-        preset_at(&user.join("Rock:Live.fac"), "Rock:Live", 11);
-        preset_at(&user.join("AutoSave/Rock:Live.fac"), "Rock:Live", 77);
-        let mut store = PresetStore::with_dirs(Vec::new(), user).with_trash(tmp.join("Trash"));
-        store.rescan();
-        (tmp, store)
-    }
-
-    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
+    // Unix only: Windows cannot name a file `Rock:Live.fac`.
     #[cfg(unix)]
     #[test]
-    fn the_unsaved_edits_0_3_0_kept_under_a_name_as_written_are_found() {
-        let (_tmp, store) = as_0_3_0_left_it("legacy-autosave-found");
+    fn a_user_preset_is_saved_over_the_file_it_is_listed_from_whatever_that_is_called() {
+        // A file copied in by hand keeps the name it came with, `Rock:Live.fac`, while the name
+        // "Rock:Live" files under `RockLive.fac`. A save there left the list on the old file —
+        // `:` sorts before letters — and the save looked lost, while the autosave holding the
+        // same edits had already been cleared.
+        let tmp = tempdir("listed-from");
+        let user = tmp.join("user");
+        preset_at(&user.join("Rock:Live.fac"), "Rock:Live", 11);
+        let mut store = PresetStore::with_dirs(Vec::new(), user.clone());
+        store.rescan();
+        let (mut edited, _) = store.load("Rock:Live").expect("load");
+        edited.main_midi[0] = 77;
+        store
+            .autosave(&edited)
+            .expect("the unsaved edits are stashed");
+        store.rescan();
         assert!(
             store.find("Rock:Live").expect("listed").modified,
             "with its *"
         );
-        let (loaded, from_autosave) = store.load("Rock:Live").expect("load");
-        assert!(from_autosave, "the edits, not the file as last saved");
-        assert_eq!(loaded.main_midi[0], 77);
-    }
-
-    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
-    #[cfg(unix)]
-    #[test]
-    fn a_user_preset_is_saved_over_the_file_it_is_listed_from_whatever_that_is_called() {
-        // 0.3.0 filed "Rock:Live" as `Rock:Live.fac`. The save went to `RockLive.fac`, the list
-        // stayed on the old file — `:` sorts before letters — and the save looked lost, while
-        // the autosave holding the same edits had already been cleared.
-        let (tmp, mut store) = as_0_3_0_left_it("legacy-save");
-        let user = tmp.join("user");
-        let (mut edited, _) = store.load("Rock:Live").expect("load");
         edited.main_midi[0] = 99;
 
         let path = store.save_as(&edited, "Rock:Live").expect("save");
@@ -2210,7 +2137,7 @@ mod tests {
             11
         );
         assert!(
-            !user.join("AutoSave/Rock:Live.fac").exists(),
+            !store.autosave_path("Rock:Live").exists(),
             "the save took in the edits, so they are not a change any more"
         );
         assert!(!store.find("Rock:Live").expect("listed").modified);
@@ -2253,10 +2180,10 @@ mod tests {
     fn a_name_that_is_a_path_never_reaches_a_file_but_its_own() {
         // A preset is listed by the name its file carries, and a hand-copied file can carry any:
         // on Windows `..\`, `x\..\` and a leading `\` are path syntax. Joined onto `AutoSave/` as
-        // the name of an autosave 0.3.0 left, such a name reached out of it — to the user's own
-        // preset beside it, to another preset's unsaved edits, anywhere on the drive — and the
-        // file found there was the preset's unsaved edits: listed with a `*`, removed for good by
-        // the next autosave or undo, sent to the trash by a delete, moved away by a rename.
+        // written, such a name would reach out of it — to the user's own preset beside it, to
+        // another preset's unsaved edits, anywhere on the drive — and the file found there would
+        // be the preset's unsaved edits: listed with a `*`, removed for good by the next autosave
+        // or undo, sent to the trash by a delete, moved away by a rename.
         //
         // Up out of `AutoSave/`, to the user's own Rock beside it.
         a_path_name_reaches_nothing("parent", |_| r"..\Rock".to_owned());
@@ -2325,85 +2252,6 @@ mod tests {
         untouched("a rename onto the name");
         store.delete(&name).expect("delete").expect("it was listed");
         untouched("a delete");
-    }
-
-    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
-    #[cfg(unix)]
-    #[test]
-    fn the_next_autosave_moves_0_3_0_edits_to_the_names_own_file() {
-        let (tmp, store) = as_0_3_0_left_it("legacy-autosave-moves");
-        let autosaves = tmp.join("user/AutoSave");
-        let (mut edited, _) = store.load("Rock:Live").expect("load");
-        edited.main_midi[0] = 55;
-
-        store.autosave(&edited).expect("autosave");
-
-        assert!(
-            !autosaves.join("Rock:Live.fac").exists(),
-            "moved, not copied"
-        );
-        assert_eq!(
-            store.autosave_path("Rock:Live"),
-            autosaves.join("RockLive.fac")
-        );
-        let (loaded, from_autosave) = store.load("Rock:Live").expect("load");
-        assert!(from_autosave);
-        assert_eq!(loaded.main_midi[0], 55);
-    }
-
-    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
-    #[cfg(unix)]
-    #[test]
-    fn undoing_or_deleting_a_preset_takes_its_0_3_0_edits_with_it() {
-        let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-clear");
-        let legacy = tmp.join("user/AutoSave/Rock:Live.fac");
-        store.clear_autosave("Rock:Live");
-        assert!(!legacy.exists(), "undone");
-        store.rescan();
-        assert!(!store.find("Rock:Live").expect("listed").modified);
-
-        let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-delete");
-        let legacy = tmp.join("user/AutoSave/Rock:Live.fac");
-        store
-            .delete("Rock:Live")
-            .expect("delete")
-            .expect("it was listed");
-        assert!(!legacy.exists(), "gone from the autosaves");
-        assert_eq!(
-            crate::load(&tmp.join("Trash/files/Rock:Live.2.fac"))
-                .expect("into the trash beside the preset")
-                .main_midi[0],
-            77
-        );
-    }
-
-    // Unix only: 0.3.0 ran on Linux alone, and Windows cannot name a file `Rock:Live.fac`.
-    #[cfg(unix)]
-    #[test]
-    fn a_rename_brings_the_0_3_0_edits_along_and_never_takes_over_another_names() {
-        let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-rename");
-        let autosaves = tmp.join("user/AutoSave");
-        // An orphan 0.3.0 left under a name the rename is about to take.
-        preset_at(&autosaves.join("Live?.fac"), "Live?", 33);
-        store.rename("Rock:Live", "Live?").expect("rename");
-
-        let (loaded, from_autosave) = store.load("Live?").expect("load");
-        assert!(from_autosave, "the preset's own edits came along");
-        assert_eq!(loaded.main_midi[0], 77);
-        assert!(!autosaves.join("Rock:Live.fac").exists());
-        assert!(
-            !autosaves.join("Live?.fac").exists(),
-            "the orphan went to the trash"
-        );
-
-        // Without edits of its own, a leftover under the new name must not become its `*`.
-        let (tmp, mut store) = as_0_3_0_left_it("legacy-autosave-rename-leftover");
-        let autosaves = tmp.join("user/AutoSave");
-        store.clear_autosave("Rock:Live");
-        preset_at(&autosaves.join("Live?.fac"), "Live?", 33);
-        store.rename("Rock:Live", "Live?").expect("rename");
-        assert!(!store.find("Live?").expect("listed").modified);
-        assert!(!autosaves.join("Live?.fac").exists(), "into the trash");
     }
 
     #[test]
@@ -2698,8 +2546,8 @@ mod tests {
 
     #[test]
     fn a_rename_onto_a_name_with_a_leftover_autosave_leaves_the_preset_unmodified() {
-        // FA: 0.3.0 stashed microphone curves as `.fac` autosaves under voice preset names; a
-        // clean preset renamed to one of them inherited it as its own unsaved changes.
+        // FA: an autosave left under a name with no preset of its own — that preset deleted by
+        // hand — became the unsaved changes of a clean preset renamed to that name.
         let tmp = tempdir("rename-leftover-autosave");
         let mut store = PresetStore::with_dirs(Vec::new(), tmp.join("user"));
         let preset = Preset {

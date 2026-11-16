@@ -220,9 +220,8 @@ pub struct Cli {
     /// `--output=<device>` — `docs/COMMAND_LINE_OPTIONS.md:24`, `FxController.cpp:254-257`,
     /// `:451-462`. In the original this is the WASAPI friendly name; here it is the PipeWire
     /// `node.description`, with `node.name` accepted too since that is what settings persist.
-    /// `off` is a CrossFX addition (0.4.0 design §1.4). In 0.3.0 naming a capture device here
-    /// switched the program into its input mode; a microphone named here is still selected, for the
-    /// input lane, with a note on stderr that `--input` is the option for it now.
+    /// `off` is a CrossFX addition (0.4.0 design §1.4). A microphone named here is an error, which
+    /// says that `--input` selects it.
     #[arg(long = "output", value_name = "DEVICE|off")]
     #[cfg_attr(
         windows,
@@ -232,8 +231,8 @@ pub struct Cli {
                          `--output=<device>` — `docs/COMMAND_LINE_OPTIONS.md:24`, \
                          `FxController.cpp:254-257`, `:451-462`: the device's name as Windows \
                          lists it, as the original takes it. `off` is a CrossFX addition (0.4.0 \
-                         design §1.4). A microphone named here is still selected, for the input \
-                         lane, with a note on stderr that `--input` is the option for it."
+                         design §1.4). A microphone named here is an error, which says that \
+                         `--input` selects it."
         )
     )]
     pub output: Option<String>,
