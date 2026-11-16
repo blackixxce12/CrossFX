@@ -317,8 +317,8 @@ fn drag_region(
 }
 
 /// The wordmark's colour `fade` of the way from its plain variant to its highlighted one: the
-/// logotype's own two, `logo-white.svg`/`logo-black.svg` and `logo-red.svg`/`logo-blue.svg` —
-/// the palette's `HighlightedText` and `ImageButton`.
+/// original logotype's own two, its `logo-white.svg`/`logo-black.svg` and
+/// `logo-red.svg`/`logo-blue.svg` — the palette's `HighlightedText` and `ImageButton`.
 #[must_use]
 pub fn logo_colour(palette: Palette, fade: f32) -> Color32 {
     palette
@@ -330,9 +330,10 @@ pub fn logo_colour(palette: Palette, fade: f32) -> Color32 {
 ///
 /// `FxWindow` keeps two `Drawable`s stacked at the same 106 × 15 rectangle and animates their
 /// alphas in opposite directions (`FxWindow.cpp:181`, `:193-208`). The wordmark here is CrossFX's
-/// name ([`crate::widgets::wordmark`]), not the original's logotype, and runs through the same two
-/// colours over the same time ([`logo_colour`]). While the fade is running the context is asked to
-/// repaint, so a window with no other animation still finishes the transition.
+/// mark, its glyph and its name ([`crate::widgets::wordmark`]), not the original's logotype, and
+/// runs through the same two colours over the same time ([`logo_colour`]). While the fade is
+/// running the context is asked to repaint, so a window with no other animation still finishes
+/// the transition.
 ///
 /// The same wordmark at every level of «Like the original FxSound LLC», since names are not
 /// parity; a wordmark animation of a later version gives way to this one from Interface on
@@ -684,8 +685,9 @@ mod tests {
     }
 
     #[test]
-    fn the_title_bar_names_crossfx_in_the_logotypes_box_at_every_level() {
-        // Names are not parity: «Like the original FxSound LLC» = Interface keeps CrossFX's name.
+    fn the_title_bar_shows_crossfx_mark_in_the_logotypes_box_at_every_level() {
+        // Names are not parity: «Like the original FxSound LLC» = Interface keeps CrossFX's glyph
+        // and name.
         for view in [ViewMode::Pro, ViewMode::Lite] {
             for level in [
                 crossfx_core::WindowsParity::Off,
@@ -717,7 +719,26 @@ mod tests {
                     logo_colour(harness.palette, 0.0),
                     "{view:?} {level:?}"
                 );
-                // And no artwork in the box: the original's logotype is not drawn under the name.
+                // CrossFX's glyph before the name, in the same colour: its four round ends.
+                let caps: Vec<Rect> = shapes
+                    .iter()
+                    .filter_map(|clipped| match &clipped.shape {
+                        egui::Shape::Circle(circle)
+                            if logo.intersects(clipped.shape.visual_bounding_rect()) =>
+                        {
+                            assert_eq!(circle.fill, colour, "{view:?} {level:?}");
+                            Some(clipped.shape.visual_bounding_rect())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(caps.len(), 4, "{view:?} {level:?}: the glyph's ends");
+                let glyph = caps.iter().fold(Rect::NOTHING, |all, cap| all.union(*cap));
+                assert!(
+                    logo.contains_rect(glyph) && glyph.right() < rect.left(),
+                    "{view:?} {level:?}: {glyph:?} before {rect:?} in {logo:?}"
+                );
+                // And no artwork in the box: the original's logotype is not drawn under the mark.
                 assert!(
                     shapes.iter().all(|clipped| match &clipped.shape {
                         egui::Shape::Mesh(mesh) => {

@@ -190,8 +190,8 @@ pub fn close_button_rect(title_bar: Rect) -> Rect {
 }
 
 /// The box of the wordmark a window constructed with an **empty** name shows
-/// (`FxWindow.cpp:272-278`): CrossFX's name ([`crate::widgets::wordmark`]) where the original
-/// shows its logotype.
+/// (`FxWindow.cpp:272-278`): CrossFX's mark, its glyph and its name
+/// ([`crate::widgets::wordmark`]), where the original shows its logotype.
 ///
 /// The original anchors it `xLeft | yTop`, which puts a 15-point logo at the very top of a
 /// 56-point bar. `docs/spec/06-dialogs.md` §0.3 describes it as vertically centred and that is
@@ -303,8 +303,9 @@ impl Default for DialogChrome<'_> {
 }
 
 impl<'a> DialogChrome<'a> {
-    /// A window with no name: the wordmark — CrossFX's name — fills the left of the title bar and
-    /// there is no title text (`FxMessage`, `FxConfirmationMessage`, `FxImportCompleteMessage`).
+    /// A window with no name: the wordmark — CrossFX's glyph and name — fills the left of the
+    /// title bar and there is no title text (`FxMessage`, `FxConfirmationMessage`,
+    /// `FxImportCompleteMessage`).
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -342,7 +343,7 @@ impl<'a> DialogChrome<'a> {
     ///
     /// `outer` is the whole window including the 5-point shadow gutter, i.e. [`outer_size`] of the
     /// dialog's content size. The chrome draws no artwork of its own — the wordmark and the ✕ are
-    /// text and strokes — so `_assets` goes unused; it is taken all the same, as every window of
+    /// text and shapes — so `_assets` goes unused; it is taken all the same, as every window of
     /// this module takes the cache it draws from.
     pub fn show(
         self,
@@ -386,7 +387,7 @@ impl<'a> DialogChrome<'a> {
         );
 
         match title {
-            // CrossFX's name as the main window's title bar shows it at rest: the logotype's plain
+            // CrossFX's mark as the main window's title bar shows it at rest: the logotype's plain
             // colour, which the original's message boxes show their logotype in.
             None => wordmark::paint(
                 ui.painter(),
@@ -952,8 +953,9 @@ mod tests {
     }
 
     #[test]
-    fn a_message_box_names_crossfx_and_a_named_window_only_its_title() {
-        // The original's logotype and bars are FxSound LLC's: CrossFX's windows show neither.
+    fn a_message_box_shows_crossfx_mark_and_a_named_window_only_its_title() {
+        // The original's logotype and bars are FxSound LLC's: CrossFX's windows show neither. A
+        // window with no name shows CrossFX's mark there, its glyph and its name.
         let ctx = test_context();
         let mut assets = AssetCache::new();
         let outer = Rect::from_min_size(pos2(0.0, 0.0), outer_size(vec2(450.0, 142.0)));
@@ -972,16 +974,32 @@ mod tests {
             let words: Vec<&str> = texts.iter().map(|(text, ..)| text.as_str()).collect();
             let expected = title.unwrap_or(crossfx_core::identity::PRODUCT);
             assert_eq!(words, [expected], "{title:?}");
-            // The name stands in the wordmark's box; a title from the bar's left.
             let (_, rect, _) = &texts[0];
-            assert!(
-                (rect.left() - bar.left()).abs() <= 1.0,
-                "{title:?}: {rect:?} in {bar:?}"
-            );
+            // The glyph's round ends: nothing else in the chrome is a circle.
+            let caps: Vec<Rect> = shapes
+                .iter()
+                .filter(|clipped| matches!(clipped.shape, egui::Shape::Circle(_)))
+                .map(|clipped| clipped.shape.visual_bounding_rect())
+                .collect();
             if title.is_none() {
-                assert!(logo_rect(bar).expand(1.0).contains_rect(*rect), "{rect:?}");
+                // The glyph at the left of the logotype's box, the name after it, both in it.
+                let logo = logo_rect(bar);
+                assert!(logo.expand(1.0).contains_rect(*rect), "{rect:?}");
+                assert_eq!(caps.len(), 4, "the glyph's four ends");
+                let glyph = caps.iter().fold(Rect::NOTHING, |all, cap| all.union(*cap));
+                assert!(logo.contains_rect(glyph), "{glyph:?} in {logo:?}");
+                assert!((glyph.left() - logo.left()).abs() <= 0.5, "{glyph:?}");
+                assert!(glyph.right() < rect.left(), "{glyph:?} before {rect:?}");
+            } else {
+                // A title from the bar's left, and no glyph.
+                assert!(
+                    (rect.left() - bar.left()).abs() <= 1.0,
+                    "{title:?}: {rect:?} in {bar:?}"
+                );
+                assert!(caps.is_empty(), "{title:?}: {caps:?}");
             }
-            // No artwork at all: the frame, its rule and the ✕ are shapes, the rest text.
+            // No artwork at all: the frame, its rule, the glyph and the ✕ are shapes, the rest
+            // text.
             assert!(
                 shapes
                     .iter()
