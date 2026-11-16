@@ -17,7 +17,7 @@ in the tree, as `crates/crossfx-rnnoise`.)
 produce it once per release, then build:
 
 ```bash
-VER=0.5.0
+VER=1.0.0
 mkdir -p ~/rpmbuild/SOURCES ~/rpmbuild/SPECS
 
 # Source0: the release tarball
@@ -47,16 +47,16 @@ rpmbuild -bs ~/rpmbuild/SPECS/crossfx.spec
 mock -r fedora-43-x86_64 ~/rpmbuild/SRPMS/crossfx-$VER-1.fc*.src.rpm
 ```
 
-The chroot needs `rust >= 1.98.1` (the workspace sets `edition = "2024"` and that
+The chroot needs `rust >= 1.100.0` (the workspace sets `edition = "2024"` and that
 `rust-version`). Fedora 43 is the oldest release that ships it — 41 and 42 are too old, and the
-spec's `BuildRequires: rust >= 1.98.1` will say so instead of failing halfway through a build.
+spec's `BuildRequires: rust >= 1.100.0` will say so instead of failing halfway through a build.
 
 ## Build in a container
 
 What `.github/workflows/packages.yml` does on every push, and the quickest way to run the spec on
-a machine that is not Fedora. `fedora:latest` (43 at the time of writing) ships a `rust` new
-enough for `rust-version = "1.98.1"`; the `rustup` branch is for a release that does not, and
-for pinning the exact toolchain the workspace names:
+a machine that is not Fedora. `fedora:latest` ships a `rust`, and the job checks it against
+`rust-version = "1.100.0"`; the `rustup` branch is for a release whose `rust` is older, and for
+pinning the exact toolchain the workspace names:
 
 ```bash
 podman run --rm -it -v "$PWD":/src:Z -w /src fedora:latest bash
@@ -72,21 +72,21 @@ rpmbuild -ba --without check ~/rpmbuild/SPECS/crossfx.spec
 dnf -y install ~/rpmbuild/RPMS/x86_64/crossfx-$VER-1.fc*.x86_64.rpm
 ```
 
-If `rustc --version` is older than 1.98.1, install the toolchain from rustup and tell the macros
+If `rustc --version` is older than 1.100.0, install the toolchain from rustup and tell the macros
 where it is — `cargo-rpm-macros` hard-codes `%__cargo /usr/bin/cargo`, and `%cargo_prep` writes
 `[build] rustc = %{__rustc}` into `.cargo/config.toml`, so without the defines the build silently
-uses the distribution's toolchain; `--nodeps` gets past `BuildRequires: rust >= 1.98.1`, which
+uses the distribution's toolchain; `--nodeps` gets past `BuildRequires: rust >= 1.100.0`, which
 rustup cannot satisfy:
 
 ```bash
-curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.98.1
+curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.100.0
 export PATH="$HOME/.cargo/bin:$PATH"
 rpmbuild -ba --nodeps --without check \
     --define "__cargo $HOME/.cargo/bin/cargo" --define "__rustc $HOME/.cargo/bin/rustc" \
     --define "__rustdoc $HOME/.cargo/bin/rustdoc" ~/rpmbuild/SPECS/crossfx.spec
 ```
 
-The unpacked source carries `rust-toolchain.toml`, so rustup's proxies pick 1.98.1 on their own.
+The unpacked source carries `rust-toolchain.toml`, so rustup's proxies pick 1.100.0 on their own.
 
 ## COPR
 

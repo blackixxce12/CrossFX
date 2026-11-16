@@ -1,6 +1,9 @@
 # eframe 0.36.0 — verified API cheatsheet
 
 > Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+>
+> It records egui/eframe 0.36, which CrossFX built on then; CrossFX 1.0 builds on 0.37 (see `Cargo.toml`),
+> so the versions and line citations below are 0.36's.
 
 Every signature below was read verbatim out of the vendored source at
 `/home/blackixxce/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/eframe-0.36.0/`.

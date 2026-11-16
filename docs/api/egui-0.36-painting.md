@@ -1,6 +1,9 @@
 # egui 0.36 / epaint 0.36 — 2D Painting Surface (VERIFIED)
 
 > Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+>
+> It records egui/eframe 0.36, which CrossFX built on then; CrossFX 1.0 builds on 0.37 (see `Cargo.toml`),
+> so the versions and line citations below are 0.36's.
 
 Every signature below was read verbatim out of the vendored sources. Citations are
 `<crate-dir>/<file>:<line>` relative to

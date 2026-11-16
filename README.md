@@ -3,39 +3,50 @@
 # CrossFX
 
 CrossFX is a native port of [FxSound](https://www.fxsound.com), FxSound LLC's system-wide audio
-enhancer, written in Rust with [egui](https://github.com/emilk/egui). It runs on Linux, rendering
-natively on Wayland and processing audio through PipeWire, and on Windows, through WASAPI.
+enhancer, written in Rust with [egui](https://github.com/emilk/egui). It runs on **Linux**,
+rendering natively on Wayland and processing audio through PipeWire, and on **Windows 10 and 11**,
+through WASAPI. [`docs/1.0.0-windows-port.md`](docs/1.0.0-windows-port.md) says, feature by
+feature, what Windows 1.0 has, what works differently there and what it does not have.
 
 This is a **fork**, not a wrapper: the original FxSound for Windows is C++/JUCE talking to a
 proprietary virtual audio driver through WASAPI and COM, none of which exists here. Every layer has
-been re-implemented, but the DSP is ported from the original C rather than reinvented. Since 0.4.0
-it also fixes defects that came across with it, so a preset voiced in the original sounds close to,
-but not exactly, the same here; [the deliberate
+been re-implemented, but the DSP is ported from the original C rather than reinvented. It also
+fixes defects that came across with it, so a preset voiced in the original sounds close to, but not
+exactly, the same here; [the deliberate
 differences](#deliberate-differences-from-the-original-fxsound) say what changed. A mode that
 restores the original behaviour, «Like the original FxSound LLC» in Settings ▸ Experimental
-(`--windows-parity=off|interface|sound`), comes with 0.5.0: `interface` brings back the original's
-window, command line and tray without changing the sound, and `sound` also plays Volume Leveling,
-Dynamic Boost, Ambience, the equalizer, the master gain and the balance as the original does and
-reads a preset as it does; moving between the levels while something plays does not click
+(`--windows-parity=off|interface|sound`), brings back the original's window, command line and tray
+(`interface`) and, with `sound`, plays Volume Leveling, Dynamic Boost, Ambience, the equalizer, the
+master gain and the balance as the original does and reads a preset as it does; moving between the
+levels while something plays does not click
 ([`docs/0.5.0-windows-parity.md`](docs/0.5.0-windows-parity.md)). Its fourth level, Everything,
-comes in a later version; 0.5.0 refuses `full`, and runs a `settings.toml` that says `full` as
+comes in a later version: this one refuses `full`, and runs a `settings.toml` that says `full` as
 `sound` while keeping `full` in the file for that version.
 
 It processes what the machine plays and, at the same time, a microphone: each has a lane of its
-own, with its own device and preset, and an application can have a preset of its own on either.
-A running instance answers on the command line, over D-Bus and to compositor keybindings, and
-streams its changes to a status bar.
+own, with its own device and preset. On Linux an application can have a preset of its own on either
+lane, and a running instance answers on the command line, over D-Bus and to compositor keybindings,
+and streams its changes to a status bar; on Windows the command line reaches it over a named pipe.
+
+**On Windows, CrossFX needs a virtual playback device that you already have.** It ships no driver:
+it processes the sound that reaches VB-Audio's VB-CABLE (or another virtual cable), or the
+"FxSound Speakers" device of the original FxSound's driver. [Windows](#windows) says how to get
+one, and what CrossFX does while the original FxSound runs.
 
 CrossFX is an independent community project. It is not affiliated with, endorsed by or
-supported by FxSound LLC; please report problems with CrossFX here, not to them.
+supported by FxSound LLC; please report problems with CrossFX here, not to them. It has an icon of
+its own and does not ship FxSound LLC's logo or the Gilroy font (see [Fonts](#fonts)).
 
-> Status: it builds, runs and passes 2,930 tests. The audio path has been verified end to end
-> against a live PipeWire session — the virtual sink appears and becomes the session default,
-> applications play through it, processed audio reaches the chosen output device, and a microphone
-> feeds a virtual source through [a voice chain of its own](#the-microphone-chain). Both lanes at
-> once, the per-application routes and echo cancellation are tested against a private PipeWire
-> daemon. The interface speaks the desktop's language, using the original's own translation
-> tables. See [Implementation status](#implementation-status).
+> Status: it builds, runs and passes its test suite, on Linux and on Windows. On Linux the audio
+> path has been verified end to end against a live PipeWire session — the virtual sink appears and
+> becomes the session default, applications play through it, processed audio reaches the chosen
+> output device, and a microphone feeds a virtual source through [a voice
+> chain of its own](#the-microphone-chain). Both lanes at once, the per-application routes and echo
+> cancellation are tested against a private PipeWire daemon. On Windows the device rules, the
+> streams and the tray are tested in CI, and a check that changes the default device and plays
+> the system's sound through CrossFX exists but is run by hand, not in CI. The interface speaks
+> the desktop's language, using the original's own translation tables. See [Implementation
+> status](#implementation-status).
 
 ---
 
@@ -43,11 +54,11 @@ supported by FxSound LLC; please report problems with CrossFX here, not to them.
 
 | The original FxSound for Windows | Why it cannot come across | What replaces it |
 |---|---|---|
-| JUCE 6.1.6 GUI | AGPL framework built around its own event loop, `LookAndFeel` painting and HWND-backed windows | egui 0.36 with custom painters, one per JUCE `LookAndFeel` override |
-| FxSound Audio Enhancer virtual driver | A signed Windows kernel driver, not in this source tree and not buildable for Linux | A PipeWire virtual sink the application owns, plus a capture/render pair |
-| WASAPI + COM endpoint enumeration | Windows-only API surface | The PipeWire registry |
-| `RegisterHotKey` global shortcuts | A Wayland client cannot grab global shortcuts, by design | Compositor keybinds that call the CLI, forwarded over a control socket |
-| Registry persistence | — | TOML under `$XDG_CONFIG_HOME`, with the original's key names kept |
+| JUCE 6.1.6 GUI | AGPL framework built around its own event loop, `LookAndFeel` painting and HWND-backed windows | egui 0.37 with custom painters, one per JUCE `LookAndFeel` override |
+| FxSound Audio Enhancer virtual driver | A signed Windows kernel driver, not in this source tree, and a driver of its own would need Microsoft's signing; not buildable for Linux | Linux: a PipeWire virtual sink the application owns, plus a capture/render pair. Windows: a virtual playback device the user already has (VB-CABLE, or the original's own "FxSound Speakers"), which CrossFX captures from and plays on to the real device |
+| WASAPI + COM endpoint enumeration | Windows-only API surface | Linux: the PipeWire registry. Windows: WASAPI and COM again, from Rust |
+| `RegisterHotKey` global shortcuts | A Wayland client cannot grab global shortcuts, by design | Linux: compositor keybinds that call the CLI, forwarded over a control socket. Windows: the same commands, forwarded over a named pipe, for any tool that binds a key (a shortcut's Shortcut key, PowerToys, AutoHotkey) |
+| Registry persistence | — | TOML under `$XDG_CONFIG_HOME` (Linux) or `%APPDATA%CrossFX` (Windows), with the original's key names kept |
 
 The DSP is the exception. `dsp/` in the original's tree is real C source, and it is ported
 line-by-line: the filter designs, the effect algorithms and their coefficient mappings come from
@@ -56,7 +67,10 @@ the original, and where the original is defective 0.4.0 fixes it rather than cop
 
 ## Requirements
 
-- Rust 1.98.1 (edition 2024)
+To build, on either system: Rust 1.100.0 (edition 2024).
+
+**Linux**
+
 - PipeWire 1.0 or newer, and WirePlumber (or another session manager) to move the session default
   and applications' streams. Echo cancellation needs PipeWire's WebRTC canceller,
   `aec/libspa-aec-webrtc`; without it the microphone runs as before and says why.
@@ -72,6 +86,17 @@ cargo build --release --bin crossfx
 
 The binary lands at `target/release/crossfx` and can be run straight from there.
 
+**Windows**
+
+- Windows 10 or 11, 64-bit.
+- A virtual playback device, which CrossFX does not install: VB-Audio's VB-CABLE (or another
+  virtual cable), or the "FxSound Speakers" device that the original FxSound's driver adds.
+  [Windows](#windows) has the details.
+- To build: the Windows Rust toolchain; `cargo build --release
+  --bin crossfx` makes `target\release\crossfx.exe`. The packages are made by
+  `packaging/windows/build-windows.ps1` (Inno Setup 6.3 or later for the setup program and WiX 7
+  for the `.msi`).
+
 ## Installing
 
 Build a real package rather than copying the binary around: it puts the presets, the `.desktop`
@@ -85,7 +110,7 @@ From the working tree you already have:
 ```bash
 cd packaging
 makepkg -f
-sudo pacman -U crossfx-0.5.0-1-x86_64.pkg.tar.zst
+sudo pacman -U crossfx-1.0.0-1-x86_64.pkg.tar.zst
 ```
 
 `makepkg` runs the whole test suite as part of the build; pass `--nocheck` to skip it.
@@ -102,14 +127,14 @@ tree, so copy it there first:
 ```bash
 cp -a packaging/debian debian
 dpkg-buildpackage -us -uc -b
-sudo apt install ../crossfx_0.5.0-1_amd64.deb
+sudo apt install ../crossfx_1.0.0-1_amd64.deb
 ```
 
 The `.deb` lands beside the source tree, not inside it. Use `apt` rather than `dpkg -i` so the
 runtime dependencies are pulled in with it, and `-b` so only the binary package is built.
 `DEB_BUILD_OPTIONS=nocheck` skips the test suite, which `debian/rules` otherwise runs in full.
 
-One thing will bite before anything else: `Cargo.toml` sets `rust-version = "1.98.1"` and cargo
+One thing will bite before anything else: `Cargo.toml` sets `rust-version = "1.100.0"` and cargo
 enforces that against any rustc, so neither Debian 13 (rustc 1.85) nor Ubuntu 24.04 (1.75) can build
 this from the archive's toolchain. Install one from rustup, or build in a container. The reasoning,
 and why lowering the floor is not the fix, is at the top of
@@ -119,7 +144,7 @@ and why lowering the floor is not the fix, is at the top of
 
 ```bash
 rpmbuild -ba packaging/fedora/crossfx.spec
-sudo dnf install ~/rpmbuild/RPMS/x86_64/crossfx-0.5.0-1.*.x86_64.rpm
+sudo dnf install ~/rpmbuild/RPMS/x86_64/crossfx-1.0.0-1.*.x86_64.rpm
 ```
 
 The spec needs a vendored-dependency tarball beside it;
@@ -132,8 +157,8 @@ For anything else, or for anyone who would rather no package manager were involv
 
 ```bash
 packaging/build-tarball.sh
-tar xf dist/crossfx-0.5.0-x86_64.tar.gz
-sudo ./crossfx-0.5.0-x86_64/install.sh        # /usr/local unless you name another prefix
+tar xf dist/crossfx-1.0.0-x86_64.tar.gz
+sudo ./crossfx-1.0.0-x86_64/install.sh        # /usr/local unless you name another prefix
 ```
 
 `/usr/local` is searched for presets alongside `/usr`, and first by a binary installed there, so
@@ -200,7 +225,103 @@ There is no AppImage or Flatpak. A Flatpak would be actively counterproductive h
 point of the app is to own a node in your PipeWire graph and drive your real output device, and the
 sandbox exists to prevent exactly that.
 
+## Windows
+
+CrossFX 1.0 runs on Windows 10 and 11 (64-bit). [`docs/1.0.0-windows-port.md`](docs/1.0.0-windows-port.md)
+lists every Linux feature and its state on Windows. This section is what you need to start.
+
+### Installing
+
+Each release has three Windows files, each with a SHA-256 sum beside it:
+
+| File | What |
+|---|---|
+| `crossfx-1.0.0-windows-x64-setup.exe` | the setup program (Inno Setup) |
+| `crossfx-1.0.0-windows-x64.msi` | the Windows Installer package (built with WiX 7), for deployment tools |
+| `crossfx-1.0.0-windows-x64.zip` | portable: unpack it into a folder of your own, such as one under `%LOCALAPPDATA%\Programs`, keep the `presets` folder beside `crossfx.exe`, and run it |
+
+The setup program and the `.msi` install into Program Files, for every account on the computer.
+`crossfx.exe` is a program with a window: started from a terminal, it prints what its command line
+has to say there (`crossfx --version`, `crossfx --status --json`) and then runs on its own.
+Before deleting a portable copy, turn off "Launch on system startup" in its Settings, or Windows
+keeps trying to start it.
+
+### A virtual playback device is needed
+
+CrossFX has no driver of its own. It processes the sound of applications by being the place they
+play to: it makes a virtual playback device the default, captures what reaches it, runs the
+processing and plays the result on the speakers you pick, and it gives the default back when it
+stops. So a virtual playback device has to be installed first, and CrossFX uses, in this order of
+preference:
+
+- the **"FxSound Speakers"** device that the driver of the original FxSound adds, when the original
+  is (or was) installed on the machine; otherwise
+- a virtual cable: **VB-Audio's VB-CABLE**, which is donationware, or another virtual cable.
+
+The microphone lane needs a virtual cable of its own besides (its playback side is where CrossFX
+writes the processed voice; its recording side is what applications record from), so the
+microphone and the speakers do not share one.
+
+With no virtual device on the machine CrossFX processes nothing, and says so in the window, which
+offers a **Get VB-CABLE…** button. It opens VB-Audio's own page, <https://vb-audio.com/Cable/>, in
+your browser. You download and install VB-CABLE there yourself, under VB-Audio's terms: CrossFX
+does not bundle, download or install it. When you have installed it, CrossFX picks it up without
+a restart.
+
+A cable you install can take over the default devices on its own, because Windows offers a new
+device every role. CrossFX does not take that for your choice: it puts such a default back where it
+was, and leaves alone a default you put on a cable yourself.
+
+### The original FxSound
+
+CrossFX and the original FxSound can be installed on the same machine, but only one of them can
+process at a time: both would take "FxSound Speakers" as the default device and play every sound
+through two chains. While `FxSound.exe` is running, CrossFX's output lane **stands aside** — it
+neither takes the default nor processes — and says why; close the original to let CrossFX work.
+CrossFX never reads, changes or deletes the original's files, settings, driver or start-up entry:
+its own settings are in `%APPDATA%\CrossFX`, its own start-up entry is the value `CrossFX`, and
+neither shares a name with the original's.
+
+### Settings, files and the command line
+
+Settings and applications are in `%APPDATA%\CrossFX` (`settings.toml`, `apps.toml`), your own
+presets in `%APPDATA%\CrossFX\presets`, fonts you add in `%APPDATA%\CrossFX\fonts`, and what CrossFX
+keeps only for this machine in `%LOCALAPPDATA%\CrossFX`. A running CrossFX answers every option of
+`crossfx` over a named pipe that only your account can open, so `crossfx --status --json`,
+`--watch`, `--power=off` and the rest work as on Linux. There is no D-Bus on Windows. Windows has no
+compositor to bind keys in either: `--toggle-power`, `--next-preset`, `--prev-preset`,
+`--next-output` and `--toggle-window` are there for whatever tool binds a key to a command (a
+shortcut's Shortcut key, PowerToys, AutoHotkey).
+
+### Language
+
+The interface language is the first language in your list of preferred languages (Windows Settings ▸ Time
+& language) that CrossFX has a translation table for — the rule Windows
+itself uses for an application — and not merely the display language: if the list starts with a
+language CrossFX lacks, the next one is tried. `--language=` and the language switch in CrossFX's Settings ▸ General choose another one;
+its "System" entry follows the rule above.
+
+### What Windows does not have in 1.0
+
+Echo cancellation, applications' presets (Settings ▸ Applications), the D-Bus interface, the
+WirePlumber hook and the compositor shortcuts are Linux's. Processing the sound through the real
+speakers' own system effects (an "APO" engine mode), a driver that CrossFX bundles, a selector
+between audio modes and per-application presets on Windows are not in 1.0.
+
+## Fonts
+
+The interface is set in **Manrope**, a typeface under the SIL Open Font License that is built into
+CrossFX. The original FxSound is set in **Gilroy**, Radomir Tinkov's commercial typeface, which
+CrossFX neither ships nor downloads. If you have bought Gilroy, choose it in Settings ▸ General ▸
+"Interface font": add the font files there (CrossFX copies them into its own folder: `fonts`
+beside the settings on Windows, `~/.local/share/crossfx/fonts` on Linux), or install Gilroy in the
+system and CrossFX finds it in the system's font folders. Until the files are found the interface
+stays in Manrope. CrossFX does not say where to get Gilroy: buy it from a seller licensed to sell it.
+
 ## Running under Hyprland
+
+This section is for Linux: Windows has no compositor to bind keys in (see
+[Windows](#settings-files-and-the-command-line)).
 
 The window is frameless and has a fixed design size, so it wants to float rather than tile. Copy the
 rules from [`packaging/hyprland.conf.example`](packaging/hyprland.conf.example) into your
@@ -268,6 +389,9 @@ what you are doing. That holds when the keybind is what starts CrossFX, too: it 
 showing the window unless the tray state or `--show` says so.
 
 ## Scripts, status bars and D-Bus
+
+This section is for Linux. Windows has no D-Bus; the command line there reaches the running instance
+over a named pipe, and `--status`, `--watch` and the other options work the same ([Windows](#settings-files-and-the-command-line)).
 
 A running CrossFX can be driven and watched without its window. `man crossfx` has every option, the
 whole status document and the D-Bus interface; what follows is the short version.
@@ -393,6 +517,22 @@ for it. When you do, the previous default is remembered first and handed back on
 before the nodes are destroyed, so there is never a moment where the default names a node that no
 longer exists. This is the one part of CrossFX that can affect audio for the whole session, and it
 is written to fail safe.
+
+On Windows the shape is the same, with a virtual playback device that you installed in place of
+the sink CrossFX publishes on Linux, and WASAPI in place of PipeWire's nodes:
+
+```
+apps ──► virtual playback device ──► [CrossFX: loopback capture, music chain] ──► your real speakers
+mic  ──► [CrossFX: capture, voice chain] ──► a cable's playback side ──► its recording side ──► apps
+```
+
+The virtual playback device is VB-CABLE or "FxSound Speakers", and the cable of the microphone lane
+is a second one; both are yours, not CrossFX's.
+
+CrossFX makes the virtual device the default of the playback roles while the lane runs, remembers
+what each role was first, and gives each back before the streams stop — on Exit, at the end of the
+Windows session, and when the power goes off. The volume the lane plays at is the virtual device's
+volume. There is no per-application routing on Windows. [Windows](#windows) says what it needs.
 
 ## The signal chain
 
@@ -648,7 +788,9 @@ where you put it.
 
 ## Deliberate differences from the original FxSound
 
-Each of these is a considered decision, not an oversight:
+Each of these is a considered decision, not an oversight. They describe CrossFX on Linux unless a
+point says otherwise; what is different on Windows is in
+[`docs/1.0.0-windows-port.md`](docs/1.0.0-windows-port.md):
 
 - **The sound is not quite the original's.** Since 0.4.0 defects of the original DSP are fixed
   rather than reproduced, so a preset plays close to, not exactly, as it does in the original. Bass
@@ -725,7 +867,8 @@ Each of these is a considered decision, not an oversight:
   1.2.16.0, which added Bulgarian; Hungarian was declared but never shipped) are embedded here and
   looked up by the same English keys the C++ passes to `TRANS`, read as JUCE reads them, so the
   lines the original's tables leave unclosed translate here as they do there. The language follows
-  the desktop session (`LC_ALL`/`LC_MESSAGES`/`LANG`) unless one is picked in Settings ▸ General or
+  the desktop session (`LC_ALL`/`LC_MESSAGES`/`LANG`; on Windows the first of the user's preferred
+  languages that CrossFX has a table for, see [Windows](#language)) unless one is picked in Settings ▸ General or
   with `--language <code>` (`--language system` returns to following the desktop). The switch lists
   English and then every language by its own name, in alphabetical order, where the original used an
   order of its own and called three of them by the wrong word (Turkish "Türk", Thai "แบบไทย", Czech
@@ -878,17 +1021,20 @@ Settings tabs among them, stay as they are.
 
 ## Implementation status
 
-| Component | Tests | State |
-|---|---:|---|
-| `crossfx-core` — shared types, scales, settings, the application store, translations | 232 | complete |
-| `crossfx-preset` — `.fac` reader/writer, TOML voice presets, preset stores, the trash | 108 | complete |
-| `crossfx-dsp` — biquads, graphic EQ, five effects, limiter, leveller, spectrum, engine, voice chain | 505 | complete |
-| `crossfx-rnnoise` — RNNoise, vendored from `nnnoiseless`, with an in-place reset and its band gains exposed | 15 | complete |
-| `crossfx-ui` — palettes, geometry, assets, widgets, views, dialogs | 568 | complete |
-| `crossfx-audio` — PipeWire backend: two lanes, per-application routes, echo cancellation | 616 | complete, verified on a live PipeWire 1.6 session; its graph tests run a private daemon |
-| `crossfx-app` — controller, CLI, IPC, D-Bus, event stream, tray, notifications, window shell | 886 | complete |
+| Component | State |
+|---|---|
+| `crossfx-core` — shared types, scales, settings, the application store, translations | complete |
+| `crossfx-preset` — `.fac` reader/writer, TOML voice presets, preset stores, the trash | complete |
+| `crossfx-dsp` — biquads, graphic EQ, five effects, limiter, leveller, spectrum, engine, voice chain | complete |
+| `crossfx-rnnoise` — RNNoise, vendored from `nnnoiseless`, with an in-place reset and its band gains exposed | complete |
+| `crossfx-ui` — palettes, geometry, assets, widgets, views, dialogs | complete |
+| `crossfx-audio` — the PipeWire backend (Linux): two lanes, per-application routes, echo cancellation; the WASAPI backend (Windows): two lanes on a virtual device | Linux: complete, verified on a live PipeWire 1.6 session, its graph tests run a private daemon. Windows: what 1.0 has, as `docs/1.0.0-windows-port.md` lists it; the end-to-end check on a live machine is run by hand |
+| `crossfx-app` — controller, CLI, IPC, D-Bus (Linux), event stream, tray, notifications, window shell | complete on both systems |
 
-Verified end to end: the window opens on Wayland at the original's exact geometry, a preset loads
+The test counts are not kept here: `cargo test --workspace` is the count, and the Linux-only tests
+run on Linux.
+
+Verified end to end on Linux: the window opens on Wayland at the original's exact geometry, a preset loads
 from disk and drives both the sliders and the equalizer curve, the Settings pane opens, the CLI
 parses every original option and reaches a running instance over the control socket, audio rendered
 offline through `cargo run -p crossfx-dsp --example process_wav` measures the preset's equalizer
@@ -919,7 +1065,7 @@ nodes, rather than trusting a monitor capture.
 
 ### Known limitation: no second window
 
-`eframe` 0.36's glow multi-viewport path creates a child toplevel and its GL surface on Wayland and
+`eframe` 0.36's glow multi-viewport path (found on 0.36; not re-tested on 0.37) creates a child toplevel and its GL surface on Wayland and
 then never composites anything into it — confirmed here on Hyprland 0.56 with the NVIDIA driver,
 where the Settings window appeared in `hyprctl clients` at the right size while even a solid fill
 over its whole area stayed invisible. Settings is therefore drawn inside the main window over a
@@ -928,13 +1074,16 @@ against a Mesa driver before calling it an upstream bug.
 
 ## Documentation
 
+[`docs/1.0.0-windows-port.md`](docs/1.0.0-windows-port.md) is the porting matrix: each Linux feature and
+its state in CrossFX for Windows 1.0 — the same, different and how, or not in 1.0.
+
 `man crossfx` ([`packaging/crossfx.1`](packaging/crossfx.1) in the tree, `man -l
 packaging/crossfx.1` to read it there) is the reference for using it: every option and its exit
 status, the `--status --json` document key by key, the `--watch` events, the D-Bus methods,
 properties and signals, and the files CrossFX reads and writes.
 
 [`docs/0.5.0-windows-parity.md`](docs/0.5.0-windows-parity.md) is the contract of «Like the original
-FxSound LLC»: its levels (three in 0.5.0; Everything, which hides CrossFX's own features, comes
+FxSound LLC»: its levels (off, interface and sound; Everything, which hides CrossFX's own features, comes
 later), which of CrossFX's changes and features each one reverts or hides and which none ever
 does, and the setting, option, D-Bus members and status keys that carry it.
 [`docs/0.5.0-dsp-inventory.md`](docs/0.5.0-dsp-inventory.md) lists every change to the output
@@ -953,7 +1102,7 @@ the original's own later releases; and the per-application presets.
 `docs/spec/` holds the reverse-engineering specification CrossFX was written against — roughly
 20,000 lines covering every subsystem of the original, with citations down to the source line. It is
 worth reading before changing any DSP code. `docs/api/` holds verified API cheatsheets for
-egui/eframe 0.36 and pipewire-rs 0.10, quoted from the vendored crate sources. The voice chain has
+egui/eframe 0.36 (CrossFX now builds on 0.37) and pipewire-rs 0.10, quoted from the vendored crate sources. The voice chain has
 its own reasoning in `docs/voice-presets-research.md`, `docs/input-presets-decision.md` and
 `docs/preset-evaluation.md`. [`CHANGELOG.md`](CHANGELOG.md) is what changed and when.
 

@@ -2,7 +2,7 @@
 
 > The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
 
-Reverse-engineering spec for the Rust 1.98.1 / egui-eframe 0.36 / PipeWire port of
+Reverse-engineering spec for the Rust 1.100.0 / egui-eframe 0.37 / PipeWire port of
 FxSound.
 
 Everything below comes from files read in full in

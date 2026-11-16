@@ -5,9 +5,49 @@ whose entries keep the names of their time. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] — Unreleased
+## [1.0.0] — 2026-11-17
+
+CrossFX 1.0 is for Linux and for Windows 10 and 11, and it is the release in which the program
+leaves the grey zone and becomes legal to distribute. It no longer ships the Gilroy font: Manrope
+is the default, and anyone who bought Gilroy imports it. It has an icon of its own where it
+showed FxSound LLC's logo. And every component built into it brings its licence notice in every
+package. Its name, and the clean break that comes with the name, are below.
+
+### Added
+- **CrossFX for Windows 10 and 11 (64-bit).** The same window, presets, equalizer, effects,
+  voice chain and command line as on Linux, on WASAPI: a setup program
+  (`crossfx-1.0.0-windows-x64-setup.exe`), a Windows Installer package
+  (`crossfx-1.0.0-windows-x64.msi`, built with WiX 7) and a portable `.zip`. The tray icon lives
+  in the notification area, notices are toasts, `crossfx --status`, `--watch` and every other
+  option reach the running instance over a named pipe, "Launch on system startup" is a
+  `CrossFX` value under `HKCU\…\Run`, and ending the session or quitting hands the default
+  devices back before the sound stops. `docs/1.0.0-windows-port.md` says, feature by feature,
+  what is the same, what differs and what Windows does not have.
+- **What Windows needs: a virtual playback device that is already installed.** CrossFX ships no
+  driver. It processes the sound that reaches VB-Audio's VB-CABLE (or another virtual cable),
+  or the "FxSound Speakers" device of the driver of the original FxSound, and plays the result
+  to the speakers you pick. The microphone lane needs a cable of its own besides. When no
+  virtual device is found the window says so and offers **Get VB-CABLE…**, which opens VB-Audio's
+  own page, <https://vb-audio.com/Cable/>. VB-CABLE is VB-Audio's donationware: you install it
+  yourself, and CrossFX never bundles it.
+- **CrossFX stands aside while the original FxSound runs.** Both programs would take the same
+  default device from each other, so while `FxSound.exe` runs the output lane neither takes the
+  default nor processes, and says why. CrossFX never reads or changes the original's files,
+  settings or driver.
+- **The tray icon is drawn for the monitor it is on.** It is rendered for the DPI of the
+  taskbar's monitor, and again when the scale changes.
 
 ### Changed
+- **The Gilroy font is no longer shipped.** Gilroy is Radomir Tinkov's commercial typeface, and
+  CrossFX neither ships nor downloads it. The interface is set in Manrope (SIL Open Font
+  License), which is built in. the "Interface font" choice in Settings, General tab, offers
+  Gilroy to anyone who bought it: add the font files, or have them installed in the system.
+- **Every bundled component's licence notice ships.** The licences of RNNoise, of the Noto and
+  Manrope faces and of egui's built-in fonts (Ubuntu Light, Hack, egui's icons) are installed by
+  every package, beside CrossFX's own.
+- **The Windows interface language follows the user's list of preferred languages:** the first
+  language in it that CrossFX has a table for, which is Windows' own rule for applications, and
+  not merely the display language. `--language=` and the language switch in Settings still override it.
 - **The program is called CrossFX, on Linux and on Windows.** Up to 0.5.0 it was the FxSound
   Linux port, packaged as `fxsound-linux`. "FxSound" now means only the original FxSound by
   FxSound LLC: its driver, FxSound Speakers, the presets taken from it, and the "Like the original
@@ -25,6 +65,17 @@ whose entries keep the names of their time. The format follows
   0.x made them, its start-up entry `~/.config/autostart/fxsound.desktop` and its WirePlumber hook,
   `~/.local/share/wireplumber/scripts/fxsound` and
   `~/.config/wireplumber/wireplumber.conf.d/90-fxsound-fade-on-move.conf`.
+
+### Fixed
+- **A cable the user routes themselves is left alone when Windows moves a default onto a newly
+  installed cable.** Windows gives a device just installed the first chance at every role, so a
+  cable installed for CrossFX's microphone can take the speakers' default, and a device that goes
+  away has its roles fall back to a cable. Neither is the user's choice, and CrossFX no longer
+  treats either as one; a default that the user put on a cable themselves stays theirs.
+- **A crash when CrossFX writes to a console that has been closed** — a command line started from
+  a terminal that was closed while it ran — is gone.
+- **Settings are no longer lost when another program has `settings.toml` locked** (an antivirus
+  scan or a sync client, say) while CrossFX reads or writes it.
 
 ### Breaking changes
 - **The command is `crossfx`.** `crossfx --version` prints `crossfx <version>`, the manual is
@@ -57,6 +108,13 @@ whose entries keep the names of their time. The format follows
   once, as `edit_direction`:** `direction`, which said the same, is gone, and `schema`, which the
   listings (`--list-apps --json`, D-Bus `ListPresets`, `ListDevices` and `ListApps`) carry too,
   is 1.
+
+### Not in 1.0
+CrossFX for Windows 1.0 stays on a virtual playback device that you have. These are not in 1.0,
+and nothing in CrossFX promises them: an engine mode that processes the sound of the real
+speakers as a system effect, instead of through a virtual device; a bundled driver; a selector
+between audio modes; and per-application presets on Windows (Linux has them). Echo cancellation
+and the compositor, D-Bus and WirePlumber parts are Linux's.
 
 ## [0.5.0] — 2026-09-30
 

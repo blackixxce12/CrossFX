@@ -3,7 +3,7 @@
 > The specification of the original FxSound by FxSound LLC, written for fxsound-linux (now CrossFX). Where a column gives the port's names (com.fxsound.FxSound, $XDG_…/fxsound), they were its plans of 2026: CrossFX's names are in crossfx(1).
 
 Reverse-engineering spec for the FxSound Windows app (JUCE 6.1.6, `FxSound.jucer` v1.2.15.0) →
-native Linux Rust 1.98.1 / egui-eframe 0.36 / winit-Wayland / PipeWire.
+native Linux Rust 1.100.0 / egui-eframe 0.37 / winit-Wayland / PipeWire.
 
 Every number below was read out of a file in the repo and is cited as `path:line`. Where no line
 exists (binary blobs), the citation is `path` plus the measurement command that produced the value.
@@ -816,9 +816,9 @@ Drop it.
 
 ```toml
 [dependencies]
-eframe        = { version = "0.36", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
-egui          = "0.36"
-egui_extras   = { version = "0.36", features = ["svg", "image"] }  # optional convenience, see 6.3
+eframe        = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
+egui          = "0.37"
+egui_extras   = { version = "0.37", features = ["svg", "image"] }  # optional convenience, see 6.3
 resvg         = "0.45"        # pulls usvg + tiny-skia; pin exactly, the API moves between minors
 tiny-skia     = "0.11"
 image         = { version = "0.25", default-features = false, features = ["png"] }

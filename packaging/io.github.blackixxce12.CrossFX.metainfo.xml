@@ -65,6 +65,19 @@
        date, and release.yml's verify job refuses a tag where the two differ, so a version bump
        dates both together. -->
   <releases>
+    <release version="1.0.0" date="2026-11-17">
+      <description>
+        <p>
+          CrossFX, the FxSound Linux port under a new name and with a Windows version beside
+          this one. It has an icon of its own and no longer ships the Gilroy font (Manrope is
+          the default; the interface uses a Gilroy you bought and import), and every bundled
+          component's licence notice is installed. Settings and data of 0.x are not carried
+          over; the command, the packages, the D-Bus name and the application id are all
+          CrossFX's now.
+        </p>
+      </description>
+      <url>https://github.com/blackixxce12/CrossFX/blob/main/CHANGELOG.md</url>
+    </release>
     <release version="0.5.0" date="2026-09-30">
       <description>
         <p>

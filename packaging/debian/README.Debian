@@ -29,23 +29,23 @@ arrangement.
 The long version is at the top of debian/control and it is worth reading before
 filing a bug about the build failing. The short version:
 
-  * rust-toolchain.toml pins 1.98.1, and only rustup reads that file.
+  * rust-toolchain.toml pins 1.100.0, and only rustup reads that file.
     debian/rules defaults RUSTUP_TOOLCHAIN to stable unless the caller set
     one, so a build host that happens to have rustup installed does not try to
     download a toolchain it cannot reach, while a CI container that installed
-    exactly 1.98.1 can still say so.
+    exactly 1.100.0 can still say so.
 
-  * Cargo.toml's `rust-version = "1.98.1"` is enforced by cargo itself against
+  * Cargo.toml's `rust-version = "1.100.0"` is enforced by cargo itself against
     any rustc, and nothing in debian/ can get past it.
 
   * Debian 13 ships rustc 1.85, Ubuntu 24.04 ships 1.75. Neither satisfies the
-    floor, so Build-Depends names `rustc (>= 1.98.1~)` and apt will tell you so
+    floor, so Build-Depends names `rustc (>= 1.100.0~)` and apt will tell you so
     up front rather than letting cargo fail halfway through.
 
 In practice that means building with a toolchain from rustup or from a
-container, not from the archive, until a rustc >= 1.98 lands. Do not "fix" it
+container, not from the archive, until a rustc >= 1.100 lands. Do not "fix" it
 by lowering rust-version: the floor is there because the code uses edition-2024
-and 1.98 features, and lowering it just moves the failure somewhere less
+and 1.100 features, and lowering it just moves the failure somewhere less
 legible.
 
 
