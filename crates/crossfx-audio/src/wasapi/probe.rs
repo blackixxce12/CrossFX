@@ -427,8 +427,16 @@ fn name_of(all: &[Endpoint], id: Option<&str>) -> String {
 mod tests {
     #[test]
     fn the_installed_cables_are_read_without_changing_anything() {
-        // Whatever this machine has: the read answers, and answers the same twice.
-        let first = crate::InstalledCables::read().expect("the endpoints are listed");
+        // Whatever this machine has: the read answers, and answers the same twice. A CI runner
+        // may have no audio service, as `live`'s tests allow for: then there is nothing to read.
+        let first = match crate::InstalledCables::read() {
+            Ok(first) => first,
+            Err(crate::AudioError::WindowsAudioUnavailable(why)) => {
+                eprintln!("skipping: the Windows audio service cannot be reached: {why}");
+                return;
+            }
+            Err(other) => panic!("the endpoints are not listed: {other}"),
+        };
         assert_eq!(crate::InstalledCables::read().ok(), Some(first));
     }
 }
