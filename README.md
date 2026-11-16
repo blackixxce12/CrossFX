@@ -176,7 +176,8 @@ archive is a prefix in miniature: `bin/crossfx`, `lib/systemd/user/crossfx.servi
 `share/dbus-1/services/` (D-Bus activation), `share/applications/`, `share/icons/hicolor/` (the
 app icon and the tray's three status icons), `share/crossfx/presets/`, `share/man/man1/crossfx.1`,
 `share/metainfo/` and `share/doc/crossfx/` (README, CHANGELOG, LICENSE, the licences of
-the bundled RNNoise code and the Noto and Manrope faces, the Hyprland rules and the autostart
+the bundled RNNoise code, the Noto and Manrope faces and egui's Ubuntu Light, Hack and icon faces,
+the Hyprland rules and the autostart
 entry).
 `install.sh` copies all of that into the prefix and rewrites the unit's `ExecStart` and
 `ExecStop`, and the activation file's `Exec`, to `<prefix>/bin/crossfx`; it warns if the prefix
@@ -210,7 +211,7 @@ On an older distribution than Debian 12, build from source instead.
 | `/usr/share/man/man1/crossfx.1` | the manual page: every option, the status document and the D-Bus interface |
 | `/usr/share/metainfo/io.github.blackixxce12.CrossFX.metainfo.xml` | what GNOME Software and Discover show |
 | `/usr/share/doc/crossfx/` | the Hyprland rules and the autostart entry |
-| `/usr/share/licenses/crossfx/` | the AGPL, and the licences of the RNNoise code and the Noto and Manrope faces built into the binary (the `.deb` carries them in `/usr/share/doc/crossfx/copyright`); the Fedora package adds `LICENSE.dependencies`, the licence of each crate the binary is built from, and `cargo-vendor.txt`, the list of those crates |
+| `/usr/share/licenses/crossfx/` | the AGPL, and the licences of the RNNoise code, the Noto and Manrope faces and egui's Ubuntu Light, Hack and icon faces built into the binary (the `.deb` carries them in `/usr/share/doc/crossfx/copyright`); the Fedora package adds `LICENSE.dependencies`, the licence of each crate the binary is built from, and `cargo-vendor.txt`, the list of those crates |
 
 CrossFX started by the user unit — enabled, or by a D-Bus call such as a status bar's — runs in the
 systemd user manager's environment, not the compositor's. Where the compositor does not import
