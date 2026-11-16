@@ -22,7 +22,7 @@
 //!
 //! ```text
 //! scripts/windows-parity-bitexact.sh v0.4.0                            # A3: Off plays as 0.4.0
-//! scripts/windows-parity-bitexact.sh --compat=windows --report 3596e99 # A1: Interface and sound
+//! scripts/windows-parity-bitexact.sh --compat=windows --report 1efe736 # A1: Interface and sound
 //! ```
 //!
 //! **Whose DSP the working tree plays** is `CROSSFX_BITEXACT_COMPAT`: `linux`, the default, for
@@ -56,7 +56,7 @@
 //!   the glide it starts — are not compared.
 //!
 //! The actions are one script on both sides because they are what is held still, and
-//! `3596e99`'s application answered two of them differently: it cleared the filters on every
+//! `1efe736`'s application answered two of them differently: it cleared the filters on every
 //! preset picked, and it changed the band count by remapping the curve on screen by position
 //! instead of reading the preset again. The first is a transition (#9–#11), which stays at every
 //! level; the second is the application's reading of a curve (#13, #45, W1c), not the engine's.
@@ -72,8 +72,8 @@
 //! [`DEFAULT_LIMIT_DB`] (−120 dBFS) — in the switching pass, nowhere outside the settling time
 //! after each switch. The listed exceptions of A1 are named by preset in `CROSSFX_BITEXACT_EXCEPT`:
 //! their differences are counted and reported apart and fail nothing. At Interface and sound
-//! against `3596e99` they are the two shipped presets whose Ambience is stored at 51, where the
-//! Windows C code, A1's reference for Ambience (audit #39, A2), and `3596e99` are a unit in the
+//! against `1efe736` they are the two shipped presets whose Ambience is stored at 51, where the
+//! Windows C code, A1's reference for Ambience (audit #39, A2), and `1efe736` are a unit in the
 //! last place of the wet/dry pair apart (`docs/0.5.0-dsp-inventory.md`, W1c). Both builds must be
 //! made by the same toolchain on the same machine: nothing here is stored, and nothing promises
 //! that two versions of rustc or two machines' maths libraries round alike.
@@ -154,7 +154,7 @@ const DEFAULT_BLOCKS: [usize; 4] = [480, 512, 1024, 2048];
 const MAX_BLOCK: usize = 2048;
 
 /// How long a change glides for: the engine's `smooth::GLIDE_SECONDS`, written out because the
-/// reference builds need not have that module (`3596e99` has none), and held to it by
+/// reference builds need not have that module (`1efe736` has none), and held to it by
 /// [`the_settling_time_is_the_engines_glide`].
 const GLIDE_SECONDS: f32 = 0.020;
 
@@ -1222,7 +1222,7 @@ fn a_windows_case_is_played_by_the_windows_dsp() {
         ..jazz_on_twenty
     };
     // `crossfx_core::eq::WINDOWS_TWENTY_BAND_CENTRES_HZ`, written out: this file is built by
-    // the reference builds too, and `3596e99` has no such constant.
+    // the reference builds too, and `1efe736` has no such constant.
     let windows_ladder = [
         20.0, 31.5, 40.0, 63.0, 80.0, 125.0, 160.0, 250.0, 315.0, 500.0, 630.0, 1000.0, 1250.0,
         2000.0, 2500.0, 4000.0, 5000.0, 8000.0, 10000.0, 16000.0,

@@ -1,7 +1,7 @@
 //! The original's Volume Leveling, for «Like the original FxSound LLC» = Interface and sound.
 //!
 //! The arithmetic of `applyVolumeLeveling` (`SosProcess.cpp:139-492`) as CrossFX ran it before the
-//! 0.4.0 audit (`0f05ba5`), with audit items #1 to #4 taken back:
+//! 0.4.0 audit (`cccf702`), with audit items #1 to #4 taken back:
 //!
 //! * **#1** — the peak safety reads the 120 Hz side chain's peak, so bass is lifted past the
 //!   ceiling and hard-clipped there;
@@ -15,14 +15,14 @@
 //! left out drops that glide ([`VolumeLeveller::sit_out`]); the detector does no subnormal
 //! arithmetic in silence (#5); a non-finite statistic clears the stage. None of them moves a
 //! sample of a running stage by more than rounding does, so the steady state is the original's:
-//! `scripts/windows-parity-bitexact.sh --compat=windows 3596e99` holds it to the engine before the
+//! `scripts/windows-parity-bitexact.sh --compat=windows 1efe736` holds it to the engine before the
 //! audit.
 //!
 //! The statistics and the decision are CrossFX's own functions ([`VolumeLeveller::gather`],
 //! [`VolumeLeveller::decide`], [`VolumeLeveller::finish_step`]): the audit did not change them,
 //! and a step that is one whole call is exactly the original's buffer. What differs is here: the
 //! peak the safety reads, the start of the ramp, and the gain pass. The tests hold the whole of it
-//! to `0f05ba5`'s code, taken with `git show`, bit for bit on mono, stereo, 5.1 and 7.1.
+//! to `cccf702`'s code, taken with `git show`, bit for bit on mono, stereo, 5.1 and 7.1.
 
 use super::{
     DENORMAL_FLUSH, GainRamp, HEADROOM_NEAR_CEILING_THRESHOLD, Layout, StepStats, TINY,
@@ -510,7 +510,7 @@ mod tests {
     fn at_interface_and_sound_the_stage_is_the_original_bit_for_bit_on_every_layout() {
         // The Windows path is built from today's statistics and decision, not copied; this holds
         // it to `applyVolumeLeveling` as CrossFX ran it before the audit (`git show
-        // 0f05ba5:crates/fxsound-dsp/src/leveller.rs`, [`original::OriginalLeveller`]) on mono,
+        // cccf702:crates/fxsound-dsp/src/leveller.rs`, [`original::OriginalLeveller`]) on mono,
         // stereo, 5.1 and 7.1 with the subwoofer on channel 3, handed over in ragged calls. The
         // programme is twelve seconds of a quiet passage, long enough for the quiet boost to take
         // over, then a burst with bass the side chain barely hears, then the quiet again; the
@@ -586,7 +586,7 @@ mod tests {
     }
 
     /// `applyVolumeLeveling` (`SosProcess.cpp:139-492`) as CrossFX ran it before the 0.4.0 audit,
-    /// taken line for line from `git show 0f05ba5:crates/fxsound-dsp/src/leveller.rs` (its
+    /// taken line for line from `git show cccf702:crates/fxsound-dsp/src/leveller.rs` (its
     /// comments left out): the reference the Windows path is held to, as
     /// [`crate::input::limiter::OriginalLimiter`] is Dynamic Boost's.
     mod original {

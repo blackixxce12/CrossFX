@@ -1989,7 +1989,7 @@ mod tests {
     // -- «Like the original FxSound LLC» = Interface and sound
     // ----------------------------------------
 
-    /// Dynamic Boost as CrossFX ran it before the 0.4.0 audit (`0f05ba5`), line for line: the
+    /// Dynamic Boost as CrossFX ran it before the 0.4.0 audit (`cccf702`), line for line: the
     /// left channel's level, the flat 1.06 floor, and `Maxi32.c`'s limiter
     /// ([`crate::input::limiter::OriginalLimiter`]).
     struct OriginalBoost {

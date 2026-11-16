@@ -347,7 +347,7 @@ pub fn fit_preset_gains_in(
 
 /// Carry a curve to another band count **by position**, as the original does
 /// (`GraphicEqSet.cpp:200-245`, the original's 182a329): the remap CrossFX used before audit report
-/// #13, taken from `0f05ba5` as it was, for «Like the original FxSound LLC» = Interface and sound
+/// #13, taken from `cccf702` as it was, for «Like the original FxSound LLC» = Interface and sound
 /// ([`fit_preset_gains_in`]).
 ///
 /// Band *i* of `new_count` (counted from 1) reads position `1 + (i−1)·(old−1)/(new−1)` of the old
@@ -372,7 +372,7 @@ pub fn remap_band_gains_by_position(old: &[Real], new_count: usize) -> Vec<Real>
         .map(|i| {
             if old_num_bands == 1 || num_bands == 1 {
                 // One old band is a flat curve; one new band is undefined in the original, which
-                // `0f05ba5` read as the first.
+                // `cccf702` read as the first.
                 old[0]
             } else if num_bands < old_num_bands {
                 // Fewer bands: pick the nearest old band (equidistant selection).
@@ -2802,8 +2802,8 @@ mod tests {
     }
 
     #[test]
-    fn the_windows_remap_by_position_is_0f05ba5s() {
-        // `0f05ba5`'s `remap_band_gains`, whose values these are (the original's 182a329).
+    fn the_windows_remap_by_position_is_cccf702s() {
+        // `cccf702`'s `remap_band_gains`, whose values these are (the original's 182a329).
         let five = [1.0, 2.0, 3.0, 4.0, 5.0];
         assert_eq!(
             remap_band_gains_by_position(&five, 9),

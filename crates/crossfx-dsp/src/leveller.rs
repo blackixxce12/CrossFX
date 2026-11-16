@@ -2739,7 +2739,7 @@ mod tests {
     fn at_480_frames_and_48_khz_the_stage_is_the_original_sample_for_sample_where_no_fix_applies() {
         // Audit report #2: stepping on a clock of its own changes nothing at the quantum the
         // original was tuned against. Captured from the implementation before the audit's fixes
-        // (0f05ba5) on a fixture that never meets the peak safety, a subwoofer or digital silence
+        // (cccf702) on a fixture that never meets the peak safety, a subwoofer or digital silence
         // — five passages of a stereo tone, quiet, loud and in between, 600 steps in all: the gain
         // every 50 steps, and the RMS and the peak of the output over those 50 steps. The
         // rebuilt stage matched every output sample bit for bit when this was captured.

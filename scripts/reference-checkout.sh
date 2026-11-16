@@ -11,7 +11,7 @@
 # DSP crate has no src/preset.rs, this writes one from that commit's own application — its
 # music_controls, write_music_params, MusicLevels and ladder, copied as they are — and a
 # preset_params that joins them the way 0.5.0's does. A commit older than the application's
-# music_controls (0f05ba5 and before) played a preset on the preset's own band count, with the
+# music_controls (cccf702 and before) played a preset on the preset's own band count, with the
 # effects read through the sliders; its preset.rs says so and does that.
 #
 # A commit older than the Windows DSP of «Like the original FxSound LLC» (0.5.0's W1b) has one
@@ -23,7 +23,7 @@
 # The measuring files are this checkout's, copied over: the harness, preset_drift.rs, their
 # material modules and, with --with-process-wav, the process_wav example. The workspace's crates
 # are crossfx-* (crates/crossfx-dsp, crossfx_dsp::…) from the commit that gave them that name, and
-# fxsound-* before it, the names of every reference CI compares with (v0.4.0, 3596e99): in such a
+# fxsound-* before it, the names of every reference CI compares with (v0.4.0, 1efe736): in such a
 # checkout the copied files are pointed at its crates, and the crate it is built with is printed.
 #
 # Keep the directory off /tmp: two release builds of the workspace do not fit a tmpfs of a few

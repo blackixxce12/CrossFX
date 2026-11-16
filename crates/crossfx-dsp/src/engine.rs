@@ -52,7 +52,7 @@
 //! in ─► master gain, while the EQ is on (no balance) ─► spectrum tap ─► out
 //! ```
 //!
-//! between the equalizer and the leveller, where `0f05ba5` had it and bit for bit as it did it
+//! between the equalizer and the leveller, where `cccf702` had it and bit for bit as it did it
 //! (the two orders commute only in exact arithmetic); the balance on channels 0 and 1 of a
 //! stereo stream and on nothing else — the original's surround path multiplies every channel by
 //! the master gain alone (`SosProcess.cpp:846-908`), where CrossFX's first cut balanced channels
@@ -3188,7 +3188,7 @@ mod tests {
 
     #[test]
     fn at_interface_and_sound_the_gain_stage_sits_between_the_equalizer_and_the_leveller() {
-        // 0f05ba5's order, bit for bit: the equalizer, then the master gain with the balance
+        // cccf702's order, bit for bit: the equalizer, then the master gain with the balance
         // folded in, then the leveller, then the effects.
         let mut params = windows(DspParams {
             master_gain_db: -6.0,
@@ -3328,7 +3328,7 @@ mod tests {
             engine.block_position = engine.position;
             engine.apply_gain_stage_inside(&mut frame, channels);
             // On stereo's left the C multiplies left to right, `out1 * master_gain *
-            // balance_left`, where `0f05ba5` folds the two factors first: within a unit in the
+            // balance_left`, where `cccf702` folds the two factors first: within a unit in the
             // last place there, bit for bit on every surround speaker.
             for (channel, (got, want)) in frame.iter().zip(&want).enumerate() {
                 assert!(
