@@ -7561,7 +7561,7 @@ mod tests {
     #[test]
     fn microphone_processing_and_its_warning_are_windows_own_and_the_warning_is_always_there() {
         // The platform with no echo canceller has no WirePlumber, whose place the box takes.
-        assert!(!Platform::WINDOWS.echo_cancel && !Platform::WINDOWS.wireplumber);
+        const { assert!(!Platform::WINDOWS.echo_cancel && !Platform::WINDOWS.wireplumber) };
         for allowed in [false, true] {
             let drawn = experimental_texts(&windows_experimental(allowed)).join(" ");
             assert!(drawn.contains(MICROPHONE_PROCESSING), "{drawn}");

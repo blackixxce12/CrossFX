@@ -35,7 +35,7 @@ that comes with the name, are below.
   yourself, and CrossFX never bundles it.
 - **On Windows the microphone is experimental, and off by default.** CrossFX does not cancel echo
   on Windows yet, so in a call the other person could hear themselves, even with headphones, and
-  a preset with gain such as "Noisy Room" could howl. Until **Settings ▸ Experimental ▸
+  a preset with gain such as "Noisy Room" could howl. Until **Settings > Experimental >
   Microphone processing** is turned on, CrossFX does not capture the microphone or take a cable
   for it, and the window, the tray, Settings and `--status` show no microphone; turned off again,
   the lane stops and gives the recording default back, with no restart. Linux is unchanged.
