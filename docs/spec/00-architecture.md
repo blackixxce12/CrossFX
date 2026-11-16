@@ -29,8 +29,9 @@ the verified cheatsheets in `docs/api/`, which were compiled against the exact p
 4. **Windows quirks are ported only when they are audible or visible.** Documented bugs
    (the Lite error-toast at x = −50, the 8 px slider-fill overshoot, the 2 px settings-pane
    overhang, `isPowerOn()` being inverted) are **fixed**, and each fix is listed in §9.
-5. **egui 0.36 / eframe 0.36 / pipewire 0.10 API from the cheatsheets, never from memory.** The
-   three traps that will otherwise cost a day: `eframe::App`'s required method is
+5. **egui / eframe / pipewire 0.10 API from the cheatsheets, never from memory.** (The
+   cheatsheets were verified against egui and eframe 0.36; CrossFX builds on 0.37, so a name taken
+   from them is checked against 0.37's source before it is relied on.) The three traps that will otherwise cost a day: `eframe::App`'s required method is
    `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)` and there is **no `update`**
    (`docs/api/eframe-0.36.md:315`); `TopBottomPanel`/`SidePanel` do not exist, there is one `Panel`
    type taking an `Id` (`docs/api/eframe-0.36.md:20`); `Rounding` is `CornerRadius` with `u8` fields
@@ -42,14 +43,14 @@ the verified cheatsheets in `docs/api/`, which were compiled against the exact p
 
 ### 2.1 As it stands
 
-`fxsound-linux/Cargo.toml` is a `resolver = "3"`, `edition = "2024"`, `rust-version = "1.98.1"`
+`fxsound-linux/Cargo.toml` is a `resolver = "3"`, `edition = "2024"`, `rust-version = "1.100.0"`
 workspace with six members. Pinned versions, verbatim from the workspace manifest:
 
 | Dependency | Pin | Used by |
 |---|---|---|
-| `egui` | `=0.36.0` | fxsound-ui |
-| `eframe` | `=0.36.0`, `default-features = false`, `["default_fonts","glow","wayland","x11"]` | fxsound-app |
-| `egui_extras` | `=0.36.0`, `default-features = false` | **unused — delete** (see §2.3) |
+| `egui` | `=0.37.0` | fxsound-ui |
+| `eframe` | `=0.37.0`, `default-features = false`, `["default_fonts","glow","wayland","x11"]` | fxsound-app |
+| `egui_extras` | `=0.37.0`, `default-features = false` | **unused — delete** (see §2.3) |
 | `pipewire` / `libspa` | `0.10.1` | fxsound-audio (with `features = ["v0_3_64"]` on `pipewire`, set per-crate; not `v0_3_65`, see `docs/api/pipewire-0.10-rust.md` §1.1) |
 | `resvg` / `usvg` / `tiny-skia` | `0.48.1` / `0.48.1` / `0.12.0` | fxsound-ui |
 | `ksni` | `0.3.6` | fxsound-app |
@@ -69,7 +70,7 @@ undefined behaviour (`docs/api/pipewire-0.10-rust.md:2338`, `:2408`).
 
 ```
 fxsound-linux/
-├── Cargo.toml                     workspace, resolver "3", edition 2024, rust 1.98.1
+├── Cargo.toml                     workspace, resolver "3", edition 2024, rust 1.100.0
 ├── assets/{fonts,images,presets}/  embedded at build time
 ├── packaging/                      .desktop ×2, systemd user unit, hyprland.conf.example
 ├── docs/{spec,api}/

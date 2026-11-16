@@ -4,7 +4,7 @@
 
 **Subsystem:** `FxController` + `FxModel` — the brain of the FxSound desktop app.
 **Purpose of this document:** a complete, citation-backed reverse-engineering of the Windows/JUCE
-implementation, followed by a concrete Rust 1.98.1 / egui-eframe 0.36.0 / PipeWire re-design.
+implementation, followed by a concrete Rust 1.100.0 / egui-eframe 0.37.0 / PipeWire re-design.
 
 Every numeric value, string literal, key name and enum ordinal below is cited as `path:line`
 against the tree at `/home/blackixxce/Загрузки/fxsound-app-main`.
@@ -1356,7 +1356,7 @@ to avoid losing a message.
 
 | Concern | Crate | Why |
 |---|---|---|
-| UI | `eframe` 0.36 (`wgpu` backend, `wayland` feature) | as mandated; `glow` as the fallback for old Mesa |
+| UI | `eframe` 0.37 (`wgpu` backend, `wayland` feature) | as mandated; `glow` as the fallback for old Mesa |
 | GUI↔RT bulk params | `triple_buffer` 8 | wait-free, allocation-free on both ends; perfect for a ~2 KB `DspParams` POD |
 | RT→GUI scalars | `std::sync::atomic::AtomicU64` / `AtomicU32` + `bytemuck`-free manual f32 bit casts, or `atomic_float::AtomicF32` | processed-ms counter, xrun counter |
 | RT→GUI spectrum | `triple_buffer::TripleBuffer<[f32; 10]>` | matches `NUM_SPECTRUM_BANDS = 10` |
@@ -1366,7 +1366,7 @@ to avoid losing a message.
 | Settings | `serde` + `toml_edit` + `directories` + `tempfile` (atomic rename) | replaces `ApplicationProperties` |
 | Tray | `ksni` | StatusNotifierItem over D-Bus; the only thing that works on Wayland |
 | Desktop notifications | `notify-rust` | replaces both the Shell balloon and the custom popup |
-| D-Bus | `zbus` 5 | logind, SNI, app activation, portals |
+| D-Bus | `zbus` 6 | logind, SNI, app activation, portals |
 | Portals (global shortcuts, file chooser) | `ashpd` | `org.freedesktop.portal.GlobalShortcuts`, `FileChooser` for import/export |
 | CLI | `clap` (derive) | replaces `juce::ArgumentList`; keep the exact long-option spellings from §6 |
 | i18n | `fluent` + `fluent-bundle`, or `rust-i18n` for a 1:1 port of the flat key/value `.txt` files | the JUCE files are `"src" = "dst"` pairs — trivially convertible |

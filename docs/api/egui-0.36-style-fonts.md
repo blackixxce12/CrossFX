@@ -1,6 +1,9 @@
 # egui 0.36 — Style, Theme & Fonts (verified cheatsheet)
 
 > Written for fxsound-linux 0.x, as CrossFX was called then: names, ids and paths are those of that time.
+>
+> It records egui/eframe 0.36, which CrossFX built on then; CrossFX 1.0 builds on 0.37 (see `Cargo.toml`),
+> so the versions and line citations below are 0.36's.
 
 Every signature below was read out of the vendored sources. Every code block in this file was
 compiled offline against the exact crates in this workspace (`egui = "=0.36.0"`, rustc 1.98.1,
