@@ -310,9 +310,11 @@ jobs:
             # cargo-rpm-macros hard-code %__cargo as /usr/bin/cargo and %cargo_prep writes
             # `rustc = %{__rustc}` into .cargo/config.toml; without these the macros run the
             # distribution's toolchain that was just found too old. --nodeps gets past
-            # `BuildRequires: rust >= 1.100.0`, which rustup cannot satisfy.
+            # `BuildRequires: rust >= 1.100.0`, which rustup cannot satisfy. RUSTC_BOOTSTRAP=1 is
+            # what Fedora's own %__cargo sets: %cargo_build passes `-Z avoid-dev-deps`, which a
+            # stable cargo refuses without it.
             extra=(--nodeps
-              --define "__cargo $CARGO_HOME/bin/cargo"
+              --define "__cargo /usr/bin/env RUSTC_BOOTSTRAP=1 $CARGO_HOME/bin/cargo"
               --define "__rustc $CARGO_HOME/bin/rustc"
               --define "__rustdoc $CARGO_HOME/bin/rustdoc")
           fi

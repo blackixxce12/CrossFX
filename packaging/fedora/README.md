@@ -76,13 +76,15 @@ If `rustc --version` is older than 1.100.0, install the toolchain from rustup an
 where it is — `cargo-rpm-macros` hard-codes `%__cargo /usr/bin/cargo`, and `%cargo_prep` writes
 `[build] rustc = %{__rustc}` into `.cargo/config.toml`, so without the defines the build silently
 uses the distribution's toolchain; `--nodeps` gets past `BuildRequires: rust >= 1.100.0`, which
-rustup cannot satisfy:
+rustup cannot satisfy; and `RUSTC_BOOTSTRAP=1`, which Fedora's own `%__cargo` sets, lets the stable
+cargo take the `-Z avoid-dev-deps` that `%cargo_build` passes:
 
 ```bash
 curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.100.0
 export PATH="$HOME/.cargo/bin:$PATH"
 rpmbuild -ba --nodeps --without check \
-    --define "__cargo $HOME/.cargo/bin/cargo" --define "__rustc $HOME/.cargo/bin/rustc" \
+    --define "__cargo /usr/bin/env RUSTC_BOOTSTRAP=1 $HOME/.cargo/bin/cargo" \
+    --define "__rustc $HOME/.cargo/bin/rustc" \
     --define "__rustdoc $HOME/.cargo/bin/rustdoc" ~/rpmbuild/SPECS/crossfx.spec
 ```
 
