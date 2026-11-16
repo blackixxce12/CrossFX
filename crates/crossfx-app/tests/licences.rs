@@ -80,6 +80,12 @@ const ORIGINAL_IMAGES: [&str; 56] = [
     "speaker.svg",
 ];
 
+/// The notices of the faces of egui's `epaint_default_fonts` that eframe's `default_fonts` feature
+/// compiles into the binary (Ubuntu Light, Hack, egui's icons), by the names every package installs
+/// them under, and the files of `assets/fonts` they come from. They are not parts of the tree, so
+/// the Licence section counts them apart from the three it has.
+const EGUI_FACE_NOTICES: [&str; 3] = ["UFL.ubuntu", "MIT.hack", "MIT.emoji-icons"];
+
 /// The repository this test binary was built from.
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -261,7 +267,18 @@ fn holders<'a>(stanzas: &'a [Stanza], path: &str) -> &'a str {
 /// `share/doc/crossfx` and the packages' `/usr/share/licenses/crossfx` hold name each such part.
 #[test]
 fn the_readme_counts_and_names_the_notice_of_every_part_of_the_tree_under_a_licence_of_its_own() {
-    let notices = notices();
+    let all = notices();
+    for expected in EGUI_FACE_NOTICES {
+        assert!(
+            all.iter().any(|notice| notice == expected),
+            "packaging/build-tarball.sh no longer installs {expected}: {all:?}"
+        );
+    }
+    // The faces of egui are counted and named by the test below; these are the tree's own.
+    let notices: Vec<String> = all
+        .into_iter()
+        .filter(|notice| !EGUI_FACE_NOTICES.contains(&notice.as_str()))
+        .collect();
     for expected in ["COPYING.rnnoise", "OFL.noto", "OFL.manrope"] {
         assert!(
             notices.iter().any(|notice| notice == expected),
@@ -349,6 +366,68 @@ fn the_readme_names_the_faces_egui_compiles_into_the_binary() {
             section.contains(named),
             "README.md's Licence section does not name {named}, of the faces egui compiles into \
              the binary:\n{section}"
+        );
+    }
+    // Their licences make shipping the notice a condition of shipping the binary (the Ubuntu Font
+    // Licence's first condition, the MIT and Bitstream Vera licences' notice clauses), so the
+    // section names each notice and the tree holds each; the packages install them
+    // (`tests/packaging.rs`, `tests/windows_installers.rs`).
+    for (name, file) in EGUI_FACE_NOTICES.iter().zip([
+        "assets/fonts/UFL-Ubuntu.txt",
+        "assets/fonts/MIT-Hack.txt",
+        "assets/fonts/MIT-emoji-icon-font.txt",
+    ]) {
+        assert!(
+            section.contains(&format!("`{name}`")) && section.contains(&format!("`{file}`")),
+            "README.md's Licence section does not name {name} and {file}, the notice of a face \
+             egui compiles into the binary:\n{section}"
+        );
+        assert!(
+            !text(file).trim().is_empty(),
+            "{file}, the notice of a face egui compiles into the binary, is empty"
+        );
+    }
+}
+
+/// `debian/copyright` counts the parts of the tree that are the original's work, and says which,
+/// in the comment of its `Files: *` paragraph: the DSP, the presets, the artwork and the
+/// translation tables (the original's own JUCE `LocalisedStrings` files, which CrossFX carried
+/// across unchanged, CrossFX's own strings being in `assets/translations/port/`). The count had
+/// stayed at three after the tables were added to the tree.
+#[test]
+fn debian_copyright_counts_every_part_of_the_original_it_carries_across() {
+    let copyright = text("packaging/debian/copyright");
+    let start = copyright
+        .find("\nFiles: *\n")
+        .expect("debian/copyright has a Files: * paragraph");
+    let paragraph = &copyright[start..];
+    let paragraph = &paragraph[..paragraph.find("\n\n").expect("the paragraph ends")];
+    let bullets = paragraph.matches("\n   * ").count();
+    let words = [
+        "No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+    ];
+    let count = words[bullets].to_lowercase();
+    let flat = flowing(paragraph);
+    assert!(
+        flat.contains(&format!("and {count} parts of it are the original's work")),
+        "debian/copyright's Files: * comment lists {bullets} parts of the original's work but \
+         counts another number:\n{paragraph}"
+    );
+    assert!(
+        flat.contains(&format!("All {count} inherit the original FxSound's terms")),
+        "debian/copyright's Files: * comment closes on another number than the {bullets} parts it \
+         lists:\n{paragraph}"
+    );
+    for part in [
+        "crates/crossfx-dsp",
+        "assets/presets/Factsoft",
+        "assets/images",
+        "assets/translations/*.txt",
+        "assets/translations/port/",
+    ] {
+        assert!(
+            flat.contains(part),
+            "debian/copyright's Files: * comment does not name {part}:\n{paragraph}"
         );
     }
 }

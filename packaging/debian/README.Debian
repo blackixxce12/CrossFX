@@ -106,12 +106,13 @@ Decisions you might otherwise have to rediscover
   because that is Arch's convention; Debian's is debian/copyright, which
   carries the full AGPL-3 text because base-files does not ship AGPL-3 in
   /usr/share/common-licenses (it has GPL-3 and LGPL-3, but not this one).
-  The same goes for the notices of the three parts of the tree compiled into
-  the binary that are not AGPL, which the other packages install as
-  COPYING.rnnoise, OFL.noto and OFL.manrope: debian/copyright reproduces the
-  RNNoise code's BSD-3-Clause notice and the SIL OFL 1.1 in full, with the
-  Noto and the Manrope faces' notices. Its header says what the crates the
-  binary is built from bring, egui's own faces among them.
+  The same goes for the notices of the parts compiled into the binary that are
+  not AGPL, which the other packages install as COPYING.rnnoise, OFL.noto,
+  OFL.manrope, UFL.ubuntu, MIT.hack and MIT.emoji-icons: debian/copyright
+  reproduces the RNNoise code's BSD-3-Clause notice, the SIL OFL 1.1 in full
+  with the Noto and the Manrope faces' notices, and the licences of the three
+  faces of egui's that are compiled in (Ubuntu Light, Hack, egui's icons). Its
+  header says what the rest of the crates the binary is built from bring.
 
 * There is no postinst. The icon cache and the desktop database are updated by
   dpkg triggers that hicolor-icon-theme and desktop-file-utils declare on

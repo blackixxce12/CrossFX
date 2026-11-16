@@ -8,6 +8,6 @@
 # keeps the line ends it is stored with.
 /LICENSE -text
 /crates/crossfx-rnnoise/COPYING -text
-/assets/fonts/OFL*.txt -text
+/assets/fonts/*.txt -text
 /assets/presets/** -text
 /assets/translations/** -text

@@ -297,6 +297,8 @@ begin
     RemoveLeftovers(Dir, 'presets\Input\', '*.toml');
     RemoveLeftovers(Dir, '', 'COPYING.*');
     RemoveLeftovers(Dir, '', 'OFL.*');
+    RemoveLeftovers(Dir, '', 'UFL.*');
+    RemoveLeftovers(Dir, '', 'MIT.*');
   end;
 end;
 

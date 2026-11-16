@@ -252,6 +252,13 @@ fn the_windows_packages_carry_every_notice_the_linux_ones_do() {
         "packaging/build-tarball.sh no longer installs OFL.manrope the way this test reads it: \
          {notices:?}"
     );
+    for expected in ["UFL.ubuntu", "MIT.hack", "MIT.emoji-icons"] {
+        assert!(
+            notices.iter().any(|(name, _)| name == expected),
+            "packaging/build-tarball.sh no longer installs {expected}, the notice of a face egui \
+             compiles into the binary, the way this test reads it: {notices:?}"
+        );
+    }
     let build = text("build-windows.ps1");
     let staged: Vec<&str> = build
         .lines()
@@ -317,4 +324,45 @@ fn no_installer_names_a_value_key_or_folder_of_the_original_fxsound() {
             wrong.join(", ")
         );
     }
+}
+
+/// The .msi is built with WiX 7.0.1, which builds only with the Open Source Maintenance Fee EULA
+/// accepted: the script and the workflow that builds the release agree on the version, and every
+/// `wix` command passes `-acceptEula wix7`, or WiX 7 stops with error WIX7015.
+#[test]
+fn the_msi_is_built_with_wix_7_and_every_wix_command_accepts_its_eula() {
+    let build = text("build-windows.ps1");
+    let workflow = fs::read_to_string(repo().join(".github/workflows/packages.yml"))
+        .expect("the packages workflow is read")
+        .replace("\r\n", "\n");
+    assert!(
+        workflow.contains("WIX_VERSION: '7.0.1'"),
+        "the packages workflow does not pin WiX 7.0.1"
+    );
+    assert!(
+        workflow.contains(
+            "extension add -g -acceptEula wix7 \"WixToolset.UI.wixext/$env:WIX_VERSION\""
+        ),
+        "the packages workflow does not add the UI extension with the EULA accepted"
+    );
+    assert!(
+        build.contains(r"-notmatch '^7\.0\.'") && build.contains(r"wixext 7\.0\."),
+        "build-windows.ps1's Find-Wix does not hold wix and its UI extension to 7.0.x"
+    );
+    for stale in ["5.0.2", "WiX 6 and 7 build only", "not accepted"] {
+        assert!(
+            !build.contains(stale) && !text("crossfx.wxs").contains(stale),
+            "the packaging still speaks of WiX 5: {stale}"
+        );
+    }
+    // The three kinds of call the script makes: `extension list`, `build` and `msi validate`.
+    assert!(
+        build.contains("extension list -g -acceptEula wix7"),
+        "Find-Wix lists the extensions without accepting the EULA"
+    );
+    assert_eq!(
+        build.matches("Invoke-Tool $wix.Path @(").count(),
+        build.matches("'-acceptEula', 'wix7',").count(),
+        "a wix command of build-windows.ps1 does not pass -acceptEula wix7"
+    );
 }

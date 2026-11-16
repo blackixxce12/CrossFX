@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  CrossFX as a Windows Installer package. WiX Toolset 5.0.2 with WixToolset.UI.wixext 5.0.2,
-  nothing newer: WiX 6 and later need a licence (the OSMF EULA) this project has not accepted.
+  CrossFX as a Windows Installer package. WiX Toolset 7.0.1 with WixToolset.UI.wixext 7.0.1;
+  WiX 7 is built with `-acceptEula wix7`, the OSMF EULA the owner accepted for this project.
 
   Built by packaging\windows\build-windows.ps1, never by hand: the script stages the files and
   passes what changes between builds as preprocessor variables, so that this file names no

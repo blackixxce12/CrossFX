@@ -973,9 +973,12 @@ the tree. Each comes under a licence of its own, whose text the packages do not 
 Fedora package names each crate's in `LICENSE.dependencies`. One of them brings faces rather than
 code: egui's `epaint_default_fonts` 0.37.0. The window starts from egui's own set of faces and puts
 its own before them, so three of that crate's faces are compiled into the binary as well: Ubuntu
-Light (Ubuntu Font Licence 1.0), Hack (MIT, and the Bitstream Vera licence of the face it grew
-from) and egui's icons, a subset of emoji-icon-font (MIT). Their licences are in that crate's
-`fonts/` folder, and no package installs them.
+Light (Ubuntu Font Licence 1.0, copyright Canonical Ltd.), Hack (MIT, and the Bitstream Vera
+licence of the face it grew from) and egui's icons, a subset of emoji-icon-font (MIT). Their
+notices, as that crate ships them, are in the tree (`assets/fonts/UFL-Ubuntu.txt`,
+`assets/fonts/MIT-Hack.txt` and `assets/fonts/MIT-emoji-icon-font.txt`), and every package installs
+them beside `LICENSE` as `UFL.ubuntu`, `MIT.hack` and `MIT.emoji-icons` (the `.deb` in its
+`copyright` file).
 
 The interface artwork in `assets/images` is FxSound LLC's, from the original's repository and under
 its licence, apart from `microphone.svg`, `applications.svg` and `experimental.svg`, which CrossFX

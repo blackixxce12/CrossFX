@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Builds the Windows packages of CrossFX: a setup program (Inno Setup 6), a Windows
-    Installer package (WiX Toolset 5.0.2) and a portable .zip, each with its SHA-256 sum.
+    Installer package (WiX Toolset 7.0.1) and a portable .zip, each with its SHA-256 sum.
 
 .DESCRIPTION
     The Windows counterpart of packaging/build-tarball.sh, and what the release attaches for
@@ -20,7 +20,8 @@
 
         crossfx.exe
         presets\Factsoft\*.fac   presets\BonusPresets\*.fac   presets\Input\*.toml
-        LICENSE   COPYING.rnnoise   OFL.noto   OFL.manrope   README.txt
+        LICENSE   COPYING.rnnoise   OFL.noto   OFL.manrope   UFL.ubuntu   MIT.hack   MIT.emoji-icons
+        README.txt
 
     The fonts and the translations are compiled into crossfx.exe. The virtual playback device it
     plays through is not shipped and not downloaded; README.txt and both installers' last page
@@ -33,10 +34,12 @@
     a clean Windows does not have: the build here links the C runtime statically.
 
     Needs cargo (unless -Binary is given), Inno Setup 6.3 or later (ISCC.exe on PATH, in its
-    default folder, or named by the ISCC environment variable) and WiX Toolset 5.0.2 (wix.exe,
-    `dotnet tool install --global wix --version 5.0.2`) with its UI extension
-    (`wix extension add -g WixToolset.UI.wixext/5.0.2`). Not WiX 6 or later, whose licence this
-    project has not accepted. The zip and the checksums are .NET's own.
+    default folder, or named by the ISCC environment variable) and WiX Toolset 7.0.1 (wix.exe,
+    `dotnet tool install --global wix --version 7.0.1`) with its UI extension
+    (`wix extension add -g -acceptEula wix7 WixToolset.UI.wixext/7.0.1`). WiX 7 needs the Open
+    Source Maintenance Fee (OSMF) EULA accepted, which the owner has done for this free project:
+    the script passes `-acceptEula wix7` to every wix command it runs. The zip and the checksums
+    are .NET's own.
 
     Written for Windows PowerShell 5.1, which every Windows 10 and 11 has and which CI runs it
     with; PowerShell 7 is not what it is tested on.
@@ -309,17 +312,18 @@ function Find-Wix {
     $onPath = Get-Command wix.exe -ErrorAction SilentlyContinue
     $wix = if ($onPath) { $onPath.Source } else { Join-Path $env:USERPROFILE '.dotnet\tools\wix.exe' }
     if (-not (Test-Path -LiteralPath $wix -PathType Leaf)) {
-        throw 'wix.exe was not found: dotnet tool install --global wix --version 5.0.2'
+        throw 'wix.exe was not found: dotnet tool install --global wix --version 7.0.1'
     }
     $version = (& $wix --version | Out-String).Trim()
-    # WiX 6 and 7 build only after `wix eula accept`, the Open Source Maintenance Fee licence,
-    # which this project has not accepted; 5.0.2 is the last WiX without it.
-    if ($version -notmatch '^5\.') {
-        throw "wix.exe is version $version; this package is built with WiX 5.0.2"
+    # WiX 7 builds only with the Open Source Maintenance Fee (OSMF) EULA accepted, which the
+    # owner has done for this free project: every wix command here passes `-acceptEula wix7`.
+    # WiX 7.0.x and nothing else, the version the package is tested with; 5 and 6 are not.
+    if ($version -notmatch '^7\.0\.') {
+        throw "wix.exe is version $version; this package is built with WiX 7.0.1"
     }
-    $extensions = (& $wix extension list -g | Out-String)
-    if ($extensions -notmatch 'WixToolset\.UI\.wixext 5\.') {
-        throw 'the WiX UI extension is missing: wix extension add -g WixToolset.UI.wixext/5.0.2'
+    $extensions = (& $wix extension list -g -acceptEula wix7 | Out-String)
+    if ($extensions -notmatch 'WixToolset\.UI\.wixext 7\.0\.\d+(\s|$)') {
+        throw 'the WiX UI extension is missing: wix extension add -g WixToolset.UI.wixext/7.0.1'
     }
     return @{ Path = $wix; Version = $version }
 }
@@ -443,16 +447,20 @@ foreach ($set in @(@('Factsoft', '.fac'), @('BonusPresets', '.fac'), @('Input', 
     }
 }
 
-# The AGPL, and beside it the notices of the three parts of the tree compiled into the binary that
-# are not AGPL, whose licences make shipping the text a condition of shipping the binary: the
-# RNNoise code and model (BSD-3-Clause), and the Noto and the Manrope faces (SIL OFL 1.1, each with
-# its own notice). The names and files are build-tarball.sh's, as every Linux package's are; a
+# The AGPL, and beside it the notices of the parts compiled into the binary that are not AGPL,
+# whose licences make shipping the text a condition of shipping the binary: the RNNoise code and
+# model (BSD-3-Clause), the Noto and the Manrope faces (SIL OFL 1.1, each with its own notice), and
+# the three faces of egui's epaint_default_fonts (Ubuntu Light under the Ubuntu Font Licence 1.0,
+# Hack, egui's icons). The names and files are build-tarball.sh's, as every Linux package's are; a
 # file missing from the tree stops the build here.
 $notices = [ordered]@{
     'LICENSE' = 'LICENSE'
     'COPYING.rnnoise' = 'crates\crossfx-rnnoise\COPYING'
     'OFL.noto' = 'assets\fonts\OFL.txt'
     'OFL.manrope' = 'assets\fonts\OFL-Manrope.txt'
+    'UFL.ubuntu' = 'assets\fonts\UFL-Ubuntu.txt'
+    'MIT.hack' = 'assets\fonts\MIT-Hack.txt'
+    'MIT.emoji-icons' = 'assets\fonts\MIT-emoji-icon-font.txt'
 }
 foreach ($name in $notices.Keys) {
     Copy-Item -LiteralPath (Join-Path $root $notices[$name]) -Destination (Join-Path $stage $name)
@@ -535,6 +543,7 @@ $license = [System.IO.File]::ReadAllText((Join-Path $root 'LICENSE'), [System.Te
 [System.IO.File]::WriteAllText($rtf, (ConvertTo-Rtf $license), (New-Object System.Text.ASCIIEncoding))
 Invoke-Tool $wix.Path @(
     'build',
+    '-acceptEula', 'wix7',
     '-arch', 'x64',
     '-ext', 'WixToolset.UI.wixext',
     '-d', "Version=$numeric",
@@ -551,6 +560,7 @@ Invoke-Tool $wix.Path @(
 # package, installing nothing. ICE61 is the warning AllowSameVersionUpgrades always raises.
 Invoke-Tool $wix.Path @(
     'msi', 'validate',
+    '-acceptEula', 'wix7',
     '-sice', 'ICE61',
     '-pdb', (Join-Path $work 'crossfx.wixpdb'),
     '-intermediateFolder', (Join-Path $work 'ice'),

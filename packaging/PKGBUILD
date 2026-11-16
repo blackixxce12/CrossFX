@@ -128,13 +128,19 @@ package() {
   install -Dm644 "CHANGELOG.md" "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
 
   install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
-  # Three parts of the tree compiled into the binary are not AGPL, and each licence makes shipping
-  # its text a condition of shipping the binary: the RNNoise code and model compiled in from
-  # crates/crossfx-rnnoise (BSD-3-Clause), and the Noto fallback faces and the Manrope interface
-  # faces embedded in the window (both SIL OFL 1.1, each with its own notice).
+  # Parts compiled into the binary are not AGPL, and each licence makes shipping its text a
+  # condition of shipping the binary: the RNNoise code and model compiled in from
+  # crates/crossfx-rnnoise (BSD-3-Clause), the Noto fallback faces and the Manrope interface faces
+  # embedded in the window (both SIL OFL 1.1, each with its own notice), and the three faces of
+  # egui's epaint_default_fonts that eframe compiles in: Ubuntu Light (Ubuntu Font Licence 1.0),
+  # Hack (MIT, and the Bitstream Vera licence) and egui's icons, a subset of emoji-icon-font (MIT).
   install -Dm644 "crates/crossfx-rnnoise/COPYING" \
     "${pkgdir}/usr/share/licenses/${pkgname}/COPYING.rnnoise"
   install -Dm644 "assets/fonts/OFL.txt" "${pkgdir}/usr/share/licenses/${pkgname}/OFL.noto"
   install -Dm644 "assets/fonts/OFL-Manrope.txt" \
     "${pkgdir}/usr/share/licenses/${pkgname}/OFL.manrope"
+  install -Dm644 "assets/fonts/UFL-Ubuntu.txt" "${pkgdir}/usr/share/licenses/${pkgname}/UFL.ubuntu"
+  install -Dm644 "assets/fonts/MIT-Hack.txt" "${pkgdir}/usr/share/licenses/${pkgname}/MIT.hack"
+  install -Dm644 "assets/fonts/MIT-emoji-icon-font.txt" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/MIT.emoji-icons"
 }
